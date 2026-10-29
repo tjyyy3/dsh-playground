@@ -24,7 +24,7 @@ from npm.
 | `playground_task` | Read task/receipt, switch working mode or refresh latest result | DSH projections and `GET /api/attempts/{id}` |
 
 The tools return structured JSON plus a Markdown rendering for the
-conversation. In the current v0.4.3 MVP, agent tools still cannot confirm a
+conversation. In the current v0.4.4 MVP, agent tools still cannot confirm a
 submission: the user-only confirmation command invokes the installed
 Playground CLI to create the submission and upload its checked materials. It
 requires authentication and can consume a platform submission slot.
@@ -67,16 +67,19 @@ their Chinese/English translations.
 
 ## Global workbench and chat visualization
 
-In v0.4.3, **Playground** in the native left navigation opens a global workbench
+In v0.4.4, **Playground** in the native left navigation opens a global workbench
 with a Playground login form and authentication status check.
 The plugin no longer adds any controls above the composer. The workbench uses
 DSH's existing session catalog, workspace paths and persisted task projections;
 it does not embed the website or create a separate conversation store.
-The first section is now a searchable competition and challenge catalog. Choose
-a readable challenge card and click **开始参赛任务** or **开始出题任务**; the
-challenge id stays an implementation detail. The second section lists only
+The workbench now keeps the connection status in a full-width header card, then
+uses two adjustable columns by default: a searchable competition/challenge
+catalog on the left and the selected task workflow on the right. Choose a
+readable challenge card and click **开始参赛任务** or **开始出题任务**; the
+challenge id stays an implementation detail. The right column lists only
 Playground task conversations, with a short session id, workspace and task
-state. Ordinary exploration chats do not appear in this selector.
+state. Ordinary exploration chats do not appear in this selector. The split can
+be adjusted between 35% and 65%, and narrow windows fall back to one column.
 
 Select a task to check materials, review the exact submission target and inspect
 results. **返回所选任务对话** returns to native chat. Creating another task from
@@ -135,41 +138,46 @@ The server routes behind them are `list_challenges` and `get_challenge` in
 `server/routes/attempts.py`, and the bundle routes in `server/routes/bundles.py`.
 Read endpoints work anonymously for public challenges; writes require a token.
 
-## Install from Git (Creator Mode)
+## Install from Git
 
-The supported installation path for another DSH user is the bundle installer. It
+The normal installation path is DSH's built-in third-party plugin installer. It
 installs the package dependencies and activates the bundle for the current DSH
 profile.
 
 ### Requirements
 
-- DSH with the **Creator** (`cordis`) preset, which provides `plugin_manager`.
+- DSH with the **Add plugin → Install third-party plugin** entry.
 - Node.js 20 or newer. The bundle installer uses the package's `package-lock.json`.
 - The Playground CLI (`playground`) for login and confirmed submissions. Public
   challenge and competition reads can work without a login.
 
 ### Steps
 
-1. Clone this repository on the machine running DSH:
-
-   ```powershell
-   git clone <repository-url> dsh-playground
-   cd dsh-playground
-   ```
-
-2. In a Creator-mode DSH conversation, install the cloned directory. Replace the
-   target with its absolute path on your machine:
+1. Open **Add plugin → Install third-party plugin** in DSH.
+2. Select **Git repository** and enter:
 
    ```text
-   plugin_manager action=install_bundle target=<absolute-path-to-dsh-playground>
+   https://github.com/tjyyy3/dsh-playground.git
    ```
 
-   The bundle patch inserts the `playground-competition` row with package name
-   `@playground/dsh-playground` and the default API base
-   `https://play.bohrium.com`.
+3. Wait for the installer to finish, then restart DSH if it asks you to reload
+   the Client module. Open a new conversation and look for **Playground** in the
+   left navigation.
 
-3. Confirm that the Host reports `application: applied`, then start a new
-   conversation before calling the tools.
+For Creator-mode debugging, the lower-level bundle command remains available.
+Use the absolute path of a cloned checkout:
+
+```text
+plugin_manager action=install_bundle target=<absolute-path-to-dsh-playground>
+```
+
+The bundle patch inserts the `playground-competition` row with package name
+`@playground/dsh-playground` and the default API base
+`https://play.bohrium.com`.
+
+The package is intentionally installed from Git rather than npm. The
+`package.json` remains private because the DSH plugin installer is the supported
+distribution path.
 
 Installing affects every session in the current DSH profile and survives a
 restart. Removing it is `plugin_manager action=remove_bundle`, or disable the
