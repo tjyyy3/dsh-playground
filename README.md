@@ -74,15 +74,16 @@ DSH's existing session catalog, workspace paths and persisted task projections;
 it does not embed the website or create a separate conversation store.
 The workbench now keeps the connection status in a full-width header card, then
 uses two adjustable columns by default: a searchable competition/challenge
-catalog on the left and the selected task workflow on the right. Choose a
+catalog on the left and task summaries on the right. Choose a
 readable challenge card and click **开始参赛任务** or **开始出题任务**; the
 challenge id stays an implementation detail. The right column lists only
 Playground task conversations, with a short session id, workspace and task
 state. Ordinary exploration chats do not appear in this selector. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.
 
-Select a task to check materials, review the exact submission target and inspect
-results. **返回所选任务对话** returns to native chat. Creating another task from
+Select a task to open its detail drawer, check materials, review the exact
+submission target and inspect results. Close the drawer with its close button,
+the backdrop, or Escape. **返回所选任务对话** returns to native chat. Creating another task from
 the catalog creates a new conversation without narrowing or overwriting the
 existing one.
 
@@ -147,7 +148,7 @@ profile.
 ### Requirements
 
 - DSH with the **Add plugin → Install third-party plugin** entry.
-- Node.js 20 or newer. The bundle installer uses the package's `package-lock.json`.
+- Node.js 20 or newer.
 - The Playground CLI (`playground`) for login and confirmed submissions. Public
   challenge and competition reads can work without a login.
 
@@ -294,3 +295,7 @@ platform.
 - The DSH credential store is supported. Prefer it or the inherited environment
   over a plaintext token in the patch; no token is written into
   `cordis.patch.yml`.
+
+## License
+
+[MIT](LICENSE).
