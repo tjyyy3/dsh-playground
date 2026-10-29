@@ -1032,11 +1032,10 @@ export function apply(ctx, config) {
     scope.commands.register({ name: 'playground', description: 'Playground task: start, check materials, switch mode or read results.',
       handler: (inv) => workflow.command(inv).catch((error) => ({ kind: 'error', text: error.message })) });
     scope.commands.register({ name: 'playground-confirm', description: 'User-only: confirm the exact checked Playground submission.',
-      handler: async (inv) => {
-        const result = await workflow.confirm(inv.rawInput.trim(), { agent: inv.agent, signal: inv.signal });
+      handler: (inv) => workflow.confirm(inv.rawInput?.trim(), { agent: inv.agent, signal: inv.signal }).then((result) => {
         // Receipt is durable in command/done and readable by playground_task; it is not an approval for another write.
         return { kind: result.ok ? 'success' : 'error', text: JSON.stringify({ playgroundWorkflow: result.workflow, ...result }) };
-      } });
+      }).catch((error) => ({ kind: 'error', text: error.message })) });
     scope.commands.register({ name: 'playground-auth-login', description: 'Log in through the installed Playground CLI without putting the password in chat.',
       handler: (inv) => workflow.login(inv.rawInput, { agent: inv.agent, signal: inv.signal }).catch((error) => ({ kind: 'error', text: error.message })) });
     const output = { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' } }, required: ['ok'] },

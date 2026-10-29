@@ -263,7 +263,7 @@ window.__ModuleLoader__.load({
               h('label', { htmlFor: 'pg-session-picker', className: 'pg-note' }, '我的 Playground 任务'),
               h('select', { id: 'pg-session-picker', className: 'pg-session-picker', value: session?.id || '', onChange: (event) => setSelected(event.target.value) },
                 taskSessions.map((item) => h('option', { key: item.id, value: item.id }, `${item.displayTitle} · ${item.id.slice(-8)} · ${item.cwd || '未设置工作区'}`)))),
-            session ? h(SelectedTask, { key: session.id, session, projection: catalog.projectionsBySession[session.id], useSessionAccess, refreshProjections, openTask, ...props }) : null)
+            session ? h(SelectedTask, { key: session.id, session, projection: catalog.projectionsBySession[session.id], useSessionAccess, refreshProjections, openTask, run, ...props }) : null)
             : h('p', { className: 'pg-note' }, '还没有 Playground 任务。先从上面的赛题卡选择一个题目。'),
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,

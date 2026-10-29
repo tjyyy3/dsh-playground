@@ -9,7 +9,7 @@ import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture() {
+async function fixture(cli) {
   const cwd = await mkdtemp(join(tmpdir(), 'playground-workflow-'));
   directories.push(cwd);
   // A real ZIP fixture, not a renamed text file.
@@ -56,7 +56,7 @@ async function fixture() {
     async uploadBundle(id) { calls.push(['upload', id]); return { bundleStatus: 'ready', attempt: { id, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, violations: [] }; },
     async getAttempt(id) { return { id, challengeId: 'challenge-a', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }; },
   };
-  workflow = createWorkflow({ ctx, client, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
   return { cwd, workflow, states, exec, calls, record, client };
 }
 
@@ -181,4 +181,83 @@ test('registered agent submission cannot write without native workflow services;
   const result = await tools.find((tool) => tool.name === 'playground_submit_attempt').execute({ challenge_id: 'a', confirmed: true }, {});
   assert.equal(result.error.code, 'workflow_unavailable');
   assert.equal(tools.some((tool) => /confirm/.test(tool.name)), false);
+});
+
+test('F-03: API fallback preserves submission ids and bundle failures', async () => {
+  for (const bundleStatus of ['ready', 'failed']) {
+    const f = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+    const violations = bundleStatus === 'failed' ? [{ message: 'bad bundle' }] : [];
+    f.client.uploadBundle = async (id) => ({ bundleStatus, violations, attempt: { id, status: 'submitted' } });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+    assert.equal(result.attemptId, 7);
+    assert.equal(result.ok, bundleStatus === 'ready');
+    assert.equal(result.bundleStatus, bundleStatus);
+    assert.deepEqual(result.violations, violations);
+    if (bundleStatus === 'failed') assert.equal(result.error.code, 'bundle_invalid');
+    f.record(result);
+    const receipt = JSON.parse(JSON.stringify(f.states.get('source').receipt));
+    assert.equal(receipt.attemptId, 7);
+    assert.equal(receipt.args.attempt_id, 7);
+    assert.equal(receipt.ok, result.ok);
+    assert.deepEqual(receipt.violations, violations);
+    const refreshed = await f.workflow.results({}, f.exec);
+    assert.equal(refreshed.id, 7);
+    assert.equal(f.calls.filter(([kind]) => kind === 'create').length, 1);
+  }
+});
+
+test('F-03: API fallback preserves upload error stage and retry id', async () => {
+  const f = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+  f.client.uploadBundle = async () => { throw new Error('upload interrupted'); };
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.attemptId, 7);
+  assert.equal(result.stage, 'upload');
+  assert.equal(result.error.message, 'upload interrupted');
+  assert.equal(result.workflow.receipt.stage, 'upload');
+  assert.equal(result.workflow.receipt.args.attempt_id, 7);
+});
+
+test('F-03: CLI receipts preserve successful and failed bundle JSON results', async () => {
+  for (const bundleStatus of ['ready', 'failed']) {
+    const violations = bundleStatus === 'failed' ? [{ message: 'bad bundle' }] : [];
+    const f = await fixture({ submit: async () => ({ attempt_id: '19', attempt: { status: 'submitted', score: 0 }, bundle_response: { bundleStatus, violations } }) });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+    assert.equal(result.attemptId, 19);
+    assert.equal(result.ok, bundleStatus === 'ready');
+    assert.equal(result.bundleStatus, bundleStatus);
+    assert.equal(result.score, 0);
+    assert.deepEqual(result.violations, violations);
+    if (bundleStatus === 'failed') assert.equal(result.error.code, 'bundle_invalid');
+    f.record(result);
+    assert.equal(f.states.get('source').receipt.args.attempt_id, 19);
+    assert.equal(f.states.get('source').receipt.ok, result.ok);
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('F-03: CLI receipts clear confirmation on invalid submission ids without retry', async () => {
+  for (const attempt_id of [undefined, null, '', 'null', 'bad', 0, -1, 1.5, Infinity, true, [], Number.MAX_SAFE_INTEGER + 1]) {
+    let submitCalls = 0;
+    const f = await fixture({ submit: async () => { submitCalls++; return { attempt_id }; } });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const checkId = checked.workflow.prepared.checkId;
+    const result = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'invalid_response');
+    f.record(result);
+    assert.equal(f.states.get('source').prepared, null);
+    assert.equal(f.states.get('source').receipt, null);
+    const retried = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(retried.error.code, 'confirmation_required');
+    assert.equal(submitCalls, 1);
+    assert.deepEqual(f.calls, []);
+  }
 });
