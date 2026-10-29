@@ -2,3 +2,5 @@ _scratch/
 docs/
 node_modules/
 *.log
+PRODUCT.md
+.impeccable/
