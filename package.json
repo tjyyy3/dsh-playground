@@ -1,6 +1,6 @@
 {
   "name": "@playground/dsh-playground",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "type": "module",
   "description": "Use chat and native cards to find Playground competitions, read challenges and personal submissions, and submit ARM bundles for evaluation.",
