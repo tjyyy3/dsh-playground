@@ -23,7 +23,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node test/api.test.mjs && node test/plugin.test.mjs && node test/workflow.test.mjs",
+    "test": "node test/api.test.mjs && node test/plugin.test.mjs && node test/workflow.test.mjs && node test/client.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo:local": "node scripts/demo-local.mjs"
   },
