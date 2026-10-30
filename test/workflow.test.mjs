@@ -196,9 +196,15 @@ test('catalog returns readable competitions and challenges without creating a ta
   assert.equal(result.competitions.items[0].slug, 'spring');
   assert.equal(result.challenges.items[0].id, 'challenge-a');
   assert.equal(f.calls.some(([kind]) => kind === 'new'), false);
-  const command = await f.workflow.command({ agent: f.exec.agent, signal: f.exec.signal, rawInput: '{"action":"catalog","search":"synthetic"}' });
-  assert.equal(command.kind, 'success');
-  assert.equal(JSON.parse(command.text).playgroundCatalog.challenges.items[0].title, 'Synthetic challenge');
+});
+
+test('login status and catalog reads are no longer session commands', async () => {
+  const f = await fixture();
+  for (const action of ['auth', 'catalog']) {
+    const command = await f.workflow.command({ agent: f.exec.agent, signal: f.exec.signal, rawInput: JSON.stringify({ action }) });
+    assert.equal(command.kind, 'error');
+  }
+  assert.equal(f.states.get('source').task, null);
 });
 
 test('auth status returns the current Playground identity without changing task state', async () => {
@@ -206,10 +212,45 @@ test('auth status returns the current Playground identity without changing task 
   const result = await f.workflow.auth(f.exec);
   assert.equal(result.authenticated, true);
   assert.equal(result.user.name, 'Test user');
-  const command = await f.workflow.command({ agent: f.exec.agent, signal: f.exec.signal, rawInput: '{"action":"auth"}' });
-  assert.equal(command.kind, 'success');
-  assert.equal(JSON.parse(command.text).playgroundAuth.user.email, 'test@example.test');
+  assert.equal(result.cli, undefined);
   assert.equal(f.states.get('source').task, null);
+});
+
+test('login never records CLI output, credentials or a duplicate identity copy', async () => {
+  let cliFailure;
+  const f = await fixture({
+    authLogin: async () => {
+      if (cliFailure) throw cliFailure;
+      return { token: 'synthetic-secret', authorization: 'Bearer synthetic-secret' };
+    },
+  });
+  // The credential resolver owns the password; login input contains only the account identifier.
+  const previous = process.env.PLAYGROUND_PASSWORD;
+  process.env.PLAYGROUND_PASSWORD = 'synthetic-password';
+  try {
+    const loggedIn = await f.workflow.login('{"email":"test@example.test"}', f.exec);
+    assert.equal(loggedIn.kind, 'success');
+    assert.doesNotMatch(loggedIn.text, /synthetic-secret|synthetic-password|authorization/);
+    // One identity copy for the card; no top-level duplicate of the account.
+    assert.deepEqual(Object.keys(JSON.parse(loggedIn.text)), ['playgroundAuth']);
+    for (const [failure, expected] of [
+      [Object.assign(new Error("'playground' is not recognized as an internal or external command"), { code: 'cli_error' }), /未找到 Playground CLI/],
+      [Object.assign(new Error('killed'), { code: 'cli_terminated' }), /中断或超时/],
+      [Object.assign(new Error('invalid password for test@example.test, token=synthetic-secret'), { code: 'cli_error' }), /检查邮箱和密码/],
+    ]) {
+      cliFailure = failure;
+      const failed = await f.workflow.login('{"email":"test@example.test"}', f.exec);
+      assert.equal(failed.kind, 'error');
+      assert.match(failed.text, expected);
+      assert.doesNotMatch(failed.text, /synthetic-secret|test@example\.test/);
+    }
+    cliFailure = undefined;
+    f.client.getCurrentUser = async () => { throw new Error('network down'); };
+    assert.match((await f.workflow.login('{"email":"test@example.test"}', f.exec)).text, /无法确认 Playground 身份/);
+  } finally {
+    if (previous === undefined) delete process.env.PLAYGROUND_PASSWORD;
+    else process.env.PLAYGROUND_PASSWORD = previous;
+  }
 });
 
 test('material check is read-only; only an exact human confirmation uploads checked bytes', async () => {

@@ -20,6 +20,7 @@
 import * as fsp from 'node:fs/promises';
 import { basename, isAbsolute, resolve as resolvePath } from 'node:path';
 import { createWorkflow, workflowProjection } from './lib/workflow.js';
+import { registerWorkbenchQueries } from './lib/queries.js';
 import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, readCliCredential } from './lib/cli.js';
 
 import {
@@ -1015,6 +1016,7 @@ export function apply(ctx, config) {
   ctx.inject?.(['commands', 'sessionProjections', 'sessionController', 'agents', 'workingDirectory', 'workspaceRegistry', 'credentials'], (scope) => {
     scope.sessionProjections.register(workflowProjection);
     workflow = createWorkflow({ ctx: scope, client, cli, submit, readBundle, readTrace, readManifest, presentationMeta });
+    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow));
     scope.inject(['systemPrompt'], (promptScope) => {
       promptScope.systemPrompt.context({ name: 'playground-task:current',
         order: promptScope.systemPrompt.getContextOrder('WORKING_DIRECTORY') + 1,
@@ -1037,7 +1039,8 @@ export function apply(ctx, config) {
         return { kind: result.ok ? 'success' : 'error', text: JSON.stringify({ playgroundWorkflow: result.workflow, ...result }) };
       }).catch((error) => ({ kind: 'error', text: error.message })) });
     scope.commands.register({ name: 'playground-auth-login', description: 'Log in through the installed Playground CLI without putting the password in chat.',
-      handler: (inv) => workflow.login(inv.rawInput, { agent: inv.agent, signal: inv.signal }).catch((error) => ({ kind: 'error', text: error.message })) });
+      recordInput: false,
+      handler: (inv) => workflow.login(inv.rawInput, { agent: inv.agent, signal: inv.signal }).catch(() => ({ kind: 'error', text: 'Playground 登录失败，请检查凭据和 CLI 配置后重试。' })) });
     const output = { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' } }, required: ['ok'] },
       render: (_args, value) => renderText(JSON.stringify(value, null, 2)), presentationMeta };
     scope.tools.register({ name: 'playground_start_task', description: 'Create a NEW native DSH task conversation for an explicitly selected Playground challenge. If this conversation already has a Playground task, continue working here and use playground_task to read its context, receipts or results. Only create another task when the user explicitly requests a new task. From a conversation without a Playground task, when the user asks to start, do or solve a Playground challenge, call this tool instead of working on it in the current conversation: the Playground task list, material checks and submission track the task conversation. Use the directory the user names; if they name none, the current conversation\'s workspace is acceptable because the user started the request here. Requires an absolute cwd that is an existing registered DSH workspace; there is no implicit default. Does not create or register directories and does not submit platform changes.',
