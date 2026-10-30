@@ -78,6 +78,18 @@ their Chinese/English translations.
 
 ## Global workbench and chat visualization
 
+Login status checks and catalog loading, refresh, search, and filtering use a
+session-free read-only Host query. Their status and errors stay in the workbench;
+they do not append commands to any conversation, and browsing works without an
+open conversation. Creating tasks, checking materials, and confirming
+submissions continue to use the session workflow, so the catalog's start
+buttons stay disabled until a conversation with command access is open.
+
+Chat command cards show the operation, status, and a result summary, with a
+native expandable details section. Existing login and catalog records remain
+readable. Details project selected business facts rather than raw CLI output,
+credentials, account details, or local paths; expanding a card never reruns it.
+
 In v0.4.4, **Playground** in the native left navigation opens a global workbench
 with a Playground login form and authentication status check.
 The plugin no longer adds any controls above the composer. The workbench uses

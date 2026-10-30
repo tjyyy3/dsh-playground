@@ -179,24 +179,22 @@ window.__ModuleLoader__.load({
         cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
     }
 
-    function AuthStatusPanel({ sessionId, allowed, run, login }) {
+    function AuthStatusPanel({ sessionId, query, login }) {
       const [state, setState] = React.useState({ loading: true });
       const [email, setEmail] = React.useState('');
       const [password, setPassword] = React.useState('');
       const [loginBusy, setLoginBusy] = React.useState(false);
       const [loginError, setLoginError] = React.useState('');
       const check = async () => {
-        if (!sessionId) return setState({ loading: false, error: '请先在 DSH 中打开一个对话。' });
-        if (!allowed) return setState({ loading: false, error: '当前会话没有读取 Playground 身份的权限。' });
         setState({ loading: true });
         try {
-          const result = await run(sessionId, { action: 'auth' });
-          setState({ loading: false, ...(result.playgroundAuth || result) });
+          const result = await query({ action: 'auth' });
+          setState({ loading: false, ...result });
         } catch (failure) {
           setState({ loading: false, error: failure.message });
         }
       };
-      React.useEffect(() => { check(); }, [sessionId, allowed]);
+      React.useEffect(() => { check(); }, [query]);
       const submitLogin = async () => {
         setLoginBusy(true); setLoginError('');
         try {
@@ -215,7 +213,7 @@ window.__ModuleLoader__.load({
           state.user?.email ? h('p', { className: 'pg-note' }, state.user.email) : null,
           state.baseUrl ? h('p', { className: 'pg-note pg-path' }, `API：${state.baseUrl}`) : null)
           : !state.loading ? h(React.Fragment, null,
-             h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '未登录'), ' 公开赛题仍可浏览；查询个人提交和上传评测包需要 token。'),
+             h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': state.error ? 'error' : 'warning' }, state.error ? '检测失败' : '未登录'), ' 公开赛题仍可浏览；查询个人提交和上传评测包需要 token。'),
             state.error ? h('p', { className: 'pg-error', role: 'alert' }, state.error) : null,
             h('ol', { className: 'pg-note pg-auth-steps' },
               h('li', null, '使用下面的登录表单；插件会调用已安装的 Playground CLI。'),
@@ -231,26 +229,40 @@ window.__ModuleLoader__.load({
             )) : null);
     }
 
-    function CatalogPanel({ sessionId, allowed, run, requestTask, openChat }) {
+    function CatalogPanel({ sessionId, allowed, query, requestTask }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
       const [catalog, setCatalog] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
       const [status, setStatus] = React.useState('');
+      // Mutable holder (not render state): only the newest search or filter may update the panel.
+      const [latest] = React.useState(() => ({ controller: null }));
       const load = async (nextSearch = search, nextSeason = season) => {
-        if (!sessionId) return setError('请先在 DSH 中打开一个对话，再浏览 Playground 赛题。');
-        if (!allowed) return setError('当前会话没有读取 Playground 目录的权限。');
+        latest.controller?.abort();
+        const controller = new AbortController();
+        latest.controller = controller;
         setBusy(true); setError(''); setStatus('正在读取比赛和赛题…');
         try {
-          const result = await run(sessionId, { action: 'catalog', search: nextSearch.trim(), season: nextSeason || undefined, per_page: 12 });
-          setCatalog(result.playgroundCatalog || result); setStatus('赛题目录已更新。');
-        } catch (failure) { setError(failure.message); setStatus('赛题目录读取失败。'); }
-        finally { setBusy(false); }
+          const result = await query({ action: 'catalog', search: nextSearch.trim(), ...(nextSeason ? { season: nextSeason } : {}), per_page: 12 }, controller.signal);
+          if (latest.controller !== controller) return;
+          setCatalog(result); setStatus('赛题目录已更新。');
+        } catch (failure) {
+          if (latest.controller !== controller) return;
+          setError(failure.message); setStatus('赛题目录读取失败。');
+        } finally {
+          if (latest.controller === controller) { latest.controller = null; setBusy(false); }
+        }
       };
-      React.useEffect(() => { load(); }, [sessionId, allowed]);
+      React.useEffect(() => {
+        load();
+        return () => { latest.controller?.abort(); latest.controller = null; };
+      }, [query]);
       const competitions = catalog?.competitions?.items || [];
       const challenges = catalog?.challenges?.items || [];
+      // Browsing is session-free; creating a task still runs through an open conversation.
+      const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
+        : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
       return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': busy },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('div', { className: 'pg-head' }, h('div', null, h('h2', { className: 'pg-brand' }, '选择比赛或赛题'),
@@ -261,6 +273,7 @@ window.__ModuleLoader__.load({
           h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => { setSeason(event.target.value); load(search, event.target.value); } },
             h('option', { value: '' }, '全部比赛'), competitions.map((item) => h('option', { key: item.slug, value: item.slug }, item.nameZh || item.name)))),
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
+        startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
         busy && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
         catalog && !challenges.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或比赛筛选条件试试。') : null,
         h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
@@ -268,8 +281,8 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask }),
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'author', sessionId, requestTask }))
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }),
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'author', sessionId, requestTask, disabled: Boolean(startBlocked) }))
         ))));
     }
 
@@ -311,7 +324,7 @@ window.__ModuleLoader__.load({
           h(SelectedTask, { key: session.id, session, projection, ...props })));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, requestTask, login, ...props }) {
+    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, ...props }) {
       const catalog = useSessions((state) => state);
       const sessions = catalog.ids.map((id) => catalog.byId[id]).filter((session) => !session.parentId);
       const sourceSession = sessions.find((session) => (session.retainedBy?.mainView ?? 0) > 0) || sessions[0];
@@ -332,7 +345,7 @@ window.__ModuleLoader__.load({
             h('h1', null, 'Playground 主控面板'),
             h('button', { className: 'pg-button', onClick: () => session ? openTask(session.id) : openChat() }, session ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
-          h(AuthStatusPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, run, login }),
+          h(AuthStatusPanel, { sessionId: sourceSession?.id, query, login }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
           h('div', { className: 'pg-split-control' },
             h('span', null, '调整左右栏宽度'),
@@ -341,7 +354,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 赛题目录' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
-              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, run, requestTask, openChat })),
+              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'), h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`)),
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
@@ -407,8 +420,8 @@ window.__ModuleLoader__.load({
         phase === 'result' ? h('footer', null, t('snapshot')) : h('p', { className: 'pg-note', role: 'status' }, t('snapshot')));
     }
 
-    function StartTaskButton({ id, title, mode = 'participate', sessionId, requestTask }) {
-      return h('button', { className: 'pg-button', onClick: () => requestTask({ id: String(id), title: title || String(id), mode, sessionId }) },
+    function StartTaskButton({ id, title, mode = 'participate', sessionId, requestTask, disabled = false }) {
+      return h('button', { className: 'pg-button', disabled, onClick: () => requestTask({ id: String(id), title: title || String(id), mode, sessionId }) },
         mode === 'author' ? `开始出题任务 · ${title || id}` : `开始参赛任务 · ${title || id}`);
     }
 
@@ -485,23 +498,88 @@ window.__ModuleLoader__.load({
             busy ? '正在创建…' : actionLabel))));
     }
 
+    function commandFact(value) {
+      return typeof value === 'string' ? value.slice(0, 300) : typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
+    }
+
+    // Gateway codes come from the DSH API gateway; a business throw reaches the Client as gateway/internal.
+    function queryFailure(error) {
+      const code = typeof error?.code === 'string' ? error.code : '';
+      if (code === 'transport') return '无法连接 DSH 服务，请检查连接后重试。';
+      if (code === 'remote-access/denied') return '当前连接没有读取 Playground 数据的权限。';
+      if (code === 'gateway/internal') {
+        const detail = safeMessage(error.message);
+        return `Playground 平台请求失败${detail ? `：${detail}` : ''}。请稍后重试。`;
+      }
+      if (/^gateway\/(invocation|definition|service|method)-unavailable$/.test(code)) {
+        return 'Playground 查询服务未加载。请重启 DSH；若仍失败，当前 DSH 版本可能不支持插件查询通道。';
+      }
+      return `Playground 查询失败${code ? `（${code}）` : ''}，请重试。`;
+    }
+
+    // Error text may come from the platform, the CLI or an older plugin version. Show it only when it
+    // cannot carry credentials or local paths; callers fall back to a generic next step otherwise.
+    function safeMessage(value) {
+      if (typeof value !== 'string' || !value.trim()) return undefined;
+      const text = value.trim().slice(0, 300);
+      return /bearer|authorization|token|password|secret|api[_-]?key|cookie|[a-z]:[\\/]|\/(home|users|tmp)\//i.test(text) ? undefined : text;
+    }
+
     function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
       let result;
-      try { result = JSON.parse(node.outcome?.text || '{}'); } catch { result = { ok: false, error: { message: node.outcome?.text } }; }
+      let input;
+      try { result = JSON.parse(node.outcome?.text || '{}'); } catch { result = undefined; }
+      try { input = JSON.parse(node.args || '{}'); } catch { input = null; }
+      // Handlers report some failures as plain text rather than a JSON result.
+      const plainText = result === undefined ? node.outcome?.text : undefined;
+      result = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+      input = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
       const workflow = result.playgroundWorkflow;
-      const label = !node.outcome ? 'Playground · 正在执行…' : workflow?.kind === 'task' ? `任务已就绪 · ${workflow.task.title}`
-        : workflow?.kind === 'mode' ? `工作模式已切换 · ${workflow.mode === 'author' ? '出题' : '参赛'}`
-        : workflow?.kind === 'prepared' ? `材料已检查 · ${workflow.prepared.challenge.title} · 等待用户确认`
-        : workflow?.kind === 'receipt' ? `提交回执 #${workflow.receipt.attemptId ?? '—'}`
-        : result.sessionId ? '已创建独立任务对话' : workflow?.kind === 'clear' ? '提交准备已取消或失效' : 'Playground 操作';
-      return h('section', { className: 'pg-card' }, h('style', null, css), h('strong', null, label),
-        result.error ? h('p', { className: 'pg-error', role: 'alert' }, result.error.message) : null,
-        workflow?.kind === 'prepared' ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
-        result.sessionId ? h('button', { className: 'pg-button', onClick: () => openTask(result.sessionId) }, '打开任务对话') : null);
+      const auth = result.playgroundAuth;
+      const catalog = result.playgroundCatalog;
+      const challenges = Array.isArray(catalog?.challenges?.items) ? catalog.challenges.items.filter((item) => item && typeof item === 'object') : [];
+      const action = auth ? 'auth' : catalog ? 'catalog' : input.action || workflow?.kind;
+      const label = node.name === 'playground-auth-login' ? 'Playground 登录'
+        : node.name === 'playground-confirm' ? '确认提交' : action === 'results' ? '查询评测结果' : workflow?.kind === 'receipt' ? '提交回执'
+        : ({ auth: '登录状态检测', catalog: '赛题目录查询', start: '创建任务对话', task: '任务上下文', context: '任务上下文',
+          mode: '切换工作模式', check: '检查提交材料', prepared: '检查提交材料', results: '查询评测结果', cancel: '取消提交准备', clear: '取消提交准备' })[action] || 'Playground 命令';
+      const failed = node.outcome?.kind === 'error' || result.ok === false || Boolean(result.error);
+      const available = Object.keys(result).length > 0;
+      const status = !node.outcome ? '执行中 / 尚未完成' : failed ? '未完成' : !available ? '结果不可用'
+        : workflow?.kind === 'prepared' ? '等待确认' : workflow?.kind === 'clear' ? '已取消或失效' : auth ? (auth.authenticated ? '已登录' : '未登录') : '已完成';
+      // Historical payloads can contain CLI output and credentials. Only project safe business facts.
+      const details = {
+        操作: label, 状态: status,
+        ...(catalog ? { 比赛数量: commandFact(catalog.competitions?.total) ?? catalog.competitions?.items?.length ?? 0,
+          赛题数量: commandFact(catalog.challenges?.total) ?? challenges.length,
+          当前页赛题: challenges.slice(0, 12).map((item) => commandFact(item.titleZh || item.title || item.id)).filter((title) => title !== undefined) } : {}),
+        ...(workflow?.task ? { 赛题: commandFact(workflow.task.title) } : {}),
+        ...(workflow?.mode ? { 工作模式: workflow.mode === 'author' ? '出题' : '参赛' } : {}),
+        ...(workflow?.prepared ? { 赛题: commandFact(workflow.prepared.challenge?.title), 材料数量: commandFact(workflow.prepared.files?.length), 提交状态: '等待用户确认' } : {}),
+        ...(workflow?.receipt || action === 'results' ? { 提交编号: commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id),
+          评测状态: commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status),
+          平台返回分数: commandFact(workflow?.receipt?.scoringState?.displayScore ?? result.scoringState?.displayScore ?? result.score) } : {}),
+      };
+      const summary = failed ? ({ authentication_required: '请先在工作台登录 Playground，再重试此操作。',
+        confirmation_required: '提交尚未获得有效确认，请在工作台重新检查材料并确认。',
+        materials_changed: '材料已改变，请在工作台重新检查后再提交。' })[result.error?.code]
+          || safeMessage(result.error?.message ?? plainText) || '操作未完成或已中断。请检查工作台中的状态后重试。'
+        : !node.outcome ? '此记录尚无完成结果；若任务已停止，请回到工作台核对状态。'
+        : auth ? (auth.authenticated ? 'Playground 身份已确认。' : '尚未登录；公开赛题仍可浏览。')
+        : catalog ? `共 ${details.比赛数量} 个比赛、${details.赛题数量} 道赛题。`
+        : workflow?.prepared ? '材料已检查，等待用户在工作台确认提交。'
+        : details.提交编号 !== undefined ? `提交 #${details.提交编号} · ${details.评测状态 || '评测状态待查询'}`
+        : typeof result.sessionId === 'string' ? '已创建独立任务对话。' : commandFact(workflow?.task?.title) || '可展开查看已保存的操作摘要；未提供的详情不可用。';
+      return h('section', { className: 'pg-card' }, h('style', null, css),
+        h('div', { className: 'pg-head' }, h('strong', null, label), h('span', { className: 'pg-badge', 'data-tone': failed ? 'error' : !node.outcome || auth?.authenticated === false ? 'warning' : 'neutral' }, status)),
+        h('p', { className: failed ? 'pg-error' : 'pg-note', role: failed ? 'alert' : 'status' }, summary),
+        h('details', { className: 'pg-raw' }, h('summary', null, '查看操作详情'), h('pre', null, JSON.stringify(details, null, 2))),
+        workflow?.kind === 'prepared' && !failed ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
+        typeof result.sessionId === 'string' ? h('button', { className: 'pg-button', onClick: () => openTask(result.sessionId) }, '打开任务对话') : null);
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
+      inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
         const taskRequest = createSnapshotStore(null);
         const actions = {
@@ -518,6 +596,12 @@ window.__ModuleLoader__.load({
             ctx.layout.selectPanel('playground');
           },
           refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
+          query: async (input, signal) => {
+            const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/query', { args: { input } }, signal)
+              .catch(() => ({ ok: false, error: { code: 'transport' } }));
+            if (result.ok) return result.value;
+            throw new Error(queryFailure(result.error));
+          },
           run: async (sessionId, input, confirm = false) => {
             const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${input}` : `/playground ${JSON.stringify(input)}`, []);
             if (!result.ok) throw new Error(result.error.message);
@@ -560,7 +644,7 @@ window.__ModuleLoader__.load({
           }
         });
         ctx.slots.inject('conversation.chat.commandview', function* () {
-          for (const key of ['playground', 'playground-confirm']) {
+          for (const key of ['playground', 'playground-confirm', 'playground-auth-login']) {
             yield ctx.slots.register({ name: 'conversation.chat.commandview', key, inject: () => actions }, PlaygroundCommandCard);
           }
         });
