@@ -228,11 +228,12 @@ test('login never records CLI output, credentials or a duplicate identity copy',
   const previous = process.env.PLAYGROUND_PASSWORD;
   process.env.PLAYGROUND_PASSWORD = 'synthetic-password';
   try {
-    const loggedIn = await f.workflow.login('{"email":"test@example.test"}', f.exec);
-    assert.equal(loggedIn.kind, 'success');
-    assert.doesNotMatch(loggedIn.text, /synthetic-secret|synthetic-password|authorization/);
-    // One identity copy for the card; no top-level duplicate of the account.
-    assert.deepEqual(Object.keys(JSON.parse(loggedIn.text)), ['playgroundAuth']);
+    const loggedIn = await f.workflow.login(' test@example.test ', f.exec);
+    assert.equal(loggedIn.ok, true);
+    assert.equal(loggedIn.authenticated, true);
+    assert.doesNotMatch(JSON.stringify(loggedIn), /synthetic-secret|synthetic-password|authorization/);
+    assert.equal(f.states.get('source').task, null);
+    assert.match((await f.workflow.login('  ', f.exec)).error.message, /请输入 Playground 邮箱/);
     for (const [failure, expected] of [
       [Object.assign(new Error("'playground' is not recognized as an internal or external command"), { code: 'cli_error' }), /未找到 Playground CLI/],
       // Windows cmd prints the missing-command message in the console code page; the CLI wrapper
@@ -242,14 +243,16 @@ test('login never records CLI output, credentials or a duplicate identity copy',
       [Object.assign(new Error('invalid password for test@example.test, token=synthetic-secret'), { code: 'cli_error' }), /检查邮箱和密码/],
     ]) {
       cliFailure = failure;
-      const failed = await f.workflow.login('{"email":"test@example.test"}', f.exec);
-      assert.equal(failed.kind, 'error');
-      assert.match(failed.text, expected);
-      assert.doesNotMatch(failed.text, /synthetic-secret|test@example\.test/);
+      const failed = await f.workflow.login('test@example.test', f.exec);
+      assert.equal(failed.ok, false);
+      assert.match(failed.error.message, expected);
+      assert.doesNotMatch(JSON.stringify(failed), /synthetic-secret|test@example\.test/);
     }
     cliFailure = undefined;
     f.client.getCurrentUser = async () => { throw new Error('network down'); };
-    assert.match((await f.workflow.login('{"email":"test@example.test"}', f.exec)).text, /无法确认 Playground 身份/);
+    assert.match((await f.workflow.login('test@example.test', f.exec)).error.message, /无法确认 Playground 身份/);
+    delete process.env.PLAYGROUND_PASSWORD;
+    assert.match((await f.workflow.login('test@example.test', f.exec)).error.message, /请先在登录面板输入 Playground 密码/);
   } finally {
     if (previous === undefined) delete process.env.PLAYGROUND_PASSWORD;
     else process.env.PLAYGROUND_PASSWORD = previous;

@@ -365,3 +365,31 @@ test('interrupted records, missing details and confirmation actions remain under
   assert.equal(opened, 'A');
   assert.doesNotMatch(text(prepared), /private-path/);
 });
+
+test('workbench login needs no conversation and keeps the password out of the call', async (t) => {
+  const calls = [];
+  let reply = { ok: true, value: { ok: true, authenticated: true } };
+  const f = await clientFixture(t, {
+    remote: {
+      commands: { execute: () => assert.fail('login reached command history') },
+      credentials: { set: async (name, value) => { calls.push(['credential', name, value]); } },
+    },
+    connection: { rpc: { call: async (...args) => { calls.push(['rpc', ...args]); return reply; } } },
+  });
+  const { login } = f.registrations.get('main').definition.inject();
+  assert.deepEqual(await login('a@example.test', 'synthetic-password'), { ok: true, authenticated: true });
+  assert.deepEqual(calls[0], ['credential', 'PLAYGROUND_PASSWORD', 'synthetic-password']);
+  assert.deepEqual(calls[1].slice(0, 4), ['rpc', '/api', 'playgroundQueries/login', { args: { input: { email: 'a@example.test' } } }]);
+  assert.doesNotMatch(JSON.stringify(calls[1]), /synthetic-password/);
+  for (const [next, expected] of [
+    [{ ok: true, value: { ok: false, error: { code: 'login_failed', message: '未找到 Playground CLI。' } } }, /未找到 Playground CLI/],
+    [{ ok: true, value: { ok: false, error: { code: 'login_failed', message: 'token=private' } } }, /^Playground 登录失败，请重试。$/],
+    [{ ok: false, error: { code: 'gateway/invocation-unavailable' } }, /查询服务未加载/],
+  ]) {
+    reply = next;
+    await assert.rejects(login('a@example.test', 'synthetic-password'), (error) => expected.test(error.message));
+  }
+  // The login panel is rendered and usable with no source conversation at all.
+  const { auth } = f.workbench(undefined);
+  assert.equal('sessionId' in auth.props, false);
+});

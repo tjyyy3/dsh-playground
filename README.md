@@ -231,8 +231,10 @@ Playground token per operation in this order:
 Use the Playground side panel to enter the account email and password. The
 plugin stores the password through the DSH credential channel, invokes
 `playground auth login --email ...`, and never puts the password in a command
-line or chat message. The CLI writes its normal credentials file; the plugin
-reads the token from that file for subsequent API reads. The CLI executable is
+line or chat message. Login runs through a session-free Host call, so it works
+without an open conversation and adds no record to any conversation. The CLI
+writes its normal credentials file; the plugin reads the token from that file
+for subsequent API reads. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
 the `PLAYGROUND_CLI` environment variable. A missing token returns
 `authentication_required` with the same guidance; public catalog reads remain
