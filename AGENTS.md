@@ -32,9 +32,15 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   into tracked files.
 - Keep UI-only changes in `client.js`; do not modify DSH host code from this repo.
 - Preserve the explicit user confirmation gate before any Playground write.
-- Task creation must explicitly name a user-selected absolute workspace path;
-  never inherit the source conversation's directory. UI starts must show the
-  workspace selection and confirmation dialog before creating a session.
+- Task creation must explicitly name a registered DSH workspace and never
+  create sessions in unregistered directories. UI starts (workbench and chat
+  cards) must show the workspace selection and confirmation dialog and send the
+  chosen workspace id; they never inherit whichever conversation happens to be
+  open. Agent calls pass an absolute `cwd`: the directory the user named, or the
+  current conversation's workspace when the user started the request there.
+  Resolve path identity through `workspaceRegistry.resolveByPath`, including
+  directory aliases. In an existing Playground task conversation, continue that
+  task; create another only when the user explicitly asks for a new task.
 
 ## Current state
 

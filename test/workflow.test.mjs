@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, toNamespacedPath } from 'node:path';
 import test from 'node:test';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
@@ -10,7 +10,7 @@ const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
 
 async function fixture(cli) {
-  const cwd = await mkdtemp(join(tmpdir(), 'playground-workflow-'));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'playground-workflow-')));
   directories.push(cwd);
   // A real ZIP fixture, not a renamed text file.
   await writeFile(join(cwd, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
@@ -24,7 +24,13 @@ async function fixture(cli) {
   const ctx = {
     workingDirectory: { get: () => cwd },
     sessionProjections: { stateOf: (session) => states.get(session.id) },
-    workspaceRegistry: { list: () => [{ id: 'workspace', path: cwd }] },
+    workspaceRegistry: {
+      list: () => [{ id: 'workspace', path: cwd }],
+      async resolveByPath(path) {
+        const canonical = await realpath(path);
+        return this.list().find((item) => item.path === canonical);
+      },
+    },
     agents: { get: (id) => agents.get(id) },
     sessionController: {
       async create(request) {
@@ -83,7 +89,7 @@ test('task creation requires an explicit absolute directory instead of inheritin
 
 test('task creation uses the selected workspace for the session, projection and initial prompt', async () => {
   const f = await fixture();
-  const target = await mkdtemp(join(tmpdir(), 'playground-target-'));
+  const target = await realpath(await mkdtemp(join(tmpdir(), 'playground-target-')));
   directories.push(target);
   f.ctx.workspaceRegistry.list = () => [{ id: 'target-workspace', path: target }];
   f.ctx.workingDirectory.get = () => { throw new Error('must not inherit the source directory'); };
@@ -109,6 +115,52 @@ test('invalid or changed workspace targets never create a session or fall back t
   f.ctx.workspaceRegistry.list = () => [{ id: 'workspace', path: join(f.cwd, 'another-location') }];
   assert.equal((await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, workspace_id: 'workspace' }, f.exec)).ok, false);
   assert.deepEqual(f.calls, []);
+});
+
+test('the UI names the workspace by id alone and the host resolves its path from the registry', async () => {
+  const f = await fixture();
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', workspace_id: 'workspace' }, f.exec);
+  assert.equal(result.ok, true);
+  assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
+  assert.equal(f.states.get('new-task').task.cwd, f.cwd);
+});
+
+test('empty or null workspace ids are treated as absent rather than as a removed workspace', async () => {
+  for (const workspace_id of [null, '', '  ']) {
+    const f = await fixture();
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, workspace_id }, f.exec);
+    assert.equal(result.ok, true);
+    assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
+  }
+});
+
+test('an unregistered or vanished directory is rejected instead of creating an unowned session', async () => {
+  const f = await fixture();
+  const other = await mkdtemp(join(tmpdir(), 'playground-unregistered-'));
+  directories.push(other);
+  const unregistered = await f.workflow.start({ challenge_id: 'challenge-a', cwd: other }, f.exec);
+  assert.equal(unregistered.ok, false);
+  assert.match(unregistered.error.message, /不是已添加的 DSH 工作区/);
+  f.ctx.workspaceRegistry.list = () => [{ id: 'gone', path: join(f.cwd, 'deleted') }];
+  assert.equal((await f.workflow.start({ challenge_id: 'challenge-a', workspace_id: 'gone' }, f.exec)).ok, false);
+  assert.deepEqual(f.calls, []);
+});
+
+test('workspace paths match case-insensitively on Windows', { skip: process.platform !== 'win32' }, async () => {
+  const f = await fixture();
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd.toUpperCase() }, f.exec);
+  assert.equal(result.ok, true);
+  assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
+});
+
+test('Windows extended paths resolve to the registered workspace with or without its id', { skip: process.platform !== 'win32' }, async () => {
+  for (const workspace_id of [undefined, 'workspace']) {
+    const f = await fixture();
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: toNamespacedPath(f.cwd), workspace_id }, f.exec);
+    assert.equal(result.ok, true);
+    assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
+    assert.equal(f.states.get('new-task').task.cwd, f.cwd);
+  }
 });
 
 test('task creation is gated by Playground login while catalog reads stay available', async () => {

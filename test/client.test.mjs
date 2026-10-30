@@ -36,7 +36,7 @@ async function clientFixture(t, services = {}) {
   function find(node, predicate) {
     if (!node || typeof node !== 'object') return;
     if (predicate(node)) return node;
-    for (const child of [...(node.props?.children || []).flat(Infinity), node.props?.footer]) { const found = find(child, predicate); if (found) return found; }
+    for (const child of (node.props?.children || []).flat(Infinity)) { const found = find(child, predicate); if (found) return found; }
   }
   function render(Component, props) {
     if (!states.has(Component)) states.set(Component, []);
@@ -157,7 +157,22 @@ test('workspace confirmation is required each time; cancellation and failed star
   assert.equal(calls.length, 1);
   failure = false;
   await confirm().props.onClick();
-  assert.deepEqual(calls[1], ['source', { action: 'start', challenge_id: 'challenge', mode: 'participate', cwd: '/workspace-b', workspace_id: 'b' }]);
+  assert.deepEqual(calls[1], ['source', { action: 'start', challenge_id: 'challenge', mode: 'participate', workspace_id: 'b' }]);
   assert.deepEqual(calls[2], ['open', 'new-task']);
   assert.equal(render(overlay.Component, props), null);
+});
+
+test('a failed workspace list is reported instead of loading forever', async (t) => {
+  const { registrations, find, render } = await clientFixture(t);
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  actions.requestTask({ id: 'challenge', title: 'Challenge', mode: 'participate', sessionId: 'source' });
+  const dialog = render(overlay.Component, { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'pending', state: 'error', error: { message: 'stream closed' }, items: [] }),
+    run: async () => { throw Error('must not run'); }, openTask: () => {} });
+  const tree = render(dialog.type, dialog.props);
+  const alert = find(tree, (node) => node.props?.role === 'alert');
+  assert.match(alert.props.children[0], /无法读取 DSH 工作区列表：stream closed/);
+  assert.equal(find(tree, (node) => node.props?.role === 'status'), undefined);
+  assert.equal(find(tree, (node) => node.type === 'select').props.disabled, true);
 });
