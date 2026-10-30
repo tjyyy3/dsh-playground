@@ -432,10 +432,16 @@ window.__ModuleLoader__.load({
       const confirm = async () => {
         if (!workspace || workspaces.phase !== 'ready' || busy || adding) return;
         setBusy(true); setError('');
+        let created;
         try { const result = await run(request.sessionId, { action: 'start', challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
-          if (result.ok && result.sessionId) { closeTaskStart(); openTask(result.sessionId); }
+          if (result.ok && result.sessionId) created = result.sessionId;
           else setError(result.error?.message || '任务创建失败');
-        } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+        } catch (failure) { setError(failure.message); }
+        if (!created) { setBusy(false); return; }
+        // Closing unmounts the dialog, so no state is set afterwards. The task already exists and
+        // stays reachable from the task list if navigation fails.
+        closeTaskStart();
+        Promise.resolve(openTask(created)).catch((failure) => console.warn('Playground: failed to open the new task conversation', failure));
       };
       return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title: actionLabel,
         onClose: () => { if (!busy && !adding) closeTaskStart(); } },

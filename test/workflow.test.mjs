@@ -146,6 +146,23 @@ test('an unregistered or vanished directory is rejected instead of creating an u
   assert.deepEqual(f.calls, []);
 });
 
+test('a missing directory is reported as missing, not as unregistered', async () => {
+  const f = await fixture();
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: join(f.cwd, 'missing') }, f.exec);
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /目标目录不存在/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('drive-relative Windows roots are rejected before path lookup', { skip: process.platform !== 'win32' }, async () => {
+  const f = await fixture();
+  f.ctx.workspaceRegistry.resolveByPath = async () => { throw new Error('must not resolve a drive-relative path'); };
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd.slice(2) }, f.exec);
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /完整的绝对目录/);
+  assert.deepEqual(f.calls, []);
+});
+
 test('workspace paths match case-insensitively on Windows', { skip: process.platform !== 'win32' }, async () => {
   const f = await fixture();
   const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd.toUpperCase() }, f.exec);

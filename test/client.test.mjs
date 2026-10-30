@@ -176,3 +176,22 @@ test('a failed workspace list is reported instead of loading forever', async (t)
   assert.equal(find(tree, (node) => node.props?.role === 'status'), undefined);
   assert.equal(find(tree, (node) => node.type === 'select').props.disabled, true);
 });
+
+test('a created task closes the dialog even when opening the new conversation fails', async (t) => {
+  const { registrations, find, render } = await clientFixture(t);
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  const warn = t.mock.method(console, 'warn', () => {});
+  actions.requestTask({ id: 'challenge', title: 'Challenge', mode: 'participate', sessionId: 'source' });
+  const props = { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }] }),
+    run: async () => ({ ok: true, sessionId: 'new-task' }), openTask: async () => { throw Error('navigation failed'); } };
+  const dialog = render(overlay.Component, props);
+  let tree = render(dialog.type, dialog.props);
+  find(tree, (node) => node.type === 'select').props.onChange({ target: { value: 'b' } });
+  tree = render(dialog.type, dialog.props);
+  await find(tree, (node) => node.type === 'button' && node.props.children.includes('创建参赛任务')).props.onClick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(render(overlay.Component, props), null);
+  assert.equal(warn.mock.callCount(), 1);
+});
