@@ -414,3 +414,19 @@ test('M-01: confirmation command returns an error when the workflow throws', asy
     assert.deepEqual(result, { kind: 'error', text: 'Session unavailable' });
   }
 });
+
+test('native task creation tool requires an explicit target directory in its schema', () => {
+  const tools = [];
+  const scope = {
+    tools: { register: (tool) => tools.push(tool) },
+    commands: { register() {} }, sessionProjections: { register() {} }, inject() {},
+  };
+  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
+  const tool = tools.find((item) => item.name === 'playground_start_task');
+  assert.deepEqual(tool.parameters.required, ['challenge_id', 'cwd']);
+  assert.match(tool.parameters.properties.cwd.description, /absolute path of a registered DSH workspace/);
+  // Without this guidance the model tends to solve challenges in place, so they never reach the task list.
+  assert.match(tool.description, /call this tool instead of working on it in the current conversation/);
+  assert.match(tool.description, /If this conversation already has a Playground task, continue working here/);
+  assert.match(tool.description, /Only create another task when the user explicitly requests a new task/);
+});
