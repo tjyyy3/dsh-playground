@@ -173,7 +173,7 @@ profile.
 ### Requirements
 
 - DSH with the **Add plugin → Install third-party plugin** entry.
-- Node.js 20 or newer.
+- Node.js 24 or newer.
 - The Playground CLI (`playground`) for login and confirmed submissions. Public
   challenge and competition reads can work without a login.
 

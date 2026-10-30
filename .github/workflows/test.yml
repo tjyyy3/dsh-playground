@@ -1,0 +1,34 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Let every combination finish so a failure shows which OS or Node version broke.
+      fail-fast: false
+      matrix:
+        # DSH desktop ships for Windows and macOS only. Node 24 matches the runtime DSH
+        # bundles; Node 26 is the current LTS and surfaces breakage before DSH upgrades.
+        os: [windows-latest, macos-latest]
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Offline suite only: scripts/smoke.mjs reaches the live platform and is not run here.
+      - run: npm test

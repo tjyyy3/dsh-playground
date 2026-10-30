@@ -8,9 +8,11 @@ submission, and result cards to DSH. The product name is Playground Workbench.
 
 ## Run and verify
 
-- Requires Node.js 20 or newer.
+- Requires Node.js 24 or newer.
 - Install development dependencies with `npm ci`.
 - Run the offline test suite with `npm test`.
+- CI (`.github/workflows/test.yml`) runs `npm test` on Windows and macOS with
+  Node 24 and 26 for pull requests and pushes to `main`.
 - Run `node scripts/smoke.mjs` only for read-only platform checks.
 - Run `npm run demo:local` for the offline mock API demo.
 

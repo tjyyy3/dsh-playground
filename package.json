@@ -21,7 +21,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "test": "node test/api.test.mjs && node test/plugin.test.mjs && node test/workflow.test.mjs && node test/client.test.mjs && node test/queries.test.mjs",
