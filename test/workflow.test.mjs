@@ -235,6 +235,9 @@ test('login never records CLI output, credentials or a duplicate identity copy',
     assert.deepEqual(Object.keys(JSON.parse(loggedIn.text)), ['playgroundAuth']);
     for (const [failure, expected] of [
       [Object.assign(new Error("'playground' is not recognized as an internal or external command"), { code: 'cli_error' }), /未找到 Playground CLI/],
+      // Windows cmd prints the missing-command message in the console code page; the CLI wrapper
+      // classifies it by looking the command up instead.
+      [Object.assign(new Error('\uFFFD\uFFFD\uFFFD\uFFFD'), { code: 'cli_not_found' }), /未找到 Playground CLI/],
       [Object.assign(new Error('killed'), { code: 'cli_terminated' }), /中断或超时/],
       [Object.assign(new Error('invalid password for test@example.test, token=synthetic-secret'), { code: 'cli_error' }), /检查邮箱和密码/],
     ]) {

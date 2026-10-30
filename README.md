@@ -80,8 +80,10 @@ their Chinese/English translations.
 
 Login status checks and catalog loading, refresh, search, and filtering use a
 session-free read-only Host query. Their status and errors stay in the workbench;
-they do not append commands to any conversation. Creating tasks, checking
-materials, and confirming submissions continue to use the session workflow.
+they do not append commands to any conversation, and browsing works without an
+open conversation. Creating tasks, checking materials, and confirming
+submissions continue to use the session workflow, so the catalog's start
+buttons stay disabled until a conversation with command access is open.
 
 Chat command cards show the operation, status, and a result summary, with a
 native expandable details section. Existing login and catalog records remain
