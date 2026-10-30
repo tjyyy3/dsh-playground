@@ -57,18 +57,58 @@ async function fixture(cli) {
     async getAttempt(id) { return { id, challengeId: 'challenge-a', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }; },
   };
   workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
-  return { cwd, workflow, states, exec, calls, record, client };
+  return { cwd, workflow, states, exec, calls, record, client, ctx };
 }
 
 test('creating a task uses a new native session and preserves the exploration session', async () => {
   const f = await fixture();
-  const result = await f.workflow.start({ challenge_id: 'challenge-a' }, f.exec);
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
   assert.equal(result.sessionId, 'new-task');
   assert.equal(f.states.get('source').task, null);
   assert.equal(f.states.get('new-task').task.challengeId, 'challenge-a');
   assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
   assert.match(f.calls.find(([kind]) => kind === 'prompt')[1].content[0].text, /不是操作授权/);
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
+});
+
+test('task creation requires an explicit absolute directory instead of inheriting the source', async () => {
+  for (const cwd of [undefined, '', '   ', '.', 'solution']) {
+    const f = await fixture();
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd }, f.exec);
+    assert.equal(result.ok, false);
+    assert.match(result.error.message, /工作区/);
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('task creation uses the selected workspace for the session, projection and initial prompt', async () => {
+  const f = await fixture();
+  const target = await mkdtemp(join(tmpdir(), 'playground-target-'));
+  directories.push(target);
+  f.ctx.workspaceRegistry.list = () => [{ id: 'target-workspace', path: target }];
+  f.ctx.workingDirectory.get = () => { throw new Error('must not inherit the source directory'); };
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: target, workspace_id: 'target-workspace' }, f.exec);
+  assert.equal(result.ok, true);
+  assert.deepEqual(f.calls[0], ['new', { workspaceId: 'target-workspace' }]);
+  assert.equal(f.states.get('new-task').task.cwd, target);
+  assert.ok(f.calls.find(([kind]) => kind === 'prompt')[1].content[0].text.includes(`工作区：${target}`));
+  assert.equal(f.states.get('source').task, null);
+});
+
+test('invalid or changed workspace targets never create a session or fall back to the source', async () => {
+  const f = await fixture();
+  for (const args of [
+    { cwd: join(f.cwd, 'missing') },
+    { cwd: join(f.cwd, 'bundle.zip') },
+    { cwd: f.cwd, workspace_id: 'removed-workspace' },
+  ]) {
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', ...args }, f.exec);
+    assert.equal(result.ok, false);
+    assert.deepEqual(f.calls, []);
+  }
+  f.ctx.workspaceRegistry.list = () => [{ id: 'workspace', path: join(f.cwd, 'another-location') }];
+  assert.equal((await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, workspace_id: 'workspace' }, f.exec)).ok, false);
+  assert.deepEqual(f.calls, []);
 });
 
 test('task creation is gated by Playground login while catalog reads stay available', async () => {

@@ -34,12 +34,18 @@ requires authentication and can consume a platform submission slot.
 1. Search/read challenges in an exploration conversation, or open
    **Playground** in DSH's left navigation. Use the readable competition and
    challenge catalog and click **开始参赛任务** or **开始出题任务**. The plugin
-   creates a fresh native DSH session with the selected challenge; the
+   asks you to select a DSH workspace and confirm its full path before creating
+   a fresh native DSH session with the selected challenge; the
    exploration conversation remains intact. You do not need to type a challenge
    id by hand.
-2. Work using DSH's existing chat, files and workspace features. Choose a native
-   workspace before starting; the agent tool also accepts an existing `cwd`.
-   Separate solution conversations can use independent existing workspaces.
+2. The workspace dialog lists DSH's registered workspaces. **添加工作区…** uses
+   DSH's native directory picker to register another directory. Choosing a
+   directory does not start a task: click **确认工作区并创建任务** to continue, or
+   cancel without creating a conversation. Every task requires confirmation.
+   Work using DSH's existing chat, files and workspace features. Agent calls to
+   `playground_start_task` must name an absolute existing `cwd` explicitly
+   selected and confirmed by the user. Missing or invalid paths are rejected;
+   the source conversation's directory is never used as a fallback.
 3. Prepare an ARM ZIP and a real execution trace. In the global workbench, select
    the task and click **准备提交 / 检查材料**,
    or ask `playground_check_materials` with an explicit target. Unambiguous
@@ -75,8 +81,10 @@ it does not embed the website or create a separate conversation store.
 The workbench now keeps the connection status in a full-width header card, then
 uses two adjustable columns by default: a searchable competition/challenge
 catalog on the left and task summaries on the right. Choose a
-readable challenge card and click **开始参赛任务** or **开始出题任务**; the
-challenge id stays an implementation detail. The right column lists only
+readable challenge card and click **开始参赛任务** or **开始出题任务**, then
+select and confirm the destination workspace. The same confirmation applies
+to start buttons in chat result cards. The challenge id stays an implementation
+detail. The right column lists only
 Playground task conversations, with a short session id, workspace and task
 state. Ordinary exploration chats do not appear in this selector. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.

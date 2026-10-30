@@ -2,6 +2,8 @@ window.__ModuleLoader__.load({
   id: '@playground/dsh-playground',
   factory(require) {
     const React = require('react');
+    const { Modal } = require('@deepseek-ai/dsh-client-ui-primitives');
+    const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store');
     const h = React.createElement;
     const locales = {
       zh: {
@@ -208,7 +210,7 @@ window.__ModuleLoader__.load({
             )) : null);
     }
 
-    function CatalogPanel({ sessionId, allowed, run, openTask, openChat }) {
+    function CatalogPanel({ sessionId, allowed, run, requestTask, openChat }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
       const [catalog, setCatalog] = React.useState(null);
@@ -245,8 +247,8 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, run, openTask }),
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'author', sessionId, run, openTask }))
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask }),
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'author', sessionId, requestTask }))
         ))));
     }
 
@@ -288,7 +290,7 @@ window.__ModuleLoader__.load({
           h(SelectedTask, { key: session.id, session, projection, ...props })));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, login, ...props }) {
+    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, requestTask, login, ...props }) {
       const catalog = useSessions((state) => state);
       const sessions = catalog.ids.map((id) => catalog.byId[id]).filter((session) => !session.parentId);
       const sourceSession = sessions.find((session) => (session.retainedBy?.mainView ?? 0) > 0) || sessions[0];
@@ -318,7 +320,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 赛题目录' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
-              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, run, openTask, openChat })),
+              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, run, requestTask, openChat })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'), h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`)),
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
@@ -328,7 +330,7 @@ window.__ModuleLoader__.load({
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”或“开始出题任务”。'),
-              h('li', null, '新任务会创建独立的 DSH 对话，原探索对话保留；不同方案可以使用不同工作区。'),
+              h('li', null, '选择目标工作区，核对完整路径后确认创建独立任务对话；需要新工作区时使用原生目录选择器添加。'),
               h('li', null, '完成方案后，在对应任务卡检查材料，核对赛题、平台和文件，再明确确认提交。'),
               h('li', null, '查询结果与关键指标；排队状态表示尚未得到最终评分。')))));
     }
@@ -338,7 +340,7 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M8 3h8M10 3v6l-6 10a1.3 1.3 0 0 0 1.1 2h13.8a1.3 1.3 0 0 0 1.1-2L14 9V3M7 15h10' }));
     }
 
-    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, run, openTask, openWorkbench }) {
+    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, run, requestTask, openTask, openWorkbench }) {
       const data = phase === 'result' ? block.meta?.playground : undefined;
       const text = phase === 'result' ? (block.content ?? []).filter((item) => item.type === 'text').map((item) => item.text).join('\n') : '';
       const isAttempt = toolName.includes('attempt');
@@ -352,7 +354,7 @@ window.__ModuleLoader__.load({
             failed ? t('failed') : phase === 'preparing' ? t('preparing') : phase === 'start' ? t(toolName === 'playground_submit_attempt' ? 'uploading' : 'running') : state ? stateLabel(state, t) : t('loaded'))),
         failed ? h('p', { className: 'pg-error', role: 'alert' }, data?.error?.message || block.error?.message || text || t('failed')) : null,
         phase === 'result' && data?.ok && run && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
-          ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, sessionId, run, openTask }))) : null,
+          ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
         data?.sessionId && openTask ? h('button', { className: 'pg-button', onClick: () => openTask(data.sessionId) }, '打开任务对话') : null,
         data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         data ? h(React.Fragment, null,
@@ -384,15 +386,53 @@ window.__ModuleLoader__.load({
         phase === 'result' ? h('footer', null, t('snapshot')) : h('p', { className: 'pg-note', role: 'status' }, t('snapshot')));
     }
 
-    function StartTaskButton({ id, title, mode = 'participate', sessionId, run, openTask }) {
+    function StartTaskButton({ id, title, mode = 'participate', sessionId, requestTask }) {
+      return h('button', { className: 'pg-button', onClick: () => requestTask({ id: String(id), title: title || String(id), mode, sessionId }) },
+        mode === 'author' ? `开始出题任务 · ${title || id}` : `开始参赛任务 · ${title || id}`);
+    }
+
+    function TaskStartOverlay(props) {
+      const request = props.useTaskRequest((value) => value);
+      return request ? h(TaskStartDialog, { key: `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
+    }
+
+    function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask }) {
+      const workspaces = useWorkspaces((value) => value);
+      const [selectedId, setSelectedId] = React.useState('');
       const [busy, setBusy] = React.useState(false);
+      const [adding, setAdding] = React.useState(false);
       const [error, setError] = React.useState('');
-      return h('span', null, h('button', { className: 'pg-button', disabled: busy, 'aria-busy': busy, onClick: async () => {
+      const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
+      const confirm = async () => {
+        if (!workspace || workspaces.phase !== 'ready' || busy || adding) return;
         setBusy(true); setError('');
-        try { const result = await run(sessionId, { action: 'start', challenge_id: String(id), mode });
-          if (result.ok && result.sessionId) openTask(result.sessionId); else setError(result.error?.message || '任务创建失败');
+        try { const result = await run(request.sessionId, { action: 'start', challenge_id: request.id, mode: request.mode, cwd: workspace.path, workspace_id: workspace.workspaceId });
+          if (result.ok && result.sessionId) { closeTaskStart(); openTask(result.sessionId); }
+          else setError(result.error?.message || '任务创建失败');
         } catch (failure) { setError(failure.message); } finally { setBusy(false); }
-      } }, busy ? '正在创建任务…' : mode === 'author' ? `开始出题任务 · ${title || id}` : `开始参赛任务 · ${title || id}`), error ? h('span', { className: 'pg-error', role: 'alert' }, error) : null);
+      };
+      return h(Modal, { open: true, title: request.mode === 'author' ? '选择出题工作区' : '选择参赛工作区', closeLabel: '取消创建任务', onClose: () => { if (!busy && !adding) closeTaskStart(); },
+        footer: h('div', { className: 'pg-actions' },
+          h('button', { className: 'pg-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
+          h('button', { className: 'pg-button pg-primary', disabled: !workspace || workspaces.phase !== 'ready' || busy || adding, onClick: confirm }, busy ? '正在创建任务…' : '确认工作区并创建任务')) },
+      h('style', null, css + '.pg-start-dialog{min-width:0}.pg-start-dialog .pg-input{box-sizing:border-box;width:100%;min-height:40px;font:inherit;color:inherit;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px}.pg-start-dialog .pg-path{white-space:pre-wrap;overflow-wrap:anywhere}'),
+      h('div', { className: 'pg-start-dialog' },
+        h('p', null, `赛题：${request.title}（${request.id}）`),
+        h('p', { className: 'pg-note' }, `模式：${request.mode === 'author' ? '出题' : '参赛'}。新任务将在以下工作区读写文件，请确认目录。`),
+        h('label', { className: 'pg-field' }, '目标工作区',
+          h('select', { className: 'pg-input', 'aria-label': '目标工作区', value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
+            onChange: (event) => { setSelectedId(event.target.value); setError(''); } },
+          h('option', { value: '' }, '请选择工作区'),
+          workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, `${item.title || '未命名工作区'} · ${item.path}`)))),
+        workspace ? h('p', { className: 'pg-readonly pg-path' }, `${workspace.title || '未命名工作区'}\n${workspace.path}`) : null,
+        workspaces.phase !== 'ready' ? h('p', { className: 'pg-note', role: 'status' }, '工作区列表尚未就绪，请稍后重试。') : null,
+        workspaces.phase === 'ready' && !workspaces.items.length ? h('p', { className: 'pg-note' }, '还没有工作区，请先添加。') : null,
+        h('div', { className: 'pg-actions' }, h('button', { className: 'pg-button', disabled: busy || adding, onClick: async () => {
+          setAdding(true); setError('');
+          try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
+          catch (failure) { setError(failure.message); } finally { setAdding(false); }
+        } }, adding ? '正在选择目录…' : '添加工作区…')),
+        error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null));
     }
 
     function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
@@ -411,9 +451,16 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'uiWorkspace', 'layout', 'sessions'],
+      inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
+        const taskRequest = createSnapshotStore(null);
         const actions = {
+          requestTask: (request) => taskRequest.set(request),
+          closeTaskStart: () => taskRequest.set(null),
+          addTaskWorkspace: async () => {
+            const path = await ctx.uiWorkspace.pickDirectory();
+            return path ? ctx.workspaces.create({ path }) : null;
+          },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
           openChat: () => ctx.layout.selectPanel(null),
           openWorkbench: async (sessionId) => {
@@ -454,6 +501,9 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist', id: 'playground', order: 20, label: () => 'Playground', locale: 'playground',
         }, PlaygroundPanelIcon));
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay', id: 'playground.task-start', inject: () => ({ ...actions, hooks: { taskRequest } }),
+        }, TaskStartOverlay));
         ctx.slots.inject('tool.call.toolview', function* () {
           for (const toolName of Object.keys(locales.en.tools)) {
             yield ctx.slots.register({ name: 'tool.call.toolview', key: toolName, locale: 'playground', inject: () => actions }, PlaygroundToolCard);

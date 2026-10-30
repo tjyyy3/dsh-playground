@@ -414,3 +414,15 @@ test('M-01: confirmation command returns an error when the workflow throws', asy
     assert.deepEqual(result, { kind: 'error', text: 'Session unavailable' });
   }
 });
+
+test('native task creation tool requires an explicit target directory in its schema', () => {
+  const tools = [];
+  const scope = {
+    tools: { register: (tool) => tools.push(tool) },
+    commands: { register() {} }, sessionProjections: { register() {} }, inject() {},
+  };
+  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
+  const tool = tools.find((item) => item.name === 'playground_start_task');
+  assert.deepEqual(tool.parameters.required, ['challenge_id', 'cwd']);
+  assert.match(tool.parameters.properties.cwd.description, /absolute.*selected and confirmed/);
+});

@@ -32,6 +32,9 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   into tracked files.
 - Keep UI-only changes in `client.js`; do not modify DSH host code from this repo.
 - Preserve the explicit user confirmation gate before any Playground write.
+- Task creation must explicitly name a user-selected absolute workspace path;
+  never inherit the source conversation's directory. UI starts must show the
+  workspace selection and confirmation dialog before creating a session.
 
 ## Current state
 
