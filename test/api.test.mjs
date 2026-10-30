@@ -126,7 +126,7 @@ test('listChallenges sends filters and normalizes cards', async () => {
   assert.equal(result.total, 42);
   assert.equal(result.hasMore, true);
   assert.deepEqual(result.items[0].tags, ['tag-a']);
-  assert.equal(result.items[0].titleZh, '演示');
+  assert.equal(result.items[0].titleZh, 'CI 失败验证');
 });
 
 test('listChallenges maps 404 to not_found', async () => {
