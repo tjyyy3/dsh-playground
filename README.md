@@ -40,8 +40,9 @@ requires authentication and can consume a platform submission slot.
    id by hand.
 2. The workspace dialog lists DSH's registered workspaces. **添加工作区…** uses
    DSH's native directory picker to register another directory. Choosing a
-   directory does not start a task: click **确认工作区并创建任务** to continue, or
-   cancel without creating a conversation. Every task requires confirmation.
+   directory does not start a task: click **创建参赛任务** (or **创建出题任务**)
+   to continue, or cancel without creating a conversation. Every task requires
+   confirmation.
    Work using DSH's existing chat, files and workspace features. Agent calls to
    `playground_start_task` must name an absolute existing `cwd` explicitly
    selected and confirmed by the user. Missing or invalid paths are rejected;

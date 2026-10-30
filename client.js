@@ -403,6 +403,7 @@ window.__ModuleLoader__.load({
       const [adding, setAdding] = React.useState(false);
       const [error, setError] = React.useState('');
       const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
+      const actionLabel = request.mode === 'author' ? '创建出题任务' : '创建参赛任务';
       const confirm = async () => {
         if (!workspace || workspaces.phase !== 'ready' || busy || adding) return;
         setBusy(true); setError('');
@@ -411,28 +412,63 @@ window.__ModuleLoader__.load({
           else setError(result.error?.message || '任务创建失败');
         } catch (failure) { setError(failure.message); } finally { setBusy(false); }
       };
-      return h(Modal, { open: true, title: request.mode === 'author' ? '选择出题工作区' : '选择参赛工作区', closeLabel: '取消创建任务', onClose: () => { if (!busy && !adding) closeTaskStart(); },
-        footer: h('div', { className: 'pg-actions' },
-          h('button', { className: 'pg-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
-          h('button', { className: 'pg-button pg-primary', disabled: !workspace || workspaces.phase !== 'ready' || busy || adding, onClick: confirm }, busy ? '正在创建任务…' : '确认工作区并创建任务')) },
-      h('style', null, css + '.pg-start-dialog{min-width:0}.pg-start-dialog .pg-input{box-sizing:border-box;width:100%;min-height:40px;font:inherit;color:inherit;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px}.pg-start-dialog .pg-path{white-space:pre-wrap;overflow-wrap:anywhere}'),
-      h('div', { className: 'pg-start-dialog' },
-        h('p', null, `赛题：${request.title}（${request.id}）`),
-        h('p', { className: 'pg-note' }, `模式：${request.mode === 'author' ? '出题' : '参赛'}。新任务将在以下工作区读写文件，请确认目录。`),
-        h('label', { className: 'pg-field' }, '目标工作区',
-          h('select', { className: 'pg-input', 'aria-label': '目标工作区', value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
-            onChange: (event) => { setSelectedId(event.target.value); setError(''); } },
-          h('option', { value: '' }, '请选择工作区'),
-          workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, `${item.title || '未命名工作区'} · ${item.path}`)))),
-        workspace ? h('p', { className: 'pg-readonly pg-path' }, `${workspace.title || '未命名工作区'}\n${workspace.path}`) : null,
-        workspaces.phase !== 'ready' ? h('p', { className: 'pg-note', role: 'status' }, '工作区列表尚未就绪，请稍后重试。') : null,
-        workspaces.phase === 'ready' && !workspaces.items.length ? h('p', { className: 'pg-note' }, '还没有工作区，请先添加。') : null,
-        h('div', { className: 'pg-actions' }, h('button', { className: 'pg-button', disabled: busy || adding, onClick: async () => {
-          setAdding(true); setError('');
-          try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
-          catch (failure) { setError(failure.message); } finally { setAdding(false); }
-        } }, adding ? '正在选择目录…' : '添加工作区…')),
-        error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null));
+      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title: actionLabel, closeLabel: '取消创建任务',
+        onClose: () => { if (!busy && !adding) closeTaskStart(); } },
+      h('style', null, `
+        .pg-task-modal{--pg-task-accent:#007f86;--pg-task-accent-hover:#006b72;--pg-task-text:var(--dsw-alias-label-primary,#24282e);--pg-task-secondary:var(--dsw-alias-label-secondary,#68717c);--pg-task-base:var(--dsw-alias-bg-base,#fff);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--dsw-alias-border-l2,#d4dbe1);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:16px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;overflow:hidden}
+        .pg-task-modal *{box-sizing:border-box}.pg-task-modal ::selection{background:#cce8e8;color:#123c3d}
+        .pg-task-modal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+        .pg-task-header{position:relative;flex:none;padding:24px 24px 0}.pg-task-header h2{padding-right:36px;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.2px}.pg-task-subtitle{margin:6px 0 0;color:var(--pg-task-secondary);font-size:13px;line-height:20px}
+        .pg-task-close{position:absolute;top:20px;right:20px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--pg-task-secondary);cursor:pointer}.pg-task-close:hover:not(:disabled){background:var(--pg-task-subtle);color:var(--pg-task-text)}
+        .pg-task-body{display:grid;gap:24px;min-height:0;padding:24px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-task-border) transparent}
+        .pg-task-summary{padding:16px;border-radius:10px;background:var(--pg-task-subtle)}.pg-task-summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.pg-task-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;margin:0;font-size:16px;line-height:25px;font-weight:500}.pg-task-mode{flex:none;margin-top:2px;padding:1px 7px;border:1px solid var(--pg-task-border);border-radius:5px;color:var(--pg-task-secondary);font-size:11px;line-height:18px;white-space:nowrap}.pg-task-id{margin:7px 0 0;color:var(--pg-task-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+        .pg-task-field{display:grid;gap:8px}.pg-task-field label{font-size:14px;font-weight:500;line-height:21px}.pg-task-select-wrap{position:relative;min-width:0}.pg-task-select-wrap>svg{position:absolute;top:13px;left:13px;pointer-events:none;color:var(--pg-task-secondary)}.pg-task-select-wrap>.pg-task-chevron{top:14px;right:13px;left:auto;width:15px;height:15px}
+        .pg-task-select{appearance:none;display:block;width:100%;height:44px;padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px;caret-color:var(--pg-task-accent)}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary,#b42318)}
+        .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9ecf0);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
+        .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--dsw-alias-state-error-primary,#b42318);font-size:12px;line-height:20px;overflow-wrap:anywhere}
+        .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;gap:8px}
+        .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--pg-task-accent,#007f86);color:#fff}.pg-task-create:hover:not(:disabled){background:var(--pg-task-accent-hover,#006b72);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--pg-task-accent,#007f86);color:#fff}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
+        .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent,#007f86);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent,#007f86);outline-offset:2px}
+        @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
+        @media(max-width:600px){.pg-task-header{padding:22px 20px 0}.pg-task-header h2{font-size:19px}.pg-task-body{padding:20px;gap:20px}.pg-task-footer{padding:16px 20px 20px}.pg-task-summary{padding:14px}}
+      `),
+      h('header', { className: 'pg-task-header' },
+        h('h2', null, actionLabel),
+        h('p', { className: 'pg-task-subtitle' }, '选择任务文件的存放工作区'),
+        h('button', { type: 'button', className: 'pg-task-close', 'aria-label': '取消创建任务', disabled: busy || adding, onClick: closeTaskStart },
+          h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 6 12 12M18 6 6 18' })))),
+      h('div', { className: 'pg-task-body', 'aria-busy': busy || adding || workspaces.phase !== 'ready' },
+        h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
+          h('div', { className: 'pg-task-summary-top' },
+            h('h3', { className: 'pg-task-title', title: request.title }, request.title),
+            h('span', { className: 'pg-task-mode' }, request.mode === 'author' ? '出题' : '参赛')),
+          h('p', { className: 'pg-task-id' }, request.id)),
+        h('div', { className: 'pg-task-field' },
+          h('label', { htmlFor: 'pg-task-workspace' }, '目标工作区'),
+          h('div', { className: 'pg-task-select-wrap' },
+            h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18' })),
+            h('select', { id: 'pg-task-workspace', className: 'pg-task-select', 'aria-label': '目标工作区', 'aria-invalid': !!error,
+              'aria-describedby': `${workspace ? 'pg-task-path' : 'pg-task-hint'}${error ? ' pg-task-error' : ''}`, 'data-empty': !workspace, 'data-modal-autofocus': true,
+              value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
+              onChange: (event) => { setSelectedId(event.target.value); setError(''); } },
+              h('option', { value: '' }, '请选择工作区'),
+              workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'))),
+            h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
+          workspace ? h('p', { id: 'pg-task-path', className: 'pg-task-path' }, workspace.path)
+            : h('p', { id: 'pg-task-hint', className: 'pg-task-hint', role: workspaces.phase !== 'ready' ? 'status' : undefined }, workspaces.phase !== 'ready' ? '正在读取 DSH 工作区列表…' : workspaces.items.length ? '选择已有工作区，或添加一个专用目录。' : '还没有工作区，请先添加。'),
+          error ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error) : null,
+          h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: async () => {
+            setAdding(true); setError('');
+            try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
+            catch (failure) { setError(failure.message); } finally { setAdding(false); }
+          } }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…'))),
+      h('footer', { className: 'pg-task-footer' },
+        h('p', null, '将在所选目录创建独立对话并读写任务文件。'),
+        h('div', { className: 'pg-task-actions' },
+          h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
+          h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy, disabled: !workspace || workspaces.phase !== 'ready' || busy || adding, onClick: confirm },
+            busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
+            busy ? '正在创建…' : actionLabel))));
     }
 
     function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {

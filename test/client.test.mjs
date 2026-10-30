@@ -125,7 +125,7 @@ test('workspace confirmation is required each time; cancellation and failed star
   actions.requestTask(request);
   const dialog = render(overlay.Component, props);
   let tree = render(dialog.type, dialog.props);
-  const confirm = () => find(tree, (node) => node.type === 'button' && node.props.children.includes('确认工作区并创建任务'));
+  const confirm = () => find(tree, (node) => node.type === 'button' && node.props.children.includes('创建参赛任务'));
   assert.equal(confirm().props.disabled, true);
   await confirm().props.onClick();
   assert.deepEqual(calls, []);
