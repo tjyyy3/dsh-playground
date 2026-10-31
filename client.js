@@ -179,7 +179,7 @@ window.__ModuleLoader__.load({
         cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
     }
 
-    function AuthStatusPanel({ sessionId, query, login }) {
+    function AuthStatusPanel({ query, login }) {
       const [state, setState] = React.useState({ loading: true });
       const [email, setEmail] = React.useState('');
       const [password, setPassword] = React.useState('');
@@ -198,7 +198,7 @@ window.__ModuleLoader__.load({
       const submitLogin = async () => {
         setLoginBusy(true); setLoginError('');
         try {
-          await login(sessionId, email, password);
+          await login(email, password);
           setPassword('');
           await check();
         } catch (failure) { setLoginError(failure.message); }
@@ -345,7 +345,7 @@ window.__ModuleLoader__.load({
             h('h1', null, 'Playground 主控面板'),
             h('button', { className: 'pg-button', onClick: () => session ? openTask(session.id) : openChat() }, session ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
-          h(AuthStatusPanel, { sessionId: sourceSession?.id, query, login }),
+          h(AuthStatusPanel, { query, login }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
           h('div', { className: 'pg-split-control' },
             h('span', null, '调整左右栏宽度'),
@@ -610,16 +610,14 @@ window.__ModuleLoader__.load({
             if (!text?.startsWith('{')) throw new Error(text || 'Playground 未返回操作结果。');
             return JSON.parse(text);
           },
-          login: async (sessionId, email, password) => {
-            if (!sessionId) throw new Error('请先在 DSH 中打开一个对话。');
+          // Session-free: the password goes to the DSH credential store, never into the call or a conversation.
+          login: async (email, password) => {
             await ctx.remote.credentials.set('PLAYGROUND_PASSWORD', password);
-            const result = await ctx.remote.commands.execute(sessionId, `/playground-auth-login ${JSON.stringify({ email })}`, []);
-            if (!result.ok) throw new Error(result.error.message);
-            const text = result.value?.result?.text;
-            if (!text?.startsWith('{')) throw new Error(text || 'Playground 登录命令未返回结果。');
-            const value = JSON.parse(text);
-            if (value.ok === false || value.error) throw new Error(value.error?.message || 'Playground 登录失败。');
-            return value;
+            const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/login', { args: { input: { email } } })
+              .catch(() => ({ ok: false, error: { code: 'transport' } }));
+            if (!result.ok) throw new Error(queryFailure(result.error));
+            if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || 'Playground 登录失败，请重试。');
+            return result.value;
           },
         };
         ctx.effect(() => ctx.locale.register('playground', Object.fromEntries(

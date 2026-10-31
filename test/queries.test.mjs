@@ -26,3 +26,21 @@ test('the session-free query contract admits only reads and forwards cancellatio
   assert.equal(service.typertRemote.service, service);
   assert.equal(descriptor.cancellation.parameter, 'signal');
 });
+
+test('session-free login accepts only the account email and never a password', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    login: async (email, exec) => { calls.push([email, exec]); return { ok: true, authenticated: true, user: undefined }; },
+  });
+  const descriptor = contribution.invocations.find((item) => item.method === 'login');
+  assert.equal(descriptor.id, '@playground/dsh-playground#playgroundQueries/login');
+  const schema = descriptor.parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  assert.deepEqual(await services.get('playgroundQueries').login(schema.parse({ email: ' a@example.test ' }), signal), { ok: true, authenticated: true });
+  assert.deepEqual(calls, [['a@example.test', { signal }]]);
+  for (const invalid of [{ email: 'a@example.test', password: 'x' }, { email: '' }, { email: '   ' }, {}, { email: 1 }]) {
+    assert.equal(schema.safeParse(invalid).success, false);
+  }
+});
