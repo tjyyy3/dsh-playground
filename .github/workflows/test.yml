@@ -21,6 +21,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     # The suite finishes in under a minute; fail a hung run instead of holding it for 6 hours.
     timeout-minutes: 10
+    env:
+      # Keep the suite offline: the plugin's apply() uses this base URL when no baseUrl is
+      # configured, so a test that runs a registered tool without injecting a fake client
+      # fails with a connection error instead of calling the live platform.
+      PLAYGROUND_API_BASE: http://127.0.0.1:9
     strategy:
       # Let every combination finish so a failure shows which OS or Node version broke.
       fail-fast: false
