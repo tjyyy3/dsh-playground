@@ -12,7 +12,10 @@ submission, and result cards to DSH. The product name is Playground Workbench.
 - Install development dependencies with `npm ci`.
 - Run the offline test suite with `npm test`.
 - CI (`.github/workflows/test.yml`) runs `npm test` on Windows and macOS with
-  Node 24 and 26 for pull requests and pushes to `main`.
+  Node 24 and 26 for pull requests and pushes to `main`. CI sets
+  `PLAYGROUND_API_BASE` to an unreachable address, so tests must not depend on
+  the default base URL: inject a fake client or pass `baseUrl` and `fetchImpl`,
+  and set and restore `PLAYGROUND_API_BASE` inside any test that needs it.
 - Run `node scripts/smoke.mjs` only for read-only platform checks.
 - Run `npm run demo:local` for the offline mock API demo.
 

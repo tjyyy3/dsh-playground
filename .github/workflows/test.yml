@@ -24,14 +24,14 @@ jobs:
     env:
       # Keep the suite offline: the plugin's apply() uses this base URL when no baseUrl is
       # configured, so a test that runs a registered tool without injecting a fake client
-      # fails with a connection error instead of calling the live platform.
+      # gets a network_error result instead of calling the live platform.
       PLAYGROUND_API_BASE: http://127.0.0.1:9
     strategy:
       # Let every combination finish so a failure shows which OS or Node version broke.
       fail-fast: false
       matrix:
         # DSH desktop ships for Windows and macOS only. Node 24 is the same major version
-        # DSH bundles (24.21.0), though runners may use a newer 24.x patch; Node 26 is the
+        # DSH bundles (24.21.0), though runners may use a newer 24.x release; Node 26 is the
         # current LTS and surfaces breakage before DSH upgrades.
         os: [windows-latest, macos-latest]
         node: [24, 26]
