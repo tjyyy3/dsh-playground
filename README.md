@@ -172,10 +172,11 @@ profile.
 
 ### Requirements
 
-- DSH with the **Add plugin → Install third-party plugin** entry.
-- Node.js 20 or newer.
-- The Playground CLI (`playground`) for login and confirmed submissions. Public
-  challenge and competition reads can work without a login.
+- DSH with the **Add plugin → Install third-party plugin** entry. The plugin
+  runs on the Node.js runtime bundled with DSH.
+- The Playground CLI (`playground`) for login and confirmed submissions; it
+  needs Node.js 20 or newer. Public challenge and competition reads can work
+  without a login.
 
 ### Steps
 
@@ -282,6 +283,9 @@ The row accepts:
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
 
 ## Develop and verify
+
+Development and tests require Node.js 24 or newer, the same major version DSH
+bundles.
 
 ```powershell
 npm ci                   # install development dependencies
