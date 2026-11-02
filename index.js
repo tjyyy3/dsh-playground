@@ -322,7 +322,10 @@ function normalizeSettings(config) {
   const cliTimeoutMs = Number.isFinite(Number(source.cliTimeoutMs)) && Number(source.cliTimeoutMs) > 0
     ? Number(source.cliTimeoutMs)
     : 120000;
-  return { baseUrl, token, timeoutMs, uploadTimeoutMs, cliPath, credentialsPath, cliTimeoutMs };
+  const cliSubmitTimeoutMs = Number.isFinite(Number(source.cliSubmitTimeoutMs)) && Number(source.cliSubmitTimeoutMs) > 0
+    ? Number(source.cliSubmitTimeoutMs)
+    : 600000;
+  return { baseUrl, token, timeoutMs, uploadTimeoutMs, cliPath, credentialsPath, cliTimeoutMs, cliSubmitTimeoutMs };
 }
 
 /**
@@ -995,7 +998,13 @@ export function apply(ctx, config) {
     timeoutMs: settings.timeoutMs,
     uploadTimeoutMs: settings.uploadTimeoutMs,
   });
-  const cli = createPlaygroundCli({ command: settings.cliPath, credentialsPath: settings.credentialsPath, baseUrl: settings.baseUrl, timeoutMs: settings.cliTimeoutMs });
+  const cli = createPlaygroundCli({
+    command: settings.cliPath,
+    credentialsPath: settings.credentialsPath,
+    baseUrl: settings.baseUrl,
+    timeoutMs: settings.cliTimeoutMs,
+    submitTimeoutMs: settings.cliSubmitTimeoutMs,
+  });
   const workingDirectory = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : undefined;
   const submit = createSubmitTool(client, { workingDirectory });
   let workflow;
