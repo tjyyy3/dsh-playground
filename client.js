@@ -117,30 +117,38 @@ window.__ModuleLoader__.load({
 
     // Stage, badge and score display for one submission receipt. The task list row, the drawer summary
     // and any submission history share it, so the stage, badge and score always follow the platform state.
+    // The plugin's own `ok: false` marks an unfinished submission only while the platform has reported no
+    // state: "查询结果" merges the platform attempt over the receipt and keeps a stale `ok: false`. A bundle
+    // the platform accepted as incomplete stays submitted; its "材料不完整" badge carries a warning tone.
     function receiptProgress(receipt, t = zhText, { running = false } = {}) {
       const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
       const states = [scoring.state, receipt?.status];
       const known = (value) => (value && value !== 'unknown' ? value : undefined);
       const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
+      const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
       const receiptStage = !receipt ? 'created'
         : failed ? 'failed'
           : scoreIsFinal ? (receipt.status === 'late_scored' ? 'finalLate' : 'final')
             : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
-              : receipt.ok === false || states.includes('draft') || receipt.bundleStatus === 'incomplete' ? 'incomplete'
+              : uploadFailed || states.includes('draft') ? 'incomplete'
                 : 'submitted';
       const stage = running ? 'running' : receiptStage;
       const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
         : referenceScore !== undefined ? `${t('progress.reference')} ${referenceScore}` : '—';
-      const badgeText = !receipt ? t('progress.notSubmitted') : state ? stateLabel(state, t) : t('unknown');
-      const badgeTone = !receipt ? (running ? 'warning' : 'neutral') : stageTones[receiptStage] || 'neutral';
+      const badgeText = !receipt ? t('progress.notSubmitted') : state ? stateLabel(state, t)
+        : receipt.ok === false ? t('progress.notSubmitted') : t('unknown');
+      const badgeTone = !receipt ? (running ? 'warning' : 'neutral')
+        : receiptStage === 'submitted' && receipt.bundleStatus === 'incomplete' ? 'warning'
+          : stageTones[receiptStage] || 'neutral';
       return { stage, stageText: t(`progress.${stage}`), state, badgeText, badgeTone,
         scoreIsFinal, score: finalScore, referenceScore, scoreText };
     }
 
     // Score line for attempt cards and lists; follows the same rules as `receiptProgress`. A failed or
-    // rejected attempt gets no score line.
+    // rejected attempt gets no score line, and neither does a draft, which has nothing to score.
     function scoreLabel(item, t) {
-      const { failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(item);
+      const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(item);
+      if ([scoring.state, item?.status].includes('draft')) return undefined;
       if (scoreIsFinal) return `${t('finalScore')}: ${finalScore ?? '—'}`;
       if (failed) return undefined;
       if (referenceScore !== undefined) return `${t('referenceScore')}: ${referenceScore}`;

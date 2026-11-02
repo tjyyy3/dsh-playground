@@ -475,13 +475,19 @@ test('task rows derive stage, badge and score from the platform state, consisten
       view('已提交，等待结果', '评分完成', 'neutral', '参考 87', referenceLine(87))],
     ['CLI string rejected scoring state', { attemptId: 17, ok: true, status: 'scored', score: 55, scoringState: 'rejected' },
       view('评测未通过', '未通过', 'error', '—', undefined)],
-    // Submissions the platform did not fully receive.
+    // Submissions the platform did not fully receive. Without a platform state the badge says "未提交".
     ['upload failed before the platform received the bundle', { attemptId: 18, ok: false, stage: 'upload', error: { message: 'network down' } },
-      view('提交未完成', '未知', 'error', '—', undefined)],
-    ['CLI upload failed', { attemptId: 19, ok: false, status: 'submitted' },
-      view('提交未完成', '已提交', 'error', '—', undefined)],
+      view('提交未完成', '未提交', 'error', '—', undefined)],
+    // "查询结果" merges the platform attempt over a failed-upload receipt and keeps its stale `ok: false`;
+    // the platform state wins. The attempt card still hides its score line for an `ok: false` result.
+    ['stale ok: false after the platform reported the attempt', { attemptId: 19, ok: false, stage: 'upload', error: { message: 'network down' }, status: 'submitted' },
+      view('已提交，等待结果', '已提交', 'neutral', '—', undefined)],
+    // A draft has nothing to score, so the drawer card shows no score line.
     ['draft', { attemptId: 20, ok: true, status: 'draft', score: 0, scoringState: { state: 'draft', scoreIsFinal: false } },
-      view('提交未完成', '草稿', 'error', '—', awaiting)],
+      view('提交未完成', '草稿', 'error', '—', undefined)],
+    // The platform accepted an incomplete bundle: the submission exists and no retry is offered.
+    ['bundle accepted as incomplete', { attemptId: 21, ok: true, status: 'submitted', bundleStatus: 'incomplete' },
+      view('已提交，等待结果', '材料不完整', 'warning', '—', awaiting)],
   ];
   for (const [name, receipt, expected] of cases) {
     const f = await localizedFixture(t);
