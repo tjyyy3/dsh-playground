@@ -27,7 +27,8 @@ window.__ModuleLoader__.load({
           awaiting_review: '等待审核', unknown: '未知', not_scored: '未评分', rejected: '未通过',
           late_scored: '赛后已评分', pending_review: '等待审核', scoring: '评测中' },
         progress: { created: '任务已创建', running: 'Agent 执行中', submitted: '已提交，等待结果', evaluating: '评测中',
-          final: '已出最终分', finalLate: '已出最终分（赛后）', failed: '评测未通过', reference: '参考', points: '分' },
+          final: '已出最终分', finalLate: '已出最终分（赛后）', failed: '评测未通过', incomplete: '提交未完成',
+          notSubmitted: '未提交', attempt: '提交', reference: '参考', points: '分' },
         metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
           result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
       },
@@ -52,7 +53,8 @@ window.__ModuleLoader__.load({
           awaiting_review: 'Awaiting review', unknown: 'Unknown', not_scored: 'Not scored', rejected: 'Rejected',
           late_scored: 'Scored after deadline', pending_review: 'Pending review', scoring: 'Scoring' },
         progress: { created: 'Task created', running: 'Agent running', submitted: 'Submitted, awaiting result', evaluating: 'Evaluating',
-          final: 'Final score available', finalLate: 'Final score available (after deadline)', failed: 'Evaluation not passed', reference: 'Ref.', points: 'pts' },
+          final: 'Final score available', finalLate: 'Final score available (after deadline)', failed: 'Evaluation not passed', incomplete: 'Submission incomplete',
+          notSubmitted: 'Not submitted', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
         metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
           result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
       },
@@ -93,38 +95,55 @@ window.__ModuleLoader__.load({
       return 'neutral';
     }
 
-    // Chinese lookup for workbench surfaces that do not receive the host translator.
+    // Chinese lookup for workbench text that stays Chinese regardless of the host language, such as
+    // the task list row, which sits among hard-coded Chinese labels. The workbench does receive `t`.
     const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales.zh) ?? key;
 
-    // Stage and score display for one submission receipt. The task list row, the drawer summary and
-    // any submission history share it, so the stage, badge and score always follow the platform state.
-    // Only a score the platform marks final is shown as a score; a non-zero non-final score is a reference.
-    function receiptProgress(receipt, t = zhText, { running = false } = {}) {
-      const scoring = receipt?.scoringState || {};
-      const state = scoring.state || receipt?.bundleStatus || receipt?.status;
-      const states = [scoring.state, receipt?.status];
-      const scoreIsFinal = scoring.scoreIsFinal === true;
-      const stage = running ? 'running'
-        : !receipt ? 'created'
-          : scoreIsFinal ? (receipt.status === 'late_scored' ? 'finalLate' : 'final')
-            : states.some((value) => ['failed', 'rejected'].includes(value)) || receipt.bundleStatus === 'failed' ? 'failed'
-              : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
-                : 'submitted';
-      const finalScore = scoreIsFinal ? scoring.displayScore ?? receipt?.score : undefined;
-      const referenceScore = scoreIsFinal ? undefined : scoring.provisionalScore ?? scoring.displayScore ?? receipt?.score;
-      const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
-        : Number.isFinite(referenceScore) && referenceScore !== 0 ? `${t('progress.reference')} ${referenceScore}` : '—';
-      return { stage, stageText: t(`progress.${stage}`), state, stateText: state ? stateLabel(state, t) : undefined,
-        tone: scoreIsFinal ? 'success' : statusTone(state), scoreIsFinal, score: finalScore, referenceScore, scoreText };
+    // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
+    // final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
+    // a reference while evaluation is pending. CLI receipts may carry `scoringState` as a bare string;
+    // it names the state only and never implies that the score is final.
+    function attemptScore(item) {
+      const raw = item?.scoringState;
+      const scoring = typeof raw === 'string' ? { state: raw } : raw || {};
+      const failed = [scoring.state, item?.status].some((value) => ['failed', 'rejected'].includes(value)) || item?.bundleStatus === 'failed';
+      const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
+      const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : undefined;
+      const reference = scoreIsFinal || failed ? undefined : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
+      return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && reference !== 0 ? reference : undefined };
     }
 
+    const stageTones = { final: 'success', finalLate: 'success', failed: 'error', evaluating: 'warning', incomplete: 'error' };
+
+    // Stage, badge and score display for one submission receipt. The task list row, the drawer summary
+    // and any submission history share it, so the stage, badge and score always follow the platform state.
+    function receiptProgress(receipt, t = zhText, { running = false } = {}) {
+      const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
+      const states = [scoring.state, receipt?.status];
+      const known = (value) => (value && value !== 'unknown' ? value : undefined);
+      const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
+      const receiptStage = !receipt ? 'created'
+        : failed ? 'failed'
+          : scoreIsFinal ? (receipt.status === 'late_scored' ? 'finalLate' : 'final')
+            : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
+              : receipt.ok === false || states.includes('draft') || receipt.bundleStatus === 'incomplete' ? 'incomplete'
+                : 'submitted';
+      const stage = running ? 'running' : receiptStage;
+      const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
+        : referenceScore !== undefined ? `${t('progress.reference')} ${referenceScore}` : '—';
+      const badgeText = !receipt ? t('progress.notSubmitted') : state ? stateLabel(state, t) : t('unknown');
+      const badgeTone = !receipt ? (running ? 'warning' : 'neutral') : stageTones[receiptStage] || 'neutral';
+      return { stage, stageText: t(`progress.${stage}`), state, badgeText, badgeTone,
+        scoreIsFinal, score: finalScore, referenceScore, scoreText };
+    }
+
+    // Score line for attempt cards and lists; follows the same rules as `receiptProgress`. A failed or
+    // rejected attempt gets no score line.
     function scoreLabel(item, t) {
-      if (item.scoringState?.scoreIsFinal === true) {
-        return `${t('finalScore')}: ${item.scoringState.displayScore ?? item.score ?? '—'}`;
-      }
-      if (item.scoringState?.provisionalScore !== undefined || (item.score !== undefined && item.score !== 0)) {
-        return `${t('referenceScore')}: ${item.scoringState?.provisionalScore ?? item.score}`;
-      }
+      const { failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(item);
+      if (scoreIsFinal) return `${t('finalScore')}: ${finalScore ?? '—'}`;
+      if (failed) return undefined;
+      if (referenceScore !== undefined) return `${t('referenceScore')}: ${referenceScore}`;
       return t('awaitingScore');
     }
 
@@ -132,7 +151,7 @@ window.__ModuleLoader__.load({
       const task = state?.task;
       const prepared = state?.prepared;
       const receipt = state?.receipt;
-      const progress = receiptProgress(receipt, t);
+      const progress = receiptProgress(receipt, t, { running });
       const [target, setTarget] = React.useState(task?.challengeId || '');
       const [files, setFiles] = React.useState({ bundle_path: '', trace_path: '', manifest_path: '', method: '', model: '' });
       const [showFiles, setShowFiles] = React.useState(false);
@@ -190,7 +209,7 @@ window.__ModuleLoader__.load({
             h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'cancel' }) }, '取消本次提交'))) : null,
         edited && prepared ? h('p', { className: 'pg-note' }, '输入已改变，请重新检查材料。') : null,
         receipt ? h('details', { className: 'pg-raw', open: showResult, onToggle: (event) => setShowResult(event.currentTarget.open) },
-          h('summary', null, `提交 #${receipt.attemptId ?? '—'} · ${progress.stateText || t('unknown')} · ${progress.stageText} · ${progress.scoreText}`),
+          h('summary', null, `${t('progress.attempt')} #${receipt.attemptId ?? '—'} · ${progress.badgeText} · ${progress.stageText} · ${progress.scoreText}`),
           h(PlaygroundToolCard, { phase: 'result', block: { meta: { playground: receipt } }, toolName: 'playground_get_attempt', t })) : null,
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
         running ? h('p', { className: 'pg-note', role: 'status' }, '此会话正在执行任务，请等待完成或返回对话停止生成后操作。') : !allowed ? h('p', { className: 'pg-note' }, '当前连接没有此会话的操作权限。') : null,
@@ -333,7 +352,7 @@ window.__ModuleLoader__.load({
           h('strong', null, title),
           h('span', { className: 'pg-task-row-meta' }, challengeId, ' · ', stage)),
         h('span', { className: 'pg-task-row-side' },
-          h('span', { className: 'pg-badge', 'data-tone': progress.state ? progress.tone : statusTone(session.running ? 'active' : 'unknown') }, progress.stateText || '未提交'),
+          h('span', { className: 'pg-badge', 'data-tone': progress.badgeTone }, progress.badgeText),
           h('span', { className: 'pg-task-row-score' }, progress.scoreText),
           h('span', { className: 'pg-task-row-updated' }, updated)));
     }
@@ -432,11 +451,11 @@ window.__ModuleLoader__.load({
             data.challengeCount !== undefined ? h('span', null, `${t('challengeCount')}: ${data.challengeCount}`) : null,
             data.completionThreshold !== undefined ? h('span', null, `${t('threshold')}: ${data.completionThreshold}`) : null,
             data.total !== undefined ? h('span', null, `${t('total')}: ${data.total}`) : null),
-          isAttempt && !data.items && data.ok ? h('div', { className: 'pg-score' }, scoreLabel(data, t)) : null,
+          isAttempt && !data.items && data.ok && scoreLabel(data, t) ? h('div', { className: 'pg-score' }, scoreLabel(data, t)) : null,
           data.items ? h('ul', { className: 'pg-list' }, data.items.length ? data.items.map((item) => h('li', { key: item.id, className: 'pg-row' },
             h('div', { className: 'pg-row-main' }, item.title || String(item.id),
               h('div', { className: 'pg-row-sub' }, `${t('id')}: ${item.id}`, item.endAt ? ` · ${new Date(item.endAt).toLocaleString()}` : '',
-                isAttempt ? h('div', null, scoreLabel(item, t)) : null)),
+                isAttempt && scoreLabel(item, t) ? h('div', null, scoreLabel(item, t)) : null)),
             h('span', { className: 'pg-badge' }, stateLabel(item.scoringState?.state || item.status, t)))) : h('li', { className: 'pg-note' }, t('empty'))) : null,
           data.hasMore ? h('p', { className: 'pg-note' }, t('more')) : null,
           data.metrics?.length ? h(React.Fragment, null,
