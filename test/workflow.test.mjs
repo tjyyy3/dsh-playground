@@ -240,6 +240,7 @@ test('login never records CLI output, credentials or a duplicate identity copy',
       // classifies it by looking the command up instead.
       [Object.assign(new Error('\uFFFD\uFFFD\uFFFD\uFFFD'), { code: 'cli_not_found' }), /未找到 Playground CLI/],
       [Object.assign(new Error('killed'), { code: 'cli_terminated' }), /中断或超时/],
+      [Object.assign(new Error('unsafe argument'), { code: 'cli_unsafe_argument' }), /cliPath 设为 Playground CLI 的 JS 入口/],
       [Object.assign(new Error('invalid password for test@example.test, token=synthetic-secret'), { code: 'cli_error' }), /检查邮箱和密码/],
     ]) {
       cliFailure = failure;

@@ -236,7 +236,10 @@ without an open conversation and adds no record to any conversation. The CLI
 writes its normal credentials file; the plugin reads the token from that file
 for subsequent API reads. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
-the `PLAYGROUND_CLI` environment variable. A missing token returns
+the `PLAYGROUND_CLI` environment variable. On Windows, an npm or pnpm `.cmd`
+shim is started through its JavaScript entry with `node`, so `cmd.exe` does not
+reparse the arguments; if the plugin reports `cli_unsafe_argument`, set `cliPath`
+to that `.js` entry (for example `...\dist\index.js`). A missing token returns
 `authentication_required` with the same guidance; public catalog reads remain
 anonymous.
 
