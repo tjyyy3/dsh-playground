@@ -299,7 +299,10 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeSettings(config) {
+// Node's setTimeout fires after 1 ms for delays above 2^31 - 1 ms.
+const MAX_TIMER_MS = 2147483647;
+
+export function normalizeSettings(config) {
   const source = config !== null && typeof config === 'object' ? config : {};
   const baseUrl = typeof source.baseUrl === 'string' && source.baseUrl.trim().length > 0
     ? source.baseUrl.trim()
@@ -320,11 +323,13 @@ function normalizeSettings(config) {
     ? source.credentialsPath.trim()
     : (process.env.PLAYGROUND_CREDENTIALS_PATH || DEFAULT_CLI_CREDENTIALS_PATH);
   const cliTimeoutMs = Number.isFinite(Number(source.cliTimeoutMs)) && Number(source.cliTimeoutMs) > 0
-    ? Number(source.cliTimeoutMs)
+    ? Math.min(Number(source.cliTimeoutMs), MAX_TIMER_MS)
     : 120000;
+  // Without its own setting, submission keeps at least the login timeout, so a raised
+  // cliTimeoutMs still applies to slow uploads.
   const cliSubmitTimeoutMs = Number.isFinite(Number(source.cliSubmitTimeoutMs)) && Number(source.cliSubmitTimeoutMs) > 0
-    ? Number(source.cliSubmitTimeoutMs)
-    : 600000;
+    ? Math.min(Number(source.cliSubmitTimeoutMs), MAX_TIMER_MS)
+    : Math.max(600000, cliTimeoutMs);
   return { baseUrl, token, timeoutMs, uploadTimeoutMs, cliPath, credentialsPath, cliTimeoutMs, cliSubmitTimeoutMs };
 }
 

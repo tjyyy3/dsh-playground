@@ -236,9 +236,10 @@ without an open conversation and adds no record to any conversation. The CLI
 writes its normal credentials file; the plugin reads the token from that file
 for subsequent API reads. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
-the `PLAYGROUND_CLI` environment variable. Prefer an absolute `cliPath`; a
-relative path containing a slash is resolved against the workspace the CLI runs
-in, on every platform. On Windows, only npm- and pnpm-style `.cmd` shims are
+the `PLAYGROUND_CLI` environment variable. Prefer an absolute `cliPath`; on
+every platform, a relative path containing a slash is resolved against the
+CLI's working directory: the task workspace for submission and the DSH process
+directory for login. On Windows, only npm- and pnpm-style `.cmd` shims are
 parsed: the plugin starts their JavaScript entry with `node`, so `cmd.exe` does
 not reparse the arguments. Other wrappers run through a guarded `cmd.exe`
 fallback that refuses arguments `cmd.exe` would interpret. If the plugin reports
@@ -286,8 +287,8 @@ The row accepts:
 | `uploadTimeoutMs` | `180000` | Per-request timeout for submission and bundle uploads, including response body reading |
 | `cliPath` | `playground` | Installed Playground CLI executable used for login and confirmed submission |
 | `credentialsPath` | CLI default | Optional `PLAYGROUND_CREDENTIALS_PATH`-style credentials file override |
-| `cliTimeoutMs` | `120000` | Maximum duration for one CLI login |
-| `cliSubmitTimeoutMs` | `600000` | Maximum duration for one CLI submission, including the bundle upload and the CLI's retries |
+| `cliTimeoutMs` | `120000` | Maximum duration for one CLI login (at most `2147483647`) |
+| `cliSubmitTimeoutMs` | `600000` or `cliTimeoutMs`, whichever is larger | Maximum duration for one CLI submission, including the bundle upload and the CLI's retries (at most `2147483647`) |
 | `token` | — | Playground token override; prefer `PLAYGROUND_TOKEN` |
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
