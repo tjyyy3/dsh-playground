@@ -43,7 +43,7 @@ async function clientFixture(t, services = {}) {
   }); } } };
   await import(`../client.js?fixture=${fixtureId++}`);
   const registrations = new Map();
-  plugin.apply({ ...services, effect: () => {}, slots: {
+  plugin.apply({ effect: () => {}, ...services, slots: {
     inject: (_name, fn) => { const result = fn(); if (result?.next) [...result]; },
     register: (definition, Component) => { registrations.set(definition.name === 'main' ? 'main' : definition.id || definition.key || definition.name, { definition, Component }); },
   } });
@@ -392,4 +392,87 @@ test('workbench login needs no conversation and keeps the password out of the ca
   // The login panel is rendered and usable with no source conversation at all.
   const { auth } = f.workbench(undefined);
   assert.equal('sessionId' in auth.props, false);
+});
+
+// Runs the plugin's locale registration so tests can use the same zh/en messages as DSH.
+async function localizedFixture(t) {
+  const messages = {};
+  const f = await clientFixture(t, { effect: (fn) => fn(), locale: { register: (_name, value) => Object.assign(messages, value) } });
+  const translator = (language) => (key) => messages[language][key] ?? key;
+  return { ...f, zh: translator('zh'), en: translator('en') };
+}
+
+// Renders the workbench with one task session and returns the summary row and drawer receipt summary.
+function taskViews(f, playgroundTask, t) {
+  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask } };
+  const Main = f.registrations.get('main').Component;
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t };
+  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
+  const row = f.render(rowElement.type, rowElement.props);
+  const part = (className) => f.find(row, (node) => node.props?.className === className);
+  row.props.onClick();
+  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = f.render(selected.type, selected.props);
+  const summary = f.find(f.render(workflow.type, workflow.props), (node) => node.type === 'summary' && text(node).startsWith('提交 #'));
+  return {
+    stage: text(part('pg-task-row-meta')).split('·').at(-1).trim(),
+    badge: text(part('pg-badge')), tone: part('pg-badge').props['data-tone'],
+    score: text(part('pg-task-row-score')), summary: summary && text(summary),
+  };
+}
+
+test('task rows derive stage, badge and score from the platform state, consistently with the drawer', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const cases = [
+    ['final score', { attemptId: 1, status: 'scored', score: 87.5, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 87.5 } },
+      { stage: '已出最终分', badge: '评分完成', tone: 'success', score: '87.5 分' }],
+    ['final after deadline', { attemptId: 2, status: 'late_scored', score: 64, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 64 } },
+      { stage: '已出最终分（赛后）', badge: '评分完成', tone: 'success', score: '64 分' }],
+    ['a final score of zero is still final', { attemptId: 3, status: 'scored', score: 0, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 0 } },
+      { stage: '已出最终分', badge: '评分完成', tone: 'success', score: '0 分' }],
+    ['scoring failed', { attemptId: 4, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false } },
+      { stage: '评测未通过', badge: '失败', tone: 'error', score: '—' }],
+    ['rejected', { attemptId: 5, status: 'scored', score: 0, scoringState: { state: 'rejected', scoreIsFinal: false } },
+      { stage: '评测未通过', badge: '未通过', tone: 'error', score: '—' }],
+    ['bundle rejected', { attemptId: 6, ok: false, status: 'submitted', bundleStatus: 'failed' },
+      { stage: '评测未通过', badge: '失败', tone: 'error', score: '—' }],
+    ['queued with score 0', { attemptId: 7, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+      { stage: '评测中', badge: '排队中', tone: 'warning', score: '—' }],
+    ['queued with a provisional score', { attemptId: 8, status: 'scoring', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 41 } },
+      { stage: '评测中', badge: '评测中', tone: 'warning', score: '参考 41' }],
+    ['pending review without a scoring state', { attemptId: 9, status: 'pending_review' },
+      { stage: '评测中', badge: '等待审核', tone: 'warning', score: '—' }],
+  ];
+  for (const [name, receipt, expected] of cases) {
+    const f = await localizedFixture(t);
+    const view = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: view.stage, badge: view.badge, tone: view.tone, score: view.score }, expected, name);
+    assert.equal(view.summary, `提交 #${receipt.attemptId} · ${expected.badge} · ${expected.stage} · ${expected.score}`, name);
+  }
+  const f = await localizedFixture(t);
+  const created = taskViews(f, { task, prepared: null, receipt: null }, f.zh);
+  assert.deepEqual({ stage: created.stage, badge: created.badge, score: created.score, summary: created.summary },
+    { stage: '任务已创建', badge: '未提交', score: '—', summary: undefined });
+  const english = await localizedFixture(t);
+  const en = taskViews(english, { task, prepared: null, receipt: cases[1][1] }, english.en);
+  assert.equal(en.summary, '提交 #2 · Final · Final score available (after deadline) · 64 pts');
+});
+
+test('platform states rejected, late_scored, pending_review and scoring have zh and en names', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_list_my_attempts').Component;
+  const items = [{ id: 1, scoringState: { state: 'rejected' } }, { id: 2, status: 'late_scored' }, { id: 3, status: 'pending_review' }, { id: 4, scoringState: { state: 'scoring' } }];
+  for (const [translate, names] of [[f.zh, ['未通过', '赛后已评分', '等待审核', '评测中']], [f.en, ['Rejected', 'Scored after deadline', 'Pending review', 'Scoring']]]) {
+    const card = f.render(Card, { phase: 'result', toolName: 'playground_list_my_attempts', t: translate, block: { meta: { playground: { ok: true, items } } } });
+    const badges = findAll(f.find(card, (node) => node.props?.className === 'pg-list'), (node) => node.props?.className === 'pg-badge').map(text);
+    assert.deepEqual(badges, names);
+  }
+  for (const [receipt, badge] of [[{ status: 'scored', scoringState: { state: 'rejected' } }, '未通过'], [{ status: 'late_scored' }, '赛后已评分'],
+    [{ status: 'pending_review' }, '等待审核'], [{ status: 'scoring', scoringState: { state: 'scoring' } }, '评测中']]) {
+    const fresh = await localizedFixture(t);
+    const view = taskViews(fresh, { task: { challengeId: 'fixture', title: 'Fixture' }, prepared: null, receipt }, fresh.zh);
+    assert.equal(view.badge, badge);
+  }
 });

@@ -24,7 +24,10 @@ window.__ModuleLoader__.load({
         states: { draft: '草稿', active: '进行中', ended: '已结束', archived: '已归档', open: '开放',
           submitted: '已提交', scored: '已评分', queued: '排队中', evaluating: '评测中', final: '评分完成',
           failed: '失败', ready: '已接收', incomplete: '材料不完整', awaiting_bundle: '等待评测包',
-          awaiting_review: '等待审核', unknown: '未知', not_scored: '未评分' },
+          awaiting_review: '等待审核', unknown: '未知', not_scored: '未评分', rejected: '未通过',
+          late_scored: '赛后已评分', pending_review: '等待审核', scoring: '评测中' },
+        progress: { created: '任务已创建', running: 'Agent 执行中', submitted: '已提交，等待结果', evaluating: '评测中',
+          final: '已出最终分', finalLate: '已出最终分（赛后）', failed: '评测未通过', reference: '参考', points: '分' },
         metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
           result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
       },
@@ -46,7 +49,10 @@ window.__ModuleLoader__.load({
         states: { draft: 'Draft', active: 'Active', ended: 'Ended', archived: 'Archived', open: 'Open',
           submitted: 'Submitted', scored: 'Scored', queued: 'Queued', evaluating: 'Evaluating', final: 'Final',
           failed: 'Failed', ready: 'Accepted', incomplete: 'Incomplete', awaiting_bundle: 'Awaiting bundle',
-          awaiting_review: 'Awaiting review', unknown: 'Unknown', not_scored: 'Not scored' },
+          awaiting_review: 'Awaiting review', unknown: 'Unknown', not_scored: 'Not scored', rejected: 'Rejected',
+          late_scored: 'Scored after deadline', pending_review: 'Pending review', scoring: 'Scoring' },
+        progress: { created: 'Task created', running: 'Agent running', submitted: 'Submitted, awaiting result', evaluating: 'Evaluating',
+          final: 'Final score available', finalLate: 'Final score available (after deadline)', failed: 'Evaluation not passed', reference: 'Ref.', points: 'pts' },
         metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
           result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
       },
@@ -81,10 +87,35 @@ window.__ModuleLoader__.load({
     }
 
     function statusTone(state) {
-      if (['failed', 'incomplete'].includes(state)) return 'error';
-      if (['queued', 'evaluating', 'awaiting_bundle', 'awaiting_review', 'active'].includes(state)) return 'warning';
-      if (['submitted', 'scored', 'final', 'ready', 'open'].includes(state)) return 'success';
+      if (['failed', 'incomplete', 'rejected'].includes(state)) return 'error';
+      if (['queued', 'evaluating', 'scoring', 'pending_review', 'awaiting_bundle', 'awaiting_review', 'active'].includes(state)) return 'warning';
+      if (['submitted', 'scored', 'late_scored', 'final', 'ready', 'open'].includes(state)) return 'success';
       return 'neutral';
+    }
+
+    // Chinese lookup for workbench surfaces that do not receive the host translator.
+    const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales.zh) ?? key;
+
+    // Stage and score display for one submission receipt. The task list row, the drawer summary and
+    // any submission history share it, so the stage, badge and score always follow the platform state.
+    // Only a score the platform marks final is shown as a score; a non-zero non-final score is a reference.
+    function receiptProgress(receipt, t = zhText, { running = false } = {}) {
+      const scoring = receipt?.scoringState || {};
+      const state = scoring.state || receipt?.bundleStatus || receipt?.status;
+      const states = [scoring.state, receipt?.status];
+      const scoreIsFinal = scoring.scoreIsFinal === true;
+      const stage = running ? 'running'
+        : !receipt ? 'created'
+          : scoreIsFinal ? (receipt.status === 'late_scored' ? 'finalLate' : 'final')
+            : states.some((value) => ['failed', 'rejected'].includes(value)) || receipt.bundleStatus === 'failed' ? 'failed'
+              : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
+                : 'submitted';
+      const finalScore = scoreIsFinal ? scoring.displayScore ?? receipt?.score : undefined;
+      const referenceScore = scoreIsFinal ? undefined : scoring.provisionalScore ?? scoring.displayScore ?? receipt?.score;
+      const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
+        : Number.isFinite(referenceScore) && referenceScore !== 0 ? `${t('progress.reference')} ${referenceScore}` : '—';
+      return { stage, stageText: t(`progress.${stage}`), state, stateText: state ? stateLabel(state, t) : undefined,
+        tone: scoreIsFinal ? 'success' : statusTone(state), scoreIsFinal, score: finalScore, referenceScore, scoreText };
     }
 
     function scoreLabel(item, t) {
@@ -101,6 +132,7 @@ window.__ModuleLoader__.load({
       const task = state?.task;
       const prepared = state?.prepared;
       const receipt = state?.receipt;
+      const progress = receiptProgress(receipt, t);
       const [target, setTarget] = React.useState(task?.challengeId || '');
       const [files, setFiles] = React.useState({ bundle_path: '', trace_path: '', manifest_path: '', method: '', model: '' });
       const [showFiles, setShowFiles] = React.useState(false);
@@ -158,7 +190,7 @@ window.__ModuleLoader__.load({
             h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'cancel' }) }, '取消本次提交'))) : null,
         edited && prepared ? h('p', { className: 'pg-note' }, '输入已改变，请重新检查材料。') : null,
         receipt ? h('details', { className: 'pg-raw', open: showResult, onToggle: (event) => setShowResult(event.currentTarget.open) },
-          h('summary', null, `提交 #${receipt.attemptId ?? '—'} · ${stateLabel(receipt.scoringState?.state || receipt.bundleStatus || receipt.status, t)} · ${scoreLabel(receipt, t)}`),
+          h('summary', null, `提交 #${receipt.attemptId ?? '—'} · ${progress.stateText || t('unknown')} · ${progress.stageText} · ${progress.scoreText}`),
           h(PlaygroundToolCard, { phase: 'result', block: { meta: { playground: receipt } }, toolName: 'playground_get_attempt', t })) : null,
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
         running ? h('p', { className: 'pg-note', role: 'status' }, '此会话正在执行任务，请等待完成或返回对话停止生成后操作。') : !allowed ? h('p', { className: 'pg-note' }, '当前连接没有此会话的操作权限。') : null,
@@ -290,11 +322,10 @@ window.__ModuleLoader__.load({
       const state = session.projectionValues?.playgroundTask || {};
       const task = state.task;
       const receipt = state.receipt;
-      const platformState = receipt?.scoringState?.state || receipt?.bundleStatus || receipt?.status;
+      const progress = receiptProgress(receipt, zhText, { running: session.running });
       const title = task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
       const challengeId = task?.challengeId || '赛题待读取';
-      const stage = session.running ? 'Agent 执行中' : receipt ? '已提交，等待结果' : task ? '任务已创建' : '状态待读取';
-      const score = receipt?.scoringState?.displayScore ?? receipt?.scoringState?.provisionalScore ?? receipt?.score;
+      const stage = receipt || task || session.running ? progress.stageText : '状态待读取';
       const updatedAt = session.updatedAt || session.lastActivityAt || session.createdAt;
       const updated = updatedAt ? new Date(updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '暂无时间';
       return h('button', { type: 'button', className: `pg-task-row${selected ? ' is-selected' : ''}`, onClick: onSelect, 'aria-pressed': selected },
@@ -302,8 +333,8 @@ window.__ModuleLoader__.load({
           h('strong', null, title),
           h('span', { className: 'pg-task-row-meta' }, challengeId, ' · ', stage)),
         h('span', { className: 'pg-task-row-side' },
-          h('span', { className: 'pg-badge', 'data-tone': statusTone(platformState || (session.running ? 'active' : 'unknown')) }, platformState ? (locales.zh.states[platformState] || platformState) : '未提交'),
-          h('span', { className: 'pg-task-row-score' }, score !== undefined && score !== null ? `${score} 分` : '—'),
+          h('span', { className: 'pg-badge', 'data-tone': progress.state ? progress.tone : statusTone(session.running ? 'active' : 'unknown') }, progress.stateText || '未提交'),
+          h('span', { className: 'pg-task-row-score' }, progress.scoreText),
           h('span', { className: 'pg-task-row-updated' }, updated)));
     }
 
