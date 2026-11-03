@@ -43,7 +43,7 @@ async function clientFixture(t, services = {}) {
   }); } } };
   await import(`../client.js?fixture=${fixtureId++}`);
   const registrations = new Map();
-  plugin.apply({ ...services, effect: () => {}, slots: {
+  plugin.apply({ effect: () => {}, ...services, slots: {
     inject: (_name, fn) => { const result = fn(); if (result?.next) [...result]; },
     register: (definition, Component) => { registrations.set(definition.name === 'main' ? 'main' : definition.id || definition.key || definition.name, { definition, Component }); },
   } });
@@ -392,4 +392,166 @@ test('workbench login needs no conversation and keeps the password out of the ca
   // The login panel is rendered and usable with no source conversation at all.
   const { auth } = f.workbench(undefined);
   assert.equal('sessionId' in auth.props, false);
+});
+
+// Runs the plugin's locale registration so tests can use the same zh/en messages as DSH.
+async function localizedFixture(t) {
+  const messages = {};
+  const f = await clientFixture(t, { effect: (fn) => fn(), locale: { register: (_name, value) => Object.assign(messages, value) } });
+  const translator = (language) => (key) => messages[language][key] ?? key;
+  return { ...f, zh: translator('zh'), en: translator('en') };
+}
+
+// Renders the workbench with one task session and returns the summary row, the drawer receipt
+// summary and the score line of the drawer's attempt card.
+function taskViews(f, playgroundTask, t, { running = false } = {}) {
+  const session = { id: 's', displayTitle: 'Playground · Fixture', running, projectionValues: { playgroundTask } };
+  const Main = f.registrations.get('main').Component;
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t };
+  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
+  const row = f.render(rowElement.type, rowElement.props);
+  const part = (className) => f.find(row, (node) => node.props?.className === className);
+  row.props.onClick();
+  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = f.render(selected.type, selected.props);
+  const result = f.find(f.render(workflow.type, workflow.props), (node) => node.type === 'details' && node.props.className === 'pg-raw');
+  const summary = result && f.find(result, (node) => node.type === 'summary');
+  const card = result && f.find(result, (node) => node.type?.name === 'PlaygroundToolCard');
+  const scoreLine = card && f.find(f.render(card.type, card.props), (node) => node.props?.className === 'pg-score');
+  return {
+    stage: text(part('pg-task-row-meta')).split('·').at(-1).trim(),
+    badge: text(part('pg-badge')), tone: part('pg-badge').props['data-tone'],
+    score: text(part('pg-task-row-score')), summary: summary && text(summary), card: scoreLine && text(scoreLine),
+  };
+}
+
+
+// Expected row, drawer and attempt-card display for one receipt. `card` is the score line of the
+// drawer's attempt card; undefined means the card shows no score line.
+const view = (stage, badge, tone, score, card) => ({ stage, badge, tone, score, card });
+const awaiting = '等待评分，暂无最终分数';
+const finalLine = (score) => `最终分数: ${score}`;
+const referenceLine = (score) => `参考分（未确认最终）: ${score}`;
+
+test('task rows derive stage, badge and score from the platform state, consistently with the drawer', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const cases = [
+    ['final score', { attemptId: 1, ok: true, status: 'scored', score: 87.5, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 87.5 } },
+      view('已出最终分', '评分完成', 'success', '87.5 分', finalLine(87.5))],
+    ['final after deadline', { attemptId: 2, ok: true, status: 'late_scored', score: 64, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 64 } },
+      view('已出最终分（赛后）', '评分完成', 'success', '64 分', finalLine(64))],
+    ['a final score of zero is still final', { attemptId: 3, ok: true, status: 'scored', score: 0, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 0 } },
+      view('已出最终分', '评分完成', 'success', '0 分', finalLine(0))],
+    ['scoring failed', { attemptId: 4, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false } },
+      view('评测未通过', '失败', 'error', '—', undefined)],
+    ['rejected', { attemptId: 5, ok: true, status: 'scored', score: 0, scoringState: { state: 'rejected', scoreIsFinal: false } },
+      view('评测未通过', '未通过', 'error', '—', undefined)],
+    ['bundle rejected', { attemptId: 6, ok: false, status: 'submitted', bundleStatus: 'failed' },
+      view('评测未通过', '失败', 'error', '—', undefined)],
+    ['queued with score 0', { attemptId: 7, ok: true, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+      view('评测中', '排队中', 'warning', '—', awaiting)],
+    ['evaluating with a provisional score', { attemptId: 8, ok: true, status: 'scoring', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 41 } },
+      view('评测中', '评测中', 'warning', '参考 41', referenceLine(41))],
+    ['pending review without a scoring state', { attemptId: 9, ok: true, status: 'pending_review' },
+      view('评测中', '等待审核', 'warning', '—', awaiting)],
+    // Failed and rejected attempts are terminal: a computed or provisional score is not shown as a reference.
+    ['rejected with a non-zero score', { attemptId: 10, ok: true, status: 'scored', score: 72, scoringState: { state: 'rejected', scoreIsFinal: false, displayScore: 72 } },
+      view('评测未通过', '未通过', 'error', '—', undefined)],
+    ['failed with a provisional score', { attemptId: 11, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false, provisionalScore: 30 } },
+      view('评测未通过', '失败', 'error', '—', undefined)],
+    ['a final flag never overrides a rejection', { attemptId: 12, ok: true, status: 'scored', score: 72, scoringState: { state: 'rejected', scoreIsFinal: true, displayScore: 72 } },
+      view('评测未通过', '未通过', 'error', '—', undefined)],
+    ['unknown scoring state with pending review', { attemptId: 13, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'unknown', scoreIsFinal: false } },
+      view('评测中', '等待审核', 'warning', '—', awaiting)],
+    // Status-only receipts never claim a final score, and the badge tone follows the stage.
+    ['status-only scored', { attemptId: 14, ok: true, status: 'scored', score: 80 },
+      view('已提交，等待结果', '已评分', 'neutral', '参考 80', referenceLine(80))],
+    ['status-only late_scored', { attemptId: 15, ok: true, status: 'late_scored' },
+      view('已提交，等待结果', '赛后已评分', 'neutral', '—', awaiting)],
+    // CLI receipts may carry the scoring state as a bare string; it never implies a final score.
+    ['CLI string final scoring state', { attemptId: 16, ok: true, status: 'scored', score: 87, scoringState: 'final' },
+      view('已提交，等待结果', '评分完成', 'neutral', '参考 87', referenceLine(87))],
+    ['CLI string rejected scoring state', { attemptId: 17, ok: true, status: 'scored', score: 55, scoringState: 'rejected' },
+      view('评测未通过', '未通过', 'error', '—', undefined)],
+    // Submissions the platform did not fully receive. Without a platform state the badge says "未提交".
+    ['upload failed before the platform received the bundle', { attemptId: 18, ok: false, stage: 'upload', error: { message: 'network down' } },
+      view('提交未完成', '未提交', 'error', '—', undefined)],
+    // "查询结果" merges the platform attempt over a failed-upload receipt and keeps its stale `ok: false`;
+    // the platform state wins. The attempt card still hides its score line for an `ok: false` result.
+    ['stale ok: false after the platform reported the attempt', { attemptId: 19, ok: false, stage: 'upload', error: { message: 'network down' }, status: 'submitted' },
+      view('已提交，等待结果', '已提交', 'neutral', '—', undefined)],
+    // A draft has nothing to score, so the drawer card shows no score line.
+    ['draft', { attemptId: 20, ok: true, status: 'draft', score: 0, scoringState: { state: 'draft', scoreIsFinal: false } },
+      view('提交未完成', '草稿', 'error', '—', undefined)],
+    // The platform accepted an incomplete bundle: the submission exists and no retry is offered.
+    ['bundle accepted as incomplete', { attemptId: 21, ok: true, status: 'submitted', bundleStatus: 'incomplete' },
+      view('已提交，等待结果', '材料不完整', 'warning', '—', awaiting)],
+  ];
+  for (const [name, receipt, expected] of cases) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected, name);
+    assert.equal(views.summary, `提交 #${receipt.attemptId} · ${expected.badge} · ${expected.stage} · ${expected.score}`, name);
+  }
+  const f = await localizedFixture(t);
+  const created = taskViews(f, { task, prepared: null, receipt: null }, f.zh);
+  assert.deepEqual({ stage: created.stage, badge: created.badge, tone: created.tone, score: created.score, summary: created.summary },
+    { stage: '任务已创建', badge: '未提交', tone: 'neutral', score: '—', summary: undefined });
+  const english = await localizedFixture(t);
+  const en = taskViews(english, { task, prepared: null, receipt: cases[1][1] }, english.en);
+  assert.equal(en.summary, 'Submission #2 · Final · Final score available (after deadline) · 64 pts');
+  assert.equal(en.card, 'Final score: 64');
+});
+
+test('a running task shows the agent stage with the receipt badge and score, in the row and the drawer', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  for (const [receipt, expected] of [
+    [{ attemptId: 1, ok: true, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, view('Agent 执行中', '排队中', 'warning', '—', awaiting)],
+    [{ attemptId: 2, ok: true, status: 'scored', score: 90, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } }, view('Agent 执行中', '评分完成', 'success', '90 分', finalLine(90))],
+  ]) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh, { running: true });
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected);
+    assert.equal(views.summary, `提交 #${receipt.attemptId} · ${expected.badge} · ${expected.stage} · ${expected.score}`);
+  }
+  const f = await localizedFixture(t);
+  const idle = taskViews(f, { task, prepared: null, receipt: null }, f.zh, { running: true });
+  assert.deepEqual({ stage: idle.stage, badge: idle.badge, tone: idle.tone }, { stage: 'Agent 执行中', badge: '未提交', tone: 'warning' });
+});
+
+test('platform states rejected, late_scored, pending_review and scoring have zh and en names', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_list_my_attempts').Component;
+  const items = [{ id: 1, scoringState: { state: 'rejected' } }, { id: 2, status: 'late_scored' }, { id: 3, status: 'pending_review' }, { id: 4, scoringState: { state: 'scoring' } }];
+  for (const [translate, names] of [[f.zh, ['未通过', '赛后已评分', '等待审核', '评测中']], [f.en, ['Rejected', 'Scored after deadline', 'Pending review', 'Scoring']]]) {
+    const card = f.render(Card, { phase: 'result', toolName: 'playground_list_my_attempts', t: translate, block: { meta: { playground: { ok: true, items } } } });
+    const badges = findAll(f.find(card, (node) => node.props?.className === 'pg-list'), (node) => node.props?.className === 'pg-badge').map(text);
+    assert.deepEqual(badges, names);
+  }
+  for (const [receipt, badge, stage] of [[{ status: 'scored', scoringState: { state: 'rejected' } }, '未通过', '评测未通过'],
+    [{ status: 'late_scored' }, '赛后已评分', '已提交，等待结果'],
+    [{ status: 'pending_review' }, '等待审核', '评测中'], [{ status: 'scoring', scoringState: { state: 'scoring' } }, '评测中', '评测中']]) {
+    const fresh = await localizedFixture(t);
+    const views = taskViews(fresh, { task: { challengeId: 'fixture', title: 'Fixture' }, prepared: null, receipt }, fresh.zh);
+    assert.deepEqual({ badge: views.badge, stage: views.stage }, { badge, stage });
+  }
+});
+
+test('attempt lists apply the same score rules as the task row', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_list_my_attempts').Component;
+  const items = [
+    { id: 1, status: 'scored', score: 80, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 80 } },
+    { id: 2, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+    { id: 3, status: 'scored', score: 72, scoringState: { state: 'rejected', scoreIsFinal: true, displayScore: 72 } },
+    { id: 4, status: 'pending_review', score: 30, scoringState: { state: 'evaluating', scoreIsFinal: false } },
+  ];
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_list_my_attempts', t: f.zh, block: { meta: { playground: { ok: true, items } } } });
+  const rows = findAll(f.find(card, (node) => node.props?.className === 'pg-list'), (node) => node.props?.className === 'pg-row-sub').map(text);
+  assert.match(rows[0], /最终分数: 80/);
+  assert.match(rows[1], /等待评分，暂无最终分数/);
+  assert.doesNotMatch(rows[2], /72|分数|参考|等待/);
+  assert.match(rows[3], /参考分（未确认最终）: 30/);
 });
