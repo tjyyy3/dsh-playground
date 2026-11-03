@@ -108,6 +108,75 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
   assert.equal(find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer'), undefined);
 });
 
+// Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
+function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
+  const Main = f.registrations.get('main').Component;
+  const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
+    useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+  const row = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
+  f.render(row.type, row.props).props.onClick();
+  return () => {
+    const drawer = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
+    const selected = f.find(f.render(drawer.type, drawer.props), (n) => n.type?.name === 'SelectedTask');
+    const task = f.render(selected.type, selected.props);
+    return f.render(task.type, task.props);
+  };
+}
+const buttonLabeled = (f, tree, label) => f.find(tree, (n) => n.type === 'button' && text(n).includes(label));
+
+test('task details offer no working-mode selector for a participation task', async (t) => {
+  const f = await clientFixture(t);
+  const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: null, receipt: null };
+  const tree = taskDrawer(f, () => state, async () => ({ ok: true }))();
+  assert.equal(f.find(tree, (n) => n.type === 'select'), undefined);
+  assert.doesNotMatch(text(tree), /工作模式|切回参赛/);
+  assert.ok(buttonLabeled(f, tree, '准备提交 / 检查材料'));
+});
+
+test('an author-mode task shows its note and switches back to participation through the mode action', async (t) => {
+  const f = await clientFixture(t);
+  const calls = [];
+  let state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'author' }, prepared: null, receipt: null };
+  const run = async (...args) => { calls.push(args); state = { ...state, task: { ...state.task, mode: args[1].mode } }; return { ok: true }; };
+  const workflow = taskDrawer(f, () => state, run);
+  let tree = workflow();
+  assert.equal(f.find(tree, (n) => n.type === 'select'), undefined);
+  assert.match(text(tree), /尚未接入平台出题修改与发布/);
+  assert.equal(buttonLabeled(f, tree, '准备提交 / 检查材料'), undefined);
+  await buttonLabeled(f, tree, '切回参赛').props.onClick();
+  assert.deepEqual(calls, [['s', { action: 'mode', mode: 'participate' }, false]]);
+  tree = workflow();
+  assert.equal(buttonLabeled(f, tree, '切回参赛'), undefined);
+  assert.ok(buttonLabeled(f, tree, '准备提交 / 检查材料'));
+});
+
+test('切回参赛 is disabled without session access or while the agent is running', async (t) => {
+  const f = await clientFixture(t);
+  const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'author' }, prepared: null, receipt: null };
+  const run = async () => assert.fail('a disabled switch-back ran a session command');
+  const enabled = buttonLabeled(f, taskDrawer(f, () => state, run)(), '切回参赛');
+  assert.equal(enabled.props.disabled, false);
+  for (const [label, options, note] of [
+    ['no access', { access: false }, /没有此会话的操作权限/],
+    ['running', { running: true }, /此会话正在执行任务/],
+  ]) {
+    const tree = taskDrawer(f, () => state, run, options)();
+    assert.equal(buttonLabeled(f, tree, '切回参赛').props.disabled, true, label);
+    assert.match(text(tree), note, label);
+  }
+});
+
+test('the workbench usage help names only the participation start', async (t) => {
+  const f = await clientFixture(t);
+  const main = f.registrations.get('main');
+  const tree = f.render(main.Component, { ...main.definition.inject(),
+    useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }), useSessionAccess: () => true, refreshProjections: async () => {} });
+  const help = f.find(tree, (n) => n.type === 'details' && n.props.className === 'pg-help');
+  assert.match(text(help), /开始参赛任务/);
+  assert.doesNotMatch(text(help), /开始出题任务/);
+});
+
 test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
   const { registrations, find, render, unmount } = await clientFixture(t);
   const Main = registrations.get('main').Component;
@@ -294,7 +363,10 @@ test('catalog browsing needs no conversation, but task starts need one with comm
   for (const [sessionId, access, hint] of [[undefined, true, /打开一个 DSH 对话/], ['A', false, /没有在此对话中创建任务的权限/], ['A', true, undefined]]) {
     const panel = await f.mount(f.workbench(sessionId, access).catalog);
     const starts = findAll(panel, (node) => node.type?.name === 'StartTaskButton');
-    assert.equal(starts.length, 2);
+    // Author mode is not open yet: each challenge card offers only a participation start.
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0].props.mode, 'participate');
+    assert.doesNotMatch(text(panel), /开始出题任务/);
     assert.ok(starts.every((start) => start.props.disabled === Boolean(hint)));
     if (hint) assert.match(text(panel), hint);
     else assert.doesNotMatch(text(panel), /才能从目录创建任务|没有在此对话中创建任务/);

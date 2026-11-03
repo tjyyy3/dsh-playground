@@ -534,6 +534,23 @@ test('mode switches preserve receipts, clear confirmation and do not grant submi
   assert.equal((await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)).ok, false);
 });
 
+test('an author task refuses material checks until it switches back to participation', async () => {
+  const f = await fixture();
+  assert.equal((await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, mode: 'author' }, f.exec)).ok, true);
+  const exec = { agent: f.ctx.agents.get('new-task'), signal: f.exec.signal };
+  assert.equal(f.states.get('new-task').task.mode, 'author');
+  const refused = await f.workflow.prepare({ challenge_id: 'challenge-a' }, exec);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error.message, /出题模式当前仅支持本地准备资料/);
+  const command = await f.workflow.command({ agent: exec.agent, signal: exec.signal, rawInput: '{"action":"mode","mode":"participate"}' });
+  f.states.set('new-task', workflowProjection.apply(f.states.get('new-task'), { type: 'command/done', data: command }));
+  assert.equal(f.states.get('new-task').task.mode, 'participate');
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, exec);
+  assert.equal(checked.ok, true, checked.error?.message);
+  assert.equal(checked.workflow.prepared.traceCount, 1);
+  assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
+});
+
 test('registered agent submission cannot write without native workflow services; no confirmation tool exists', async () => {
   const tools = [];
   apply({ tools: { register: (tool) => tools.push(tool) }, get: () => undefined });

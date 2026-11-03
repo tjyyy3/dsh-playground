@@ -33,14 +33,14 @@ requires authentication and can consume a platform submission slot.
 
 1. Search/read challenges in an exploration conversation, or open
    **Playground** in DSH's left navigation. Use the readable competition and
-   challenge catalog and click **开始参赛任务** or **开始出题任务**. The plugin
+   challenge catalog and click **开始参赛任务**. The plugin
    asks you to select a DSH workspace and confirm its full path before creating
    a fresh native DSH session with the selected challenge; the
    exploration conversation remains intact. You do not need to type a challenge
    id by hand.
 2. The workspace dialog lists DSH's registered workspaces. **添加工作区…** uses
    DSH's native directory picker to register another directory. Choosing a
-   directory does not start a task: click **创建参赛任务** (or **创建出题任务**)
+   directory does not start a task: click **创建参赛任务**
    to continue, or cancel without creating a conversation. Every UI start
    requires this confirmation.
    Work using DSH's existing chat, files and workspace features. Agent calls to
@@ -75,10 +75,15 @@ requires authentication and can consume a platform submission slot.
    `results`. The task supplies its receipt id. Result details are collapsible;
    task, pending card and receipt restore from the native session log.
 
-**参赛 / 出题** are switchable working modes, not account identities. Switching
-preserves the receipt and clears a pending confirmation. Author mode can prepare
-local problem materials; platform problem creation/editing/publication is outside
-this MVP. Codex chat management is also outside scope.
+**参赛 / 出题** are working modes, not account identities. Author mode (出题)
+is not open yet: the workbench and chat cards only start participation tasks,
+and task details no longer offer a mode selector. A task that is in author
+mode (created by an earlier version, or set by an agent through
+`playground_start_task` with `mode: "author"` or `playground_task` with
+`action: "mode"`) still opens with its author note and a **切回参赛** button;
+switching back preserves the receipt, clears a pending confirmation and
+restores material checks. Platform problem creation/editing/publication is
+outside this MVP. Codex chat management is also outside scope.
 
 Local checks cover file existence/size, ZIP signatures, object-valued trace
 records, nonempty execution steps, manifest JSON and exact SHA-256 snapshots.
@@ -112,7 +117,7 @@ it does not embed the website or create a separate conversation store.
 The workbench now keeps the connection status in a full-width header card, then
 uses two adjustable columns by default: a searchable competition/challenge
 catalog on the left and task summaries on the right. Choose a
-readable challenge card and click **开始参赛任务** or **开始出题任务**, then
+readable challenge card and click **开始参赛任务**, then
 select and confirm the destination workspace. The same confirmation applies
 to start buttons in chat result cards. The challenge id stays an implementation
 detail. The right column lists only
