@@ -141,6 +141,23 @@ test('errors say whether the CLI process started', async () => {
   assert.deepEqual(await slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), ['done']);
 });
 
+test('a failed CLI keeps its output streams for classification but hides them from serialization', async () => {
+  const failing = createPlaygroundCli({
+    command: await fakeCli(join(root, 'streams', 'fail.mjs'), "console.log('stub-stdout'); console.error('error: stub-stderr'); process.exit(1);"),
+  });
+  const error = await failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }).then(
+    () => assert.fail('expected the stub CLI to fail'),
+    (failure) => failure,
+  );
+  assert.equal(error.started, true);
+  assert.equal(error.code, 'cli_error');
+  assert.equal(Object.keys(error).includes('stdout'), false);
+  assert.equal(Object.keys(error).includes('stderr'), false);
+  assert.match(error.stdout, /stub-stdout/);
+  assert.match(error.stderr, /error: stub-stderr/);
+  assert.doesNotMatch(JSON.stringify(error), /stub-stdout|stub-stderr/);
+});
+
 test('Windows: the current directory is never searched for the CLI or node', { skip: process.platform !== 'win32' }, async () => {
   const cwd = join(root, 'planted 工作区');
   const marker = join(markers, 'planted.txt');
