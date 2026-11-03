@@ -77,6 +77,69 @@ test('creating a task uses a new native session and preserves the exploration se
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
 });
 
+// A long synthetic statement and resource list must never reach the first prompt.
+function longChallenge(f, extra = {}) {
+  const statement = `SYNTHETIC-STATEMENT-BODY ${'lorem ipsum dolor sit amet '.repeat(400)}`;
+  const resources = [{ kind: 'dataset', name: 'SYNTHETIC-RESOURCE-NAME', description: 'resource description '.repeat(60) }];
+  f.client.getChallenge = async (id) => ({ id, title: 'Synthetic challenge', content: statement, resources, ...extra });
+  return { statement, resources };
+}
+const startPrompts = (f) => f.calls.filter(([kind]) => kind === 'prompt');
+
+test('the first task prompt is short and carries identifiers, not the statement or resources', async () => {
+  const f = await fixture();
+  const { statement, resources } = longChallenge(f);
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+  assert.equal(result.ok, true);
+  const prompts = startPrompts(f);
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0][1].mode, 'queue');
+  assert.equal(prompts[0][1].sessionId, 'new-task');
+  const text = prompts[0][1].content[0].text;
+  assert.equal(prompts[0][1].content.length, 1);
+  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+  assert.equal(text.includes('SYNTHETIC-STATEMENT-BODY'), false);
+  assert.equal(text.includes(statement.slice(0, 200)), false);
+  assert.equal(text.includes('SYNTHETIC-RESOURCE-NAME'), false);
+  assert.equal(text.includes(JSON.stringify(resources)), false);
+  assert.ok(text.includes('Synthetic challenge'));
+  assert.ok(text.includes('challenge-a'));
+  assert.ok(text.includes('http://127.0.0.1:15000/challenge/challenge-a'));
+  assert.equal(text.includes('/api/'), false);
+  assert.ok(text.includes(`工作区：${f.cwd}`));
+  assert.ok(text.includes('模式：参赛'));
+  assert.ok(text.includes('playground_get_challenge'));
+  assert.ok(text.includes('playground_check_materials'));
+  assert.ok(text.includes('确认目标并提交'));
+  assert.match(text, /不是操作授权/);
+  assert.match(text, /不要自动扫描工作区、检查材料或修改文件/);
+  assert.equal(text.includes('出题模式目前可在本地准备资料'), false);
+  // The agent shell has no network and DSH has no submit-attempt skill: neither may be suggested.
+  assert.equal(/curl|submit-attempt/.test(text), false);
+  assert.match(text, /不要在终端里运行 playground submit/);
+});
+
+test('the author-mode prompt keeps its local-preparation notice', async () => {
+  const f = await fixture();
+  longChallenge(f);
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, mode: 'author' }, f.exec);
+  assert.equal(result.ok, true);
+  const text = startPrompts(f)[0][1].content[0].text;
+  assert.ok(text.includes('模式：出题'));
+  assert.ok(text.includes('出题模式目前可在本地准备资料，尚未接入平台出题写接口。'));
+  assert.equal(text.includes('SYNTHETIC-STATEMENT-BODY'), false);
+});
+
+test('a gated challenge still refuses to create a task or send a prompt', async () => {
+  const f = await fixture();
+  longChallenge(f, { contentGated: true });
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /题面不可读取/);
+  assert.deepEqual(f.calls, []);
+  assert.equal(f.states.get('new-task'), undefined);
+});
+
 test('task creation requires an explicit absolute directory instead of inheriting the source', async () => {
   for (const cwd of [undefined, '', '   ', '.', 'solution']) {
     const f = await fixture();

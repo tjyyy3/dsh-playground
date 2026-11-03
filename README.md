@@ -51,6 +51,14 @@ requires authentication and can consume a platform submission slot.
    no implicit default. DSH resolves alternative paths to the same registered
    directory. Continue work in the resulting task conversation; ask for a new
    task explicitly when you want another, separate task.
+   The new conversation's first message is a short Chinese prompt with the
+   challenge title, id, web URL, workspace and mode, plus four steps naming
+   `playground_get_challenge`, `playground_check_materials` and the
+   confirmation card. It does not embed the statement or resources: the agent
+   reads them itself with `playground_get_challenge`, so they are always
+   current, and the prompt does not authorize any action. It tells the agent
+   not to run `playground submit` in the terminal; real submission happens
+   only when you click **确认目标并提交**.
 3. Prepare an ARM ZIP and a real execution trace. In the global workbench, select
    the task and click **准备提交 / 检查材料**,
    or ask `playground_check_materials` with an explicit target. Unambiguous
