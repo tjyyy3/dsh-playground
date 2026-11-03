@@ -85,12 +85,13 @@ open conversation. Creating tasks, checking materials, and confirming
 submissions continue to use the session workflow, so the catalog's start
 buttons stay disabled until a conversation with command access is open.
 
-Chat command cards show the operation, status, and a result summary, with a
-native expandable details section. Login-status and catalog records that older
-versions logged automatically from the `playground` command are hidden in chat
-(the stored history is unchanged); historical **Playground 登录** cards still
-show. Details project selected business facts rather than raw CLI output,
-credentials, account details, or local paths; expanding a card never reruns it.
+Chat no longer shows the login-status and catalog cards that older plugin
+versions wrote automatically into open conversations; the stored history is
+unchanged. Cards for the explicit **Playground 登录** action still show.
+Command cards show the operation, status and a result summary with a native
+expandable details section. Details project selected business facts rather
+than raw CLI output, credentials, account details or local paths; expanding a
+card never reruns it.
 
 In v0.4.4, **Playground** in the native left navigation opens a global workbench
 with a Playground login form and authentication status check.
@@ -114,7 +115,7 @@ the backdrop, or Escape. **返回所选任务对话** returns to native chat. Cr
 the catalog creates a new conversation without narrowing or overwriting the
 existing one.
 
-Chat keeps its historical tool/command cards. A pending check card offers
+Chat keeps its historical tool cards and workflow command cards. A pending check card offers
 **前往工作台确认提交**, which opens the workbench for that conversation.
 This navigation never confirms a submission. The workbench's **如何使用**
 explains the workflow; natural-language queries remain in DSH's own composer.

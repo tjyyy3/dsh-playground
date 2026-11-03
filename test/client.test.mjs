@@ -318,8 +318,28 @@ test('legacy auth/catalog records from the playground command render nothing', a
   const Card = f.registrations.get('playground').Component;
   for (const value of [legacyAuth, legacyCatalog]) {
     const node = { name: 'playground', outcome: { kind: 'success', text: JSON.stringify(value) } };
+    // Payload present, with and without args.
     assert.equal(f.render(Card, { node }), null);
     assert.equal(f.render(Card, { node: { ...node, args: '{"action":"auth"}' } }), null);
+  }
+  // A null payload still counts as a legacy record.
+  for (const key of ['playgroundAuth', 'playgroundCatalog']) {
+    assert.equal(f.render(Card, { node: { name: 'playground', outcome: { kind: 'success', text: JSON.stringify({ [key]: null }) } } }), null);
+  }
+});
+
+test('failed, interrupted and unparseable legacy auth/catalog leftovers render nothing', async (t) => {
+  const f = await clientFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  for (const action of ['auth', 'catalog']) {
+    const args = JSON.stringify({ action });
+    const render = (outcome) => f.render(Card, { node: { name: 'playground', args, outcome } });
+    assert.equal(render({ kind: 'error', text: 'Bearer private-token' }), null);
+    assert.equal(render({ kind: 'error', text: JSON.stringify({ ok: false, error: { code: 'authentication_required', message: 'x' } }) }), null);
+    assert.equal(render(null), null);
+    assert.equal(render(undefined), null);
+    assert.equal(render({ kind: 'success', text: '{bad-json' }), null);
+    assert.equal(render({ kind: 'success', text: '' }), null);
   }
 });
 
@@ -341,23 +361,51 @@ test('historical playground-auth-login cards still show summaries and inert safe
   }
 });
 
-test('playground workflow records and unparsed auth/catalog records are not hidden', async (t) => {
+test('workflow, login and confirmation records are never hidden as legacy queries', async (t) => {
   const f = await clientFixture(t);
   const Card = f.registrations.get('playground').Component;
   const workflow = f.render(Card, { node: { name: 'playground', args: '{"action":"start"}',
     outcome: { kind: 'success', text: JSON.stringify({ sessionId: 'S', playgroundWorkflow: { kind: 'start', task: { title: 'Synthetic' } } }) } } });
   assert.match(text(workflow), /创建任务对话/);
   // Workflow wins even if a legacy auth/catalog field is also present.
+  // The assertions target the workflow fact (task title) rather than the label, which a payload key can override.
   const mixed = f.render(Card, { node: { name: 'playground', outcome: { kind: 'success',
-    text: JSON.stringify({ ...legacyAuth, playgroundWorkflow: { kind: 'check' } }) } } });
+    text: JSON.stringify({ ...legacyAuth, playgroundWorkflow: { kind: 'start', task: { title: 'Synthetic' } } }) } } });
   assert.notEqual(mixed, null);
-  // Failed or unfinished records have no auth/catalog result, so they keep their explanation.
-  const failed = f.render(Card, { node: { name: 'playground', args: '{"action":"auth"}', outcome: { kind: 'error', text: 'Bearer private-token' } } });
-  assert.match(text(failed), /登录状态检测.*未完成/);
-  const pending = f.render(Card, { node: { name: 'playground', args: '{"action":"catalog"}', outcome: null } });
-  assert.match(text(pending), /赛题目录查询.*尚未完成/);
+  assert.match(text(mixed), /Synthetic/);
+  // Even a legacy action in args does not hide a record that carries a workflow result.
+  const mixedAction = f.render(Card, { node: { name: 'playground', args: '{"action":"auth"}', outcome: { kind: 'success',
+    text: JSON.stringify({ playgroundWorkflow: { kind: 'start', task: { title: 'Synthetic' } } }) } } });
+  assert.notEqual(mixedAction, null);
+  assert.match(text(mixedAction), /Synthetic/);
+  // The explicit login action keeps its card for both outcomes.
+  const login = f.render(Card, { node: { name: 'playground-auth-login', args: '{"action":"auth"}', outcome: { kind: 'success', text: JSON.stringify(legacyAuth) } } });
+  assert.match(text(login), /Playground 登录/);
+  const loginError = f.render(Card, { node: { name: 'playground-auth-login', args: '{"action":"auth"}', outcome: { kind: 'error', text: '未找到 Playground CLI。请先安装 CLI。' } } });
+  assert.match(text(loginError), /Playground 登录.*未完成/);
   const confirm = f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'success', text: JSON.stringify(legacyAuth) } } });
-  assert.notEqual(confirm, null);
+  assert.match(text(confirm), /确认提交/);
+});
+
+test('playground records with non-legacy actions render when pending, failed or unparseable', async (t) => {
+  const f = await clientFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  for (const [action, label] of [['check', /检查提交材料/], ['results', /查询评测结果/], ['start', /创建任务对话/],
+    ['mode', /切换工作模式/], ['cancel', /取消提交准备/], ['context', /任务上下文/]]) {
+    const args = JSON.stringify({ action });
+    const render = (outcome) => f.render(Card, { node: { name: 'playground', args, outcome } });
+    const pending = render(null);
+    assert.match(text(pending), label);
+    assert.match(text(pending), /尚未完成/);
+    const failed = render({ kind: 'error', text: 'Bearer private-token' });
+    assert.match(text(failed), label);
+    assert.match(text(failed), /未完成/);
+    assert.doesNotMatch(text(failed), /private-token/);
+    assert.match(text(render({ kind: 'success', text: '{bad-json' })), label);
+  }
+  // Unknown or missing action also stays visible.
+  assert.notEqual(f.render(Card, { node: { name: 'playground', args: '{"action":"mystery"}', outcome: null } }), null);
+  assert.notEqual(f.render(Card, { node: { name: 'playground', outcome: null } }), null);
 });
 
 test('command cards show plugin failure reasons but hide credentials and local paths', async (t) => {
