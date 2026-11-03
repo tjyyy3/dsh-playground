@@ -529,22 +529,25 @@ window.__ModuleLoader__.load({
         latest.controller = null;
         close();
       };
+      // The Escape listener calls through the holder, so it subscribes once even though `close` changes per render.
+      latest.dismiss = dismiss;
       React.useEffect(() => {
         latest.closed = false;
         load();
         return () => { latest.closed = true; latest.controller?.abort(); latest.controller = null; };
       }, [query, challengeId]);
       React.useEffect(() => {
-        const onKeyDown = (event) => { if (event.key === 'Escape') dismiss(); };
+        const onKeyDown = (event) => { if (event.key === 'Escape') latest.dismiss(); };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-      }, [close]);
+      }, []);
       const shown = detail || challenge;
       const title = shown.titleZh || shown.title || challengeId;
       const facts = [['方向', shown.discipline], ['来源', shown.origin], ['难度', shown.difficulty],
         ['状态', shown.status ? locales.zh.states[shown.status] || shown.status : undefined], ['提交次数', shown.attempts]]
         .filter(([, value]) => value !== undefined && value !== null && value !== '');
-      const tags = Array.isArray(shown.tags) ? shown.tags.filter((tag) => typeof tag === 'string' && tag) : [];
+      // Deduplicated here too: before the read settles the tags come from the catalog card, and each tag is a key.
+      const tags = Array.isArray(shown.tags) ? [...new Set(shown.tags.filter((tag) => typeof tag === 'string' && tag))] : [];
       const resources = Array.isArray(detail?.resources) ? detail.resources.filter((item) => item && typeof item === 'object') : [];
       const content = typeof detail?.content === 'string' ? detail.content : '';
       // Starting goes through the shared workspace dialog; the drawer closes so the dialog is the only modal.
@@ -565,7 +568,7 @@ window.__ModuleLoader__.load({
             openWebButton(detail?.webUrl || challenge.webUrl, title)),
           startBlocked ? h('p', { className: 'pg-note' }, startBlocked) : null,
           failed ? h('div', { className: 'pg-detail-section' },
-            h('p', { className: 'pg-error', role: 'alert' }, '赛题详情读取失败，请检查网络或稍后重试。'),
+            h('p', { className: 'pg-error', role: 'alert' }, '赛题详情读取失败，请稍后重试，或在网页中查看。'),
             h('div', { className: 'pg-actions' }, h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load() }, busy ? '正在读取…' : '重试'))) : null,
           busy && !detail && !failed ? h('p', { className: 'pg-note' }, '正在读取赛题详情…') : null,
           detail ? h('section', { className: 'pg-detail-section', 'aria-label': '资源' },
@@ -584,7 +587,10 @@ window.__ModuleLoader__.load({
               : [h('button', { key: 'toggle', type: 'button', className: 'pg-button', 'aria-expanded': expanded, onClick: () => setExpanded(!expanded) }, expanded ? '收起题面' : '展开题面'),
                 // Plain text with its line breaks kept; the plugin has no markdown renderer.
                 expanded ? h('pre', { key: 'statement', className: 'pg-statement', tabIndex: 0, 'aria-label': '题面全文' }, content) : null,
-                expanded && detail.truncated ? h('p', { key: 'truncated', className: 'pg-note' }, '题面超过 50000 字，这里只显示前 50000 字；完整题面请在网页中查看。') : null]) : null));
+                // The number comes from the Host's cap (`contentLimit`); without it the note names no number.
+                expanded && detail.truncated ? h('p', { key: 'truncated', className: 'pg-note' }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0
+                  ? `题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`
+                  : '题面过长，这里只显示前一部分；完整题面请在网页中查看。') : null]) : null));
     }
 
     // Two sibling buttons, never nested: the main area selects the task and opens its drawer;

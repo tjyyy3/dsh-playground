@@ -7,7 +7,7 @@ import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readM
 import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
-import { createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
+import { CHALLENGE_CONTENT_MAX, createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -1267,8 +1267,6 @@ test('a mode switch keeps the recorded task webUrl', () => {
   assert.equal(switched.task.webUrl, task.webUrl);
 });
 
-// The drawer receives at most this many statement characters.
-const CHALLENGE_CONTENT_MAX = 50000;
 test('the challenge detail read returns only the drawer fields, caps the statement and touches no conversation', async () => {
   const f = await fixture();
   const before = JSON.stringify([...f.states]);
@@ -1277,7 +1275,7 @@ test('the challenge detail read returns only the drawer fields, caps the stateme
   f.ctx.workingDirectory.get = () => assert.fail('challenge detail read must not read a workspace');
   const calls = [];
   const detail = { id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', origin: 'github', difficulty: 3, status: 'open',
-    attempts: 12, tags: ['t1', 't2'], hasContent: true, contentGated: false, content: 'line 1\nline 2', reviewStatus: 'approved', submittedBy: 'someone',
+    attempts: 12, tags: ['t1', 't2', 't1', '', 7, 't2'], hasContent: true, contentGated: false, content: 'line 1\nline 2', reviewStatus: 'approved', submittedBy: 'someone',
     armiId: 'armi-1', resources: [{ name: 'data.csv', kind: 'dataset', description: 'Input', role: 'input', source: 'https://example.test/data.csv' }, { name: 'x' }] };
   f.client.getChallenge = async (id, options) => { calls.push([id, options]); return detail; };
   const signal = new AbortController().signal;
@@ -1286,7 +1284,9 @@ test('the challenge detail read returns only the drawer fields, caps the stateme
   assert.deepEqual(result, { ok: true, id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', origin: 'github', difficulty: 3,
     status: 'open', attempts: 12, tags: ['t1', 't2'],
     resources: [{ name: 'data.csv', kind: 'dataset', description: 'Input', role: 'input', source: 'https://example.test/data.csv' }, { name: 'x' }],
-    contentGated: false, content: 'line 1\nline 2', truncated: false, webUrl: 'http://127.0.0.1:15000/challenge/a%20b%2Fc' });
+    contentGated: false, content: 'line 1\nline 2', truncated: false, contentLimit: CHALLENGE_CONTENT_MAX, webUrl: 'http://127.0.0.1:15000/challenge/a%20b%2Fc' });
+  // The drawer's truncation note reads its number from here; the cap itself is pinned once.
+  assert.equal(CHALLENGE_CONTENT_MAX, 50000);
   // The cap counts characters (code points), so a statement of astral characters is not cut in a surrogate pair.
   f.client.getChallenge = async () => ({ ...detail, content: '题'.repeat(CHALLENGE_CONTENT_MAX - 1) + '𝑥𝑦' });
   const long = await f.workflow.challenge('a b/c', { signal });
