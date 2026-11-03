@@ -519,7 +519,7 @@ test('D10a: playground_task status never returns the one-time checkId to the mod
     receipt: {
       ok: true, attemptId: 7, challengeId: 'challenge-a', challengeTitle: 'Synthetic challenge', status: 'submitted',
       bundleStatus: 'ready', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, traceCount: 1,
-      args: { challenge_id: 'challenge-a' }, baseUrl: 'http://127.0.0.1:15000/api',
+      args: { challenge_id: 'challenge-a' }, baseUrl: 'http://127.0.0.1:15000/api', note: 'Fix the violations and retry.',
       attempt: { id: 7, raw: 'cli-output' }, bundleResponse: { raw: 'cli-output' },
     },
   });
@@ -541,7 +541,7 @@ test('D10a: playground_task status never returns the one-time checkId to the mod
   // task and receipt are whitelisted too: raw CLI/platform payloads and host-internal ids stay out.
   assert.deepEqual(value.task, { challengeId: 'challenge-a', title: 'Synthetic challenge', mode: 'participate', cwd: '/synthetic/workspace' });
   assert.deepEqual(Object.keys(value.receipt).sort(), [
-    'args', 'attemptId', 'bundleStatus', 'challengeId', 'challengeTitle', 'ok', 'score', 'scoringState', 'status', 'traceCount',
+    'args', 'attemptId', 'bundleStatus', 'challengeId', 'challengeTitle', 'note', 'ok', 'score', 'scoringState', 'status', 'traceCount',
   ]);
   assert.deepEqual(value.receipt.scoringState, state.receipt.scoringState);
   assert.equal(value.receipt.attemptId, 7);

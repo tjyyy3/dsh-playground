@@ -506,7 +506,7 @@ function errorValue(error, extra = {}) {
 
 const TASK_STATUS_TASK_KEYS = ['challengeId', 'title', 'mode', 'cwd'];
 const TASK_STATUS_RECEIPT_KEYS = ['ok', 'attemptId', 'challengeId', 'challengeTitle', 'status', 'bundleStatus', 'score',
-  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args'];
+  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args', 'note'];
 
 function pickKeys(source, keys) {
   if (source === null || typeof source !== 'object') return null;
@@ -519,9 +519,11 @@ function pickKeys(source, keys) {
  *
  * `prepared.checkId` is intentionally excluded. It is the one-time code behind the workbench
  * "确认目标并提交" button. The model must not relay it to users: only the human-driven
- * `/playground-confirm` command can use it, and the model has no tool that runs commands, so
- * handing it to the model could only produce wrong instructions. Only the workbench button reads
- * it, from the session projection.
+ * `/playground-confirm` slash command can use it, and slash commands are user input that the model
+ * cannot call, so handing it to the model could only produce wrong instructions. The workbench UI
+ * and the session projection read it directly, not through this tool. It is a stale-click guard,
+ * not a credential. It still appears in the structured results of `playground_check_materials` and
+ * `playground_submit_attempt` and in `/playground check` output, because the projection needs it.
  */
 function taskStatus(state) {
   const prepared = state?.prepared;

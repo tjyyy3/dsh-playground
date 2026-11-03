@@ -236,6 +236,13 @@ be blocked (for example by network restrictions) or may need your approval
 first. Those are DSH settings, not a guarantee of this plugin, so review any
 terminal command the agent asks to run.
 
+The user can also confirm with the `/playground-confirm <code>` command. The
+code is a guard against clicking a stale card, not a credential. It is kept out
+of the `playground_task` `status` result, but it still appears in the structured
+results of `playground_check_materials` and `playground_submit_attempt` and in
+the `/playground check` output, because the workbench needs it to enable the
+button.
+
 ## Authentication
 
 Public challenge and competition reads work anonymously where platform access
