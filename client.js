@@ -156,6 +156,82 @@ window.__ModuleLoader__.load({
       return t('awaitingScore');
     }
 
+    // The workbench refreshes unscored submissions every two minutes while it is open.
+    const attemptRefreshMs = 120000;
+
+    // A receipt whose evaluation has ended: a final score, or a failed or rejected attempt.
+    const receiptSettled = (receipt) => ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
+
+    // The submission id of a receipt, or undefined when it is not a positive integer.
+    const receiptAttemptId = (receipt) => {
+      const id = Number(receipt?.attemptId);
+      return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+    };
+
+    // A refresh round never has more than this many requests in flight.
+    const refreshConcurrency = 4;
+    // A visibility change starts a round only when the previous one began at least this long ago.
+    const visibleRefreshGapMs = 30000;
+
+    // A submission still waiting for a platform result. A scored or incomplete bundle, a draft and a
+    // failed upload never change on their own, so they are not polled. `awaiting_review` is polled like
+    // `pending_review`, although the stage display still shows it as submitted.
+    function receiptPending(receipt) {
+      if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
+      const { stage } = receiptProgress(receipt, zhText);
+      if (stage === 'evaluating') return true;
+      const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes('awaiting_review');
+      return stage === 'submitted' && ([undefined, 'submitted'].includes(receipt.status) || awaitingReview);
+    }
+
+    // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
+    // resubmission under the same id or by "查询结果", no longer matches the stored result.
+    const receiptKey = (receipt) => receipt ? JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.ok, receipt.status,
+      receipt.bundleStatus, receipt.score, receipt.scoringState]) : undefined;
+
+    // Lays the latest platform state of a submission over its receipt. `entry` is `{ attempt, receiptKey }`
+    // from the workbench store. A result fetched for an earlier state of the receipt is ignored. Only the
+    // fields the platform returned replace receipt values. A non-final lookup never replaces a receipt
+    // that already has a final, failed or rejected result.
+    function withLatestAttempt(receipt, entry) {
+      if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
+      const merged = { ...receipt };
+      for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+      return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
+    }
+
+    const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
+
+    // Reads the given submissions through the session-free `attempt` query, one request per id, and keeps
+    // the results in `store`, each with the receipt it was fetched for. Nothing is written to any
+    // conversation. A round never overlaps another and keeps at most `refreshConcurrency` requests in flight.
+    async function refreshAttempts(store, ids) {
+      const wanted = [...new Set(ids)];
+      if (!wanted.length || store.controller || store.disposed) return;
+      const controller = new AbortController();
+      store.controller = controller;
+      store.startedAt = Date.now();
+      const keys = wanted.map((id) => receiptKey(store.receipts.get(id)));
+      store.publish();
+      const outcomes = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < wanted.length && !controller.signal.aborted) {
+          const index = next++;
+          try { outcomes[index] = { value: await store.query({ action: 'attempt', attemptId: wanted[index] }, controller.signal) }; } catch { /* counted as failed */ }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
+      if (store.controller !== controller) return;
+      store.controller = null;
+      const usable = (outcome) => outcome && outcome.value && typeof outcome.value === 'object';
+      const fresh = wanted.flatMap((id, index) => usable(outcomes[index]) ? [[id, { attempt: outcomes[index].value, receiptKey: keys[index] }]] : []);
+      store.attempts = { ...store.attempts, ...Object.fromEntries(fresh) };
+      store.failed = fresh.length < wanted.length;
+      if (!store.failed) { store.refreshedAt = Date.now(); store.partial = false; } else if (fresh.length) store.partial = true;
+      store.publish();
+    }
+
     function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, openTask, t }) {
       const task = state?.task;
       const prepared = state?.prepared;
@@ -230,7 +306,7 @@ window.__ModuleLoader__.load({
         busy ? h('p', { className: 'pg-note', role: 'status' }, '正在执行…') : null);
     }
 
-    function SelectedTask({ session, projection, useSessionAccess, refreshProjections, ...props }) {
+    function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
       const allowed = useSessionAccess(session.id, 'commands/execute');
       const [error, setError] = React.useState('');
       React.useEffect(() => {
@@ -240,7 +316,9 @@ window.__ModuleLoader__.load({
         return h('p', { className: 'pg-error', role: 'alert' }, error || projection.error?.message || '请先在 DSH 中打开此会话，完成会话迁移后再继续。');
       }
       if (projection?.state !== 'ready') return h('p', { className: 'pg-note', role: 'status' }, '正在读取任务状态…');
-      return h(TaskWorkflow, { ...props, sessionId: session.id, state: projection.values.playgroundTask,
+      const task = projection.values.playgroundTask;
+      const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
+      return h(TaskWorkflow, { ...props, sessionId: session.id, state: receipt === task?.receipt ? task : { ...task, receipt },
         cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
     }
 
@@ -351,10 +429,10 @@ window.__ModuleLoader__.load({
         ))));
     }
 
-    function TaskSummaryRow({ session, selected, onSelect }) {
+    function TaskSummaryRow({ session, attempts, selected, onSelect }) {
       const state = session.projectionValues?.playgroundTask || {};
       const task = state.task;
-      const receipt = state.receipt;
+      const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
       const progress = receiptProgress(receipt, zhText, { running: session.running });
       const title = task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
       const challengeId = task?.challengeId || '赛题待读取';
@@ -397,13 +475,62 @@ window.__ModuleLoader__.load({
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
+      // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
+      // in memory only and never reaches a session projection, so refreshing writes no conversation record.
+      const [, setVersion] = React.useState(0);
+      const [store] = React.useState(() => {
+        const holder = { attempts: {}, refreshedAt: undefined, failed: false, partial: false, controller: null, disposed: false, startedAt: undefined,
+          version: 0, query: null, pendingIds: [], taskIds: [], receipts: new Map() };
+        holder.publish = () => setVersion(++holder.version);
+        return holder;
+      });
+      const receiptsById = new Map();
+      for (const item of taskSessions) {
+        const receipt = item.projectionValues?.playgroundTask?.receipt;
+        const id = receiptAttemptId(receipt);
+        if (id !== undefined && !receiptsById.has(id)) receiptsById.set(id, receipt);
+      }
+      const taskIds = [...receiptsById.keys()];
+      const pendingIds = taskIds.filter((id) => taskSessions.some((item) => {
+        const receipt = item.projectionValues?.playgroundTask?.receipt;
+        return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
+      }));
+      const anyPending = pendingIds.length > 0;
+      // The timers and listeners below read these at call time. Declared first, so they are current
+      // when the mount and polling effects run.
+      React.useEffect(() => { store.query = query; store.taskIds = taskIds; store.pendingIds = pendingIds; store.receipts = receiptsById; });
+      const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+      // Opening the workbench reads the pending submissions once. A mount that follows a cleanup, as in
+      // StrictMode, starts over.
+      React.useEffect(() => {
+        store.disposed = false;
+        if (pageVisible()) refreshAttempts(store, store.pendingIds);
+        return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
+      }, []);
+      // While any submission is unscored: every two minutes, and when the page becomes visible again unless a
+      // round began in the last 30 seconds. It depends on whether anything is pending, not on which ids, so a
+      // task finishing neither requests again nor resets the timer. The ids are read when a round starts.
+      React.useEffect(() => {
+        if (!anyPending) return undefined;
+        const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingIds); };
+        const onVisibility = () => { if (store.startedAt === undefined || Date.now() - store.startedAt >= visibleRefreshGapMs) tick(); };
+        // Pending submissions that appear before any round has run (a list that loaded after mounting).
+        if (store.startedAt === undefined) tick();
+        const timer = setInterval(tick, attemptRefreshMs);
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+          clearInterval(timer);
+          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
+        };
+      }, [anyPending]);
+      const refreshing = Boolean(store.controller);
       React.useEffect(() => {
         if (selected && !taskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
       }, [selected, taskSessions.map((session) => session.id).join(',')]);
       const session = catalog.byId[selected] || taskSessions[0];
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
@@ -420,11 +547,18 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
               h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
-              h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'), h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`)),
+              h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'),
+                h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
+                  taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !taskIds.length,
+                    onClick: () => refreshAttempts(store, store.taskIds) }, refreshing ? '正在刷新…' : '刷新') : null)),
+              store.failed ? h('p', { className: 'pg-note pg-refresh-status pg-error', role: 'status' },
+                store.partial ? '刷新失败，部分任务显示的不是最新状态'
+                  : store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : '刷新失败，显示的是任务记录中的状态')
+                : store.refreshedAt ? h('p', { className: 'pg-note pg-refresh-status' }, `状态更新于 ${clock(store.refreshedAt)}`) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
-                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
+                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
                 : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), useSessionAccess, refreshProjections, openTask, run, ...props }) : null,
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”或“开始出题任务”。'),
