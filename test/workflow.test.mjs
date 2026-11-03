@@ -485,6 +485,43 @@ test('failed upload retains the attempt id and retry uploads into that exact att
   assert.equal(f.calls.filter(([kind]) => kind === 'create').length, 1);
 });
 
+// The drawer keys its submission history on receipt.confirmedAt, so a same-id retry must get a new stamp
+// and a results query must keep it.
+test('confirm stamps every receipt, including a same-id retry, and a results query keeps the stamp', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-05T08:00:00.000Z') });
+  const cliResults = [
+    { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'failed', violations: [{ message: 'bad bundle' }] } },
+    { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } },
+  ];
+  const cliPath = await fixture({ submit: async () => cliResults.shift() });
+  const apiPath = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+  let uploads = 0;
+  apiPath.client.uploadBundle = async (id) => ({ bundleStatus: uploads++ ? 'ready' : 'failed', violations: [], attempt: { id, status: 'submitted' } });
+  for (const [path, f] of [['cli', cliPath], ['api', apiPath]]) {
+    const first = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(first);
+    replay(f, await f.workflow.confirm(first.workflow.prepared.checkId, f.exec));
+    const failed = f.states.get('source').receipt;
+    assert.equal(failed.ok, false, path);
+    assert.equal(failed.attemptId, 7, path);
+    assert.equal(failed.confirmedAt, new Date().toISOString(), path);
+    t.mock.timers.tick(60_000);
+    const retry = await f.workflow.prepare(failed.args, f.exec);
+    f.record(retry);
+    replay(f, await f.workflow.confirm(retry.workflow.prepared.checkId, f.exec));
+    const retried = f.states.get('source').receipt;
+    assert.equal(retried.ok, true, path);
+    assert.equal(retried.attemptId, 7, path);
+    assert.equal(retried.confirmedAt, new Date().toISOString(), path);
+    assert.notEqual(retried.confirmedAt, failed.confirmedAt, path);
+    assert.deepEqual(f.states.get('source').attemptIds, [7], path);
+    t.mock.timers.tick(60_000);
+    f.record(await f.workflow.results({}, f.exec));
+    assert.equal(f.states.get('source').receipt.confirmedAt, retried.confirmedAt, path);
+  }
+  assert.equal(apiPath.calls.filter(([kind]) => kind === 'create').length, 1);
+});
+
 test('mode switches preserve receipts, clear confirmation and do not grant submission authority', async () => {
   const f = await fixture();
   f.states.set('source', { task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { attemptId: 7 }, prepared: { checkId: 'old' } });

@@ -582,9 +582,10 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭')),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           h(SelectedTask, { key: session.id, session, projection, ...props }),
-          // The newest attributed id and the receipt's update time are part of the key: a submission confirmed
-          // in this drawer, including a re-upload under the same id, remounts the list and reloads page one.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.updatedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
+          // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
+          // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
+          // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, ...props }) {

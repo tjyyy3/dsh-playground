@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
-import { createWorkflow } from '../lib/workflow.js';
+import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
 let fixtureId = 0;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -1128,6 +1128,14 @@ function rerender(f, element, previous) {
 }
 
 const historyTask = (extra = {}) => ({ task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: null, receipt: null, ...extra });
+// A receipt shaped like confirm()'s CLI-path output, with the confirmedAt stamp receiptOf writes
+// (test/workflow.test.mjs checks that confirm writes it). withReceipt replays it as the
+// /playground-confirm command/done text, the way the projection receives a confirmed receipt.
+const confirmedReceipt = (attemptId, confirmedAt, extra = {}) => ({ ok: true, baseUrl: 'http://127.0.0.1:15000/api', attemptId,
+  status: 'submitted', bundleStatus: 'ready', traceCount: 1, challengeTitle: 'Fixture',
+  args: { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: attemptId }, confirmedAt, ...extra });
+const withReceipt = (state, receipt) => workflowProjection.apply(state,
+  { type: 'command/done', data: { text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt }, ...receipt }) } });
 
 test('the task drawer lists every account submission for the challenge and marks only this conversation\'s', async (t) => {
   const f = await historyFixture(t, () => attemptsPage([
@@ -1185,6 +1193,8 @@ test('history rows take a settled result from the workbench refresh, but never a
     { ...queued, id: 304, created_at: '2026-10-04T08:00:00Z' },
     // Re-uploaded under the same id after the stored result was fetched.
     { ...queued, id: 305, created_at: '2026-10-04T09:00:00Z', updated_at: '2026-10-06T08:00:00Z' },
+    // No updated_at: the guard cannot compare dates, so it fails open and applies the dated entry.
+    { id: 306, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: 0, created_at: '2026-10-04T10:00:00Z' },
   ]), historyTask());
   assert.equal(f.requests.length, 1);
   const failed = { status: 'failed', score: null, scoringState: { state: 'failed', scoreIsFinal: false }, updatedAt: '2026-10-05T09:00:00Z' };
@@ -1194,18 +1204,22 @@ test('history rows take a settled result from the workbench refresh, but never a
     303: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } },
     304: { attempt: failed },
     305: { attempt: failed },
+    306: { attempt: failed },
   };
   const { tree, ran } = rerender(f, { type: f.history.type, props: { ...f.history.props, attempts } }, f.historyEffects);
   const rows = historyRows(tree);
   const tones = findAll(tree, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
-  assert.match(rows[0], /提交 #305 .* · 评测中 · — 排队中/);
-  assert.equal(tones[0], 'warning');
-  assert.match(rows[1], /提交 #304 .* · 评测未通过 · — 失败/);
-  assert.equal(tones[1], 'error');
-  assert.match(rows[2], /提交 #303 .* · 评测中 · — 排队中/);
-  assert.equal(tones[2], 'warning');
-  assert.match(rows[3], /提交 #302 .* · 已出最终分 · 50 分/);
-  assert.match(rows[4], /提交 #301 .* · 已出最终分 · 90 分/);
+  assert.equal(rows.length, 6);
+  assert.match(rows[0], /提交 #306 .* · 评测未通过 · — 失败/);
+  assert.equal(tones[0], 'error');
+  assert.match(rows[1], /提交 #305 .* · 评测中 · — 排队中/);
+  assert.equal(tones[1], 'warning');
+  assert.match(rows[2], /提交 #304 .* · 评测未通过 · — 失败/);
+  assert.equal(tones[2], 'error');
+  assert.match(rows[3], /提交 #303 .* · 评测中 · — 排队中/);
+  assert.equal(tones[3], 'warning');
+  assert.match(rows[4], /提交 #302 .* · 已出最终分 · 50 分/);
+  assert.match(rows[5], /提交 #301 .* · 已出最终分 · 90 分/);
   // Reading the store is not another poll: the re-render's read effect kept its deps and did not run.
   assert.equal(ran, 0);
   await settle();
@@ -1357,16 +1371,16 @@ test('a failed 加载更多 keeps the loaded rows and shows the error', async (t
 
 test('a submission attributed in the same drawer reloads the first page of the history', async (t) => {
   let items = [{ id: 102, challenge_id: 'fixture', scoring_state: 'final', score: 80, created_at: '2026-10-02T08:00:00Z' }];
-  const before = historyTask({ receipt: { ok: true, attemptId: 102 }, attemptIds: [102] });
+  const before = withReceipt(historyTask({ attemptIds: [] }), confirmedReceipt(102, '2026-10-02T08:00:00.000Z'));
   const f = await historyFixture(t, () => attemptsPage(items), before);
-  assert.equal(f.history.props.key, 's:fixture:102:');
+  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
   // An unchanged projection keeps the element key, so a re-render does not refetch.
-  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, 's:fixture:102:');
+  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
   // Confirming in the drawer's task card refreshes the projection with the new attributed attempt.
   items = [{ id: 104, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: null, created_at: '2026-10-03T08:00:00Z' }, ...items];
-  const after = { ...before, receipt: { ok: true, attemptId: 104 }, attemptIds: [102, 104] };
+  const after = withReceipt(before, confirmedReceipt(104, '2026-10-03T08:00:00.000Z'));
   const next = f.find(f.render(f.drawer.type, { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } }), isHistory);
-  assert.equal(next.props.key, 's:fixture:104:');
+  assert.equal(next.props.key, 's:fixture:104:2026-10-03T08:00:00.000Z');
   assert.deepEqual(next.props.attemptIds, [102, 104]);
   // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
   const panel = await f.mount(next);
@@ -1379,9 +1393,12 @@ test('a submission attributed in the same drawer reloads the first page of the h
 
 test('a re-upload under the same id reloads the history once, and a store publish alone does not', async (t) => {
   const row = { id: 102, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: null, created_at: '2026-10-02T08:00:00Z' };
-  const before = historyTask({ receipt: { ok: true, attemptId: 102, updatedAt: '2026-10-02T08:00:00Z' }, attemptIds: [102] });
+  // The first upload under 102 was rejected; the failed receipt keeps the id for the retry.
+  const before = withReceipt(historyTask({ attemptIds: [] }), confirmedReceipt(102, '2026-10-02T08:00:00.000Z',
+    { ok: false, bundleStatus: 'failed', violations: [{ message: 'bad bundle' }], error: { code: 'bundle_invalid', message: 'The platform rejected the bundle; see violations.' } }));
+  assert.deepEqual(before.attemptIds, [102]);
   const f = await historyFixture(t, () => attemptsPage([row]), before);
-  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00Z');
+  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
   assert.equal(f.requests.length, 1);
   // A store publish re-renders the drawer with new refresh results but the same projection.
   const attempts = { 102: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } } };
@@ -1390,11 +1407,16 @@ test('a re-upload under the same id reloads the history once, and a store publis
   assert.equal(rerender(f, published, f.historyEffects).ran, 0);
   await settle();
   assert.equal(f.requests.length, 1);
-  // A retry uploads a new bundle under id 102; the receipt keeps the id and gets a new update time.
-  const after = { ...before, receipt: { ...before.receipt, updatedAt: '2026-10-05T08:00:00Z' } };
+  // "查询结果" spreads the fetched attempt, including its updatedAt, into the receipt but keeps the stamp.
+  const queried = withReceipt(before, { ...before.receipt, status: 'failed', updatedAt: '2026-10-03T08:00:00Z' });
+  const queriedHistory = f.find(f.render(f.drawer.type, { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: queried } } }), isHistory);
+  assert.equal(queriedHistory.props.key, f.history.props.key);
+  // A retry uploads a new bundle under id 102; confirm writes a new receipt with the same id and a new stamp.
+  const after = withReceipt(queried, confirmedReceipt(102, '2026-10-05T08:00:00.000Z'));
+  assert.deepEqual(after.attemptIds, [102]);
   const drawerProps = { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } };
   const next = f.find(f.render(f.drawer.type, drawerProps), isHistory);
-  assert.equal(next.props.key, 's:fixture:102:2026-10-05T08:00:00Z');
+  assert.equal(next.props.key, 's:fixture:102:2026-10-05T08:00:00.000Z');
   assert.deepEqual(next.props.attemptIds, [102]);
   // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
   await f.mount(next);
