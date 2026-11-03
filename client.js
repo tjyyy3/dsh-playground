@@ -595,6 +595,12 @@ window.__ModuleLoader__.load({
       const workflow = result.playgroundWorkflow;
       const auth = result.playgroundAuth;
       const catalog = result.playgroundCatalog;
+      // Older plugin versions logged automatic auth/catalog queries from the `playground` command into
+      // whichever conversation was open. Nothing writes them now, so hide them, including failed, interrupted
+      // and unparseable leftovers (recognised by action when there is no payload); stored history is untouched.
+      // `playground-auth-login` also carries `playgroundAuth` but is a real user login and stays visible.
+      const legacyQuery = 'playgroundAuth' in result || 'playgroundCatalog' in result || input.action === 'auth' || input.action === 'catalog';
+      if (node.name === 'playground' && !workflow && legacyQuery) return null;
       const challenges = Array.isArray(catalog?.challenges?.items) ? catalog.challenges.items.filter((item) => item && typeof item === 'object') : [];
       const action = auth ? 'auth' : catalog ? 'catalog' : input.action || workflow?.kind;
       const label = node.name === 'playground-auth-login' ? 'Playground 登录'
