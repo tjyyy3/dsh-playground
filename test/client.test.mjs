@@ -921,7 +921,7 @@ function fakeDocument(t) {
 
 // Mounts the workbench over tasks whose latest receipts are `receipts` ([sessionId, receipt] pairs). `platform`
 // maps a submission id to its reply: an attempt object, or an Error for a transport failure.
-async function refreshHarness(t, receipts, platform, { visibility = 'visible' } = {}) {
+async function refreshHarness(t, receipts, platform, { visibility = 'visible', archived, uiWorkspace } = {}) {
   t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: new Date(2026, 10, 2, 9, 5).getTime() });
   const document = fakeDocument(t);
   document.visibilityState = visibility;
@@ -939,6 +939,7 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible' } 
       if (control.hold) held.push(entry); else respond(entry);
     }) } },
     remote: { commands: { execute: () => assert.fail('the refresh reached command history') } },
+    ...(uiWorkspace ? { uiWorkspace } : {}),
   });
   const Main = f.registrations.get('main').Component;
   const task = (title) => ({ challengeId: 'fixture', title, mode: 'participate' });
@@ -947,6 +948,7 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible' } 
   const actions = f.registrations.get('main').definition.inject();
   const props = () => ({ ...actions, useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])),
     projectionsBySession: Object.fromEntries(sessions.map((item) => [item.id, { state: 'ready', values: item.projectionValues }])) }),
+  ...(archived ? { useWorkspaces: (select) => select({ phase: 'ready', items: [], archivedSessionIds: archived, pinnedSessionIds: [] }) } : {}),
   useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => assert.fail('the refresh ran a session command'),
   openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh });
   // Renders like React: after each render, effects whose dependencies changed clean up and run again.
@@ -1092,6 +1094,49 @@ test('the refresh button requests the latest submission of every task at once an
   assert.deepEqual(h.calls.map((call) => call.id), [61, 61, 62]);
   await h.settled();
   assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [['a', '排队中', '—'], ['b', '评分完成', '80 分']]);
+});
+
+test('archived tasks are neither polled nor read by the refresh button', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [62, queuedAttempt], [63, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)], ['b', receiptOf(62)], ['c', receiptOf(63)]], platform, { archived: ['b'] });
+  h.flush();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63]);
+  await h.settled();
+  h.tick(twoMinutes);
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63, 61, 63]);
+  await h.settled();
+  h.button().props.onClick();
+  assert.deepEqual(h.calls.map((call) => call.id).slice(4), [61, 63]);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.id), ['a', 'c']);
+});
+
+test('a task with a pending submission can be archived, is not polled while archived, and is polled again after restore', async (t) => {
+  const archived = [];
+  const uiWorkspace = {
+    archiveSession: async (id) => { archived.push(id); },
+    unarchiveSession: async (id) => { archived.splice(archived.indexOf(id), 1); },
+  };
+  const platform = new Map([[61, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], platform, { archived, uiWorkspace });
+  const actions = h.f.registrations.get('main').definition.inject();
+  h.flush();
+  assert.deepEqual(h.calls.map((call) => call.id), [61]);
+  await h.settled();
+  assert.deepEqual(await actions.archiveTask('a'), { ok: true });
+  h.flush();
+  assert.deepEqual(h.rows(), []);
+  assert.equal(h.button(), undefined, 'no refresh button without a task in the overview');
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [61], 'the interval does not read an archived task');
+  assert.deepEqual(await actions.unarchiveTask('a'), { ok: true });
+  h.flush();
+  // The receipt is untouched by the archive: the card is back with its pending state.
+  assert.deepEqual(h.rows(), [{ id: 'a', badge: '排队中', score: '—' }]);
+  assert.equal(h.sessions[0].projectionValues.playgroundTask.receipt.attemptId, 61);
+  h.tick(twoMinutes);
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 61], 'polling resumes after restore');
 });
 
 test('a failed refresh keeps the last results, reports the last good time without raw errors, and retries on the next interval', async (t) => {
@@ -2061,4 +2106,292 @@ test('the drawer start button follows the catalog card start rule', async (t) =>
     assert.equal(findAll(tree, isOpenWeb).length, 1);
     h.unmountDrawer();
   }
+});
+
+// Archive: tasks a, b and c in the workbench, with DSH's archive set on the workspace list snapshot. The
+// default uiWorkspace records each call (with all its arguments) and updates the set as DSH does.
+async function archiveFixture(t, { archived = ['b'], running, uiWorkspace, useWorkspaces, mainView } = {}) {
+  const calls = [];
+  const set = { ids: archived };
+  const ui = uiWorkspace ?? {
+    archiveSession: async (...args) => { calls.push(['archive', ...args]); set.ids = [...set.ids, args[0]]; },
+    unarchiveSession: async (...args) => { calls.push(['unarchive', ...args]); set.ids = set.ids.filter((id) => id !== args[0]); },
+  };
+  const f = await clientFixture(t, { uiWorkspace: ui });
+  const main = f.registrations.get('main');
+  const opened = [];
+  const sessions = ['a', 'b', 'c'].map((id) => ({ id, displayTitle: `Playground · ${id}`, running: id === running,
+    ...(id === mainView ? { retainedBy: { mainView: 1 } } : {}),
+    projectionValues: { playgroundTask: { task: { challengeId: 'fixture', title: `Task ${id}`, mode: 'participate' }, prepared: null, receipt: null } } }));
+  const props = () => ({ ...main.definition.inject(),
+    useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])), projectionsBySession: {} }),
+    ...(useWorkspaces === null ? {} : { useWorkspaces: useWorkspaces ?? ((select) => select({ phase: 'ready', items: [], archivedSessionIds: set.ids, pinnedSessionIds: [] })) }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }),
+    openTask: (id) => { opened.push(id); }, openChat: () => { opened.push('chat'); }, login: async () => {}, t: (s) => s });
+  // Renders like React: after each render, the workbench's effects whose dependencies changed clean up and
+  // run again, and a second render shows what they changed.
+  const slots = [];
+  const renderOnce = () => {
+    f.effects.length = 0;
+    const result = f.render(main.Component, props());
+    f.effects.splice(0).forEach((run, index) => {
+      const slot = slots[index];
+      if (slot && run.deps && slot.deps?.length === run.deps.length && run.deps.every((dep, i) => Object.is(dep, slot.deps[i]))) return;
+      slot?.cleanup?.();
+      slots[index] = { deps: run.deps, cleanup: run() };
+    });
+    return result;
+  };
+  const tree = () => { renderOnce(); return renderOnce(); };
+  const rows = () => findAll(tree(), (n) => n.type?.name === 'TaskSummaryRow').map((element) => element.props);
+  const count = () => text(f.find(tree(), (n) => n.props?.className === 'pg-badge' && /个任务/.test(text(n))));
+  const toggle = () => f.find(tree(), (n) => n.props?.className === 'pg-archived-toggle');
+  const archivedRows = () => findAll(tree(), (n) => n.type?.name === 'ArchivedTaskRow').map((element) => f.render(element.type, element.props));
+  const announcement = () => text(f.find(tree(), (n) => n.props?.role === 'status'));
+  const openDrawer = (id) => rows().find((row) => row.session.id === id).onSelect();
+  const drawerElement = () => f.find(tree(), (n) => n.type?.name === 'TaskDetailDrawer');
+  const drawer = () => { const element = drawerElement(); return element && f.render(element.type, element.props); };
+  const closeDrawer = () => drawerElement().props.close();
+  const control = () => {
+    const element = f.find(drawer(), (n) => n.type?.name === 'TaskArchiveControl');
+    return element && f.render(element.type, element.props);
+  };
+  const controlButton = () => findAll(control(), (n) => n.type === 'button')[0];
+  const headerButton = () => f.find(tree(), (n) => n.type === 'button' && /^(返回所选任务对话|打开 DSH 对话)$/.test(text(n)));
+  const selectedRows = () => rows().filter((row) => row.selected).map((row) => row.session.id);
+  return { ...f, calls, set, sessions, opened, tree, rows, count, toggle, archivedRows, announcement, openDrawer, drawer, closeDrawer, control, controlButton, headerButton, selectedRows };
+}
+
+test('the task overview counts only tasks that are not archived and lists archived ones behind 已归档 M 个', async (t) => {
+  const a = await archiveFixture(t);
+  assert.deepEqual(a.rows().map((row) => row.session.id), ['a', 'c']);
+  assert.equal(a.count(), '2 个任务');
+  assert.equal(text(a.toggle()), '已归档 1 个');
+  assert.equal(a.toggle().props['aria-expanded'], false);
+  assert.deepEqual(a.archivedRows(), [], 'archived tasks are collapsed by default');
+  a.toggle().props.onClick();
+  assert.equal(a.toggle().props['aria-expanded'], true);
+  const [row] = a.archivedRows();
+  assert.match(text(row), /Task b/);
+  const buttons = findAll(row, (n) => n.type === 'button');
+  assert.deepEqual(buttons.map((n) => [text(n), n.props['aria-label']]), [['取消归档', '取消归档：Task b']]);
+  // Nothing archived: no toggle at all.
+  const none = await archiveFixture(t, { archived: [] });
+  assert.equal(none.count(), '3 个任务');
+  assert.equal(none.toggle(), undefined);
+});
+
+test('an archived task is not selected by default, even when it is the conversation in the main view', async (t) => {
+  const a = await archiveFixture(t, { archived: ['a'], mainView: 'a' });
+  assert.deepEqual(a.rows().filter((row) => row.selected).map((row) => row.session.id), ['b']);
+  a.find(a.tree(), (n) => n.type === 'button' && text(n) === '返回所选任务对话').props.onClick();
+  assert.deepEqual(a.opened, ['b']);
+});
+
+test('归档任务 archives through DSH without stopping work, then the drawer offers 撤销', async (t) => {
+  const a = await archiveFixture(t);
+  a.openDrawer('a');
+  assert.equal(text(a.controlButton()), '归档任务');
+  assert.equal(a.controlButton().props.disabled, false);
+  assert.equal(findAll(a.control(), (n) => n.type === 'button').length, 1);
+  a.controlButton().props.onClick();
+  // aria-disabled, not disabled, so the focused button keeps focus; a second press does nothing.
+  assert.equal(a.controlButton().props['aria-disabled'], true, 'unavailable while the call is in flight');
+  assert.equal(a.controlButton().props.disabled, false);
+  assert.equal(text(a.controlButton()), '正在归档…');
+  a.controlButton().props.onClick();
+  await settle();
+  // Exactly the session id: never { stopActivity: true }.
+  assert.deepEqual(a.calls, [['archive', 'a']]);
+  assert.deepEqual(a.rows().map((row) => row.session.id), ['c']);
+  assert.equal(a.count(), '1 个任务');
+  assert.equal(text(a.toggle()), '已归档 2 个');
+  assert.equal(a.announcement(), '任务已归档');
+  // No confirmation dialog: the drawer stays open on the archived task.
+  assert.match(text(a.control()), /已归档/);
+  // The same single button now reads 撤销: it is not replaced, so keyboard focus stays on it.
+  assert.equal(findAll(a.control(), (n) => n.type === 'button').length, 1);
+  assert.equal(text(a.controlButton()), '撤销');
+  assert.equal(a.controlButton().props['aria-disabled'], undefined);
+  a.controlButton().props.onClick();
+  await settle();
+  assert.deepEqual(a.calls, [['archive', 'a'], ['unarchive', 'a']]);
+  assert.deepEqual(a.rows().map((row) => row.session.id), ['a', 'c']);
+  assert.equal(text(a.controlButton()), '归档任务');
+});
+
+test('取消归档 in the archived list restores the task to the overview', async (t) => {
+  const a = await archiveFixture(t);
+  a.toggle().props.onClick();
+  findAll(a.archivedRows()[0], (n) => n.type === 'button')[0].props.onClick();
+  await settle();
+  assert.deepEqual(a.calls, [['unarchive', 'b']]);
+  assert.deepEqual(a.rows().map((row) => row.session.id), ['a', 'b', 'c']);
+  assert.equal(a.count(), '3 个任务');
+  assert.equal(a.toggle(), undefined);
+});
+
+test('归档任务 is disabled with the reason while the conversation is running', async (t) => {
+  const a = await archiveFixture(t, { running: 'a' });
+  a.openDrawer('a');
+  const button = a.controlButton();
+  assert.equal(text(button), '归档任务');
+  assert.equal(button.props.disabled, true);
+  assert.equal(button.props['aria-describedby'], 'pg-archive-running');
+  assert.match(text(a.control()), /对话正在运行，停止后再归档。/);
+  assert.deepEqual(a.calls, []);
+});
+
+test('a refused archive shows a short reason, never the raw error, and leaves the task in place', async (t) => {
+  const failures = [];
+  const ui = { archiveSession: async () => { throw failures.shift(); }, unarchiveSession: async () => {} };
+  const a = await archiveFixture(t, { uiWorkspace: ui });
+  const archiveError = (rpcError) => Object.assign(Error(`workspace session archive failed: ${rpcError.code}: ${rpcError.message}`), { name: 'WorkspaceArchiveError', rpcError });
+  const cases = [
+    [archiveError({ code: 'workspace/session-active', message: 'session has running work', details: { activity: {} } }), '对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。'],
+    [archiveError({ code: 'storage/failed', message: 'disk full' }), '归档未完成：disk full。请重试。'],
+    [Object.assign(Error('cannot write D:\\data\\registry.json'), { stack: 'Error: at archive (D:\\data\\x.js:1:1)' }), '归档未完成，请重试。'],
+  ];
+  a.openDrawer('a');
+  for (const [failure, message] of cases) {
+    failures.push(failure);
+    a.controlButton().props.onClick();
+    await settle();
+    const note = a.find(a.control(), (n) => n.props?.className === 'pg-note pg-error pg-archive-error');
+    assert.equal(text(note), message);
+    assert.equal(note.props.role, 'alert');
+    assert.equal(a.announcement(), message);
+    assert.doesNotMatch(text(a.tree()), /D:\\|at archive|storage\/failed/);
+    assert.equal(text(a.controlButton()), '归档任务', 'the task is still not archived');
+  }
+  assert.deepEqual(a.rows().map((row) => row.session.id), ['a', 'c']);
+});
+
+test('without DSH archive support nothing is archived, the controls are hidden, and a missing call never throws', async (t) => {
+  for (const useWorkspaces of [null, (select) => select({ phase: 'ready', items: [] })]) {
+    const a = await archiveFixture(t, { useWorkspaces });
+    assert.deepEqual(a.rows().map((row) => row.session.id), ['a', 'b', 'c']);
+    assert.equal(a.count(), '3 个任务');
+    assert.equal(a.toggle(), undefined);
+    a.openDrawer('a');
+    assert.ok(a.find(a.tree(), (n) => n.type?.name === 'TaskDetailDrawer'));
+    assert.equal(a.control(), null, 'no 归档任务 button');
+    assert.doesNotMatch(text(a.tree()), /归档/);
+  }
+  // The archive set is reported but uiWorkspace has no archive call: a short message, no throw.
+  const a = await archiveFixture(t, { uiWorkspace: { openSession: () => {} } });
+  a.openDrawer('a');
+  a.controlButton().props.onClick();
+  await settle();
+  assert.equal(text(a.find(a.control(), (n) => n.props?.className === 'pg-note pg-error pg-archive-error')), '当前 DSH 版本不支持归档对话。');
+  const actions = a.registrations.get('main').definition.inject();
+  assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '当前 DSH 版本不支持取消归档对话。' });
+  const bare = await clientFixture(t);
+  assert.deepEqual(await bare.registrations.get('main').definition.inject().archiveTask('a'), { ok: false, message: '当前 DSH 版本不支持归档对话。' });
+});
+
+test('归档任务 is disabled with the reason for the conversation open in DSH\'s main view', async (t) => {
+  const a = await archiveFixture(t, { archived: [], mainView: 'a' });
+  a.openDrawer('a');
+  const button = a.controlButton();
+  assert.equal(text(button), '归档任务');
+  assert.equal(button.props.disabled, true);
+  assert.equal(button.props['aria-describedby'], 'pg-archive-main-view');
+  assert.match(text(a.control()), /这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。/);
+  // Another task in the same workbench can be archived.
+  a.openDrawer('c');
+  assert.equal(a.controlButton().props.disabled, false);
+  assert.doesNotMatch(text(a.control()), /当前打开的对话/);
+  a.controlButton().props.onClick();
+  await settle();
+  assert.deepEqual(a.calls, [['archive', 'c']]);
+  // Both reasons at once are both described.
+  const both = await archiveFixture(t, { archived: [], mainView: 'a', running: 'a' });
+  both.openDrawer('a');
+  assert.equal(both.controlButton().props['aria-describedby'], 'pg-archive-running pg-archive-main-view');
+});
+
+test('an archived task\'s drawer is read-only and nothing navigates to its conversation', async (t) => {
+  const a = await archiveFixture(t);
+  a.openDrawer('a');
+  const drawerButtons = () => findAll(a.drawer(), (n) => n.type === 'button').map(text);
+  assert.ok(drawerButtons().includes('打开任务对话'));
+  assert.ok(a.find(a.drawer(), (n) => n.type?.name === 'SelectedTask'));
+  a.controlButton().props.onClick();
+  await settle();
+  assert.ok(!drawerButtons().includes('打开任务对话'), 'no 打开任务对话 for an archived task');
+  assert.equal(a.find(a.drawer(), (n) => n.type?.name === 'SelectedTask'), undefined, 'no check or confirm controls');
+  assert.match(text(a.drawer()), /此任务已归档。DSH 不会打开已归档的对话；撤销后才能继续检查材料和确认提交。/);
+  assert.ok(a.find(a.drawer(), (n) => n.type?.name === 'AttemptHistory'), 'the submission history is still shown');
+  assert.match(text(a.control()), /已归档/);
+  // The header skips the archived selection.
+  a.headerButton().props.onClick();
+  assert.deepEqual(a.opened, ['c']);
+  // Archived tasks never get a row with 打开对话: they are only in the archived list.
+  assert.ok(!a.rows().some((row) => row.session.id === 'a'));
+  a.toggle().props.onClick();
+  assert.ok(a.archivedRows().every((row) => !findAll(row, (n) => n.type === 'button').some((n) => /打开/.test(text(n)))));
+  // 撤销 brings the controls back.
+  a.controlButton().props.onClick();
+  await settle();
+  assert.ok(drawerButtons().includes('打开任务对话'));
+  assert.ok(a.find(a.drawer(), (n) => n.type?.name === 'SelectedTask'));
+});
+
+test('closing the drawer of an archived task selects the first task that is not archived, or none', async (t) => {
+  const a = await archiveFixture(t);
+  a.openDrawer('a');
+  a.controlButton().props.onClick();
+  await settle();
+  assert.ok(a.drawer(), 'the drawer stays open on the archived task');
+  a.closeDrawer();
+  assert.equal(a.drawer(), undefined);
+  assert.deepEqual(a.selectedRows(), ['c']);
+  a.headerButton().props.onClick();
+  assert.deepEqual(a.opened, ['c']);
+  // Nothing left that is not archived.
+  const none = await archiveFixture(t, { archived: ['b', 'c'] });
+  none.openDrawer('a');
+  none.controlButton().props.onClick();
+  await settle();
+  none.closeDrawer();
+  assert.deepEqual(none.rows(), []);
+  assert.equal(none.drawer(), undefined);
+  assert.equal(text(none.headerButton()), '打开 DSH 对话');
+  none.headerButton().props.onClick();
+  assert.deepEqual(none.opened, ['chat']);
+});
+
+test('an archive failure stays with its task: another task\'s drawer and the closed drawer do not show it', async (t) => {
+  const ui = { archiveSession: async () => { throw Object.assign(Error('x'), { rpcError: { code: 'storage/failed', message: 'disk full' } }); }, unarchiveSession: async () => {} };
+  const a = await archiveFixture(t, { uiWorkspace: ui });
+  const errorNote = (node) => a.find(node, (n) => n.props?.className === 'pg-note pg-error pg-archive-error');
+  a.openDrawer('a');
+  a.controlButton().props.onClick();
+  await settle();
+  assert.equal(text(errorNote(a.control())), '归档未完成：disk full。请重试。');
+  a.openDrawer('c');
+  assert.equal(errorNote(a.control()), undefined, 'task c does not show task a\'s failure');
+  a.openDrawer('a');
+  assert.equal(errorNote(a.control()), undefined, 'reopening clears the old failure');
+  a.controlButton().props.onClick();
+  await settle();
+  assert.ok(errorNote(a.control()));
+  a.closeDrawer();
+  assert.equal(errorNote(a.tree()), undefined, 'closing the drawer clears it');
+});
+
+test('an unarchive failure in the host\'s own format shows only the generic message', async (t) => {
+  const ui = { archiveSession: async () => {}, unarchiveSession: async () => { throw Error('workspace session unarchive failed: storage/failed: registry write failed'); } };
+  const a = await archiveFixture(t, { uiWorkspace: ui });
+  a.toggle().props.onClick();
+  findAll(a.archivedRows()[0], (n) => n.type === 'button')[0].props.onClick();
+  await settle();
+  const note = a.find(a.tree(), (n) => n.props?.className === 'pg-note pg-error pg-archive-error');
+  assert.equal(text(note), '取消归档未完成，请重试。');
+  assert.equal(a.announcement(), '取消归档未完成，请重试。');
+  assert.doesNotMatch(text(a.tree()), /workspace session|storage\/failed|registry/);
+  assert.equal(text(a.toggle()), '已归档 1 个', 'the task is still archived');
+  const actions = a.registrations.get('main').definition.inject();
+  assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '取消归档未完成，请重试。' });
 });

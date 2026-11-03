@@ -210,6 +210,30 @@ task's title or status still opens the drawer. Creating
 another task from the catalog creates a new conversation without narrowing or
 overwriting the existing one.
 
+To clear finished or abandoned tasks from the overview, use **归档任务** in the
+drawer. It uses DSH's own conversation archive, the same one as the DSH
+sidebar: the conversation disappears from the sidebar and the task overview,
+its content is kept, and it can be restored. There is no confirmation; the
+drawer then shows **已归档** and **撤销**. The button is disabled while the
+conversation is running (**对话正在运行，停止后再归档。**); the plugin never stops
+running work to archive it. It is also disabled for the conversation open in
+DSH's main view, for example after **前往工作台确认提交**
+(**这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。**): DSH closes its main
+view when that conversation is archived, which would also close the workbench.
+DSH does not open an archived conversation until it is restored, so an archived
+task's drawer has no **打开任务对话** and no check or confirm controls; it shows
+the archived state, **撤销** and the submission history, and **返回所选任务对话**
+skips it. A task with a submission waiting for confirmation can be archived,
+and its check card is still there after it is restored. If DSH refuses because
+the conversation still has running work, including subagents, background jobs
+or schedules, the workbench says so; other refusals show a short reason.
+**N 个任务** counts only tasks that
+are not archived, and the workbench refresh does not read archived tasks'
+submissions. Below the list, **已归档 M 个** expands the archived tasks, each with
+**取消归档**. The plugin offers no delete: DSH has no interface for deleting a
+conversation. On a DSH version that does not report its archive set, nothing
+is treated as archived and the archive controls are hidden.
+
 Chat keeps its historical tool cards and workflow command cards. A pending
 check card offers **前往工作台确认提交**, which opens the workbench for that
 conversation.
