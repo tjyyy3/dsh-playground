@@ -29,7 +29,7 @@ async function clientFixture(t, services = {}) {
       return [values[index], (value) => { values[index] = value; }];
     },
     // Effects are collected, not run; a test runs them to simulate mounting.
-    useEffect: (effect) => { effects.push(effect); }, Fragment: Symbol('fragment'),
+    useEffect: (effect, deps) => { effects.push(Object.assign(() => effect(), { deps })); }, Fragment: Symbol('fragment'),
   };
   t.after(() => { delete globalThis.window; });
   globalThis.window = { __ModuleLoader__: { load: (module) => { plugin = module.factory((name) => {
@@ -476,9 +476,9 @@ test('workbench login needs no conversation and keeps the password out of the ca
 });
 
 // Runs the plugin's locale registration so tests can use the same zh/en messages as DSH.
-async function localizedFixture(t) {
+async function localizedFixture(t, services = {}) {
   const messages = {};
-  const f = await clientFixture(t, { effect: (fn) => fn(), locale: { register: (_name, value) => Object.assign(messages, value) } });
+  const f = await clientFixture(t, { effect: (fn) => fn(), locale: { register: (_name, value) => Object.assign(messages, value) }, ...services });
   const translator = (language) => (key) => messages[language][key] ?? key;
   return { ...f, zh: translator('zh'), en: translator('en') };
 }
@@ -635,4 +635,220 @@ test('attempt lists apply the same score rules as the task row', async (t) => {
   assert.match(rows[1], /等待评分，暂无最终分数/);
   assert.doesNotMatch(rows[2], /72|分数|参考|等待/);
   assert.match(rows[3], /参考分（未确认最终）: 30/);
+});
+
+// Workbench refresh of unscored submissions. Time is a mock clock that starts at 09:05 local time;
+// `tick` advances both the two-minute interval and `Date`.
+const twoMinutes = 120000;
+const queuedAttempt = { status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } };
+const evaluatingAttempt = { status: 'scoring', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 41 } };
+const finalAttempt = (score) => ({ status: 'scored', score, scoringState: { state: 'final', scoreIsFinal: true, displayScore: score } });
+
+function fakeDocument(t) {
+  const listeners = new Set();
+  const doc = { visibilityState: 'visible', listeners,
+    addEventListener: (type, listener) => { if (type === 'visibilitychange') listeners.add(listener); },
+    removeEventListener: (type, listener) => { if (type === 'visibilitychange') listeners.delete(listener); },
+    setVisibility(state) { doc.visibilityState = state; [...listeners].forEach((listener) => listener()); } };
+  globalThis.document = doc;
+  t.after(() => { delete globalThis.document; });
+  return doc;
+}
+
+// Mounts the workbench over tasks whose latest receipts are `receipts` ([sessionId, receipt] pairs). `platform`
+// maps a submission id to its reply: an attempt object, or an Error for a transport failure.
+async function refreshHarness(t, receipts, platform, { visibility = 'visible' } = {}) {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: new Date(2026, 10, 2, 9, 5).getTime() });
+  const document = fakeDocument(t);
+  document.visibilityState = visibility;
+  const calls = [];
+  const held = [];
+  const control = { hold: false };
+  const respond = (entry) => {
+    const reply = platform.get(entry.id);
+    if (reply instanceof Error) entry.reject(reply); else entry.resolve({ ok: true, value: reply });
+  };
+  const f = await localizedFixture(t, {
+    connection: { rpc: { call: (route, endpoint, payload, signal) => new Promise((resolve, reject) => {
+      const entry = { route, endpoint, payload, signal, id: payload.args.input.attemptId, resolve, reject };
+      calls.push(entry);
+      if (control.hold) held.push(entry); else respond(entry);
+    }) } },
+    remote: { commands: { execute: () => assert.fail('the refresh reached command history') } },
+  });
+  const Main = f.registrations.get('main').Component;
+  const task = (title) => ({ challengeId: 'fixture', title, mode: 'participate' });
+  const sessions = receipts.map(([id, receipt]) => ({ id, displayTitle: `Playground · ${id}`,
+    projectionValues: { playgroundTask: { task: task(id), prepared: null, receipt } } }));
+  const actions = f.registrations.get('main').definition.inject();
+  const props = () => ({ ...actions, useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])),
+    projectionsBySession: Object.fromEntries(sessions.map((item) => [item.id, { state: 'ready', values: item.projectionValues }])) }),
+  useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => assert.fail('the refresh ran a session command'),
+  openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh });
+  // Renders like React: after each render, effects whose dependencies changed clean up and run again.
+  const slots = [];
+  const view = { tree: undefined };
+  const renderOnce = () => {
+    f.effects.length = 0;
+    view.tree = f.render(Main, props());
+    f.effects.splice(0).forEach((run, index) => {
+      const slot = slots[index];
+      if (slot && run.deps && slot.deps?.length === run.deps.length && run.deps.every((dep, i) => Object.is(dep, slot.deps[i]))) return;
+      slot?.cleanup?.();
+      slots[index] = { deps: run.deps, cleanup: run() };
+    });
+    return view.tree;
+  };
+  // The second render shows what the effects of the first one changed, as React would after a state update.
+  const flush = () => { renderOnce(); return renderOnce(); };
+  const unmount = () => { slots.forEach((slot) => slot?.cleanup?.()); slots.length = 0; f.unmount(Main); };
+  const rows = () => findAll(view.tree, (node) => node.type?.name === 'TaskSummaryRow').map((element) => {
+    const row = f.render(element.type, element.props);
+    const part = (className) => text(f.find(row, (node) => node.props?.className === className));
+    return { id: element.props.session.id, badge: part('pg-badge'), score: part('pg-task-row-score') };
+  });
+  const button = () => f.find(view.tree, (node) => node.type === 'button' && node.props.className === 'pg-button pg-refresh');
+  const status = () => { const node = f.find(view.tree, (node) => String(node.props?.className).includes('pg-refresh-status')); return node && text(node); };
+  const release = () => held.splice(0).forEach(respond);
+  const settled = async () => { await settle(); await settle(); return flush(); };
+  return { f, document, calls, control, release, sessions, flush, settled, unmount, rows, button, status, view, tick: (ms) => t.mock.timers.tick(ms) };
+}
+
+const receiptOf = (attemptId, attempt = queuedAttempt) => ({ attemptId, ok: true, ...attempt });
+
+test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [63, evaluatingAttempt]]);
+  const h = await refreshHarness(t, [
+    ['a', receiptOf(61)], ['b', receiptOf(62, finalAttempt(80))], ['c', receiptOf(61)], ['d', receiptOf(63, evaluatingAttempt)],
+    ['e', receiptOf(64, { status: 'failed', scoringState: { state: 'failed', scoreIsFinal: false } })],
+    ['f', { attemptId: 65, ok: false, stage: 'upload' }], ['g', { ok: true, status: 'queued' }],
+  ], platform);
+  h.flush();
+  // The first round runs when the workbench opens; each submission is requested once, and only unscored ones.
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63]);
+  assert.ok(h.calls.every((call) => call.route === '/api' && call.endpoint === 'playgroundQueries/query'
+    && JSON.stringify(call.payload) === JSON.stringify({ args: { input: { action: 'attempt', attemptId: call.id } } })));
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:05');
+  h.tick(twoMinutes);
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63, 61, 63]);
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:07');
+  platform.set(61, finalAttempt(80)); platform.set(63, finalAttempt(55));
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 6);
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:09');
+  assert.deepEqual(h.rows().filter((row) => ['a', 'c', 'd'].includes(row.id)).map((row) => [row.badge, row.score]),
+    [['评分完成', '80 分'], ['评分完成', '80 分'], ['评分完成', '55 分']]);
+  // Nothing is left to wait for: the interval and the visibility listener are gone.
+  assert.equal(h.document.listeners.size, 0);
+  h.tick(twoMinutes * 5);
+  assert.equal(h.calls.length, 6);
+});
+
+test('polling pauses while the page is hidden and resumes when it is visible again', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, queuedAttempt]]), { visibility: 'hidden' });
+  h.flush();
+  h.tick(twoMinutes * 2);
+  assert.equal(h.calls.length, 0);
+  h.document.setVisibility('visible');
+  assert.equal(h.calls.length, 1);
+  await h.settled();
+  h.document.setVisibility('hidden');
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 1);
+  h.document.setVisibility('visible');
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 2);
+});
+
+test('closing the workbench stops polling and cancels the request in flight', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, finalAttempt(80)]]));
+  h.control.hold = true;
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].signal.aborted, false);
+  h.unmount();
+  assert.equal(h.calls[0].signal.aborted, true);
+  assert.equal(h.document.listeners.size, 0);
+  h.tick(twoMinutes * 3);
+  assert.equal(h.calls.length, 1);
+  h.release();
+  await settle();
+  assert.equal(h.calls.length, 1);
+});
+
+test('a refresh never overlaps another, and the button is disabled while one is running', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, queuedAttempt]]));
+  h.control.hold = true;
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual([h.button().props.disabled, text(h.button())], [true, '正在刷新…']);
+  h.tick(twoMinutes);
+  h.button().props.onClick();
+  assert.equal(h.calls.length, 1);
+  h.release();
+  await h.settled();
+  assert.deepEqual([h.button().props.disabled, text(h.button())], [false, '刷新']);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 2);
+});
+
+test('the refresh button requests the latest submission of every task at once and never lowers a final result', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [62, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)], ['b', receiptOf(62, finalAttempt(80))]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [61]);
+  h.button().props.onClick();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 61, 62]);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [['a', '排队中', '—'], ['b', '评分完成', '80 分']]);
+});
+
+test('a failed refresh keeps the last results, reports the last good time without raw errors, and retries on the next interval', async (t) => {
+  const platform = new Map([[61, evaluatingAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], platform);
+  h.flush();
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:05');
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+  platform.set(61, new Error('Bearer secret-token at C:\\Users\\someone\\.config'));
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.equal(h.status(), '刷新失败，显示的是 09:05 的状态');
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+  assert.doesNotMatch(text(h.view.tree), /secret-token|Users|Bearer/);
+  platform.set(61, finalAttempt(80));
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 3);
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:09');
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评分完成', '80 分']]);
+});
+
+test('a refresh that fails before any success says the task records are shown', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, new Error('Bearer secret-token')]]));
+  h.flush();
+  await h.settled();
+  assert.equal(h.status(), '刷新失败，显示的是任务记录中的状态');
+  assert.doesNotMatch(text(h.view.tree), /secret-token/);
+});
+
+test('a refreshed final score reaches the task row and the drawer summary without touching any session', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, finalAttempt(80)]]));
+  const before = JSON.stringify(h.sessions);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评分完成', '80 分']]);
+  const element = findAll(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow')[0];
+  h.f.render(element.type, element.props).props.onClick();
+  h.flush();
+  const drawer = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = h.f.render(selected.type, selected.props);
+  const summary = h.f.find(h.f.render(workflow.type, workflow.props), (node) => node.type === 'summary');
+  assert.equal(text(summary), '提交 #61 · 评分完成 · 已出最终分 · 80 分');
+  assert.equal(JSON.stringify(h.sessions), before);
 });

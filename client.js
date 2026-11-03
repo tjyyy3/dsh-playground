@@ -155,6 +155,55 @@ window.__ModuleLoader__.load({
       return t('awaitingScore');
     }
 
+    // The workbench refreshes unscored submissions every two minutes while it is open.
+    const attemptRefreshMs = 120000;
+
+    // A receipt whose evaluation has ended: a final score, or a failed or rejected attempt.
+    const receiptSettled = (receipt) => ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
+
+    // The submission id of a receipt, or undefined when it is not a positive integer.
+    const receiptAttemptId = (receipt) => {
+      const id = Number(receipt?.attemptId);
+      return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+    };
+
+    // A submission still waiting for a platform result. A scored or incomplete bundle, a draft and a
+    // failed upload never change on their own, so they are not polled.
+    function receiptPending(receipt) {
+      if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
+      const { stage } = receiptProgress(receipt, zhText);
+      return stage === 'evaluating' || (stage === 'submitted' && [undefined, 'submitted'].includes(receipt.status));
+    }
+
+    // Lays the latest platform state of a submission over its receipt. The result lives in workbench
+    // memory only, so it can be older than a receipt a result query has since saved; a non-final lookup
+    // therefore never replaces a receipt that already has a final, failed or rejected result.
+    function withLatestAttempt(receipt, attempt) {
+      if (!receipt || !attempt) return receipt;
+      const merged = { ...receipt, status: attempt.status, bundleStatus: attempt.bundleStatus, score: attempt.score, scoringState: attempt.scoringState };
+      return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
+    }
+
+    const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
+
+    // Reads the given submissions through the session-free `attempt` query, one request per id, and keeps
+    // the results in `store`. Nothing is written to any conversation. A round never overlaps another.
+    async function refreshAttempts(store, ids) {
+      const wanted = [...new Set(ids)];
+      if (!wanted.length || store.controller || store.disposed) return;
+      const controller = new AbortController();
+      store.controller = controller;
+      store.publish();
+      const outcomes = await Promise.allSettled(wanted.map((id) => store.query({ action: 'attempt', attemptId: id }, controller.signal)));
+      if (store.controller !== controller) return;
+      store.controller = null;
+      const usable = (outcome) => outcome.status === 'fulfilled' && outcome.value && typeof outcome.value === 'object';
+      store.attempts = { ...store.attempts, ...Object.fromEntries(outcomes.flatMap((outcome, index) => usable(outcome) ? [[wanted[index], outcome.value]] : [])) };
+      store.failed = !outcomes.every(usable);
+      if (!store.failed) store.refreshedAt = Date.now();
+      store.publish();
+    }
+
     function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, openTask, t }) {
       const task = state?.task;
       const prepared = state?.prepared;
@@ -224,7 +273,7 @@ window.__ModuleLoader__.load({
         busy ? h('p', { className: 'pg-note', role: 'status' }, '正在执行…') : null);
     }
 
-    function SelectedTask({ session, projection, useSessionAccess, refreshProjections, ...props }) {
+    function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
       const allowed = useSessionAccess(session.id, 'commands/execute');
       const [error, setError] = React.useState('');
       React.useEffect(() => {
@@ -234,7 +283,9 @@ window.__ModuleLoader__.load({
         return h('p', { className: 'pg-error', role: 'alert' }, error || projection.error?.message || '请先在 DSH 中打开此会话，完成会话迁移后再继续。');
       }
       if (projection?.state !== 'ready') return h('p', { className: 'pg-note', role: 'status' }, '正在读取任务状态…');
-      return h(TaskWorkflow, { ...props, sessionId: session.id, state: projection.values.playgroundTask,
+      const task = projection.values.playgroundTask;
+      const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
+      return h(TaskWorkflow, { ...props, sessionId: session.id, state: receipt === task?.receipt ? task : { ...task, receipt },
         cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
     }
 
@@ -345,10 +396,10 @@ window.__ModuleLoader__.load({
         ))));
     }
 
-    function TaskSummaryRow({ session, selected, onSelect }) {
+    function TaskSummaryRow({ session, attempts, selected, onSelect }) {
       const state = session.projectionValues?.playgroundTask || {};
       const task = state.task;
-      const receipt = state.receipt;
+      const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
       const progress = receiptProgress(receipt, zhText, { running: session.running });
       const title = task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
       const challengeId = task?.challengeId || '赛题待读取';
@@ -391,13 +442,43 @@ window.__ModuleLoader__.load({
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
+      // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
+      // in memory only and never reaches a session projection, so refreshing writes no conversation record.
+      const [store] = React.useState(() => ({ attempts: {}, refreshedAt: undefined, failed: false, controller: null, disposed: false,
+        version: 0, publish: () => {}, query: null, pendingIds: [], taskIds: [] }));
+      const [, setVersion] = React.useState(0);
+      store.publish = () => setVersion(++store.version);
+      store.query = query;
+      store.taskIds = [...new Set(taskSessions.map((item) => receiptAttemptId(item.projectionValues?.playgroundTask?.receipt)).filter((id) => id !== undefined))];
+      store.pendingIds = store.taskIds.filter((id) => taskSessions.some((item) => {
+        const receipt = item.projectionValues?.playgroundTask?.receipt;
+        return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
+      }));
+      const pendingKey = store.pendingIds.join(',');
+      React.useEffect(() => {
+        store.disposed = false;
+        return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
+      }, []);
+      // Poll only while a submission is unscored: now, then every two minutes, paused while the page is hidden.
+      React.useEffect(() => {
+        if (!pendingKey) return undefined;
+        const tick = () => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') refreshAttempts(store, store.pendingIds); };
+        tick();
+        const timer = setInterval(tick, attemptRefreshMs);
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', tick);
+        return () => {
+          clearInterval(timer);
+          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', tick);
+        };
+      }, [pendingKey]);
+      const refreshing = Boolean(store.controller);
       React.useEffect(() => {
         if (selected && !taskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
       }, [selected, taskSessions.map((session) => session.id).join(',')]);
       const session = catalog.byId[selected] || taskSessions[0];
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
@@ -414,11 +495,17 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
               h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
-              h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'), h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`)),
+              h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'),
+                h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
+                  taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !store.taskIds.length,
+                    onClick: () => refreshAttempts(store, store.taskIds) }, refreshing ? '正在刷新…' : '刷新') : null)),
+              store.failed ? h('p', { className: 'pg-note pg-refresh-status pg-error', role: 'status' },
+                store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : '刷新失败，显示的是任务记录中的状态')
+                : store.refreshedAt ? h('p', { className: 'pg-note pg-refresh-status' }, `状态更新于 ${clock(store.refreshedAt)}`) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
-                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
+                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
                 : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), useSessionAccess, refreshProjections, openTask, run, ...props }) : null,
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”或“开始出题任务”。'),

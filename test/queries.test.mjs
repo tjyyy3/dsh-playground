@@ -44,3 +44,25 @@ test('session-free login accepts only the account email and never a password', a
     assert.equal(schema.safeParse(invalid).success, false);
   }
 });
+
+test('the attempt query reads one submission by id, forwards cancellation and rejects every other parameter', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  // A workflow with only `attempt`: any other call would throw, so this read can reach nothing else.
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    attempt: async (id, exec) => { calls.push([id, exec]); return { id, status: 'queued', scoringState: { state: 'queued', scoreIsFinal: false }, ignored: undefined }; },
+  });
+  const descriptor = contribution.invocations.find((item) => item.method === 'query');
+  const schema = descriptor.parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  assert.deepEqual(await services.get('playgroundQueries').query(schema.parse({ action: 'attempt', attemptId: 62532 }), signal),
+    { id: 62532, status: 'queued', scoringState: { state: 'queued', scoreIsFinal: false } });
+  assert.deepEqual(calls, [[62532, { signal }]]);
+  for (const invalid of [{ action: 'attempt' }, { action: 'attempt', attemptId: 0 }, { action: 'attempt', attemptId: -3 }, { action: 'attempt', attemptId: 1.5 },
+    { action: 'attempt', attemptId: '12' }, { action: 'attempt', attemptId: null }, { action: 'attempt', attemptId: 2 ** 60 },
+    { action: 'attempt', attemptId: 1, sessionId: 'A' }, { action: 'attempt', attemptId: 1, per_page: 10 }, { action: 'attempt', attempt_id: 1 },
+    { action: 'attempt', attemptId: 1, confirm: true }]) {
+    assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
+  }
+});

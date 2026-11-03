@@ -120,6 +120,20 @@ Playground task conversations, with a short session id, workspace and task
 state. Ordinary exploration chats do not appear in this selector. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.
 
+Evaluation can take several minutes, so the task list keeps itself current while
+the workbench is open and the page is visible. If a task's latest submission has
+no final result yet (queued, evaluating, scoring or pending review), the
+workbench reads it from the platform when it opens and every 2 minutes after
+that, and it stops once the submission has a final score, failed or was
+rejected. Each submission is requested once per round, and a new round never
+starts while one is still running. The **刷新** button reads the latest
+submission of every task right away and is disabled while it runs. The list
+shows **状态更新于 HH:MM**. If a refresh fails, the previous results stay and
+the list shows **刷新失败，显示的是 HH:MM 的状态**; the next round tries again.
+These reads go through the session-free query, are kept in the workbench's
+memory only, and add nothing to any conversation. **查询结果 #…** in the task
+drawer is unchanged: it is your own action and still leaves a result card.
+
 Select a task to open its detail drawer, check materials, review the exact
 submission target and inspect results. Close the drawer with its close button,
 the backdrop, or Escape. **返回所选任务对话** returns to native chat. Creating another task from
@@ -144,7 +158,9 @@ and bundle status, final or provisional score labels, and up to eight numeric
 metrics when returned by the platform. Expand the tool's process entry if the
 host has collapsed it. The full Markdown tool result remains available in the
 card's disclosure. Old conversation records without UI metadata retain their
-text results. Cards reflect the latest query; they do not poll in the background.
+text results. Chat cards reflect the latest query and do not poll in the
+background. The workbench task list is the one place that refreshes itself, as
+described above.
 
 An initial zero is not shown as a final score. Upload validation metrics are
 labelled separately from the platform's final evaluation state. The plugin does
