@@ -115,8 +115,9 @@ the backdrop, or Escape. **返回所选任务对话** returns to native chat. Cr
 the catalog creates a new conversation without narrowing or overwriting the
 existing one.
 
-Chat keeps its historical tool cards and workflow command cards. A pending check card offers
-**前往工作台确认提交**, which opens the workbench for that conversation.
+Chat keeps its historical tool cards and workflow command cards. A pending
+check card offers **前往工作台确认提交**, which opens the workbench for that
+conversation.
 This navigation never confirms a submission. The workbench's **如何使用**
 explains the workflow; natural-language queries remain in DSH's own composer.
 
