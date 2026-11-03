@@ -1266,3 +1266,42 @@ test('a mode switch keeps the recorded task webUrl', () => {
   assert.equal(switched.task.mode, 'author');
   assert.equal(switched.task.webUrl, task.webUrl);
 });
+
+// The drawer receives at most this many statement characters.
+const CHALLENGE_CONTENT_MAX = 50000;
+test('the challenge detail read returns only the drawer fields, caps the statement and touches no conversation', async () => {
+  const f = await fixture();
+  const before = JSON.stringify([...f.states]);
+  f.ctx.commands.execute = () => assert.fail('challenge detail read reached a conversation');
+  f.ctx.sessionProjections.stateOf = () => assert.fail('challenge detail read must not depend on a conversation');
+  f.ctx.workingDirectory.get = () => assert.fail('challenge detail read must not read a workspace');
+  const calls = [];
+  const detail = { id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', origin: 'github', difficulty: 3, status: 'open',
+    attempts: 12, tags: ['t1', 't2'], hasContent: true, contentGated: false, content: 'line 1\nline 2', reviewStatus: 'approved', submittedBy: 'someone',
+    armiId: 'armi-1', resources: [{ name: 'data.csv', kind: 'dataset', description: 'Input', role: 'input', source: 'https://example.test/data.csv' }, { name: 'x' }] };
+  f.client.getChallenge = async (id, options) => { calls.push([id, options]); return detail; };
+  const signal = new AbortController().signal;
+  const result = await f.workflow.challenge('a b/c', { signal });
+  assert.deepEqual(calls, [['a b/c', { signal }]]);
+  assert.deepEqual(result, { ok: true, id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', origin: 'github', difficulty: 3,
+    status: 'open', attempts: 12, tags: ['t1', 't2'],
+    resources: [{ name: 'data.csv', kind: 'dataset', description: 'Input', role: 'input', source: 'https://example.test/data.csv' }, { name: 'x' }],
+    contentGated: false, content: 'line 1\nline 2', truncated: false, webUrl: 'http://127.0.0.1:15000/challenge/a%20b%2Fc' });
+  // The cap counts characters (code points), so a statement of astral characters is not cut in a surrogate pair.
+  f.client.getChallenge = async () => ({ ...detail, content: '题'.repeat(CHALLENGE_CONTENT_MAX - 1) + '𝑥𝑦' });
+  const long = await f.workflow.challenge('a b/c', { signal });
+  assert.equal(long.truncated, true);
+  assert.equal(Array.from(long.content).length, CHALLENGE_CONTENT_MAX);
+  assert.ok(long.content.endsWith('𝑥'));
+  f.client.getChallenge = async () => ({ ...detail, content: 'x'.repeat(CHALLENGE_CONTENT_MAX) });
+  assert.equal((await f.workflow.challenge('a b/c', { signal })).truncated, false);
+  // A gated statement never crosses the wire.
+  f.client.getChallenge = async () => ({ ...detail, contentGated: true, content: 'hidden statement' });
+  const gated = await f.workflow.challenge('a b/c', { signal });
+  assert.equal(gated.contentGated, true);
+  assert.equal(gated.content, '');
+  assert.equal(gated.truncated, false);
+  f.client.getChallenge = async () => { throw new Error('upstream returned 503'); };
+  await assert.rejects(f.workflow.challenge('a b/c', { signal }), /upstream returned 503/);
+  assert.equal(JSON.stringify([...f.states]), before);
+});

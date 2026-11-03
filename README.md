@@ -128,7 +128,26 @@ conversation. The Host builds the address from the API base with the same
 function as the start prompt's web URL, dropping any account details, query,
 fragment and `/api` suffix, and the workbench shows the button only for `https`
 addresses (`http` only for the loopback hosts `localhost`, `127.0.0.1` and
-`[::1]`). Chat result cards have no such button. The right column lists only
+`[::1]`). Chat result cards have no such button.
+
+**查看详情** on a challenge card opens a challenge detail drawer on the right.
+It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the
+challenge once when it opens, through the session-free query
+(`{ action: 'challenge', challengeId }`, which accepts no other field), so it
+needs no conversation and writes nothing to one. Closing cancels the read, and
+opening the drawer again reads again. The drawer shows the title, direction,
+origin, difficulty, status, submission count, tags and resources (name, type,
+role, description, and the source as plain text, never a link). The statement
+is collapsed until **展开题面**, then shown as plain text with its line breaks
+kept, without markdown formatting, and scrolls inside the drawer. The Host
+sends at most 50,000 characters of it and marks a longer statement as cut. A
+statement that needs access permission shows **题面需要权限，请在网页中查看**.
+A failed read shows a fixed message and **重试**, never the raw error.
+**开始参赛任务** in the drawer closes it and opens the same workspace selection
+and confirmation as the card; it is disabled in the same cases.
+**在网页中打开** opens the same page as the card's button.
+
+The right column lists only
 Playground task conversations, with a short session id, workspace and task
 state. Ordinary exploration chats do not appear in this selector. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.
