@@ -77,9 +77,11 @@ requires authentication and can consume a platform submission slot.
 
 **参赛 / 出题** are working modes, not account identities. Author mode (出题)
 is not open yet: the workbench and chat cards only start participation tasks,
-and task details no longer offer a mode selector. A task created in author mode
-by an earlier version still opens with its author note and a **切回参赛**
-button; switching back preserves the receipt, clears a pending confirmation and
+and task details no longer offer a mode selector. A task that is in author
+mode (created by an earlier version, or set by an agent through
+`playground_start_task` with `mode: "author"` or `playground_task` with
+`action: "mode"`) still opens with its author note and a **切回参赛** button;
+switching back preserves the receipt, clears a pending confirmation and
 restores material checks. Platform problem creation/editing/publication is
 outside this MVP. Codex chat management is also outside scope.
 

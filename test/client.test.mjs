@@ -109,11 +109,11 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
 });
 
 // Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
-function taskDrawer(f, getState, run) {
+function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
   const Main = f.registrations.get('main').Component;
-  const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
+  const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
-    useSessionAccess: () => true, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+    useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
   const row = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
   f.render(row.type, row.props).props.onClick();
   return () => {
@@ -149,6 +149,22 @@ test('an author-mode task shows its note and switches back to participation thro
   tree = workflow();
   assert.equal(buttonLabeled(f, tree, '切回参赛'), undefined);
   assert.ok(buttonLabeled(f, tree, '准备提交 / 检查材料'));
+});
+
+test('切回参赛 is disabled without session access or while the agent is running', async (t) => {
+  const f = await clientFixture(t);
+  const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'author' }, prepared: null, receipt: null };
+  const run = async () => assert.fail('a disabled switch-back ran a session command');
+  const enabled = buttonLabeled(f, taskDrawer(f, () => state, run)(), '切回参赛');
+  assert.equal(enabled.props.disabled, false);
+  for (const [label, options, note] of [
+    ['no access', { access: false }, /没有此会话的操作权限/],
+    ['running', { running: true }, /此会话正在执行任务/],
+  ]) {
+    const tree = taskDrawer(f, () => state, run, options)();
+    assert.equal(buttonLabeled(f, tree, '切回参赛').props.disabled, true, label);
+    assert.match(text(tree), note, label);
+  }
 });
 
 test('the workbench usage help names only the participation start', async (t) => {
