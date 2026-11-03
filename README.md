@@ -315,7 +315,13 @@ a CLI argument error) returns `submission_rejected`. Otherwise the result is
 `outcome_unknown`: check the challenge's submissions before submitting again.
 When exactly one matching recent submission is listed, the receipt suggests it
 as possibly this one; verify its result before retrying into it. The plugin
-shows only its own classified message, never the CLI output.
+shows only its own classified message, never the CLI output. On a timeout or
+a cancellation the plugin ends the CLI and the processes it started, then
+waits up to 5 seconds for them to stop, so the result arrives at most 5 seconds
+after the limit. If a CLI exits cleanly but a process it started keeps its
+output open, only macOS and Linux end that process; on Windows it is left
+running. If DSH exits normally while a submission is running, the plugin ends
+the CLI on macOS and Linux; a DSH killed by a signal or a crash does not end it.
 
 Submission slots per challenge are limited by the platform's rules;
 the tool never retries a submission on its own.
@@ -331,8 +337,8 @@ The row accepts:
 | `uploadTimeoutMs` | `180000` | Per-request timeout for submission and bundle uploads, including response body reading |
 | `cliPath` | `playground` | Installed Playground CLI executable used for login and confirmed submission |
 | `credentialsPath` | CLI default | Optional `PLAYGROUND_CREDENTIALS_PATH`-style credentials file override |
-| `cliTimeoutMs` | `120000` | Maximum duration for one CLI login (at most `2147483647`) |
-| `cliSubmitTimeoutMs` | `600000` or `cliTimeoutMs`, whichever is larger | Maximum duration for one CLI submission, including the bundle upload and the CLI's retries (at most `2147483647`) |
+| `cliTimeoutMs` | `120000` | Maximum duration for one CLI login (at most `2147483647`), followed by up to 5 s of shutdown |
+| `cliSubmitTimeoutMs` | `600000` or `cliTimeoutMs`, whichever is larger | Maximum duration for one CLI submission, including the bundle upload and the CLI's retries (at most `2147483647`), followed by up to 5 s of shutdown |
 | `token` | — | Playground token override; prefer `PLAYGROUND_TOKEN` |
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
