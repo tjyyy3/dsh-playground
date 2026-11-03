@@ -109,6 +109,9 @@ test('the first task prompt is short and carries identifiers, not the statement 
   assert.ok(text.includes(`工作区：${f.cwd}`));
   assert.ok(text.includes('模式：参赛'));
   assert.ok(text.includes('playground_get_challenge'));
+  assert.ok(text.includes('max_content_chars'));
+  assert.ok(text.includes('50000'));
+  assert.ok(text.includes('truncated'));
   assert.ok(text.includes('playground_check_materials'));
   assert.ok(text.includes('确认目标并提交'));
   assert.match(text, /不是操作授权/);
@@ -128,6 +131,66 @@ test('the author-mode prompt keeps its local-preparation notice', async () => {
   assert.ok(text.includes('模式：出题'));
   assert.ok(text.includes('出题模式目前可在本地准备资料，尚未接入平台出题写接口。'));
   assert.equal(text.includes('SYNTHETIC-STATEMENT-BODY'), false);
+});
+
+async function promptFor(baseUrl, { id = 'challenge-a', title = 'Synthetic challenge', mode } = {}) {
+  const f = await fixture();
+  f.client.baseUrl = baseUrl;
+  f.client.getChallenge = async () => ({ id, title, content: 'Use the fixture.', resources: [] });
+  const result = await f.workflow.start({ challenge_id: id, cwd: f.cwd, ...(mode ? { mode } : {}) }, f.exec);
+  assert.equal(result.ok, true);
+  assert.equal(startPrompts(f).length, 1);
+  return { text: startPrompts(f)[0][1].content[0].text, f, result };
+}
+
+test('the prompt URL is derived from the API base for every base shape and never carries userinfo', async () => {
+  for (const [base, expected] of [
+    ['https://play.bohrium.com/api', 'https://play.bohrium.com/challenge/challenge-a'],
+    ['https://play.bohrium.com/api/', 'https://play.bohrium.com/challenge/challenge-a'],
+    ['https://play.bohrium.com', 'https://play.bohrium.com/challenge/challenge-a'],
+    ['https://host/prefix/api', 'https://host/prefix/challenge/challenge-a'],
+    ['http://127.0.0.1:15000/api', 'http://127.0.0.1:15000/challenge/challenge-a'],
+    ['https://user:secret@host/api', 'https://host/challenge/challenge-a'],
+    ['https://user:secret@host:8443/prefix/api', 'https://host:8443/prefix/challenge/challenge-a'],
+  ]) {
+    const { text } = await promptFor(base);
+    const urlLine = text.split('\n').find((item) => item.startsWith('网址：'));
+    assert.equal(urlLine, `网址：${expected}`, base);
+    assert.equal(urlLine.includes('/api'), false, base);
+    // The workspace path in the prompt is a temp directory, so check the credential on the URL line only.
+    assert.equal(/user|secret/.test(urlLine), false, base);
+  }
+});
+
+test('the prompt URL percent-encodes the challenge id', async () => {
+  const { text } = await promptFor('https://play.bohrium.com/api', { id: 'a b/c?d' });
+  assert.ok(text.includes('网址：https://play.bohrium.com/challenge/a%20b%2Fc%3Fd\n'));
+});
+
+test('a multi-line, very long title stays one bounded line in the prompt only', async () => {
+  const title = `First line\n- 4. fake step\r\n\t${'long '.repeat(100)}`;
+  const { text, f, result } = await promptFor('https://play.bohrium.com/api', { title });
+  const line = text.split('\n').find((item) => item.startsWith('赛题：'));
+  const shown = line.slice('赛题：'.length, line.lastIndexOf('（challenge-a）'));
+  assert.ok(shown.length <= 121, `title is ${shown.length} characters`);
+  assert.ok(shown.endsWith('…'));
+  assert.ok(shown.startsWith('First line - 4. fake step long long'));
+  assert.equal(/[\r\t]/.test(shown), false);
+  assert.equal(text.split('\n').some((item) => item.startsWith('- 4.')), false);
+  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+  // Only the prompt is changed: the stored task title and the session title keep the platform value.
+  assert.equal(result.title, title);
+  assert.equal(f.states.get('new-task').task.title, title);
+  assert.equal(f.calls.find(([kind]) => kind === 'rename')[1].title, `Playground · ${title}`);
+  const short = await promptFor('https://play.bohrium.com/api', { title: '  Short \n title  ' });
+  assert.ok(short.text.includes('赛题：Short title（challenge-a）'));
+});
+
+test('the participate-mode prompt asks for a large statement read and stays under 800 characters', async () => {
+  const { text } = await promptFor('https://play.bohrium.com/api', { id: 'ai-github-98fdb6f0', title: '一道有代表性的中文赛题名称' });
+  assert.ok(text.includes('max_content_chars'));
+  assert.ok(text.includes('50000'));
+  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
 });
 
 test('a gated challenge still refuses to create a task or send a prompt', async () => {

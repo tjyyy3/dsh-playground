@@ -56,7 +56,8 @@ requires authentication and can consume a platform submission slot.
    `playground_get_challenge`, `playground_check_materials` and the
    confirmation card. It does not embed the statement or resources: the agent
    reads them itself with `playground_get_challenge`, so they are always
-   current, and the prompt does not authorize any action. It tells the agent
+   current. The agent asks for a large `max_content_chars`, and the tool flags
+   any truncation in its output. The prompt does not authorize any action. It tells the agent
    not to run `playground submit` in the terminal; real submission happens
    only when you click **确认目标并提交**.
 3. Prepare an ARM ZIP and a real execution trace. In the global workbench, select

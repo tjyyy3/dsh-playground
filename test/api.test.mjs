@@ -417,11 +417,17 @@ test('formatters produce a table and a bounded problem statement', () => {
     id: 'a',
     title: 'Alpha',
     content: 'x'.repeat(200),
-    resources: [{ name: 'data', kind: 'dataset' }],
+    resources: [
+      { name: 'data', kind: 'dataset' },
+      { name: 'weights', kind: 'model', role: 'input', description: 'pretrained', source: 'https://example.test/weights.bin' },
+    ],
     contentGated: false,
   }, { maxContentChars: 50 });
   assert.match(detail, /truncated/);
   assert.match(detail, /## Resources/);
+  const resourceLines = detail.split('\n').filter((line) => line.startsWith('- '));
+  assert.equal(resourceLines[0], '- dataset · data');
+  assert.equal(resourceLines[1], '- model · weights (input) — pretrained [source: https://example.test/weights.bin]');
 });
 
 test('attempt formatters show scoring state and submission outcome', () => {
