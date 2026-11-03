@@ -299,7 +299,10 @@ function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeSettings(config) {
+// Node's setTimeout fires after 1 ms for delays above 2^31 - 1 ms.
+const MAX_TIMER_MS = 2147483647;
+
+export function normalizeSettings(config) {
   const source = config !== null && typeof config === 'object' ? config : {};
   const baseUrl = typeof source.baseUrl === 'string' && source.baseUrl.trim().length > 0
     ? source.baseUrl.trim()
@@ -320,9 +323,14 @@ function normalizeSettings(config) {
     ? source.credentialsPath.trim()
     : (process.env.PLAYGROUND_CREDENTIALS_PATH || DEFAULT_CLI_CREDENTIALS_PATH);
   const cliTimeoutMs = Number.isFinite(Number(source.cliTimeoutMs)) && Number(source.cliTimeoutMs) > 0
-    ? Number(source.cliTimeoutMs)
+    ? Math.min(Number(source.cliTimeoutMs), MAX_TIMER_MS)
     : 120000;
-  return { baseUrl, token, timeoutMs, uploadTimeoutMs, cliPath, credentialsPath, cliTimeoutMs };
+  // Without its own setting, submission keeps at least the login timeout, so a raised
+  // cliTimeoutMs still applies to slow uploads.
+  const cliSubmitTimeoutMs = Number.isFinite(Number(source.cliSubmitTimeoutMs)) && Number(source.cliSubmitTimeoutMs) > 0
+    ? Math.min(Number(source.cliSubmitTimeoutMs), MAX_TIMER_MS)
+    : Math.max(600000, cliTimeoutMs);
+  return { baseUrl, token, timeoutMs, uploadTimeoutMs, cliPath, credentialsPath, cliTimeoutMs, cliSubmitTimeoutMs };
 }
 
 /**
@@ -995,7 +1003,13 @@ export function apply(ctx, config) {
     timeoutMs: settings.timeoutMs,
     uploadTimeoutMs: settings.uploadTimeoutMs,
   });
-  const cli = createPlaygroundCli({ command: settings.cliPath, credentialsPath: settings.credentialsPath, baseUrl: settings.baseUrl, timeoutMs: settings.cliTimeoutMs });
+  const cli = createPlaygroundCli({
+    command: settings.cliPath,
+    credentialsPath: settings.credentialsPath,
+    baseUrl: settings.baseUrl,
+    timeoutMs: settings.cliTimeoutMs,
+    submitTimeoutMs: settings.cliSubmitTimeoutMs,
+  });
   const workingDirectory = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : undefined;
   const submit = createSubmitTool(client, { workingDirectory });
   let workflow;

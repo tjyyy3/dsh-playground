@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { apply, createSubmitTool, inject, name, presentationMeta } from '../index.js';
+import { apply, createSubmitTool, inject, name, normalizeSettings, presentationMeta } from '../index.js';
 
 function mount(config = {}) {
   const registered = [];
@@ -429,4 +429,21 @@ test('native task creation tool requires an explicit target directory in its sch
   assert.match(tool.description, /call this tool instead of working on it in the current conversation/);
   assert.match(tool.description, /If this conversation already has a Playground task, continue working here/);
   assert.match(tool.description, /Only create another task when the user explicitly requests a new task/);
+});
+
+test('CLI timeouts: submission defaults to at least the login timeout and both are clamped', () => {
+  const timeouts = (config) => {
+    const { cliTimeoutMs, cliSubmitTimeoutMs } = normalizeSettings(config);
+    return [cliTimeoutMs, cliSubmitTimeoutMs];
+  };
+  assert.deepEqual(timeouts(undefined), [120000, 600000]);
+  assert.deepEqual(timeouts({ cliTimeoutMs: 900000 }), [900000, 900000]);
+  assert.deepEqual(timeouts({ cliTimeoutMs: 900000, cliSubmitTimeoutMs: 300000 }), [900000, 300000]);
+  assert.deepEqual(timeouts({ cliSubmitTimeoutMs: '450000' }), [120000, 450000]);
+  for (const invalid of [0, -1, 'slow', NaN, Infinity]) {
+    assert.deepEqual(timeouts({ cliTimeoutMs: invalid, cliSubmitTimeoutMs: invalid }), [120000, 600000]);
+  }
+  // setTimeout fires after 1 ms for delays above 2^31 - 1 ms.
+  assert.deepEqual(timeouts({ cliTimeoutMs: 3e9, cliSubmitTimeoutMs: 3e9 }), [2147483647, 2147483647]);
+  assert.deepEqual(timeouts({ cliTimeoutMs: 3e9 }), [2147483647, 2147483647]);
 });
