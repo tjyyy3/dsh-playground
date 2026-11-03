@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
       },
     };
     const css = `
-      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--pg-accent-soft);border-color:var(--pg-accent)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--pg-accent);border-color:var(--pg-accent);color:#fff;font-weight:600}.pg-primary:hover:not(:disabled){background:var(--pg-accent-strong);filter:none}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--pg-accent-soft);border-color:var(--pg-accent)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--pg-accent);border-color:var(--pg-accent);color:#fff;font-weight:600}.pg-primary:hover:not(:disabled){background:var(--pg-accent-strong);filter:none}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     `;
 
     // Task-start dialog styles. The accent matches the shared --pg-accent; every other tone comes
@@ -201,6 +201,8 @@ window.__ModuleLoader__.load({
 
     // The workbench refreshes unscored submissions every two minutes while it is open.
     const attemptRefreshMs = 120000;
+    // No archive failure to show (the workbench keeps the failed conversation id with the message).
+    const noArchiveError = Object.freeze({ id: '', message: '' });
 
     // A receipt whose evaluation has ended: a final score, or a failed or rejected attempt.
     const receiptSettled = (receipt) => ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
@@ -719,7 +721,39 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load(history.nextCursor) }, busy ? '正在读取…' : '加载更多')) : null);
     }
 
-    function TaskDetailDrawer({ session, projection, close, query, webBase, ...props }) {
+    // DSH's own conversation archive: hidden from the sidebar and the task overview, restorable, content kept.
+    // `archive` is undefined when this DSH does not report its archive set; the control is then not shown.
+    function TaskArchiveControl({ session, archive }) {
+      if (!archive) return null;
+      const busy = archive.busy === session.id;
+      const archived = Boolean(archive.archived);
+      // Why "归档任务" is unavailable. Archiving the conversation in DSH's main view makes DSH clear that view
+      // and leave this panel, which would close the workbench before "撤销" could be seen.
+      const notes = archived ? [] : [
+        session.running ? ['pg-archive-running', '对话正在运行，停止后再归档。'] : null,
+        (session.retainedBy?.mainView ?? 0) > 0 ? ['pg-archive-main-view', '这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。'] : null,
+      ].filter(Boolean);
+      return h('div', { className: 'pg-actions pg-archive' },
+        archived ? h('span', { className: 'pg-badge', 'data-tone': 'neutral' }, '已归档') : null,
+        // One button for both directions, so it stays mounted and keeps keyboard focus when its label changes.
+        // While a change is in flight it is aria-disabled instead of disabled, which would drop focus.
+        h('button', { type: 'button', className: `pg-button ${archived ? 'pg-unarchive' : 'pg-archive-button'}`, disabled: notes.length > 0,
+          'aria-disabled': archive.busy ? true : undefined, 'aria-describedby': notes.length ? notes.map(([id]) => id).join(' ') : undefined,
+          onClick: () => { if (!archive.busy) archive.change(session.id, !archived); } },
+        busy ? (archived ? '正在撤销…' : '正在归档…') : archived ? '撤销' : '归档任务'),
+        ...notes.map(([id, note]) => h('span', { key: id, id, className: 'pg-note' }, note)),
+        archive.error ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'alert' }, archive.error) : null);
+    }
+
+    function ArchivedTaskRow({ session, archive }) {
+      const title = session.projectionValues?.playgroundTask?.task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
+      return h('div', { className: 'pg-task-row pg-archived-row', role: 'listitem' },
+        h('span', { className: 'pg-archived-title' }, title),
+        h('button', { type: 'button', className: 'pg-task-row-open pg-unarchive', disabled: Boolean(archive.busy), 'aria-label': `取消归档：${title}`,
+          onClick: () => archive.change(session.id, false) }, archive.busy === session.id ? '正在取消…' : '取消归档'));
+    }
+
+    function TaskDetailDrawer({ session, projection, close, query, webBase, archive, ...props }) {
       React.useEffect(() => {
         const onKeyDown = (event) => { if (event.key === 'Escape') close(); };
         document.addEventListener('keydown', onKeyDown);
@@ -732,6 +766,7 @@ window.__ModuleLoader__.load({
       const historyChallenge = current.task?.challengeId || state.task?.challengeId;
       const attemptIds = taskAttemptIds(current);
       const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
+      const archived = Boolean(archive?.archived);
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: close },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation() },
           h('div', { className: 'pg-drawer-header' },
@@ -739,23 +774,41 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pg-drawer-actions' },
               // Close after starting navigation so a workbench the host keeps mounted does not come back
               // to an open modal drawer whose Escape listener is still attached.
-              h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); close(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
+              // DSH does not open an archived conversation, so its drawer offers no way there.
+              archived ? null : h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); close(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
               h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           openWeb ? h('div', { className: 'pg-actions' }, openWeb) : null,
-          h(SelectedTask, { key: session.id, session, projection, ...props }),
+          h(TaskArchiveControl, { session, archive }),
+          // An archived task is read-only here: its state and history, without the check and confirm controls,
+          // which would act on a conversation DSH has archived.
+          archived ? h('p', { className: 'pg-note pg-archived-note' }, '此任务已归档。DSH 不会打开已归档的对话；撤销后才能继续检查材料和确认提交。')
+            : h(SelectedTask, { key: session.id, session, projection, ...props }),
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
           historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, ...props }) {
+    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
       const catalog = useSessions((state) => state);
+      // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
+      // the archive controls stay hidden.
+      const archivedIds = typeof useWorkspaces === 'function' ? useWorkspaces((value) => value?.archivedSessionIds) : undefined;
+      const archiveAvailable = Array.isArray(archivedIds);
+      const archivedSet = new Set(archiveAvailable ? archivedIds : []);
       const sessions = catalog.ids.map((id) => catalog.byId[id]).filter((session) => !session.parentId);
       const sourceSession = sessions.find((session) => (session.retainedBy?.mainView ?? 0) > 0) || sessions[0];
-      const taskSessions = sessions.filter((session) => session.projectionValues?.playgroundTask?.task || session.displayTitle?.startsWith('Playground · '));
+      const allTaskSessions = sessions.filter((session) => session.projectionValues?.playgroundTask?.task || session.displayTitle?.startsWith('Playground · '));
+      // Everything below counts, refreshes and selects by default from the tasks that are not archived.
+      const taskSessions = allTaskSessions.filter((session) => !archivedSet.has(session.id));
+      const archivedTasks = allTaskSessions.filter((session) => archivedSet.has(session.id));
       const [selected, setSelected] = React.useState(() => taskSessions.find((session) => (session.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || '');
+      const [showArchived, setShowArchived] = React.useState(false);
+      // Id of the conversation whose archive change is in flight, and the last failure with the conversation
+      // it belongs to: a drawer shows only its own task's failure.
+      const [archiveBusy, setArchiveBusy] = React.useState('');
+      const [archiveError, setArchiveError] = React.useState(noArchiveError);
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
@@ -811,10 +864,32 @@ window.__ModuleLoader__.load({
         };
       }, [anyPending]);
       const refreshing = Boolean(store.controller);
+      // A task archived from its open drawer stays selected so the drawer can offer "撤销"; once the drawer
+      // is closed, the selection moves back to a task that is not archived.
       React.useEffect(() => {
-        if (selected && !taskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
-      }, [selected, taskSessions.map((session) => session.id).join(',')]);
-      const session = catalog.byId[selected] || taskSessions[0];
+        if (selected && !allTaskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
+        else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || '');
+      }, [selected, drawerOpen, allTaskSessions.map((session) => session.id).join(','), archivedTasks.map((session) => session.id).join(',')]);
+      const session = (archivedSet.has(selected) && !drawerOpen ? undefined : catalog.byId[selected]) || taskSessions[0];
+      // "归档任务", "撤销" and "取消归档". No confirmation: the conversation can be restored. The actions report
+      // failures as a short message and never throw; the catch only covers a host that throws anyway.
+      const toggleArchive = (id, archive) => {
+        if (archiveBusy) return undefined;
+        setArchiveBusy(id);
+        setArchiveError(noArchiveError);
+        setAnnouncement('');
+        return Promise.resolve().then(() => (archive ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive ? '归档未完成，请重试。' : '取消归档未完成，请重试。' }))
+          .then((result) => {
+            setArchiveBusy('');
+            if (result?.ok === false) { setArchiveError({ id, message: result.message }); setAnnouncement(result.message); }
+            else setAnnouncement(archive ? '任务已归档' : '任务已取消归档');
+          });
+      };
+      const archive = archiveAvailable ? { busy: archiveBusy, change: toggleArchive } : undefined;
+      // Selecting another task or closing the drawer drops the last failure.
+      const closeDrawer = () => { setDrawerOpen(false); setArchiveError(noArchiveError); };
+      // DSH does not open archived conversations: the header skips an archived selection.
+      const openable = session && !archivedSet.has(session.id) ? session : taskSessions[0];
       // The row's "打开对话" and the drawer's "打开任务对话": a failed navigation is reported, not left unhandled.
       // Navigation is deferred so a synchronous throw is caught too and the caller (the drawer's close) always continues.
       // Both messages are cleared first, so a repeated failure changes the live region again and a success leaves no stale note.
@@ -829,11 +904,11 @@ window.__ModuleLoader__.load({
       };
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
-            h('button', { className: 'pg-button', onClick: () => session ? openTask(session.id) : openChat() }, session ? '返回所选任务对话' : '打开 DSH 对话')),
+            h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
           h(AuthStatusPanel, { query, login }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
@@ -857,9 +932,17 @@ window.__ModuleLoader__.load({
               // Visible copy of the navigation failure; the live region above already announces it.
               openError ? h('p', { className: 'pg-note pg-error pg-open-error', role: 'none' }, openError) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
-                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id) })))
-                : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase, ...props }) : null,
+                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setArchiveError(noArchiveError); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id) })))
+                : h('p', { className: 'pg-task-empty' }, archivedTasks.length ? '没有未归档的任务。' : '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'),
+              // Visible copy of an archive failure while the drawer is closed; the drawer shows its own.
+              archive && archiveError.message && !drawerOpen ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'none' }, archiveError.message) : null,
+              archive && archivedTasks.length ? h('div', { className: 'pg-archived' },
+                h('button', { type: 'button', className: 'pg-archived-toggle', 'aria-expanded': showArchived, 'aria-controls': 'pg-archived-list',
+                  onClick: () => setShowArchived(!showArchived) }, `已归档 ${archivedTasks.length} 个`),
+                showArchived ? h('div', { id: 'pg-archived-list', className: 'pg-task-list pg-archived-list', role: 'list', 'aria-label': '已归档的 Playground 任务' },
+                  archivedTasks.map((item) => h(ArchivedTaskRow, { key: item.id, session: item, archive }))) : null) : null)),
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
+            archive: archive && { ...archive, archived: archivedSet.has(session.id), error: archiveError.id === session.id ? archiveError.message : '' }, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”。'),
@@ -1024,6 +1107,25 @@ window.__ModuleLoader__.load({
       return /bearer|authorization|token|password|secret|api[_-]?key|cookie|[a-z]:[\\/]|\/(home|users|tmp)\//i.test(text) ? undefined : text;
     }
 
+    // uiWorkspace.archiveSession throws WorkspaceArchiveError carrying the host rpcError (read from the error, not
+    // its class: bundles do not share classes). `workspace/session-active` covers any running work in the
+    // conversation (turns, subagents, background jobs, schedules), not only a visible running turn. Errors without
+    // an rpcError, such as unarchiveSession's "workspace session unarchive failed: <code>: <message>", get only
+    // the generic message.
+    async function changeArchive(uiWorkspace, method, sessionId) {
+      const verb = method === 'archiveSession' ? '归档' : '取消归档';
+      if (typeof uiWorkspace?.[method] !== 'function') return { ok: false, message: `当前 DSH 版本不支持${verb}对话。` };
+      try {
+        await uiWorkspace[method](sessionId);
+        return { ok: true };
+      } catch (failure) {
+        const rpcError = failure?.rpcError;
+        if (rpcError?.code === 'workspace/session-active') return { ok: false, message: '对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。' };
+        const detail = typeof rpcError?.message === 'string' ? safeMessage(rpcError.message) : undefined;
+        return { ok: false, message: detail ? `${verb}未完成：${detail}。请重试。` : `${verb}未完成，请重试。` };
+      }
+    }
+
     function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
       let result;
       let input;
@@ -1095,6 +1197,10 @@ window.__ModuleLoader__.load({
             return path ? ctx.workspaces.create({ path }) : null;
           },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
+          // DSH's own archive, the one its sidebar uses. Running work is refused by the host, never stopped
+          // from here. Both resolve to { ok } and report failures as a short message instead of throwing.
+          archiveTask: (sessionId) => changeArchive(ctx.uiWorkspace, 'archiveSession', sessionId),
+          unarchiveTask: (sessionId) => changeArchive(ctx.uiWorkspace, 'unarchiveSession', sessionId),
           openChat: () => ctx.layout.selectPanel(null),
           openWorkbench: async (sessionId) => {
             await ctx.uiWorkspace.openSession(sessionId);
