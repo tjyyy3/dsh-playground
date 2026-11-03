@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, toNamespacedPath } from 'node:path';
+import { isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
 import test from 'node:test';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
+import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
@@ -561,6 +562,94 @@ test('F-03: CLI receipts preserve successful and failed bundle JSON results', as
     assert.equal(f.states.get('source').receipt.ok, result.ok);
     assert.deepEqual(f.calls, []);
   }
+});
+
+test('CLI submission receives the checked manifest, outcome and explicitly given detail and author', async () => {
+  const received = [];
+  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '21', attempt: { status: 'submitted' } }; } });
+  await writeFile(join(f.cwd, 'arm_manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', outcome: 'partial', detail: 'Synthetic run notes', author_name: 'Synthetic agent' }, f.exec);
+  assert.equal(checked.ok, true);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 21);
+  assert.equal(received.length, 1);
+  assert.equal(received[0].manifestPath, resolve(f.cwd, 'arm_manifest.json'));
+  assert.equal(received[0].outcome, 'partial');
+  assert.equal(received[0].detail, 'Synthetic run notes');
+  assert.equal(received[0].authorName, 'Synthetic agent');
+  assert.deepEqual(f.calls, []);
+});
+
+test('CLI submission leaves detail and author to the CLI defaults when they were not given', async () => {
+  const received = [];
+  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '22' }; } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(received.length, 1);
+  for (const key of ['manifestPath', 'outcome', 'detail', 'authorName']) assert.equal(received[0][key], undefined, key);
+});
+
+test('an undeclarable outcome fails the material check before any submission', async () => {
+  let submitCalls = 0;
+  const f = await fixture({ submit: async () => { submitCalls++; return { attempt_id: '23' }; } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', outcome: 'excellent' }, f.exec);
+  assert.equal(checked.ok, false);
+  assert.match(checked.error.message, /outcome/);
+  assert.equal(checked.workflow.kind, 'clear');
+  assert.equal(submitCalls, 0);
+  assert.deepEqual(f.calls, []);
+});
+
+// cli.submit() receives an option object; buildSubmitArgs() turns it into the CLI argv.
+const submitArgv = ({ cwd, signal, ...options }) => buildSubmitArgs(options);
+const NEW_FIELD_FLAGS = ['--manifest', '--outcome', '--detail', '--author-name'];
+
+test('a retry through confirm() passes the fields through and its CLI arguments drop them', async () => {
+  const received = [];
+  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '7', attempt: { status: 'submitted' } }; } });
+  await writeFile(join(f.cwd, 'arm_manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 7, outcome: 'failed', detail: 'Retry notes', author_name: 'Synthetic agent' }, f.exec);
+  assert.equal(checked.ok, true);
+  f.record(checked);
+  await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(received.length, 1);
+  assert.equal(received[0].attemptId, 7);
+  assert.equal(received[0].manifestPath, resolve(f.cwd, 'arm_manifest.json'));
+  assert.equal(received[0].outcome, 'failed');
+  assert.equal(received[0].detail, 'Retry notes');
+  assert.equal(received[0].authorName, 'Synthetic agent');
+  const argv = submitArgv(received[0]);
+  assert.deepEqual(argv.slice(argv.indexOf('--attempt-id'), argv.indexOf('--attempt-id') + 2), ['--attempt-id', '7']);
+  for (const flag of NEW_FIELD_FLAGS) assert.equal(argv.some((arg) => arg === flag || arg.startsWith(`${flag}=`)), false, flag);
+  assert.deepEqual(f.calls, []);
+});
+
+test('an explicit relative manifest_path reaches the CLI as an absolute path', async () => {
+  const received = [];
+  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '24' }; } });
+  await mkdir(join(f.cwd, 'materials'));
+  await writeFile(join(f.cwd, 'materials', 'manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', manifest_path: 'materials/manifest.json' }, f.exec);
+  assert.equal(checked.ok, true);
+  f.record(checked);
+  await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(received.length, 1);
+  assert.equal(isAbsolute(received[0].manifestPath), true);
+  assert.equal(received[0].manifestPath, join(f.cwd, 'materials', 'manifest.json'));
+  assert.ok(submitArgv(received[0]).includes(`--manifest=${join(f.cwd, 'materials', 'manifest.json')}`));
+});
+
+test('a detail that starts with "--" survives into the CLI arguments', async () => {
+  const received = [];
+  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '25' }; } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', detail: '--- notes' }, f.exec);
+  assert.equal(checked.ok, true);
+  f.record(checked);
+  await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(received[0].detail, '--- notes');
+  assert.ok(submitArgv(received[0]).includes('--detail=--- notes'));
 });
 
 test('F-03: CLI receipts clear confirmation on invalid submission ids without retry', async () => {

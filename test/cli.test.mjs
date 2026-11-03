@@ -4,7 +4,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
-import { createPlaygroundCli } from '../lib/cli.js';
+import { buildSubmitArgs, createPlaygroundCli } from '../lib/cli.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -299,4 +299,66 @@ test('Windows: the cmd fallback refuses arguments cmd would interpret', { skip: 
 
 test('starting the CLI emits no shell deprecation warning', () => {
   assert.deepEqual(warnings.filter((warning) => warning.code === 'DEP0190').map(String), []);
+});
+
+const required = { challengeId: 'challenge-a', bundlePath: 'bundle.zip' };
+const NEW_FIELD_FLAGS = ['--manifest', '--outcome', '--detail', '--author-name'];
+const hasFlag = (args, flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+
+test('submit arguments include every given submission field', () => {
+  assert.deepEqual(buildSubmitArgs({
+    ...required, tracePath: 'trace.jsonl', model: 'model-a', harness: 'harness-a', method: 'method-a',
+    manifestPath: 'arm_manifest.json', outcome: 'success', detail: 'Run notes', authorName: 'Agent A',
+  }), [
+    'submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl',
+    '--model', 'model-a', '--harness', 'harness-a', '--method', 'method-a',
+    '--manifest=arm_manifest.json', '--outcome', 'success', '--detail=Run notes', '--author-name=Agent A',
+  ]);
+});
+
+test('free-text values that start with "--" stay attached to their flag', () => {
+  const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', manifestPath: '--odd/arm_manifest.json', detail: '--- notes', authorName: '--agent=a' });
+  assert.deepEqual(args.slice(-3), ['--manifest=--odd/arm_manifest.json', '--detail=--- notes', '--author-name=--agent=a']);
+});
+
+test('submit arguments omit fields that were not given so the CLI keeps its defaults', () => {
+  for (const blank of [undefined, '', '   ']) {
+    const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', manifestPath: blank, outcome: blank, detail: blank, authorName: blank });
+    assert.deepEqual(args, ['submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl']);
+  }
+});
+
+test('a retry into an existing attempt re-uploads only the bundle', () => {
+  const args = buildSubmitArgs({
+    ...required, attemptId: 7, tracePath: 'trace.jsonl', manifestPath: 'arm_manifest.json',
+    outcome: 'failed', detail: 'Run notes', authorName: 'Agent A',
+  });
+  assert.deepEqual(args, ['submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--attempt-id', '7']);
+});
+
+test('submit arguments accept only declarable outcomes', () => {
+  assert.throws(() => buildSubmitArgs({ ...required, outcome: 'excellent' }), (error) => error.code === 'invalid_argument' && error.started === false);
+});
+
+test('a retry built from confirm() options carries none of the new attempt fields', () => {
+  // The same option object confirm() hands to cli.submit() for a retry with every field set.
+  const args = buildSubmitArgs({
+    challengeId: 'challenge-a', bundlePath: 'bundle.zip', tracePath: undefined, attemptId: 7, model: 'model-a',
+    harness: 'harness-a', method: 'method-a', manifestPath: '/abs/arm_manifest.json', outcome: 'success', detail: 'Run notes', authorName: 'Agent A',
+  });
+  for (const flag of NEW_FIELD_FLAGS) assert.equal(hasFlag(args, flag), false, flag);
+});
+
+test('createPlaygroundCli().submit() runs the CLI with the built arguments, including spaces and a leading "--"', async () => {
+  const cli = createPlaygroundCli({ command: await fakeCli(join(root, 'fields', 'fake-cli.mjs')), baseUrl: 'http://127.0.0.1:9/api' });
+  const withFields = await cli.submit({
+    ...required, tracePath: 'trace.jsonl', manifestPath: 'arm manifest.json', outcome: 'stuck', detail: '--- run & notes', authorName: 'agent a',
+  });
+  assert.deepEqual(withFields, [
+    'submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl',
+    '--manifest=arm manifest.json', '--outcome', 'stuck', '--detail=--- run & notes', '--author-name=agent a',
+    '--api-base', 'http://127.0.0.1:9',
+  ]);
+  const withoutFields = await cli.submit({ ...required, tracePath: 'trace.jsonl' });
+  for (const flag of NEW_FIELD_FLAGS) assert.equal(hasFlag(withoutFields, flag), false, flag);
 });
