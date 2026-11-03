@@ -127,12 +127,14 @@ review), the workbench reads it from the platform when it opens and every 2
 minutes after that, and it stops once the submission has a final score, failed
 or was rejected. A bundle the platform accepted as `incomplete` is not polled.
 When the page becomes visible again, a round starts only if the previous one
-began more than 30 seconds ago. Each submission is requested once per round, at
+began at least 30 seconds ago. A pending submission that appears after the
+first round is read at the next 2-minute round. Each submission is requested once per round, at
 most 4 requests run at a time, and a new round never starts while one is still
 running. The **刷新** button reads the latest submission of every task right
 away and is disabled while it runs. The list shows **状态更新于 HH:MM**. If a
 refresh fails, the previous results stay and the list shows **刷新失败，显示的是
-HH:MM 的状态**, or **刷新失败，部分任务显示的不是最新状态** when some tasks did
+HH:MM 的状态**, **刷新失败，显示的是任务记录中的状态** when no refresh has
+succeeded yet, or **刷新失败，部分任务显示的不是最新状态** when some tasks did
 refresh; the next round tries again. A result is used only while the task's
 receipt is unchanged since it was read: a resubmission or **查询结果 #…** takes
 precedence.
