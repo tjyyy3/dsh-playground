@@ -203,8 +203,10 @@ window.__ModuleLoader__.load({
     // A submission-history row with the workbench refresh's result for the same id laid over it, but
     // only when that result settles a row that was still unsettled. The refresh and the history read
     // happen at different times, so the store never moves a row backwards or between unsettled states.
+    // A row updated after the stored result (a re-upload under the same id) keeps its own state.
     function withSettledAttempt(item, entry) {
       if (!entry?.attempt || receiptSettled(item)) return item;
+      if (Date.parse(item.updatedAt) > Date.parse(entry.attempt.updatedAt)) return item;
       const merged = { ...item };
       for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
       return receiptSettled(merged) ? merged : item;
@@ -580,8 +582,9 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭')),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           h(SelectedTask, { key: session.id, session, projection, ...props }),
-          // The newest attributed id is part of the key: a submission confirmed in this drawer remounts the list and reloads page one.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
+          // The newest attributed id and the receipt's update time are part of the key: a submission confirmed
+          // in this drawer, including a re-upload under the same id, remounts the list and reloads page one.
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.updatedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, ...props }) {

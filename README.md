@@ -154,10 +154,12 @@ the platform marks final counts, a queued or evaluating 0 shows **—**, and a
 `late_scored` entry is a final score marked **（赛后）**. The list is read
 once when the drawer opens, through the session-free query, without writing to
 any conversation, and needs a Playground login; **重试** reads it again after a
-failure. A submission confirmed in the drawer reloads the list. The history is
-not polled on its own: when the workbench refresh above settles a submission
-that the list still shows as pending, the entry takes that result. Close and
-reopen the drawer to see a CLI submission made while it was open. In task
+failure. The list reloads once when the task conversation records a new or
+updated submission, such as one confirmed in the drawer, including a re-upload
+under the same submission number. The history is not polled on its own: when
+the workbench refresh above settles a task's latest submission, its history
+entry takes that result; other entries, including CLI submissions, update when
+the drawer is reopened. In task
 conversations created before this version, only the latest submission is marked
 **本对话**.
 **返回所选任务对话** returns to native chat. Creating another task from

@@ -1130,7 +1130,10 @@ test('mode, clear and a failed receipt keep the attempts already attributed to t
 
 test('the submission-history read lists the account attempts for one challenge and touches no conversation', async () => {
   const f = await fixture();
+  // A task conversation with a receipt, so the snapshot below would show any write to it.
+  f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 3 }, attemptIds: [3] });
   const before = JSON.stringify([...f.states]);
+  assert.match(before, /"attemptIds":\[3\]/);
   const calls = [];
   f.ctx.commands.execute = () => assert.fail('history read reached a conversation');
   f.ctx.sessionProjections.stateOf = () => assert.fail('history read must not depend on a conversation');

@@ -1107,7 +1107,24 @@ async function historyFixture(t, respond, state, options) {
   const drawer = f.find(f.render(main.Component, props), (node) => node.type?.name === 'TaskDetailDrawer');
   const history = f.find(f.render(drawer.type, drawer.props), isHistory);
   assert.ok(history, 'the task drawer renders a submission history section');
-  return { ...f, calls, requests, drawer, history, panel: await f.mount(history) };
+  const panel = await f.mount(history);
+  // mount() leaves the effects of its last render collected; they are the deps a later re-render compares with.
+  return { ...f, calls, requests, drawer, history, panel, historyEffects: f.effects.splice(0) };
+}
+
+// Re-render a mounted history and run only the effects whose deps changed since `previous`, as React does.
+function rerender(f, element, previous) {
+  f.effects.length = 0;
+  const tree = f.render(element.type, element.props);
+  const effects = f.effects.splice(0);
+  let ran = 0;
+  effects.forEach((run, index) => {
+    const old = previous[index];
+    if (old && run.deps && old.deps?.length === run.deps.length && run.deps.every((dep, i) => Object.is(dep, old.deps[i]))) return;
+    ran++;
+    run();
+  });
+  return { tree, effects, ran };
 }
 
 const historyTask = (extra = {}) => ({ task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: null, receipt: null, ...extra });
@@ -1160,19 +1177,38 @@ test('history rows show a queued 0 as pending and a late_scored row as a final s
 });
 
 test('history rows take a settled result from the workbench refresh, but never a less settled one', async (t) => {
+  const queued = { challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: 0, updated_at: '2026-10-05T08:00:00Z' };
   const f = await historyFixture(t, () => attemptsPage([
-    { id: 301, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: 0, created_at: '2026-10-01T08:00:00Z' },
+    { ...queued, id: 301, created_at: '2026-10-01T08:00:00Z' },
     { id: 302, challenge_id: 'fixture', status: 'scored', scoring_state: 'final', score: 50, created_at: '2026-10-02T08:00:00Z' },
+    { ...queued, id: 303, created_at: '2026-10-03T08:00:00Z' },
+    { ...queued, id: 304, created_at: '2026-10-04T08:00:00Z' },
+    // Re-uploaded under the same id after the stored result was fetched.
+    { ...queued, id: 305, created_at: '2026-10-04T09:00:00Z', updated_at: '2026-10-06T08:00:00Z' },
   ]), historyTask());
   assert.equal(f.requests.length, 1);
+  const failed = { status: 'failed', score: null, scoringState: { state: 'failed', scoreIsFinal: false }, updatedAt: '2026-10-05T09:00:00Z' };
   const attempts = {
     301: { attempt: { status: 'scored', score: 90, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } } },
     302: { attempt: { status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } } },
+    303: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } },
+    304: { attempt: failed },
+    305: { attempt: failed },
   };
-  const rows = historyRows(f.render(f.history.type, { ...f.history.props, attempts }));
-  assert.match(rows[0], /提交 #302 .* · 已出最终分 · 50 分/);
-  assert.match(rows[1], /提交 #301 .* · 已出最终分 · 90 分/);
-  // Reading the store is not another poll.
+  const { tree, ran } = rerender(f, { type: f.history.type, props: { ...f.history.props, attempts } }, f.historyEffects);
+  const rows = historyRows(tree);
+  const tones = findAll(tree, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
+  assert.match(rows[0], /提交 #305 .* · 评测中 · — 排队中/);
+  assert.equal(tones[0], 'warning');
+  assert.match(rows[1], /提交 #304 .* · 评测未通过 · — 失败/);
+  assert.equal(tones[1], 'error');
+  assert.match(rows[2], /提交 #303 .* · 评测中 · — 排队中/);
+  assert.equal(tones[2], 'warning');
+  assert.match(rows[3], /提交 #302 .* · 已出最终分 · 50 分/);
+  assert.match(rows[4], /提交 #301 .* · 已出最终分 · 90 分/);
+  // Reading the store is not another poll: the re-render's read effect kept its deps and did not run.
+  assert.equal(ran, 0);
+  await settle();
   assert.equal(f.requests.length, 1);
 });
 
@@ -1323,14 +1359,14 @@ test('a submission attributed in the same drawer reloads the first page of the h
   let items = [{ id: 102, challenge_id: 'fixture', scoring_state: 'final', score: 80, created_at: '2026-10-02T08:00:00Z' }];
   const before = historyTask({ receipt: { ok: true, attemptId: 102 }, attemptIds: [102] });
   const f = await historyFixture(t, () => attemptsPage(items), before);
-  assert.equal(f.history.props.key, 's:fixture:102');
+  assert.equal(f.history.props.key, 's:fixture:102:');
   // An unchanged projection keeps the element key, so a re-render does not refetch.
-  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, 's:fixture:102');
+  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, 's:fixture:102:');
   // Confirming in the drawer's task card refreshes the projection with the new attributed attempt.
   items = [{ id: 104, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: null, created_at: '2026-10-03T08:00:00Z' }, ...items];
   const after = { ...before, receipt: { ok: true, attemptId: 104 }, attemptIds: [102, 104] };
   const next = f.find(f.render(f.drawer.type, { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } }), isHistory);
-  assert.equal(next.props.key, 's:fixture:104');
+  assert.equal(next.props.key, 's:fixture:104:');
   assert.deepEqual(next.props.attemptIds, [102, 104]);
   // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
   const panel = await f.mount(next);
@@ -1339,6 +1375,37 @@ test('a submission attributed in the same drawer reloads the first page of the h
   assert.equal(rows.length, 2);
   assert.match(rows[0], /提交 #104.*本对话/);
   assert.match(rows[1], /提交 #102.*本对话/);
+});
+
+test('a re-upload under the same id reloads the history once, and a store publish alone does not', async (t) => {
+  const row = { id: 102, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: null, created_at: '2026-10-02T08:00:00Z' };
+  const before = historyTask({ receipt: { ok: true, attemptId: 102, updatedAt: '2026-10-02T08:00:00Z' }, attemptIds: [102] });
+  const f = await historyFixture(t, () => attemptsPage([row]), before);
+  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00Z');
+  assert.equal(f.requests.length, 1);
+  // A store publish re-renders the drawer with new refresh results but the same projection.
+  const attempts = { 102: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } } };
+  const published = f.find(f.render(f.drawer.type, { ...f.drawer.props, attempts }), isHistory);
+  assert.equal(published.props.key, f.history.props.key);
+  assert.equal(rerender(f, published, f.historyEffects).ran, 0);
+  await settle();
+  assert.equal(f.requests.length, 1);
+  // A retry uploads a new bundle under id 102; the receipt keeps the id and gets a new update time.
+  const after = { ...before, receipt: { ...before.receipt, updatedAt: '2026-10-05T08:00:00Z' } };
+  const drawerProps = { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } };
+  const next = f.find(f.render(f.drawer.type, drawerProps), isHistory);
+  assert.equal(next.props.key, 's:fixture:102:2026-10-05T08:00:00Z');
+  assert.deepEqual(next.props.attemptIds, [102]);
+  // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
+  await f.mount(next);
+  const mounted = f.effects.splice(0);
+  assert.equal(f.requests.length, 2);
+  // Further renders with the same receipt keep the new key and do not read again.
+  const again = f.find(f.render(f.drawer.type, { ...drawerProps, attempts }), isHistory);
+  assert.equal(again.props.key, next.props.key);
+  assert.equal(rerender(f, again, mounted).ran, 0);
+  await settle();
+  assert.equal(f.requests.length, 2);
 });
 
 test('only the newest submission-history request updates the list', async (t) => {
