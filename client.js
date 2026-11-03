@@ -279,12 +279,13 @@ window.__ModuleLoader__.load({
         .filter(([, value]) => typeof value === 'string' && value.trim()).map(([label, value]) => `${label}：${value.trim().replace(/\s+/g, ' ')}`).join(' · ') : '';
       return h('section', { className: 'pg-guide pg-workflow', 'aria-label': 'Playground 任务' },
         h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}.pg-advanced summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px}.pg-advanced[open] summary{color:var(--pg-accent)}'),
-        h('div', { className: 'pg-head' }, h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务'),
-          task ? h('label', { className: 'pg-field' }, '工作模式', h('select', { className: 'pg-input', 'aria-label': 'Playground 工作模式', value: task.mode, disabled,
-            onChange: (event) => act({ action: 'mode', mode: event.target.value }) },
-          h('option', { value: 'participate' }, '参赛'), h('option', { value: 'author' }, '出题'))) : null),
+        h('div', { className: 'pg-head' }, h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务')),
         task ? h('p', { className: 'pg-note pg-path' }, `赛题 ${task.challengeId} · ${cwd || task.cwd}`) : null,
-        task?.mode === 'author' ? h('p', { className: 'pg-note' }, '可在当前工作区准备题面、资源说明和评分规则。本 MVP 尚未接入平台出题修改与发布。') : null,
+        // Author mode is not offered in the UI yet; a task already in author mode can only switch back.
+        task?.mode === 'author' ? h(React.Fragment, null,
+          h('p', { className: 'pg-note' }, '可在当前工作区准备题面、资源说明和评分规则。本 MVP 尚未接入平台出题修改与发布。'),
+          h('div', { className: 'pg-actions' },
+            h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act({ action: 'mode', mode: 'participate' }) }, '切回参赛'))) : null,
         task && task.mode !== 'author' ? h(React.Fragment, null,
           h('div', { className: 'pg-actions' },
             h('button', { className: 'pg-button pg-primary', disabled, 'aria-expanded': showFiles, onClick: () => setShowFiles(!showFiles) }, '准备提交 / 检查材料'),
@@ -436,8 +437,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }),
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'author', sessionId, requestTask, disabled: Boolean(startBlocked) }))
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }))
         ))));
     }
 
@@ -683,7 +683,7 @@ window.__ModuleLoader__.load({
           drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, query, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
-              h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”或“开始出题任务”。'),
+              h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”。'),
               h('li', null, '选择目标工作区，核对完整路径后确认创建独立任务对话；需要新工作区时使用原生目录选择器添加。'),
               h('li', null, '完成方案后，在对应任务卡检查材料，核对赛题、平台和文件，再明确确认提交。'),
               h('li', null, '查询结果与关键指标；排队状态表示尚未得到最终评分。')))));
