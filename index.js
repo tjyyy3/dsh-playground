@@ -504,16 +504,31 @@ function errorValue(error, extra = {}) {
   return toToolValue({ ...value, ...extra, ok: false });
 }
 
+const TASK_STATUS_TASK_KEYS = ['challengeId', 'title', 'mode', 'cwd'];
+const TASK_STATUS_RECEIPT_KEYS = ['ok', 'attemptId', 'challengeId', 'challengeTitle', 'status', 'bundleStatus', 'score',
+  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args'];
+
+function pickKeys(source, keys) {
+  if (source === null || typeof source !== 'object') return null;
+  return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+}
+
 /**
- * Model-visible task status. An explicit whitelist: the one-time `checkId` and any field added to the
- * projection later stay out of the model's view unless listed here.
+ * Model-visible task status. An explicit whitelist at every level, so a field added to the projection
+ * later stays out of the model's view unless it is listed here.
+ *
+ * `prepared.checkId` is intentionally excluded. It is the one-time code behind the workbench
+ * "确认目标并提交" button. The model must not relay it to users: only the human-driven
+ * `/playground-confirm` command can use it, and the model has no tool that runs commands, so
+ * handing it to the model could only produce wrong instructions. Only the workbench button reads
+ * it, from the session projection.
  */
 function taskStatus(state) {
   const prepared = state?.prepared;
   return {
     ok: true,
-    task: state?.task ?? null,
-    receipt: state?.receipt ?? null,
+    task: pickKeys(state?.task, TASK_STATUS_TASK_KEYS),
+    receipt: pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS),
     ...(state?.attemptIds !== undefined ? { attemptIds: state.attemptIds } : {}),
     prepared: prepared ? {
       awaitingConfirmation: true,

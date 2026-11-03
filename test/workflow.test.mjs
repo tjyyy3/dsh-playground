@@ -432,9 +432,10 @@ test('D10a: the check result text and note send the user to the button and never
   for (const text of [checked.note, rendered]) {
     assert.match(text, /确认目标并提交/);
     assert.match(text, /前往工作台确认提交/);
-    assert.match(text, /不要让用户输入命令/);
-    assert.match(text, /不要在终端运行 playground submit/);
+    assert.match(text, /无需输入任何命令/);
     assert.doesNotMatch(text, /playground-confirm/);
+    // The note is shown to the user, so it must not speak to the agent.
+    assert.doesNotMatch(text, /不要让用户|playground submit|告诉用户/);
   }
   // The structured value still carries the id: the projection and the workbench button read it from the tool meta.
   assert.equal(presentationMeta({}, checked).playgroundWorkflow.prepared.checkId, checked.workflow.prepared.checkId);

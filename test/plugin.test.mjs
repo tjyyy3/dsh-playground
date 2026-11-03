@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -448,41 +448,87 @@ test('CLI timeouts: submission defaults to at least the login timeout and both a
   assert.deepEqual(timeouts({ cliTimeoutMs: 3e9 }), [2147483647, 2147483647]);
 });
 
-function mountWorkflowScope(state) {
+// `stateOf` is strict: the tools must read the projection of the calling agent's session under the
+// `playgroundTask` key, so reading another session or key fails the test.
+function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace' } = {}) {
   const tools = [];
   const contexts = [];
+  const session = { id: 'synthetic-session' };
   const scope = {
     tools: { register: (tool) => tools.push(tool) },
     commands: { register() {} },
-    sessionProjections: { register() {}, stateOf: () => state },
-    workingDirectory: { get: () => '/synthetic/workspace' },
+    sessionProjections: {
+      register() {},
+      stateOf(requestedSession, key) {
+        assert.equal(requestedSession, session);
+        assert.equal(key, 'playgroundTask');
+        return state;
+      },
+    },
+    workingDirectory: { get: (requestedSession) => { assert.equal(requestedSession, session); return cwd; } },
     systemPrompt: { context: (entry) => contexts.push(entry), getContextOrder: () => 0 },
     inject: (services, callback) => { if (services.includes('systemPrompt')) callback(scope); },
   };
-  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
-  return { tools, contexts, scope };
+  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) }, config);
+  const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
+  return { tools, contexts, scope, session, exec };
 }
 
-const forbiddenGuidance = /playground-confirm|slash command/i;
+const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
 
-test('D10a: playground_task status never returns the one-time checkId to the model', async () => {
-  const checkId = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
-  const state = {
-    task: { challengeId: 'challenge-a', mode: 'participate', title: 'Synthetic challenge' },
-    receipt: { attemptId: 7, scoringState: { state: 'queued', scoreIsFinal: false } },
+function pendingState(overrides = {}) {
+  return {
+    task: { challengeId: 'challenge-a', mode: 'participate', title: 'Synthetic challenge', cwd: '/synthetic/workspace' },
+    receipt: { attemptId: 7, challengeId: 'challenge-a', status: 'submitted', scoringState: { state: 'queued', scoreIsFinal: false } },
     prepared: {
-      checkId, checkedAt: '2026-11-02T00:00:00.000Z', baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic/workspace',
+      checkId: CHECK_ID, checkedAt: '2026-11-02T00:00:00.000Z', baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic/workspace',
       challenge: { id: 'challenge-a', title: 'Synthetic challenge' },
       files: [{ kind: 'bundle', path: '/synthetic/workspace/bundle.zip', bytes: 12, sha256: 'abc' }],
       args: { challenge_id: 'challenge-a', bundle_path: '/synthetic/workspace/bundle.zip' }, traceCount: 1,
     },
+    ...overrides,
   };
-  const { tools } = mountWorkflowScope(state);
+}
+
+const renderedText = (tool, args, value) => tool.output.render(args, value).map((part) => part.text).join('\n');
+
+/** Run `body` with a synthetic platform behind `globalThis.fetch`; the client binds fetch when apply() runs. */
+async function withSyntheticPlatform(body) {
+  const originalFetch = globalThis.fetch;
+  const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+  globalThis.fetch = async (url) => {
+    const { pathname } = new URL(url);
+    if (pathname.endsWith('/auth/me')) return json({ id: 5, name: 'Test user', email: 'test@example.test' });
+    if (pathname.endsWith('/challenges/challenge-a')) return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+    if (pathname.endsWith('/attempts/7')) return json({ id: 7, challengeId: 'challenge-a', status: 'submitted', score: 0 });
+    return new Response('not found', { status: 404 });
+  };
+  try { return await body(); } finally { globalThis.fetch = originalFetch; }
+}
+
+const SYNTHETIC_CONFIG = { baseUrl: 'http://127.0.0.1:15000/api', token: 'synthetic-token' };
+
+const forbiddenGuidance = /playground-confirm|slash command/i;
+
+test('D10a: playground_task status never returns the one-time checkId to the model', async () => {
+  const state = pendingState({
+    task: {
+      challengeId: 'challenge-a', mode: 'participate', title: 'Synthetic challenge', cwd: '/synthetic/workspace',
+      sourceSessionId: 'source-session', baseUrl: 'http://127.0.0.1:15000/api',
+    },
+    receipt: {
+      ok: true, attemptId: 7, challengeId: 'challenge-a', challengeTitle: 'Synthetic challenge', status: 'submitted',
+      bundleStatus: 'ready', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, traceCount: 1,
+      args: { challenge_id: 'challenge-a' }, baseUrl: 'http://127.0.0.1:15000/api',
+      attempt: { id: 7, raw: 'cli-output' }, bundleResponse: { raw: 'cli-output' },
+    },
+  });
+  const { tools, exec } = mountWorkflowScope(state);
   const tool = tools.find((item) => item.name === 'playground_task');
-  const value = await tool.execute({ action: 'status' }, { agent: { session: {} } });
-  const rendered = tool.output.render({ action: 'status' }, value).map((part) => part.text).join('\n');
-  assert.equal(JSON.stringify(value).includes(checkId), false);
-  assert.equal(rendered.includes(checkId), false);
+  const value = await tool.execute({ action: 'status' }, exec);
+  const rendered = renderedText(tool, { action: 'status' }, value);
+  assert.equal(JSON.stringify(value).includes(CHECK_ID), false);
+  assert.equal(rendered.includes(CHECK_ID), false);
   assert.equal('checkId' in value.prepared, false);
   assert.equal(value.ok, true);
   assert.equal(value.prepared.awaitingConfirmation, true);
@@ -490,16 +536,96 @@ test('D10a: playground_task status never returns the one-time checkId to the mod
   assert.deepEqual(value.prepared.files, state.prepared.files);
   assert.equal(value.prepared.checkedAt, state.prepared.checkedAt);
   assert.deepEqual(value.prepared.args, state.prepared.args);
-  assert.deepEqual(value.task, state.task);
-  assert.deepEqual(value.receipt, state.receipt);
   // Only whitelisted prepared members are exposed; baseUrl, cwd and traceCount stay out.
   assert.deepEqual(Object.keys(value.prepared).sort(), ['args', 'awaitingConfirmation', 'challenge', 'checkedAt', 'files']);
+  // task and receipt are whitelisted too: raw CLI/platform payloads and host-internal ids stay out.
+  assert.deepEqual(value.task, { challengeId: 'challenge-a', title: 'Synthetic challenge', mode: 'participate', cwd: '/synthetic/workspace' });
+  assert.deepEqual(Object.keys(value.receipt).sort(), [
+    'args', 'attemptId', 'bundleStatus', 'challengeId', 'challengeTitle', 'ok', 'score', 'scoringState', 'status', 'traceCount',
+  ]);
+  assert.deepEqual(value.receipt.scoringState, state.receipt.scoringState);
+  assert.equal(value.receipt.attemptId, 7);
+  // The tool value stays JSON-clean: no undefined members for absent keys.
+  assert.deepEqual(JSON.parse(JSON.stringify(value)), value);
+});
+
+test('D10a: playground_task status keeps the receipt error fields and omits absent keys', async () => {
+  const { tools, exec } = mountWorkflowScope({
+    task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null,
+    receipt: { ok: false, attemptId: 7, stage: 'upload', error: { code: 'bundle_invalid', message: 'bad zip' }, violations: [{ rule: 'invalid_bundle' }] },
+  });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+  assert.deepEqual(value.receipt, {
+    ok: false, attemptId: 7, stage: 'upload', error: { code: 'bundle_invalid', message: 'bad zip' }, violations: [{ rule: 'invalid_bundle' }],
+  });
+  assert.deepEqual(value.task, { challengeId: 'challenge-a', mode: 'participate' });
+  assert.equal(Object.values(value.receipt).includes(undefined), false);
+});
+
+test('D10a: playground_task status passes attemptIds through as an array of numbers when present', async () => {
+  // `attemptIds` is written by the task attempt history branch; this base only passes it through.
+  const { tools, exec } = mountWorkflowScope({ ...pendingState(), attemptIds: [3, 7] });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+  assert.deepEqual(value.attemptIds, [3, 7]);
+  assert.ok(Array.isArray(value.attemptIds) && value.attemptIds.every((id) => typeof id === 'number'));
+  assert.equal(JSON.stringify(value).includes(CHECK_ID), false);
 });
 
 test('D10a: playground_task status without a pending check reports no prepared submission', async () => {
-  const { tools } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
-  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, { agent: { session: {} } });
+  const { tools, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+  // The exact key set guards the shape: no attemptIds when absent, nothing added by accident.
+  assert.deepEqual(Object.keys(value).sort(), ['ok', 'prepared', 'receipt', 'task']);
   assert.deepEqual(value, { ok: true, task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: null, prepared: null });
+});
+
+test('D10a: playground_task mode and results actions never contain the checkId', async () => {
+  await withSyntheticPlatform(async () => {
+    const { tools, exec } = mountWorkflowScope(pendingState(), { config: SYNTHETIC_CONFIG });
+    const tool = tools.find((item) => item.name === 'playground_task');
+    for (const args of [{ action: 'mode', mode: 'author' }, { action: 'results' }]) {
+      const value = await tool.execute(args, exec);
+      assert.equal(value.ok, true, args.action);
+      assert.equal(JSON.stringify(value).includes(CHECK_ID), false, args.action);
+      assert.equal(renderedText(tool, args, value).includes(CHECK_ID), false, args.action);
+    }
+  });
+});
+
+test('D10a: playground_check_materials renders without the checkId; the structured value still carries it (known residual)', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'playground-check-'));
+  try {
+    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+    await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+    await withSyntheticPlatform(async () => {
+      const { tools, exec } = mountWorkflowScope(
+        { task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null },
+        { config: SYNTHETIC_CONFIG, cwd: directory },
+      );
+      const tool = tools.find((item) => item.name === 'playground_check_materials');
+      const args = { challenge_id: 'challenge-a' };
+      const value = await tool.execute(args, exec);
+      assert.equal(value.ok, true);
+      assert.equal(value.status, 'awaiting_confirmation');
+      const checkId = value.workflow.prepared.checkId;
+      assert.match(checkId, /^[0-9a-f-]{36}$/);
+      const rendered = renderedText(tool, args, value);
+      assert.equal(rendered.includes(checkId), false);
+      assert.match(rendered, /确认目标并提交/);
+      assert.match(rendered, /无需输入任何命令/);
+      assert.equal(JSON.stringify({ ...value, workflow: undefined }).includes(checkId), false);
+      // KNOWN RESIDUAL, pinned on purpose: the structured value still carries `workflow.prepared.checkId`.
+      // The session projection (and so the workbench confirm button) is fed only through
+      // `presentationMeta(args, value)`, which receives nothing but this value, so the code has to ride
+      // in it. It is a stale-click guard, not a credential: only the human `/playground-confirm`
+      // command can confirm and no tool runs commands. Removing it needs a host-side change, so any
+      // change here must be deliberate.
+      assert.equal(presentationMeta(args, value).playgroundWorkflow.prepared.checkId, checkId);
+      assert.deepEqual(JSON.parse(JSON.stringify(value)), value);
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('D10a: submission tool descriptions tell the agent to point at the button, not a command', () => {
@@ -515,12 +641,12 @@ test('D10a: submission tool descriptions tell the agent to point at the button, 
 });
 
 test('D10a: the task context prompt tells the agent how confirmation works', () => {
-  const { contexts } = mountWorkflowScope({
+  const { contexts, exec } = mountWorkflowScope({
     task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: { checkId: 'synthetic-check' }, receipt: null,
   });
   const context = contexts.find((entry) => entry.name === 'playground-task:current');
   assert.ok(context);
-  const text = context.text({ agent: { session: {} } });
+  const text = context.text({ agent: exec.agent });
   assert.match(text, /clicking "确认目标并提交"/);
   assert.match(text, /"前往工作台确认提交"/);
   assert.match(text, /Never ask the user to type a command/);
