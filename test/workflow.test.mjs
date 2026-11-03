@@ -563,3 +563,351 @@ test('F-03: CLI receipts clear confirmation on invalid submission ids without re
     assert.deepEqual(f.calls, []);
   }
 });
+
+// CLI 0.1.43 prints the update notice on every run, then `error: <cleaned reason>` on stderr.
+const CLI_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.50.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash';
+const CLI_RETRY = ' 可重试：playground submit --challenge-id <原任务ID> --attempt-id 42 --bundle "C:\\Users\\someone\\work\\bundle.zip"';
+const CLI_TAIL = ' 若持续失败，请在群里联系维护者。';
+function cliError(reason, code = 'cli_error') {
+  const stderr = `${CLI_NOTICE}\nerror: ${reason}`;
+  return Object.assign(new Error(stderr), { code, stderr, stdout: '' });
+}
+// Receipts keep the checked workspace paths for retry; these patterns only come from CLI output.
+const RAW_CLI = /outdated|install\.sh|playground submit|error: |若持续失败|someone|paper2arm|synthetic-secret|test@example\.test/;
+const commandText = (result) => JSON.stringify({ playgroundWorkflow: result.workflow, ...result });
+
+async function failedConfirm(failure, setup) {
+  const calls = [];
+  const f = await fixture({ submit: async (input) => { calls.push(input); if (calls.length === 1) throw failure; return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }; } });
+  setup?.(f);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  const checkId = checked.workflow.prepared.checkId;
+  const result = await f.workflow.confirm(checkId, f.exec);
+  return { f, calls, checkId, result };
+}
+
+test('D3: a CLI failure after start clears the confirmation so the same card cannot submit again', async () => {
+  const { f, calls, checkId, result } = await failedConfirm(cliError(`未能发送成功，请稍后再试。${CLI_TAIL}`));
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(f.calls, []);
+});
+
+test('D3: an --attempt-id retry hint becomes the receipt and retries reuse that submission', async () => {
+  const { f, calls, checkId, result } = await failedConfirm(cliError(`Worker 上传的提交包未通过校验，请检查 bundle 内容后重试。${CLI_RETRY}${CLI_TAIL}`));
+  assert.equal(result.ok, false);
+  assert.equal(result.stage, 'upload');
+  assert.equal(result.attemptId, 42);
+  assert.equal(result.error.reason, 'bundle_rejected');
+  assert.match(result.error.message, /检查后重传原提交 #42/);
+  f.record(result);
+  const receipt = f.states.get('source').receipt;
+  assert.equal(receipt.attemptId, 42);
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.args.attempt_id, 42);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  const retry = await f.workflow.prepare(receipt.args, f.exec);
+  f.record(retry);
+  const retried = await f.workflow.confirm(retry.workflow.prepared.checkId, f.exec);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].attemptId, 42);
+  assert.equal(calls[1].tracePath, calls[0].tracePath);
+  assert.equal(retried.ok, true);
+  assert.equal(retried.attemptId, 42);
+  assert.deepEqual(f.calls, []);
+});
+
+test('D3: a terminated CLI reports an unknown outcome instead of a failure', async () => {
+  const { result } = await failedConfirm(cliError('', 'cli_terminated'));
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.error.reason, 'terminated');
+  assert.match(result.error.message, /结果未知/);
+  assert.match(result.error.message, /提交记录/);
+  assert.doesNotMatch(commandText(result), /提交失败|Submission failed/);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+});
+
+test('D3: a terminated retry keeps the known submission id', async () => {
+  const calls = [];
+  const f = await fixture({ submit: async (input) => { calls.push(input); throw cliError('', 'cli_terminated'); } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(calls[0].attemptId, 42);
+  assert.equal(result.attemptId, 42);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.workflow.kind, 'receipt');
+  assert.equal(result.workflow.receipt.args.attempt_id, 42);
+});
+
+test('D3: returned text and recorded results never contain raw CLI output, paths, emails or tokens', async () => {
+  const raw = `HTTP 500 Internal Server Error: user test@example.test token=synthetic-secret at C:\\Users\\someone\\AppData\\Roaming\\npm\\node_modules\\@paper2arm\\playground-cli\\src\\index.ts:4800`;
+  for (const failure of [cliError(raw), cliError(`未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`), Object.assign(new Error(`Playground CLI returned invalid JSON: ${raw}`))]) {
+    const { f, result } = await failedConfirm(failure);
+    const text = commandText(result);
+    assert.doesNotMatch(text, RAW_CLI);
+    assert.doesNotMatch(result.error.message, RAW_CLI);
+    assert.equal(result.error.message.includes(f.cwd), false);
+    f.record(result);
+    assert.doesNotMatch(JSON.stringify(f.states.get('source')), RAW_CLI);
+  }
+});
+
+test('D3: CLI 0.1.43 failure texts map to plugin-written messages', async () => {
+  for (const [reason, sample, expected] of [
+    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`, /认证失败.*重新登录/],
+    ['submission_limit', `该题已达到 10 次提交上限；如需赛后回归或研究，请联系维护者开启赛后练习/测试通道。${CLI_TAIL}`, /提交次数已达到平台上限/],
+    ['rate_limited', `服务端当前限流或提交过于频繁，请稍后再试。${CLI_TAIL}`, /限流/],
+    ['too_large', `创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}`, /大小限制/],
+    ['bundle_rejected', `创建提交记录未通过校验，请检查提交元数据和轨迹文件。${CLI_TAIL}`, /未通过这次提交的校验/],
+    ['bundle_rejected', `创建提交记录失败：服务端未收到有效轨迹，请检查 --trace 或 --raw-messages。${CLI_TAIL}`, /未通过这次提交的校验/],
+    ['local_check', '创建提交记录需要非空、可解析的轨迹。\n请使用 --trace 提供执行轨迹。', /CLI 的本地检查：执行轨迹/],
+    ['local_check', '提交包为 600.0 MiB，超过 worker 当前支持的 512 MiB。请精简后重试，或在群里联系维护者。', /CLI 的本地检查：评测包/],
+    ['network', `未能连接创建接口，请稍后再试。${CLI_TAIL}`, /未能连接 Playground 平台/],
+    ['cli_usage', 'unknown command: submitt', /插件缺陷/],
+    ['cli_usage', 'missing --challenge-id', /插件缺陷/],
+    ['other', `未能发送成功，请稍后再试。${CLI_TAIL}`, /Playground CLI 未完成提交/],
+    ['other', '未能创建提交记录，请稍后再试；若持续失败，请在群里联系维护者。', /Playground CLI 未完成提交/],
+  ]) {
+    const queries = [];
+    const { result } = await failedConfirm(cliError(sample), (f) => {
+      f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+    });
+    const rejected = ['auth_failed', 'submission_limit', 'rate_limited', 'too_large', 'cli_usage', 'local_check'].includes(reason);
+    assert.equal(result.ok, false, reason);
+    assert.equal(result.error.reason, reason, sample);
+    assert.equal(result.error.code, rejected ? 'submission_rejected' : 'outcome_unknown', reason);
+    assert.match(result.error.message, expected, reason);
+    // Failures at or before create are definite; only the others leave the outcome unknown.
+    if (rejected) {
+      assert.match(result.error.message, /平台未创建这次提交/, reason);
+      assert.doesNotMatch(result.error.message, /结果未知/, reason);
+    } else assert.match(result.error.message, /结果未知/, reason);
+    // CLI local checks are not blamed on the platform.
+    if (reason === 'local_check') assert.doesNotMatch(result.error.message, /Playground 未通过|平台的大小限制/, reason);
+    assert.equal(queries.length, ['network', 'other'].includes(reason) ? 1 : 0, reason);
+    assert.deepEqual(result.workflow, { kind: 'clear' }, reason);
+    assert.doesNotMatch(commandText(result), RAW_CLI, reason);
+  }
+});
+
+test('D3: worker-stage failures with a retry hint keep the created submission', async () => {
+  for (const [reason, sample] of [
+    ['network', `未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`],
+    ['too_large', `Worker 上传失败（HTTP 413）：提交包超过 worker 当前支持的 512 MiB，请精简后重试。${CLI_RETRY}${CLI_TAIL}`],
+    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_RETRY}${CLI_TAIL}`],
+  ]) {
+    let queried = false;
+    const { f, result } = await failedConfirm(cliError(sample), (f) => {
+      f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
+    });
+    assert.equal(result.error.reason, reason, sample);
+    assert.equal(result.error.code, 'upload_failed', reason);
+    assert.equal(result.attemptId, 42, reason);
+    assert.equal(result.workflow.kind, 'receipt', reason);
+    assert.match(result.error.message, /展开“准备提交 \/ 检查材料”，点击“检查后重传原提交 #42”/, reason);
+    assert.equal(queried, false, reason);
+    assert.doesNotMatch(commandText(result), RAW_CLI, reason);
+    replay(f, result);
+    assert.equal(f.states.get('source').prepared, null, reason);
+    assert.equal(f.states.get('source').receipt.attemptId, 42, reason);
+  }
+});
+
+// The /playground-confirm handler records its result as command/done text, not tool/result meta.
+function replay(f, result) {
+  f.states.set('source', workflowProjection.apply(f.states.get('source'), { type: 'command/done', data: { text: commandText(result) } }));
+}
+
+test('D3: errors raised before the CLI started keep the same card valid and say nothing was submitted', async () => {
+  const notice = 'C:\\Users\\someone\\AppData\\Roaming\\npm\\playground.cmd is outdated';
+  for (const [error, expected] of [
+    [Object.assign(new Error('spawn EACCES'), { code: 'EACCES', started: false }), /未能启动/],
+    [Object.assign(new Error(`Playground CLI not found: ${notice}`), { code: 'cli_not_found', stderr: notice }), /未找到 Playground CLI.*PATH/],
+    [Object.assign(new Error(`Node.js was not found on PATH; it is needed to run ${notice}`), { code: 'cli_node_missing', started: false }), /Node\.js.*PATH/],
+    [Object.assign(new Error(`arguments contain characters that cmd.exe would interpret: ${notice}`), { code: 'cli_unsafe_argument', started: false }), /cmd 会解释的字符.*cliPath 设为 CLI 的 JS 入口文件/],
+    [Object.assign(new Error('unsupported outcome "maybe"; use success, failure'), { code: 'invalid_argument' }), /^提交参数无效：unsupported outcome "maybe"; use success, failure。/],
+    [Object.assign(new Error(`invalid bundle ${notice}`), { code: 'invalid_argument', started: false }), /^提交参数无效。/],
+  ]) {
+    const calls = [];
+    let queried = false;
+    const f = await fixture({ submit: async (input) => { calls.push(input); throw error; } });
+    f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const checkId = checked.workflow.prepared.checkId;
+    const result = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(result.ok, false, error.code);
+    assert.equal(result.error.code, 'cli_not_started', error.code);
+    assert.equal(result.workflow, undefined, error.code);
+    assert.match(result.error.message, expected, error.code);
+    assert.match(result.error.message, /没有提交任何内容/, error.code);
+    assert.doesNotMatch(result.error.message, /someone|outdated|结果未知/, error.code);
+    assert.equal(calls.length, 1, error.code);
+    assert.equal(queried, false, error.code);
+    replay(f, result);
+    assert.equal(f.states.get('source').prepared.checkId, checkId, error.code);
+    // The same card may be confirmed again once the configuration is fixed.
+    const again = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(again.error.code, 'cli_not_started', error.code);
+    assert.equal(calls.length, 2, error.code);
+    assert.deepEqual(f.calls, [], error.code);
+  }
+});
+
+test('D3: an explicit started flag overrides a never-started error code', async () => {
+  const stderr = `${CLI_NOTICE}\nerror: 未能连接 worker，请稍后再试。 可重试：playground submit --challenge-id <原任务ID> --attempt-id 42 --bundle "x.zip"${CLI_TAIL}`;
+  const error = Object.assign(new Error(stderr), { code: 'cli_not_found', started: true, stderr, stdout: '' });
+  const { f, calls, result } = await failedConfirm(error);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'upload_failed');
+  assert.equal(result.attemptId, 42);
+  assert.equal(result.workflow.kind, 'receipt');
+  assert.equal(result.workflow.receipt.args.attempt_id, 42);
+  assert.doesNotMatch(result.error.message, /没有提交任何内容/);
+  assert.doesNotMatch(commandText(result), RAW_CLI);
+  assert.equal(calls.length, 1);
+  replay(f, result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal(f.states.get('source').receipt.attemptId, 42);
+});
+
+test('D3: a receipt that cannot be built still clears the confirmation', async () => {
+  const f = await fixture();
+  const calls = [];
+  const cli = { submit: async (input) => { calls.push(input); throw cliError(`未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`); } };
+  const broken = () => { throw new Error('presentation failure'); };
+  const workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli, submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }),
+    readBundle, readTrace, readManifest, presentationMeta: broken });
+  const checked = await workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  const checkId = checked.workflow.prepared.checkId;
+  const result = await workflow.confirm(checkId, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'upload_failed');
+  assert.equal(result.attemptId, 42);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  replay(f, result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(calls.length, 1);
+});
+
+test('D3: an exception while classifying a started CLI still clears the confirmation', async () => {
+  const { f, calls, checkId, result } = await failedConfirm(cliError('', 'cli_terminated'), (f) => {
+    f.client.listMyAttempts = () => { throw new Error('synchronous failure'); };
+  });
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.match(result.error.message, /结果未知/);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  replay(f, result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(calls.length, 1);
+});
+
+test('D3: an abort before the lookup skips it and leaves the outcome unknown', async () => {
+  const controller = new AbortController();
+  let queried = false;
+  const f = await fixture({ submit: async () => { controller.abort(); throw cliError('', 'cli_terminated'); } });
+  f.client.listMyAttempts = async () => { queried = true; return { items: [{ id: 50, challengeId: 'challenge-a', createdAt: new Date().toISOString() }], nextCursor: null }; };
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  f.exec.signal = controller.signal;
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(queried, false);
+  assert.equal(result.attemptId, undefined);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+});
+
+test('D3: a terminated CLI that already printed its success JSON yields the normal receipt', async () => {
+  let queried = false;
+  const success = JSON.stringify({ status: 'submitted', attempt_id: '77', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }, null, 2);
+  for (const stdout of [success, `notice\n${success}\n`]) {
+    const error = cliError('', 'cli_terminated');
+    Object.defineProperty(error, 'stdout', { value: stdout, enumerable: false });
+    const { f, result } = await failedConfirm(error, (f) => {
+      f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.attemptId, 77);
+    assert.equal(result.bundleStatus, 'ready');
+    assert.equal(result.workflow.kind, 'receipt');
+    replay(f, result);
+    assert.equal(f.states.get('source').receipt.attemptId, 77);
+    assert.equal(f.states.get('source').prepared, null);
+  }
+  assert.equal(queried, false);
+});
+
+test('D3: an unknown outcome never adopts submissions that cannot belong to this confirmation', async () => {
+  const recent = () => new Date().toISOString();
+  const own = { challengeId: 'challenge-a', method: 'DSH Playground plugin', harness: 'DeepSeek Harness', traceCount: 1 };
+  for (const [label, item, setup] of [
+    ['other challenge', () => ({ ...own, id: 61, challengeId: 'challenge-b', createdAt: recent() })],
+    ['current receipt', () => ({ ...own, id: 62, createdAt: recent() }), (f) => f.states.set('source', { ...f.states.get('source'), receipt: { ok: false, attemptId: 62 } })],
+    ['3 minutes before start', () => ({ ...own, id: 63, createdAt: new Date(Date.now() - 3 * 60 * 1000).toISOString() })],
+    ['unparseable createdAt', () => ({ ...own, id: 64, createdAt: 'yesterday' })],
+    ['other method', () => ({ ...own, id: 65, method: 'Playground CLI submission', createdAt: recent() })],
+    ['other harness', () => ({ ...own, id: 66, harness: 'Codex', createdAt: recent() })],
+    ['other trace count', () => ({ ...own, id: 67, traceCount: 9, createdAt: recent() })],
+  ]) {
+    const { result } = await failedConfirm(cliError('', 'cli_terminated'), (f) => {
+      setup?.(f);
+      f.client.listMyAttempts = async () => ({ items: [item()], nextCursor: null });
+    });
+    assert.equal(result.attemptId, undefined, label);
+    assert.equal(result.error.code, 'outcome_unknown', label);
+    assert.deepEqual(result.workflow, { kind: 'clear' }, label);
+  }
+  const { f, result } = await failedConfirm(cliError('', 'cli_terminated'), (f) => {
+    f.client.listMyAttempts = async () => ({ items: [{ ...own, id: 68, createdAt: recent() }], nextCursor: null });
+  });
+  assert.equal(result.attemptId, 68);
+  assert.match(result.error.message, /可能属于本次的提交 #68/);
+  assert.match(result.error.message, /请先查询其结果并核对后再决定是否重传/);
+  assert.match(result.error.message, /展开“准备提交 \/ 检查材料”/);
+  replay(f, result);
+  assert.equal(f.states.get('source').receipt.attemptId, 68);
+  assert.equal(f.states.get('source').prepared, null);
+});
+
+test('D3: an unknown outcome adopts the single submission created after confirmation started', async () => {
+  const recent = () => new Date().toISOString();
+  const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  for (const [items, expected] of [
+    [() => [{ id: 50, challengeId: 'challenge-a', status: 'submitted', createdAt: recent() }, { id: 3, challengeId: 'challenge-a', createdAt: old }], 50],
+    [() => [{ id: 51, challengeId: 'challenge-a', createdAt: recent() }, { id: 52, challengeId: 'challenge-a', createdAt: recent() }], undefined],
+    [() => [{ id: 3, challengeId: 'challenge-a', createdAt: old }], undefined],
+    [() => { throw new Error('network down'); }, undefined],
+  ]) {
+    const queries = [];
+    const { result } = await failedConfirm(cliError('', 'cli_terminated'), (f) => {
+      f.client.listMyAttempts = async (params) => { queries.push(params); return { items: items(), nextCursor: null }; };
+    });
+    assert.equal(queries[0].challengeId, 'challenge-a');
+    assert.equal(result.attemptId, expected);
+    assert.equal(result.error.code, 'outcome_unknown');
+    if (expected) {
+      assert.equal(result.workflow.kind, 'receipt');
+      assert.equal(result.workflow.receipt.args.attempt_id, expected);
+      assert.match(result.error.message, new RegExp(`检查后重传原提交 #${expected}`));
+    } else assert.deepEqual(result.workflow, { kind: 'clear' });
+  }
+  // Definite rejections never adopt another submission.
+  let queried = false;
+  const { result } = await failedConfirm(cliError(`认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`), (f) => {
+    f.client.listMyAttempts = async () => { queried = true; return { items: [{ id: 60, challengeId: 'challenge-a', createdAt: recent() }], nextCursor: null }; };
+  });
+  assert.equal(queried, false);
+  assert.equal(result.attemptId, undefined);
+});

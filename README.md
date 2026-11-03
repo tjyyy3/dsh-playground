@@ -288,6 +288,22 @@ and validation violations in the task receipt. A rejected bundle returns
 `bundle_invalid` with the violations and the submission id, so a corrected
 bundle can be retried with `attempt_id`.
 
+If the CLI could not start (not found, Node.js missing, arguments that cmd
+would interpret, invalid arguments), nothing was submitted: the result is
+`cli_not_started` and the same confirmation card can be confirmed again after
+fixing the configuration.
+
+Once the CLI has started, a failure, timeout or cancellation always invalidates
+the confirmation card. If the CLI names the created submission (its
+`--attempt-id` retry hint), the receipt keeps that id and **检查后重传原提交 #…**
+(under **准备提交 / 检查材料**) uploads into it. A failure at or before create
+(authentication, submission limit, rate limit, size limit, a CLI local check or
+a CLI argument error) returns `submission_rejected`. Otherwise the result is
+`outcome_unknown`: check the challenge's submissions before submitting again.
+When exactly one matching recent submission is listed, the receipt suggests it
+as possibly this one; verify its result before retrying into it. The plugin
+shows only its own classified message, never the CLI output.
+
 Submission slots per challenge are limited by the platform's rules;
 the tool never retries a submission on its own.
 
