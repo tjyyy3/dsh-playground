@@ -86,8 +86,10 @@ submissions continue to use the session workflow, so the catalog's start
 buttons stay disabled until a conversation with command access is open.
 
 Chat command cards show the operation, status, and a result summary, with a
-native expandable details section. Existing login and catalog records remain
-readable. Details project selected business facts rather than raw CLI output,
+native expandable details section. Login-status and catalog records that older
+versions logged automatically from the `playground` command are hidden in chat
+(the stored history is unchanged); historical **Playground 登录** cards still
+show. Details project selected business facts rather than raw CLI output,
 credentials, account details, or local paths; expanding a card never reruns it.
 
 In v0.4.4, **Playground** in the native left navigation opens a global workbench

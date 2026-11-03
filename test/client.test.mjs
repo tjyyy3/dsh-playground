@@ -310,21 +310,54 @@ test('query failures name the cause without exposing raw transport errors', asyn
   assert.doesNotMatch(content, /secret-token/);
 });
 
-test('historical auth/catalog cards show summaries and inert safe details', async (t) => {
+const legacyAuth = { playgroundAuth: { authenticated: false, user: { email: 'private@example.test' }, cli: { token: 'private-token' } } };
+const legacyCatalog = { playgroundCatalog: { competitions: { total: 2 }, challenges: { total: 1, items: [{ title: 'Synthetic challenge' }] } }, authorization: 'private-token' };
+
+test('legacy auth/catalog records from the playground command render nothing', async (t) => {
+  const f = await clientFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  for (const value of [legacyAuth, legacyCatalog]) {
+    const node = { name: 'playground', outcome: { kind: 'success', text: JSON.stringify(value) } };
+    assert.equal(f.render(Card, { node }), null);
+    assert.equal(f.render(Card, { node: { ...node, args: '{"action":"auth"}' } }), null);
+  }
+});
+
+test('historical playground-auth-login cards still show summaries and inert safe details', async (t) => {
   const f = await clientFixture(t);
   const Card = f.registrations.get('playground').Component;
   assert.equal(f.registrations.get('playground-auth-login').Component, Card);
-  for (const [value, title, expected] of [
-    [{ playgroundAuth: { authenticated: false, user: { email: 'private@example.test' }, cli: { token: 'private-token' } } }, '登录状态检测', '未登录'],
-    [{ playgroundCatalog: { competitions: { total: 2 }, challenges: { total: 1, items: [{ title: 'Synthetic challenge' }] } }, authorization: 'private-token' }, '赛题目录查询', '共 2 个比赛、1 道赛题'],
+  for (const [value, expected] of [
+    [legacyAuth, '未登录'],
+    [{ playgroundAuth: { authenticated: true } }, 'Playground 身份已确认'],
+    [legacyCatalog, '共 2 个比赛、1 道赛题'],
   ]) {
-    const tree = f.render(Card, { node: { outcome: { kind: 'success', text: JSON.stringify(value) } } });
-    assert.match(text(tree), new RegExp(title));
+    const tree = f.render(Card, { node: { name: 'playground-auth-login', outcome: { kind: 'success', text: JSON.stringify(value) } } });
+    assert.match(text(tree), /Playground 登录/);
     assert.match(text(tree), new RegExp(expected));
     assert.ok(f.find(tree, (node) => node.type === 'details'));
     assert.equal(f.find(tree, (node) => node.props?.onClick || node.props?.onToggle), undefined);
     assert.doesNotMatch(text(tree), /private-token|private@example/);
   }
+});
+
+test('playground workflow records and unparsed auth/catalog records are not hidden', async (t) => {
+  const f = await clientFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  const workflow = f.render(Card, { node: { name: 'playground', args: '{"action":"start"}',
+    outcome: { kind: 'success', text: JSON.stringify({ sessionId: 'S', playgroundWorkflow: { kind: 'start', task: { title: 'Synthetic' } } }) } } });
+  assert.match(text(workflow), /创建任务对话/);
+  // Workflow wins even if a legacy auth/catalog field is also present.
+  const mixed = f.render(Card, { node: { name: 'playground', outcome: { kind: 'success',
+    text: JSON.stringify({ ...legacyAuth, playgroundWorkflow: { kind: 'check' } }) } } });
+  assert.notEqual(mixed, null);
+  // Failed or unfinished records have no auth/catalog result, so they keep their explanation.
+  const failed = f.render(Card, { node: { name: 'playground', args: '{"action":"auth"}', outcome: { kind: 'error', text: 'Bearer private-token' } } });
+  assert.match(text(failed), /登录状态检测.*未完成/);
+  const pending = f.render(Card, { node: { name: 'playground', args: '{"action":"catalog"}', outcome: null } });
+  assert.match(text(pending), /赛题目录查询.*尚未完成/);
+  const confirm = f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'success', text: JSON.stringify(legacyAuth) } } });
+  assert.notEqual(confirm, null);
 });
 
 test('command cards show plugin failure reasons but hide credentials and local paths', async (t) => {
