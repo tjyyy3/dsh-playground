@@ -95,6 +95,49 @@ window.__ModuleLoader__.load({
       return 'neutral';
     }
 
+    // The Host builds challenge web addresses; check them again before opening. Only https, plus http
+    // for a local mock platform, and never an address that carries account details.
+    function openableWebUrl(value) {
+      if (typeof value !== 'string' || !value) return undefined;
+      let url;
+      try { url = new URL(value); } catch { return undefined; }
+      if (url.username || url.password) return undefined;
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+      return url.protocol === 'https:' || (url.protocol === 'http:' && local) ? url.href : undefined;
+    }
+
+    // Mirrors challengeWebBase in lib/links.js: drop userinfo, query, hash and a trailing /api.
+    function webRootOf(apiBase) {
+      let root = String(apiBase || '');
+      try {
+        const parsed = new URL(root);
+        parsed.username = ''; parsed.password = ''; parsed.search = ''; parsed.hash = '';
+        root = parsed.href;
+      } catch {
+        root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+      }
+      return root.replace(/\/+$/, '').replace(/\/api$/i, '').replace(/\/+$/, '');
+    }
+
+    // Tasks recorded before webUrl existed rebuild it like the Host projection view does: from the API base
+    // the task was created against, and from the catalog's web root only when the task recorded no base.
+    // The session list may carry the persisted state rather than the Host view, so this repeats it here.
+    function taskWebUrl(task, webBase) {
+      if (typeof task?.webUrl === 'string' && task.webUrl) return task.webUrl;
+      const id = task?.challengeId;
+      if (!((typeof id === 'string' && id) || Number.isFinite(id))) return undefined;
+      const root = typeof task.baseUrl === 'string' && task.baseUrl ? webRootOf(task.baseUrl) : typeof webBase === 'string' ? webBase : '';
+      return root ? `${root}/challenge/${encodeURIComponent(id)}` : undefined;
+    }
+
+    // DSH desktop hands https windows to the system browser.
+    function openWebButton(value, title) {
+      const url = openableWebUrl(value);
+      if (!url) return null;
+      return h('button', { type: 'button', className: 'pg-button', 'aria-label': title ? `在网页中打开：${title}` : '在网页中打开',
+        onClick: () => { window.open(url, '_blank', 'noopener,noreferrer'); } }, '在网页中打开');
+    }
+
     // Chinese lookup for workbench text that stays Chinese regardless of the host language, such as
     // the task list row, which sits among hard-coded Chinese labels. The workbench does receive `t`.
     const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales.zh) ?? key;
@@ -385,7 +428,7 @@ window.__ModuleLoader__.load({
             )) : null);
     }
 
-    function CatalogPanel({ sessionId, allowed, query, requestTask }) {
+    function CatalogPanel({ sessionId, allowed, query, requestTask, onWebBase }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
       const [catalog, setCatalog] = React.useState(null);
@@ -403,6 +446,7 @@ window.__ModuleLoader__.load({
           const result = await query({ action: 'catalog', search: nextSearch.trim(), ...(nextSeason ? { season: nextSeason } : {}), per_page: 12 }, controller.signal);
           if (latest.controller !== controller) return;
           setCatalog(result); setStatus('赛题目录已更新。');
+          if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
         } catch (failure) {
           if (latest.controller !== controller) return;
           setError(failure.message); setStatus('赛题目录读取失败。');
@@ -437,7 +481,8 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }))
+            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }),
+            openWebButton(item.webUrl, item.titleZh || item.title || item.id))
         ))));
     }
 
@@ -563,7 +608,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load(history.nextCursor) }, busy ? '正在读取…' : '加载更多')) : null);
     }
 
-    function TaskDetailDrawer({ session, projection, close, query, ...props }) {
+    function TaskDetailDrawer({ session, projection, close, query, webBase, ...props }) {
       React.useEffect(() => {
         const onKeyDown = (event) => { if (event.key === 'Escape') close(); };
         document.addEventListener('keydown', onKeyDown);
@@ -575,12 +620,14 @@ window.__ModuleLoader__.load({
       const current = (projection?.state === 'ready' && projection.values?.playgroundTask) || state;
       const historyChallenge = current.task?.challengeId || state.task?.challengeId;
       const attemptIds = taskAttemptIds(current);
+      const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: close },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation() },
           h('div', { className: 'pg-drawer-header' },
             h('div', null, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title' }, title)),
             h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭')),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
+          openWeb ? h('div', { className: 'pg-actions' }, openWeb) : null,
           h(SelectedTask, { key: session.id, session, projection, ...props }),
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
@@ -597,6 +644,8 @@ window.__ModuleLoader__.load({
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
+      // Web root reported by the latest catalog read; only tasks recorded without webUrl or baseUrl use it.
+      const [webBase, setWebBase] = React.useState('');
       // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
       // in memory only and never reaches a session projection, so refreshing writes no conversation record.
       const [, setVersion] = React.useState(0);
@@ -667,7 +716,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 赛题目录' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
-              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask })),
+              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask, onWebBase: setWebBase })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'),
                 h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
@@ -680,7 +729,7 @@ window.__ModuleLoader__.load({
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
                 taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
                 : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, query, ...props }) : null,
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, query, webBase, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”。'),

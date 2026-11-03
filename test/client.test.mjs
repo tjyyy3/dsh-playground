@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
+import { publicChallengeUrl } from '../lib/links.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
@@ -1522,4 +1523,151 @@ test('only the newest submission-history request updates the list', async (t) =>
   const content = text(f.render(f.history.type, next));
   assert.match(content, /提交 #2/);
   assert.doesNotMatch(content, /提交 #1/);
+});
+
+const isOpenWeb = (node) => node.type === 'button' && (node.props.children || []).includes('在网页中打开');
+
+test('catalog cards open the challenge web page in a new noopener window', async (t) => {
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { webBase: 'https://play.bohrium.com',
+    competitions: { items: [] }, challenges: { items: [
+      { id: 'ai-github-98fdb6f0', title: 'Confirmed', webUrl: 'https://play.bohrium.com/challenge/ai-github-98fdb6f0' },
+      { id: 'a b/c', title: 'Encoded', webUrl: 'https://play.bohrium.com/challenge/a%20b%2Fc' },
+      { id: 'local', title: 'Local mock', webUrl: 'http://127.0.0.1:15000/challenge/local' },
+      { id: 'upper', title: 'Upper https', webUrl: 'HTTPS://PLAY.BOHRIUM.COM/challenge/upper' },
+      { id: 'upper-local', title: 'Upper localhost', webUrl: 'HTTP://LOCALHOST:1/challenge/upper-local' },
+      { id: 'ipv6', title: 'IPv6 loopback', webUrl: 'http://[::1]:1/challenge/ipv6' },
+      { id: 'plain', title: 'Plain http', webUrl: 'http://play.example.test/challenge/plain' },
+      { id: 'script', title: 'Script', webUrl: 'javascript:alert(1)' },
+      { id: 'data', title: 'Data', webUrl: 'data:text/html,<p>x</p>' },
+      { id: 'account', title: 'Account', webUrl: 'https://user:secret@play.bohrium.com/challenge/account' },
+      { id: 'none', title: 'Missing' },
+    ] } } }) } } });
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  // Opening a web page needs no conversation, so the button shows even when task starts are blocked.
+  const panel = await f.mount(f.workbench(undefined).catalog);
+  const cards = findAll(panel, (node) => node.type === 'article');
+  assert.equal(cards.length, 11);
+  const buttons = cards.map((card) => findAll(card, isOpenWeb));
+  assert.deepEqual(buttons.map((list) => list.length), [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]);
+  assert.equal(buttons[0][0].props['aria-label'], '在网页中打开：Confirmed');
+  assert.equal(buttons[0][0].props.disabled, undefined);
+  for (const [button] of buttons.slice(0, 6)) button.props.onClick();
+  // The opened address is the parsed one: scheme and host are lowercased.
+  assert.deepEqual(opened, [
+    ['https://play.bohrium.com/challenge/ai-github-98fdb6f0', '_blank', 'noopener,noreferrer'],
+    ['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['http://127.0.0.1:15000/challenge/local', '_blank', 'noopener,noreferrer'],
+    ['https://play.bohrium.com/challenge/upper', '_blank', 'noopener,noreferrer'],
+    ['http://localhost:1/challenge/upper-local', '_blank', 'noopener,noreferrer'],
+    ['http://[::1]:1/challenge/ipv6', '_blank', 'noopener,noreferrer'],
+  ]);
+});
+
+// Renders the main view with one task session, opens its drawer and returns the drawer's "在网页中打开" buttons.
+function drawerWebButtons(f) {
+  const main = f.registrations.get('main');
+  return async (task, { loadCatalog = false } = {}) => {
+    f.unmount(main.Component);
+    const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, projectionValues: { playgroundTask: { task, prepared: null, receipt: null } } };
+    const props = { ...main.definition.inject(), useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: {} }),
+      useSessionAccess: () => true, refreshProjections: async () => {}, openTask: () => {}, openChat: () => {}, t: (s) => s };
+    let tree = f.render(main.Component, props);
+    if (loadCatalog) await f.mount(f.find(tree, (n) => n.type?.name === 'CatalogPanel'));
+    const row = f.find(tree, (n) => n.type?.name === 'TaskSummaryRow');
+    f.render(row.type, row.props).props.onClick();
+    tree = f.render(main.Component, props);
+    const drawer = f.find(tree, (n) => n.type?.name === 'TaskDetailDrawer');
+    return findAll(f.render(drawer.type, drawer.props), isOpenWeb);
+  };
+}
+
+test('the task drawer opens the task challenge; older tasks use their own API base, then the catalog web root', async (t) => {
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { webBase: 'https://play.bohrium.com',
+    competitions: { items: [] }, challenges: { items: [] } } }) } } });
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const drawerFor = drawerWebButtons(f);
+  const recorded = await drawerFor({ challengeId: 'ai-github-98fdb6f0', title: 'Fixture', mode: 'participate', webUrl: 'https://play.bohrium.com/challenge/ai-github-98fdb6f0' });
+  assert.equal(recorded.length, 1);
+  recorded[0].props.onClick();
+  // A task recorded before webUrl existed: no button until the catalog reports its web root.
+  const legacy = { challengeId: 'a b/c', title: 'Fixture', mode: 'participate' };
+  assert.equal((await drawerFor(legacy)).length, 0);
+  const rebuilt = await drawerFor(legacy, { loadCatalog: true });
+  assert.equal(rebuilt.length, 1);
+  rebuilt[0].props.onClick();
+  // A legacy task that recorded its API base opens that site, before and after the catalog reports another root.
+  const local = { challengeId: 'a b/c', title: 'Fixture', mode: 'participate', baseUrl: 'http://127.0.0.1:15000/api' };
+  const ownBase = await drawerFor(local);
+  assert.equal(ownBase.length, 1);
+  ownBase[0].props.onClick();
+  const ownBaseAfterCatalog = await drawerFor(local, { loadCatalog: true });
+  assert.equal(ownBaseAfterCatalog.length, 1);
+  ownBaseAfterCatalog[0].props.onClick();
+  // The recorded base keeps account details, query and hash; the derived link drops them.
+  const stripped = await drawerFor({ ...local, baseUrl: 'https://user:secret@staging.example.test/api/?q=1#x' }, { loadCatalog: true });
+  assert.equal(stripped.length, 1);
+  stripped[0].props.onClick();
+  assert.deepEqual(opened, [
+    ['https://play.bohrium.com/challenge/ai-github-98fdb6f0', '_blank', 'noopener,noreferrer'],
+    ['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['http://127.0.0.1:15000/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['http://127.0.0.1:15000/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['https://staging.example.test/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+  ]);
+  for (const webUrl of ['http://play.example.test/challenge/x', 'ftp://play.bohrium.com/challenge/x', 'https://user:secret@play.bohrium.com/challenge/x', 'not a url']) {
+    // A rejected recorded address is not replaced by one built from the catalog web root.
+    assert.equal((await drawerFor({ challengeId: 'x', title: 'Fixture', mode: 'participate', webUrl }, { loadCatalog: true })).length, 0, webUrl);
+  }
+  assert.equal(opened.length, 5);
+});
+
+// The drawer's copy of the web-root rule must agree with the Host's lib/links.js on the same inputs.
+test('legacy drawer tasks build the same challenge URL from their API base as publicChallengeUrl', async (t) => {
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { webBase: 'https://play.bohrium.com',
+    competitions: { items: [] }, challenges: { items: [] } } }) } } });
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const drawerFor = drawerWebButtons(f);
+  const id = 'a b/c?d#e';
+  // [API base, whether the derived address may be opened]
+  for (const [baseUrl, openable] of [
+    ['https://play.bohrium.com/api', true],
+    ['https://play.bohrium.com/api/', true],
+    ['https://play.bohrium.com/', true],
+    ['https://host/prefix/api', true],
+    ['http://127.0.0.1:15000/api', true],
+    ['https://user:secret@host/api', true],
+    ['https://user:secret@host:8443/prefix/api?token=secret#frag', true],
+    ['https://host/api/?q=1', true],
+    ['http://play.example.test/api', false],
+    ['https://user:secret@[bad/api', false],
+    ['not a url', false],
+  ]) {
+    const expected = publicChallengeUrl(baseUrl, id);
+    for (const loadCatalog of [false, true]) {
+      opened.length = 0;
+      const buttons = await drawerFor({ challengeId: id, title: 'Fixture', mode: 'participate', baseUrl }, { loadCatalog });
+      assert.equal(buttons.length, openable ? 1 : 0, `${baseUrl} → ${expected}`);
+      if (!openable) continue;
+      buttons[0].props.onClick();
+      assert.deepEqual(opened, [[expected, '_blank', 'noopener,noreferrer']], baseUrl);
+    }
+  }
+});
+
+test('legacy drawer tasks derive a web URL only for a non-empty string or finite-number challenge id', async (t) => {
+  const f = await clientFixture(t);
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const drawerFor = drawerWebButtons(f);
+  const baseUrl = 'https://play.bohrium.com/api';
+  const numeric = await drawerFor({ challengeId: 42, title: 'Fixture', mode: 'participate', baseUrl });
+  assert.equal(numeric.length, 1);
+  numeric[0].props.onClick();
+  assert.deepEqual(opened, [[publicChallengeUrl(baseUrl, 42), '_blank', 'noopener,noreferrer']]);
+  for (const challengeId of [{ id: 'x' }, ['x'], Number.NaN, Infinity, true]) {
+    assert.equal((await drawerFor({ challengeId, title: 'Fixture', mode: 'participate', baseUrl })).length, 0, String(challengeId));
+  }
 });
