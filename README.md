@@ -144,7 +144,23 @@ drawer is unchanged: it is your own action and still leaves a result card.
 
 Select a task to open its detail drawer, check materials, review the exact
 submission target and inspect results. Close the drawer with its close button,
-the backdrop, or Escape. **返回所选任务对话** returns to native chat. Creating another task from
+the backdrop, or Escape. The drawer's **提交历史** section lists every submission
+the logged-in account made for the task's challenge, newest first, including
+CLI or other-tool submissions; entries submitted through this task conversation
+are marked **本对话** and the rest **未关联到对话**, and **加载更多** fetches
+further pages. Each entry shows its submission number, time, stage, badge and
+score by the same rules as the task row and the drawer summary: only a score
+the platform marks final counts, a queued or evaluating 0 shows **—**, and a
+`late_scored` entry is a final score marked **（赛后）**. The list is read
+once when the drawer opens, through the session-free query, without writing to
+any conversation, and needs a Playground login; **重试** reads it again after a
+failure. A submission confirmed in the drawer reloads the list. The history is
+not polled on its own: when the workbench refresh above settles a submission
+that the list still shows as pending, the entry takes that result. Close and
+reopen the drawer to see a CLI submission made while it was open. In task
+conversations created before this version, only the latest submission is marked
+**本对话**.
+**返回所选任务对话** returns to native chat. Creating another task from
 the catalog creates a new conversation without narrowing or overwriting the
 existing one.
 

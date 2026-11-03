@@ -200,6 +200,16 @@ window.__ModuleLoader__.load({
       return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
     }
 
+    // A submission-history row with the workbench refresh's result for the same id laid over it, but
+    // only when that result settles a row that was still unsettled. The refresh and the history read
+    // happen at different times, so the store never moves a row backwards or between unsettled states.
+    function withSettledAttempt(item, entry) {
+      if (!entry?.attempt || receiptSettled(item)) return item;
+      const merged = { ...item };
+      for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+      return receiptSettled(merged) ? merged : item;
+    }
+
     const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
     // Reads the given submissions through the session-free `attempt` query, one request per id, and keeps
@@ -449,7 +459,109 @@ window.__ModuleLoader__.load({
           h('span', { className: 'pg-task-row-updated' }, updated)));
     }
 
-    function TaskDetailDrawer({ session, projection, close, ...props }) {
+    // Mirrors taskAttemptIds in lib/workflow.js: projections persisted without attemptIds derive it from the receipt.
+    function taskAttemptIds(state) {
+      const ids = Array.isArray(state?.attemptIds) ? state.attemptIds : [state?.receipt?.attemptId];
+      return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    }
+
+    // Every submission of the current account for this challenge, including CLI or other-tool submissions.
+    // Read through the session-free query service, so opening the drawer writes nothing into a conversation.
+    // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
+    function AttemptHistory({ challengeId, attemptIds, attempts, query, t }) {
+      const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [signedOut, setSignedOut] = React.useState(false);
+      const [status, setStatus] = React.useState('');
+      // Mutable holder (not render state): only the newest request may update the list; `list` and `heading` are focus targets.
+      // `refocus` is set by "重试": its button disappears once a read succeeds, so focus must move into the section.
+      const [latest] = React.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+      // An empty or signed-out result renders no list, so focus goes to the always-present heading.
+      const refocusHeading = () => { if (latest.refocus) { latest.refocus = false; latest.heading?.focus?.(); } };
+      // The error stays visible until the next read settles, so "重试" keeps its place (and focus) while it runs.
+      const load = async (cursor) => {
+        latest.controller?.abort();
+        const controller = new AbortController();
+        latest.controller = controller;
+        setBusy(true); setStatus('正在读取提交历史…');
+        try {
+          const result = await query({ action: 'my_attempts', challengeId, limit: 50, ...(cursor ? { cursor } : {}) }, controller.signal);
+          if (latest.controller !== controller) return;
+          if (result?.ok === false) {
+            if (result.error?.code === 'authentication_required') {
+              setSignedOut(true); setError(''); setHistory({ items: [], nextCursor: null, loaded: true }); setStatus('登录后可查看提交历史。');
+              refocusHeading();
+            } else {
+              // "重试" stays rendered and keeps focus; the status changes so a repeated failure is still announced.
+              latest.refocus = false;
+              setError(safeMessage(result.error?.message) || '提交历史读取失败，请重试。'); setStatus('提交历史读取失败。');
+            }
+            return;
+          }
+          // One row per attempt id, across pages and within a page; the first occurrence wins.
+          const items = cursor ? [...history.items] : [];
+          const seen = new Set(items.map((item) => item.id));
+          for (const item of Array.isArray(result?.items) ? result.items : []) {
+            if (!item || typeof item !== 'object' || seen.has(item.id)) continue;
+            seen.add(item.id);
+            items.push(item);
+          }
+          const nextCursor = typeof result?.nextCursor === 'string' && result.nextCursor ? result.nextCursor : null;
+          setSignedOut(false); setError('');
+          setHistory({ items, nextCursor, loaded: true });
+          setStatus(items.length ? `已加载 ${items.length} 条提交` : '这道题还没有提交记录。');
+          // The last page removes "加载更多"; move focus to the list instead of letting it fall back to the page.
+          if (cursor && !nextCursor) latest.list?.focus?.();
+          // After "重试" a non-empty list takes focus when it attaches (see the `ul` ref).
+          if (!items.length) refocusHeading();
+        } catch (failure) {
+          if (latest.controller !== controller) return;
+          latest.refocus = false;
+          setError(failure.message); setStatus('提交历史读取失败。');
+        } finally {
+          if (latest.controller === controller) { latest.controller = null; setBusy(false); }
+        }
+      };
+      React.useEffect(() => {
+        load();
+        return () => { latest.controller?.abort(); latest.controller = null; };
+      }, [query, challengeId]);
+      const time = (value) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : -Infinity;
+      const items = [...history.items].sort((a, b) => (time(b.createdAt) - time(a.createdAt)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
+      const linked = new Set(attemptIds);
+      return h('section', { className: 'pg-guide pg-history', 'aria-label': '提交历史', 'aria-busy': busy },
+        h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
+        h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '提交历史'),
+        h('p', { className: 'pg-note' }, '当前账号在这道题上的全部提交，从新到旧排列；包括在终端或其他工具中完成的提交。'),
+        signedOut ? h('p', { className: 'pg-note' }, '登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。') : null,
+        error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
+        error && !items.length ? h('div', { className: 'pg-actions' },
+          h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => { latest.refocus = true; return load(); } }, busy ? '正在读取…' : '重试')) : null,
+        busy && !history.loaded ? h('p', { className: 'pg-note' }, '正在读取提交历史…') : null,
+        history.loaded && !signedOut && !items.length && !error ? h('p', { className: 'pg-note' }, '这道题还没有提交记录。') : null,
+        items.length ? h('ul', { className: 'pg-list', 'aria-label': '提交历史列表', tabIndex: -1, ref: (node) => {
+          latest.list = node;
+          if (node && latest.refocus) { latest.refocus = false; node.focus?.(); }
+        } }, items.map((item) => {
+          // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
+          // the conversation, not this attempt, so it is not passed.
+          const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)]), t);
+          const created = Number.isFinite(Date.parse(item.createdAt))
+            ? new Date(item.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '提交时间未知';
+          const own = linked.has(Number(item.id));
+          return h('li', { key: item.id, className: 'pg-row' },
+            h('div', { className: 'pg-row-main' }, `提交 #${item.id ?? '—'}`,
+              h('div', { className: 'pg-row-sub' }, created, ' · ', progress.stageText, ' · ', progress.scoreText)),
+            h('div', { className: 'pg-history-side' },
+              h('span', { className: 'pg-badge', 'data-tone': progress.badgeTone }, progress.badgeText),
+              h('span', { className: 'pg-badge', 'data-tone': own ? 'success' : 'neutral' }, own ? '本对话' : '未关联到对话')));
+        })) : null,
+        history.nextCursor && !signedOut ? h('div', { className: 'pg-actions' },
+          h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load(history.nextCursor) }, busy ? '正在读取…' : '加载更多')) : null);
+    }
+
+    function TaskDetailDrawer({ session, projection, close, query, ...props }) {
       React.useEffect(() => {
         const onKeyDown = (event) => { if (event.key === 'Escape') close(); };
         document.addEventListener('keydown', onKeyDown);
@@ -457,13 +569,19 @@ window.__ModuleLoader__.load({
       }, [close]);
       const state = session?.projectionValues?.playgroundTask || {};
       const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
+      // Prefer the freshly refreshed projection for attribution; the catalog value may lag behind.
+      const current = (projection?.state === 'ready' && projection.values?.playgroundTask) || state;
+      const historyChallenge = current.task?.challengeId || state.task?.challengeId;
+      const attemptIds = taskAttemptIds(current);
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: close },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation() },
           h('div', { className: 'pg-drawer-header' },
             h('div', null, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title' }, title)),
             h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭')),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
-          h(SelectedTask, { key: session.id, session, projection, ...props })));
+          h(SelectedTask, { key: session.id, session, projection, ...props }),
+          // The newest attributed id is part of the key: a submission confirmed in this drawer remounts the list and reloads page one.
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, ...props }) {
@@ -530,7 +648,7 @@ window.__ModuleLoader__.load({
       const session = catalog.byId[selected] || taskSessions[0];
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
@@ -558,7 +676,7 @@ window.__ModuleLoader__.load({
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
                 taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
                 : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, ...props }) : null,
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, query, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”或“开始出题任务”。'),
