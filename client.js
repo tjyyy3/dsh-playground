@@ -101,8 +101,9 @@ window.__ModuleLoader__.load({
 
     // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
     // final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
-    // a reference while evaluation is pending. CLI receipts may carry `scoringState` as a bare string;
-    // it names the state only and never implies that the score is final.
+    // a reference while evaluation is pending. Receipts saved by older versions may carry `scoringState`
+    // as a bare string (CLI output copied verbatim); it names the state only and never implies that the
+    // score is final. New receipts always carry the normalised object.
     function attemptScore(item) {
       const raw = item?.scoringState;
       const scoring = typeof raw === 'string' ? { state: raw } : raw || {};
@@ -128,7 +129,7 @@ window.__ModuleLoader__.load({
       const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
       const receiptStage = !receipt ? 'created'
         : failed ? 'failed'
-          : scoreIsFinal ? (receipt.status === 'late_scored' ? 'finalLate' : 'final')
+          : scoreIsFinal ? (states.includes('late_scored') ? 'finalLate' : 'final')
             : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
               : uploadFailed || states.includes('draft') ? 'incomplete'
                 : 'submitted';

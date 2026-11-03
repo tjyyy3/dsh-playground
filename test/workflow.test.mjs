@@ -609,6 +609,37 @@ test('#21: CLI receipts interpret snake_case scoring state like the API path', a
   }
 });
 
+test('#21: CLI receipts keep an object under scoring_state', async () => {
+  const attempt = { id: 31, status: 'submitted', scoring_state: { state: 'final', scoreIsFinal: true, displayScore: 12 }, score: 12, bundle_status: 'ready' };
+  const f = await fixture({ submit: async () => ({ attempt_id: '31', attempt }) });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.deepEqual(result.scoringState, { state: 'final', scoreIsFinal: true, displayScore: 12 });
+  assert.equal(result.score, 12);
+});
+
+test('#21: CLI receipts are still built when the CLI attempt is absent or not an object', async () => {
+  const cases = [
+    { name: 'absent', output: { attempt_id: '31', bundle_response: { bundleStatus: 'ready', violations: [] } } },
+    { name: 'string', output: { attempt_id: '31', attempt: 'submitted', bundle_response: { bundleStatus: 'ready', violations: [] } } },
+    { name: 'array', output: { attempt_id: '31', attempt: [{ id: 31 }], bundle_response: { bundleStatus: 'ready', violations: [] } } },
+  ];
+  for (const { name, output } of cases) {
+    const f = await fixture({ submit: async () => output });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+    f.record(result);
+    for (const receipt of [result, f.states.get('source').receipt]) {
+      assert.equal(receipt.attemptId, 31, name);
+      assert.equal(receipt.ok, true, name);
+      assert.equal(receipt.bundleStatus, 'ready', name);
+      assert.equal(receipt.scoringState, undefined, name);
+    }
+  }
+});
+
 // CLI 0.1.43 prints the update notice on every run, then `error: <cleaned reason>` on stderr.
 const CLI_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.50.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash';
 const CLI_RETRY = ' 可重试：playground submit --challenge-id <原任务ID> --attempt-id 42 --bundle "C:\\Users\\someone\\work\\bundle.zip"';

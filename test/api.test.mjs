@@ -228,15 +228,37 @@ async function listMyAttemptRows(items) {
 test('personal submissions with a snake_case scoring_state treat only final and late_scored as a final score', async () => {
   const rows = await listMyAttemptRows([
     { id: 1, status: 'scored', score: 12, scoring_state: 'final' },
-    { id: 2, status: 'late_scored', score: 64, scoring_state: 'late_scored' },
+    // Observed platform shape: late_scored is a submission status paired with scoring state final.
+    { id: 2, status: 'late_scored', score: 64, scoring_state: 'final' },
     { id: 3, status: 'scored', score: 0, scoring_state: 'final' },
+    // Assumed shape, not observed on the platform: late_scored as a scoring state.
+    { id: 4, status: 'late_scored', score: 64, scoring_state: 'late_scored' },
   ]);
   assert.deepEqual(rows.map((row) => row.scoringState), [
     { state: 'final', scoreIsFinal: true, displayScore: 12 },
-    { state: 'late_scored', scoreIsFinal: true, displayScore: 64 },
+    { state: 'final', scoreIsFinal: true, displayScore: 64 },
     { state: 'final', scoreIsFinal: true, displayScore: 0 },
+    { state: 'late_scored', scoreIsFinal: true, displayScore: 64 },
   ]);
-  assert.deepEqual(rows.map((row) => row.score), [12, 64, 0]);
+  assert.deepEqual(rows.map((row) => row.score), [12, 64, 0, 64]);
+});
+
+test('personal submissions only accept a real number as the score of a final snake_case state', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: true, scoring_state: 'final' },
+    { id: 2, status: 'scored', score: ' ', scoring_state: 'final' },
+    { id: 3, status: 'scored', score: '12', scoring_state: 'final' },
+  ]);
+  for (const row of rows) assert.deepEqual(row.scoringState, { state: 'final', scoreIsFinal: false }, `attempt ${row.id}`);
+});
+
+test('personal submissions normalise an object under scoring_state like scoringState', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: 12, scoring_state: { state: 'final', scoreIsFinal: true, displayScore: 12 } },
+    { id: 2, status: 'submitted', score: 0, scoring_state: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+  ]);
+  assert.deepEqual(rows[0].scoringState, { state: 'final', scoreIsFinal: true, displayScore: 12 });
+  assert.deepEqual(rows[1].scoringState, { state: 'queued', scoreIsFinal: false, provisionalScore: 0 });
 });
 
 test('personal submissions with a snake_case queued, evaluating or pending state never carry a final score', async () => {
