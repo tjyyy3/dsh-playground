@@ -523,8 +523,6 @@ test('task rows derive stage, badge and score from the platform state, consisten
       view('已出最终分', '评分完成', 'success', '87.5 分', finalLine(87.5))],
     ['final after deadline', { attemptId: 2, ok: true, status: 'late_scored', score: 64, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 64 } },
       view('已出最终分（赛后）', '评分完成', 'success', '64 分', finalLine(64))],
-    ['late_scored status with a final scoring state', { attemptId: 22, ok: true, status: 'late_scored', score: 71, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 71 } },
-      view('已出最终分（赛后）', '评分完成', 'success', '71 分', finalLine(71))],
     ['late_scored scoring state with another status', { attemptId: 23, ok: true, status: 'scored', score: 64, scoringState: { state: 'late_scored', scoreIsFinal: true, displayScore: 64 } },
       view('已出最终分（赛后）', '赛后已评分', 'success', '64 分', finalLine(64))],
     ['a final score of zero is still final', { attemptId: 3, ok: true, status: 'scored', score: 0, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 0 } },
