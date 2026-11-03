@@ -125,7 +125,7 @@ window.__ModuleLoader__.load({
     function taskWebUrl(task, webBase) {
       if (typeof task?.webUrl === 'string' && task.webUrl) return task.webUrl;
       const id = task?.challengeId;
-      if (!id) return undefined;
+      if (!((typeof id === 'string' && id) || Number.isFinite(id))) return undefined;
       const root = typeof task.baseUrl === 'string' && task.baseUrl ? webRootOf(task.baseUrl) : typeof webBase === 'string' ? webBase : '';
       return root ? `${root}/challenge/${encodeURIComponent(id)}` : undefined;
     }
