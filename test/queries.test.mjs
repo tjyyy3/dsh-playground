@@ -27,6 +27,36 @@ test('the session-free query contract admits only reads and forwards cancellatio
   assert.equal(descriptor.cancellation.parameter, 'signal');
 });
 
+test('the submission-history read accepts only challengeId, limit and cursor and forwards cancellation', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    myAttempts: async (input, exec) => { calls.push([input, exec]); return { ok: true, items: [{ id: 3, score: undefined }], nextCursor: null, limit: 50 }; },
+    catalog: async () => assert.fail('history must not fall through to the catalog'),
+  });
+  const descriptor = contribution.invocations.find((item) => item.method === 'query');
+  const schema = descriptor.parameters[0].codec.create();
+  const controller = new AbortController();
+  const input = { action: 'my_attempts', challengeId: 'challenge-a', limit: 50, cursor: 'opaque.cursor' };
+  assert.deepEqual(await services.get('playgroundQueries').query(schema.parse(input), controller.signal),
+    { ok: true, items: [{ id: 3 }], nextCursor: null, limit: 50 });
+  assert.deepEqual(calls, [[input, { signal: controller.signal }]]);
+  assert.equal(schema.safeParse({ action: 'my_attempts', challengeId: 'challenge-a' }).success, true);
+  for (const invalid of [{ action: 'my_attempts' }, { action: 'my_attempts', challengeId: '' },
+    { action: 'my_attempts', challengeId: 'challenge-a', status: 'submitted' },
+    { action: 'my_attempts', challengeId: 'challenge-a', sessionId: 'A' },
+    { action: 'my_attempts', challengeId: 'challenge-a', attemptId: 1 },
+    { action: 'my_attempts', challenge_id: 'challenge-a' },
+    { action: 'my_attempts', challengeId: 'challenge-a', limit: 0 },
+    { action: 'my_attempts', challengeId: 'challenge-a', limit: 101 },
+    { action: 'my_attempts', challengeId: 'challenge-a', limit: 1.5 },
+    { action: 'my_attempts', challengeId: 'challenge-a', cursor: 7 },
+    { action: 'my_attempts', challengeId: { id: 'challenge-a' } }]) {
+    assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
+  }
+});
+
 test('session-free login accepts only the account email and never a password', async () => {
   const services = new Map();
   const calls = [];
@@ -62,7 +92,7 @@ test('the attempt query reads one submission by id, forwards cancellation and re
   for (const invalid of [{ action: 'attempt' }, { action: 'attempt', attemptId: 0 }, { action: 'attempt', attemptId: -3 }, { action: 'attempt', attemptId: 1.5 },
     { action: 'attempt', attemptId: '12' }, { action: 'attempt', attemptId: null }, { action: 'attempt', attemptId: 2 ** 60 },
     { action: 'attempt', attemptId: 1, sessionId: 'A' }, { action: 'attempt', attemptId: 1, per_page: 10 }, { action: 'attempt', attempt_id: 1 },
-    { action: 'attempt', attemptId: 1, confirm: true }]) {
+    { action: 'attempt', attemptId: 1, confirm: true }, { action: 'attempt', attemptId: 1, challengeId: 'challenge-a' }]) {
     assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
   }
 });

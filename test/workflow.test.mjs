@@ -6,7 +6,7 @@ import test from 'node:test';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
 import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
-import { createWorkflow, workflowProjection } from '../lib/workflow.js';
+import { createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -483,6 +483,43 @@ test('failed upload retains the attempt id and retry uploads into that exact att
   f.record(retry);
   await f.workflow.confirm(retry.workflow.prepared.checkId, f.exec);
   assert.equal(f.calls.filter(([kind]) => kind === 'create').length, 1);
+});
+
+// The drawer keys its submission history on receipt.confirmedAt, so a same-id retry must get a new stamp
+// and a results query must keep it.
+test('confirm stamps every receipt, including a same-id retry, and a results query keeps the stamp', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-05T08:00:00.000Z') });
+  const cliResults = [
+    { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'failed', violations: [{ message: 'bad bundle' }] } },
+    { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } },
+  ];
+  const cliPath = await fixture({ submit: async () => cliResults.shift() });
+  const apiPath = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+  let uploads = 0;
+  apiPath.client.uploadBundle = async (id) => ({ bundleStatus: uploads++ ? 'ready' : 'failed', violations: [], attempt: { id, status: 'submitted' } });
+  for (const [path, f] of [['cli', cliPath], ['api', apiPath]]) {
+    const first = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(first);
+    replay(f, await f.workflow.confirm(first.workflow.prepared.checkId, f.exec));
+    const failed = f.states.get('source').receipt;
+    assert.equal(failed.ok, false, path);
+    assert.equal(failed.attemptId, 7, path);
+    assert.equal(failed.confirmedAt, new Date().toISOString(), path);
+    t.mock.timers.tick(60_000);
+    const retry = await f.workflow.prepare(failed.args, f.exec);
+    f.record(retry);
+    replay(f, await f.workflow.confirm(retry.workflow.prepared.checkId, f.exec));
+    const retried = f.states.get('source').receipt;
+    assert.equal(retried.ok, true, path);
+    assert.equal(retried.attemptId, 7, path);
+    assert.equal(retried.confirmedAt, new Date().toISOString(), path);
+    assert.notEqual(retried.confirmedAt, failed.confirmedAt, path);
+    assert.deepEqual(f.states.get('source').attemptIds, [7], path);
+    t.mock.timers.tick(60_000);
+    f.record(await f.workflow.results({}, f.exec));
+    assert.equal(f.states.get('source').receipt.confirmedAt, retried.confirmedAt, path);
+  }
+  assert.equal(apiPath.calls.filter(([kind]) => kind === 'create').length, 1);
 });
 
 test('mode switches preserve receipts, clear confirmation and do not grant submission authority', async () => {
@@ -1075,4 +1112,77 @@ test('D3: an unknown outcome adopts the single submission created after confirma
   });
   assert.equal(queried, false);
   assert.equal(result.attemptId, undefined);
+});
+
+const workflowEvent = (change) => ({ type: 'command/done', data: { text: JSON.stringify({ playgroundWorkflow: change }) } });
+
+test('every receipt is attributed to the task conversation while receipt stays the latest one', () => {
+  let state = workflowProjection.apply(workflowProjection.init(), workflowEvent({ kind: 'task', task: { challengeId: 'challenge-a', mode: 'participate' } }));
+  assert.deepEqual(state.attemptIds, []);
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'receipt', receipt: { ok: true, attemptId: 11 } }));
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'prepared', prepared: { checkId: 'next' } }));
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'receipt', receipt: { ok: true, attemptId: 12 } }));
+  // A results refresh re-emits the latest receipt; it must not duplicate the id.
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'receipt', receipt: { ok: true, attemptId: 12, score: 0.5 } }));
+  assert.deepEqual(state.attemptIds, [11, 12]);
+  assert.equal(state.receipt.attemptId, 12);
+  assert.equal(state.prepared, null);
+  assert.equal(workflowProjection.stateSchema.safeParse(state).success, true);
+  assert.deepEqual(workflowProjection.wire.view(state).attemptIds, [11, 12]);
+});
+
+test('task states persisted before attemptIds still validate and derive it from the old receipt', () => {
+  const old = { task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: { ok: true, attemptId: 7 } };
+  assert.equal(workflowProjection.stateVersion, 1);
+  assert.equal(workflowProjection.stateSchema.safeParse(old).success, true);
+  const view = workflowProjection.wire.view(old);
+  assert.deepEqual(view.attemptIds, [7]);
+  assert.equal(view.receipt, old.receipt);
+  assert.equal(workflowProjection.wire.viewSchema.safeParse(view).success, true);
+  assert.deepEqual(taskAttemptIds(old), [7]);
+  const next = workflowProjection.apply(old, workflowEvent({ kind: 'receipt', receipt: { ok: true, attemptId: 8 } }));
+  assert.deepEqual(next.attemptIds, [7, 8]);
+  assert.equal(next.receipt.attemptId, 8);
+  assert.deepEqual(taskAttemptIds({ task: null, prepared: null, receipt: null }), []);
+  assert.deepEqual(taskAttemptIds({ task: null, prepared: null, receipt: { ok: false } }), []);
+});
+
+test('mode, clear and a failed receipt keep the attempts already attributed to the task', () => {
+  let state = workflowProjection.apply(workflowProjection.init(), workflowEvent({ kind: 'task', task: { challengeId: 'challenge-a', mode: 'participate' } }));
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'receipt', receipt: { ok: true, attemptId: 11 } }));
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'mode', mode: 'author' }));
+  assert.equal(state.task.mode, 'author');
+  assert.deepEqual(state.attemptIds, [11]);
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'prepared', prepared: { checkId: 'next' } }));
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'clear' }));
+  assert.equal(state.prepared, null);
+  assert.deepEqual(state.attemptIds, [11]);
+  // A failed submission has no attempt id: receipt shows the failure, earlier attempts stay attributed.
+  state = workflowProjection.apply(state, workflowEvent({ kind: 'receipt', receipt: { ok: false, error: { code: 'network_error', message: 'offline' } } }));
+  assert.equal(state.receipt.ok, false);
+  assert.deepEqual(state.attemptIds, [11]);
+  assert.deepEqual(workflowProjection.wire.view(state).attemptIds, [11]);
+  assert.equal(workflowProjection.stateSchema.safeParse(state).success, true);
+});
+
+test('the submission-history read lists the account attempts for one challenge and touches no conversation', async () => {
+  const f = await fixture();
+  // A task conversation with a receipt, so the snapshot below would show any write to it.
+  f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 3 }, attemptIds: [3] });
+  const before = JSON.stringify([...f.states]);
+  assert.match(before, /"attemptIds":\[3\]/);
+  const calls = [];
+  f.ctx.commands.execute = () => assert.fail('history read reached a conversation');
+  f.ctx.sessionProjections.stateOf = () => assert.fail('history read must not depend on a conversation');
+  f.client.listMyAttempts = async (params, options) => { calls.push([params, options]); return { items: [{ id: 3 }], nextCursor: 'next', limit: 50 }; };
+  const signal = new AbortController().signal;
+  assert.deepEqual(await f.workflow.myAttempts({ challengeId: 'challenge-a', limit: 50 }, { signal }), { ok: true, items: [{ id: 3 }], nextCursor: 'next', limit: 50 });
+  assert.deepEqual(calls, [[{ challengeId: 'challenge-a', limit: 50, cursor: undefined }, { signal }]]);
+  f.client.listMyAttempts = async () => { throw Object.assign(new Error('A Playground token is required'), { code: 'authentication_required' }); };
+  const signedOut = await f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal });
+  assert.equal(signedOut.ok, false);
+  assert.equal(signedOut.error.code, 'authentication_required');
+  f.client.listMyAttempts = async () => { throw new Error('upstream returned 503'); };
+  await assert.rejects(f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal }), /upstream returned 503/);
+  assert.equal(JSON.stringify([...f.states]), before);
 });
