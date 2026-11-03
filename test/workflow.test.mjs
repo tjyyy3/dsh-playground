@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, toNamespacedPath } from 'node:path';
 import test from 'node:test';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
+import { formatSubmission } from '../lib/format.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
@@ -420,6 +421,24 @@ test('material check is read-only; only an exact human confirmation uploads chec
   f.record(result);
   assert.equal((await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec)).error.code, 'confirmation_required');
   assert.equal(f.states.get('source').receipt.scoringState.scoreIsFinal, false);
+});
+
+test('D10a: the check result text and note send the user to the button and never expose the checkId', async () => {
+  const f = await fixture();
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const rendered = formatSubmission(checked);
+  assert.equal(rendered.includes(checked.workflow.prepared.checkId), false);
+  assert.equal(JSON.stringify({ ...checked, workflow: undefined }).includes(checked.workflow.prepared.checkId), false);
+  for (const text of [checked.note, rendered]) {
+    assert.match(text, /确认目标并提交/);
+    assert.match(text, /前往工作台确认提交/);
+    assert.match(text, /无需输入任何命令/);
+    assert.doesNotMatch(text, /playground-confirm/);
+    // The note is shown to the user, so it must not speak to the agent.
+    assert.doesNotMatch(text, /不要让用户|playground submit|告诉用户/);
+  }
+  // The structured value still carries the id: the projection and the workbench button read it from the tool meta.
+  assert.equal(presentationMeta({}, checked).playgroundWorkflow.prepared.checkId, checked.workflow.prepared.checkId);
 });
 
 test('changed trace invalidates the prior confirmation without platform writes', async () => {

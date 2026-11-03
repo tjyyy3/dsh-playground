@@ -504,6 +504,44 @@ function errorValue(error, extra = {}) {
   return toToolValue({ ...value, ...extra, ok: false });
 }
 
+const TASK_STATUS_TASK_KEYS = ['challengeId', 'title', 'mode', 'cwd'];
+const TASK_STATUS_RECEIPT_KEYS = ['ok', 'attemptId', 'challengeId', 'challengeTitle', 'status', 'bundleStatus', 'score',
+  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args', 'note'];
+
+function pickKeys(source, keys) {
+  if (source === null || typeof source !== 'object') return null;
+  return Object.fromEntries(keys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+}
+
+/**
+ * Model-visible task status. An explicit whitelist at every level, so a field added to the projection
+ * later stays out of the model's view unless it is listed here.
+ *
+ * `prepared.checkId` is intentionally excluded. It is the one-time code behind the workbench
+ * "确认目标并提交" button. The model must not relay it to users: only the human-driven
+ * `/playground-confirm` slash command can use it, and slash commands are user input that the model
+ * cannot call, so handing it to the model could only produce wrong instructions. The workbench UI
+ * and the session projection read it directly, not through this tool. It is a stale-click guard,
+ * not a credential. It still appears in the structured results of `playground_check_materials` and
+ * `playground_submit_attempt` and in `/playground check` output, because the projection needs it.
+ */
+function taskStatus(state) {
+  const prepared = state?.prepared;
+  return {
+    ok: true,
+    task: pickKeys(state?.task, TASK_STATUS_TASK_KEYS),
+    receipt: pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS),
+    ...(state?.attemptIds !== undefined ? { attemptIds: state.attemptIds } : {}),
+    prepared: prepared ? {
+      awaitingConfirmation: true,
+      challenge: prepared.challenge,
+      files: prepared.files,
+      checkedAt: prepared.checkedAt,
+      args: prepared.args,
+    } : null,
+  };
+}
+
 function renderText(text) {
   return [{ type: 'text', text }];
 }
@@ -995,6 +1033,8 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
  * @param config Optional patch config: { baseUrl?, token?, timeoutMs?, uploadTimeoutMs? }.
  */
 export function apply(ctx, config) {
+  // Shared agent guidance. The user confirms in the UI; the agent must never relay a confirmation code or command.
+  const confirmGuidance = 'Tell the user to confirm by clicking "确认目标并提交" in the task details (or "前往工作台确认提交" on the card). Never ask the user to type a command, and never run `playground submit` in the terminal.';
   const settings = normalizeSettings(config);
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
@@ -1015,7 +1055,7 @@ export function apply(ctx, config) {
   let workflow;
   const requestSubmission = {
     ...submit,
-    description: 'Prepare a submission to an explicitly named Playground challenge. Checks local files and returns a user confirmation card. Does NOT create or upload a submission. Only a human can confirm via the Playground card; never call shell, browser automation, or commands to confirm on their behalf.',
+    description: 'Prepare a submission to an explicitly named Playground challenge. Checks local files and returns a user confirmation card. Does NOT create or upload a submission. Only a human can confirm via the Playground card; never call shell, browser automation, or commands to confirm on their behalf. ' + confirmGuidance,
     parameters: { ...submit.parameters, required: ['challenge_id'] },
     execute: (args, exec) => workflow ? workflow.prepare(args, exec) : errorValue(new PlaygroundApiError('Native DSH workflow services are unavailable; submitting without user confirmation is disabled.', { code: 'workflow_unavailable' })),
   };
@@ -1042,7 +1082,7 @@ export function apply(ctx, config) {
           return `Playground task context (facts, not write authorization): ${JSON.stringify({
             challengeId: state.task.challengeId, mode: state.task.mode, cwd: scope.workingDirectory.get(agent.session),
             latestAttemptId: state.receipt?.attemptId, scoringState: state.receipt?.scoringState,
-          })}. Use playground_task for current receipts. Real submission requires the user's exact-target confirmation card; tools cannot confirm it. Author mode currently supports local preparation only.`;
+          })}. Use playground_task for current receipts. Real submission requires the user's exact-target confirmation card; tools cannot confirm it. ${confirmGuidance} Author mode currently supports local preparation only.`;
         } });
     });
     scope.commands.register({ name: 'playground', description: 'Playground task: start, check materials, switch mode or read results.',
@@ -1059,12 +1099,12 @@ export function apply(ctx, config) {
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, cwd: { type: 'string', description: 'Required absolute path of a registered DSH workspace: the directory the user named, otherwise the current conversation\'s workspace.' }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['challenge_id', 'cwd'] }, output,
       execute: (args, exec) => workflow.start(args, exec).then(toToolValue).catch(errorValue) });
     scope.tools.register({ ...requestSubmission, name: 'playground_check_materials',
-      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. Returns file sizes, hashes and a confirmation card; makes no platform writes.',
+      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. Returns file sizes, hashes and a confirmation card; makes no platform writes. ' + confirmGuidance,
       execute: (args, exec) => workflow.prepare(args, exec).then(toToolValue) });
     scope.tools.register({ name: 'playground_task', description: 'Read this Playground task context, switch participate/author working mode, or refresh its latest submission result. Mode is not an account role. No authority to confirm submissions.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results'] }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['action'] }, output,
       execute: async (args, exec) => {
-        if (args.action === 'status') return toToolValue({ ok: true, ...scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask') });
+        if (args.action === 'status') return toToolValue(taskStatus(scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask')));
         if (args.action === 'results') return workflow.results({}, exec).then(toToolValue).catch(errorValue);
         const result = await workflow.command({ agent: exec.agent, signal: exec.signal, rawInput: JSON.stringify(args) });
         return JSON.parse(result.text);

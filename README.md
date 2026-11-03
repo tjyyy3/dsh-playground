@@ -227,8 +227,21 @@ restart. Removing it is `plugin_manager action=remove_bundle`, or disable the
 
 If the installation succeeds, other users can use the plugin immediately from
 their own DSH profile. They still need a Playground login (or a token) for
-personal submissions and write operations. The plugin never submits without an
-explicit confirmation.
+personal submissions and write operations. The submission path the plugin
+provides requires the user's confirmation in the Playground workbench (the
+**确认目标并提交** button). The plugin cannot stop an agent from running the
+Playground CLI directly in a terminal, because that does not go through the
+plugin. Depending on your DSH sandbox and approval settings, such a command may
+be blocked (for example by network restrictions) or may need your approval
+first. Those are DSH settings, not a guarantee of this plugin, so review any
+terminal command the agent asks to run.
+
+The user can also confirm with the `/playground-confirm <code>` command. The
+code is a guard against clicking a stale card, not a credential. It is kept out
+of the `playground_task` `status` result, but it still appears in the structured
+results of `playground_check_materials` and `playground_submit_attempt` and in
+the `/playground check` output, because the workbench needs it to enable the
+button.
 
 ## Authentication
 
