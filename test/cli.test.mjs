@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -307,19 +307,30 @@ async function waitUntil(check, ms) {
 }
 const HANG = 'setInterval(() => {}, 1000);';
 
-// Writes `marker`.started at once and `marker` itself two seconds later.
-const delayedMarker = (marker) => `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(`${marker}.started`)}, '');`
-  + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, 'done'), 2000);`;
+// Timing: the timeout runs from the spawn, so node start-up (twice for a grandchild) has to fit
+// inside TIMEOUT. GRACE must outlast a slow taskkill: at grace expiry the plugin kills the root
+// process, which would orphan the tree taskkill is still walking. A working kill returns shortly
+// after the timeout, so BOUND stays below GRACE-based waiting and below MARKER_DELAY, when a
+// surviving tree would finish and release the pipes.
+const TIMEOUT = 1500;
+const GRACE = 2000;
+const BOUND = TIMEOUT + 1800;
+const MARKER_DELAY = 4000;
 
-// The CLI times out after 700 ms; whatever it started must be gone before the marker is due.
+// Writes `marker`.started at once and `marker` itself MARKER_DELAY later.
+const delayedMarker = (marker) => `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(`${marker}.started`)}, '');`
+  + ` setTimeout(() => fs.writeFileSync(${JSON.stringify(marker)}, 'done'), ${MARKER_DELAY});`;
+
+// The CLI times out after TIMEOUT; whatever it started must be gone before the marker is due.
 async function expectTreeEnded(cli, marker) {
   const begin = Date.now();
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
     (error) => error.code === 'cli_terminated' && error.started === true);
   // Returns within timeout + grace, long before the marker is due.
-  assert.ok(Date.now() - begin < 1500, `run() took ${Date.now() - begin} ms`);
+  assert.ok(Date.now() - begin < BOUND, `run() took ${Date.now() - begin} ms`);
   assert.equal(existsSync(`${marker}.started`), true, 'the process never started');
-  await sleep(1800);
+  // Wait until the marker would have been written, counted from when the process really started.
+  await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
   assert.equal(existsSync(marker), false);
 }
 
@@ -331,8 +342,8 @@ test('a timeout ends the CLI together with the processes it started', async () =
     command: await fakeCli(join(root, 'tree', 'tree.mjs'), `import { spawn } from 'node:child_process';
 spawn(process.execPath, ['-e', ${JSON.stringify(delayedMarker(marker))}], { stdio: 'inherit', detached: ${process.platform === 'win32'} });
 ${HANG}`),
-    submitTimeoutMs: 700,
-    killGraceMs: 300,
+    submitTimeoutMs: TIMEOUT,
+    killGraceMs: GRACE,
   });
   await expectTreeEnded(cli, marker);
 });
@@ -342,7 +353,7 @@ test('Windows: a timeout ends the Node process behind the cmd fallback', { skip:
   const marker = join(markers, 'behind-cmd.txt');
   await fakeCli(join(bin, 'entry'), delayedMarker(marker));
   await writeFile(join(bin, 'fakehang.cmd'), '@node "%~dp0entry" %*\r\n');
-  const cli = createPlaygroundCli({ command: join(bin, 'fakehang.cmd'), submitTimeoutMs: 700, killGraceMs: 300 });
+  const cli = createPlaygroundCli({ command: join(bin, 'fakehang.cmd'), submitTimeoutMs: TIMEOUT, killGraceMs: GRACE });
   await expectTreeEnded(cli, marker);
 });
 test('a CLI that ignores SIGTERM is ended after the grace period and keeps its output on the error', async () => {
@@ -353,8 +364,8 @@ process.on('SIGTERM', () => {});
 writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
 console.log('partial-out'); console.error('partial-err');
 ${HANG}`),
-    submitTimeoutMs: 700,
-    killGraceMs: 300,
+    submitTimeoutMs: TIMEOUT,
+    killGraceMs: GRACE,
   });
   const begin = Date.now();
   const error = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }).then(
@@ -365,7 +376,7 @@ ${HANG}`),
   try {
     assert.equal(error.code, 'cli_terminated');
     assert.equal(error.started, true);
-    assert.ok(Date.now() - begin < 1500, `run() took ${Date.now() - begin} ms`);
+    assert.ok(Date.now() - begin < BOUND, `run() took ${Date.now() - begin} ms`);
     assert.match(error.stdout, /partial-out/);
     assert.match(error.stderr, /partial-err/);
     assert.equal(Object.keys(error).includes('stdout'), false);
@@ -376,24 +387,40 @@ ${HANG}`),
 });
 
 test('an abort signal stops the CLI, and an already aborted signal never starts it', async () => {
-  const marker = join(markers, 'aborted.txt');
+  const pidFile = join(markers, 'aborted.pid');
   const cli = createPlaygroundCli({
     command: await fakeCli(join(root, 'abort', 'abort.mjs'),
-      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'started'); ${HANG}`),
-    killGraceMs: 300,
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); ${HANG}`),
+    killGraceMs: GRACE,
   });
   const cancelled = new AbortController();
   cancelled.abort();
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: cancelled.signal }),
     (error) => error.code === 'cli_terminated' && error.started === false);
   await sleep(300);
-  assert.equal(existsSync(marker), false);
+  assert.equal(existsSync(pidFile), false);
+  // Abort only once the CLI has written its pid, then check that this process is really gone.
   const running = new AbortController();
-  setTimeout(() => running.abort(), 700);
-  const begin = Date.now();
-  await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: running.signal }),
-    (error) => error.code === 'cli_terminated' && error.started === true);
-  assert.ok(Date.now() - begin < 1500, `run() took ${Date.now() - begin} ms`);
+  const outcome = cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: running.signal }).then(
+    () => assert.fail('expected the CLI to be cancelled'),
+    (failure) => failure,
+  );
+  let pid;
+  try {
+    const written = await waitUntil(async () => existsSync(pidFile) && (await readFile(pidFile, 'utf8')) !== '', 10000);
+    assert.equal(written, true, 'the CLI never started');
+    pid = Number(await readFile(pidFile, 'utf8'));
+    const begin = Date.now();
+    running.abort();
+    const error = await outcome;
+    assert.equal(error.code, 'cli_terminated');
+    assert.equal(error.started, true);
+    assert.ok(Date.now() - begin < BOUND, `run() took ${Date.now() - begin} ms`);
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the CLI is still running');
+  } finally {
+    running.abort();
+    if (pid && alive(pid)) process.kill(pid, 'SIGKILL');
+  }
 });
 test('starting the CLI emits no shell deprecation warning', () => {
   assert.deepEqual(warnings.filter((warning) => warning.code === 'DEP0190').map(String), []);
