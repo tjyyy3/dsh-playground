@@ -1812,3 +1812,253 @@ test('legacy drawer tasks derive a web URL only for a non-empty string or finite
     assert.equal((await drawerFor({ challengeId, title: 'Fixture', mode: 'participate', baseUrl })).length, 0, String(challengeId));
   }
 });
+
+const challengeCard = { id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', webUrl: 'https://play.bohrium.com/challenge/a%20b%2Fc' };
+const challengeDetail = (overrides = {}) => ({ ok: true, id: 'a b/c', title: 'Synthetic', titleZh: '合成赛题', discipline: 'physics', origin: 'github',
+  difficulty: 3, status: 'open', attempts: 12, tags: ['optics', 'fitting'],
+  resources: [{ name: 'data.csv', kind: 'dataset', description: 'Input table', role: 'input', source: 'https://example.test/data.csv' }],
+  contentGated: false, content: 'line 1\nline 2', truncated: false, webUrl: 'https://play.bohrium.com/challenge/a%20b%2Fc', ...overrides });
+const buttonLabelled = (label) => (node) => node.type === 'button' && (node.props.children || []).flat(Infinity).includes(label);
+
+// The catalog panel with one card. Detail reads stay pending until a test resolves them, so each
+// test controls the order in which reads settle. `open` clicks "查看详情" and mounts the drawer.
+async function challengeDrawerHarness(t, { sessionId = 'source', access = true } = {}) {
+  const reads = [];
+  const call = (_path, _method, { args: { input } }, signal) => {
+    if (input.action === 'catalog') return Promise.resolve({ ok: true, value: { webBase: 'https://play.bohrium.com', competitions: { items: [] }, challenges: { items: [challengeCard] } } });
+    if (input.action === 'challenge') return new Promise((resolve, reject) => reads.push({ input, signal, resolve, reject }));
+    return Promise.resolve({ ok: false, error: { code: 'transport' } });
+  };
+  const f = await clientFixture(t, { connection: { rpc: { call } } });
+  const listeners = new Set();
+  globalThis.document = { addEventListener: (type, listener) => { if (type === 'keydown') listeners.add(listener); },
+    removeEventListener: (type, listener) => { if (type === 'keydown') listeners.delete(listener); } };
+  t.after(() => { delete globalThis.document; });
+  const catalogElement = f.workbench(sessionId, access).catalog;
+  await f.mount(catalogElement);
+  const catalog = () => f.render(catalogElement.type, catalogElement.props);
+  const drawerElement = () => f.find(catalog(), (node) => node.type?.name === 'ChallengeDetailDrawer');
+  let current;
+  const open = () => {
+    f.find(catalog(), buttonLabelled('查看详情')).props.onClick();
+    const element = drawerElement();
+    f.unmount(element.type);
+    f.effects.length = 0;
+    f.render(element.type, element.props);
+    const effects = f.effects.splice(0);
+    current = { element, effects, cleanups: effects.map((effect) => effect()) };
+    return current;
+  };
+  const view = () => f.render(current.element.type, current.element.props);
+  // What React does when the drawer leaves the tree.
+  const unmountDrawer = () => current.cleanups.forEach((cleanup) => cleanup?.());
+  const respond = async (index, value) => { reads[index].resolve({ ok: true, value }); await settle(); };
+  return { f, reads, listeners, open, view, catalog, drawerElement, unmountDrawer, respond, escape: () => [...listeners].forEach((listener) => listener({ key: 'Escape' })) };
+}
+
+test('"查看详情" opens a challenge drawer that reads the detail once and shows facts, tags, resources and the web button', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const button = h.f.find(h.catalog(), buttonLabelled('查看详情'));
+  assert.equal(button.props['aria-label'], '查看详情：合成赛题');
+  assert.equal(h.drawerElement(), undefined);
+  h.open();
+  assert.deepEqual(h.reads.map((read) => read.input), [{ action: 'challenge', challengeId: 'a b/c' }]);
+  // Before the read settles the drawer already names the card's challenge.
+  let tree = h.view();
+  assert.equal(tree.props.className, 'pg-drawer-backdrop');
+  const aside = h.f.find(tree, (node) => node.type === 'aside');
+  assert.equal(aside.props.role, 'dialog');
+  assert.equal(aside.props['aria-modal'], true);
+  assert.match(text(tree), /合成赛题[\s\S]*正在读取赛题详情/);
+  await h.respond(0, challengeDetail());
+  tree = h.view();
+  const content = text(tree);
+  for (const expected of ['题目编号：a b/c', '方向', 'physics', '来源', 'github', '难度', '3', '状态', '提交次数', '12', 'optics', 'fitting',
+    'data.csv', 'dataset', 'input', 'Input table', '来源：https://example.test/data.csv']) assert.ok(content.includes(expected), expected);
+  // A resource source is text only: the drawer renders no link at all.
+  assert.equal(findAll(tree, (node) => node.type === 'a' || node.props?.href !== undefined).length, 0);
+  // Rendering again does not read again.
+  h.view();
+  assert.equal(h.reads.length, 1);
+  findAll(tree, isOpenWeb)[0].props.onClick();
+  assert.deepEqual(opened, [['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer']]);
+});
+
+test('the challenge statement is collapsed until "展开题面" and then shows plain text with its line breaks', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  // The note's number is the Host's `contentLimit`, not a number written into the Client.
+  await h.respond(0, challengeDetail({ content: '# Heading\n\n**bold** line 2', truncated: true, contentLimit: 1234 }));
+  let tree = h.view();
+  assert.equal(h.f.find(tree, (node) => node.type === 'pre'), undefined);
+  assert.doesNotMatch(text(tree), /Heading/);
+  const toggle = h.f.find(tree, buttonLabelled('展开题面'));
+  assert.equal(toggle.props['aria-expanded'], false);
+  toggle.props.onClick();
+  tree = h.view();
+  const statement = h.f.find(tree, (node) => node.type === 'pre');
+  assert.equal(statement.props.className, 'pg-statement');
+  // The statement is one text child, unchanged: no markdown rendering, line breaks kept.
+  assert.deepEqual(statement.props.children, ['# Heading\n\n**bold** line 2']);
+  assert.equal(h.f.find(tree, buttonLabelled('收起题面')).props['aria-expanded'], true);
+  assert.match(text(tree), /题面超过 1234 字，这里只显示前 1234 字/);
+  assert.doesNotMatch(text(tree), /50000/);
+  h.f.find(tree, buttonLabelled('收起题面')).props.onClick();
+  assert.equal(h.f.find(h.view(), (node) => node.type === 'pre'), undefined);
+});
+
+test('a truncated statement without a usable contentLimit names no number', async (t) => {
+  for (const contentLimit of [undefined, 0, -1, 1.5, '50000']) {
+    const h = await challengeDrawerHarness(t);
+    h.open();
+    await h.respond(0, challengeDetail({ truncated: true, ...(contentLimit === undefined ? {} : { contentLimit }) }));
+    h.f.find(h.view(), buttonLabelled('展开题面')).props.onClick();
+    const content = text(h.view());
+    assert.match(content, /题面过长，这里只显示前一部分；完整题面请在网页中查看。/, String(contentLimit));
+    assert.doesNotMatch(content, /题面超过/, String(contentLimit));
+    h.unmountDrawer();
+  }
+});
+
+test('repeated challenge tags render once each, with unique keys', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  await h.respond(0, challengeDetail({ tags: ['optics', 'fitting', 'optics', 'fitting', 'optics'] }));
+  const list = h.f.find(h.view(), (node) => node.type === 'ul' && node.props['aria-label'] === '标签');
+  const items = findAll(list, (node) => node.type === 'li');
+  assert.deepEqual(items.map((item) => item.props.key), ['optics', 'fitting']);
+  assert.deepEqual(items.map((item) => text(item)), ['optics', 'fitting']);
+});
+
+test('the challenge drawer subscribes to Escape once and calls the newest close', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const opened = h.open();
+  assert.equal(h.listeners.size, 1);
+  // A catalog re-render hands the drawer a new close function; the Escape effect must not resubscribe.
+  const next = h.drawerElement();
+  assert.notEqual(next.props.close, opened.element.props.close);
+  let closed = 0;
+  const { ran } = rerender(h.f, { type: next.type, props: { ...next.props, close: () => { closed += 1; } } }, opened.effects);
+  assert.equal(ran, 0);
+  assert.equal(h.listeners.size, 1);
+  h.escape();
+  assert.equal(closed, 1);
+  assert.equal(h.reads[0].signal.aborted, true);
+});
+
+test('a gated challenge statement asks the user to read it on the web', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  await h.respond(0, challengeDetail({ contentGated: true, content: '' }));
+  const tree = h.view();
+  assert.match(text(tree), /题面需要权限，请在网页中查看/);
+  assert.equal(h.f.find(tree, buttonLabelled('展开题面')), undefined);
+  assert.equal(findAll(tree, isOpenWeb).length, 1);
+});
+
+test('the challenge drawer closes from its button, the backdrop and Escape, aborting the read; reopening reads again', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const closers = [
+    ['button', () => h.f.find(h.view(), (node) => node.type === 'button' && node.props['aria-label'] === '关闭赛题详情').props.onClick()],
+    ['backdrop', () => h.view().props.onMouseDown()],
+    ['escape', () => h.escape()],
+  ];
+  for (const [index, [label, closeIt]] of closers.entries()) {
+    h.open();
+    assert.equal(h.reads.length, index + 1, label);
+    assert.equal(h.listeners.size, 1, label);
+    // A press inside the drawer stays inside it.
+    let stopped = false;
+    h.f.find(h.view(), (node) => node.type === 'aside').props.onMouseDown({ stopPropagation: () => { stopped = true; } });
+    assert.equal(stopped, true);
+    assert.ok(h.drawerElement(), label);
+    closeIt();
+    assert.equal(h.drawerElement(), undefined, label);
+    assert.equal(h.reads[index].signal.aborted, true, label);
+    h.unmountDrawer();
+    assert.equal(h.listeners.size, 0, label);
+    // A late answer to the aborted read changes nothing.
+    await h.respond(index, challengeDetail({ titleZh: 'Late title' }));
+    assert.doesNotMatch(text(h.view()), /Late title/, label);
+  }
+});
+
+test('only the newest challenge read updates the drawer', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  h.f.find(h.view(), (node) => node.type === 'button' && node.props['aria-label'] === '关闭赛题详情').props.onClick();
+  h.unmountDrawer();
+  h.open();
+  assert.equal(h.reads.length, 2);
+  assert.equal(h.reads[1].signal.aborted, false);
+  await h.respond(1, challengeDetail({ titleZh: 'Fresh title' }));
+  await h.respond(0, challengeDetail({ titleZh: 'Stale title' }));
+  const content = text(h.view());
+  assert.match(content, /Fresh title/);
+  assert.doesNotMatch(content, /Stale title/);
+});
+
+test('a failed challenge read shows a fixed message and "重试" without tokens or local paths', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  const leaks = /secret-token|Bearer|Users|someone|upstream|\/home\//;
+  // A business throw that reaches the Client as a gateway error.
+  h.reads[0].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream said no' } });
+  await settle();
+  let tree = h.view();
+  // Cause-neutral: the same text covers network, missing challenge, access and an old Host.
+  assert.match(text(h.f.find(tree, (node) => node.props?.role === 'alert')), /^赛题详情读取失败，请稍后重试，或在网页中查看。$/);
+  assert.doesNotMatch(text(tree), leaks);
+  h.f.find(tree, buttonLabelled('重试')).props.onClick();
+  assert.equal(h.reads.length, 2);
+  assert.deepEqual(h.reads[1].input, { action: 'challenge', challengeId: 'a b/c' });
+  // A failure inside the result is shown the same way.
+  await h.respond(1, { ok: false, error: { message: 'Bearer secret-token at C:\\Users\\someone\\x and /home/someone' } });
+  tree = h.view();
+  assert.match(text(tree), /赛题详情读取失败/);
+  assert.doesNotMatch(text(tree), leaks);
+  h.f.find(tree, buttonLabelled('重试')).props.onClick();
+  h.reads[2].reject(new Error('Bearer secret-token'));
+  await settle();
+  assert.doesNotMatch(text(h.view()), leaks);
+  h.f.find(h.view(), buttonLabelled('重试')).props.onClick();
+  await h.respond(3, challengeDetail());
+  tree = h.view();
+  assert.equal(h.f.find(tree, (node) => node.props?.role === 'alert'), undefined);
+  assert.match(text(tree), /data\.csv/);
+});
+
+test('the drawer start button closes the drawer and opens the workspace dialog through requestTask', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  await h.respond(0, challengeDetail());
+  const start = h.f.find(h.view(), (node) => node.type?.name === 'StartTaskButton');
+  assert.equal(start.props.disabled, false);
+  assert.equal(start.props.sessionId, 'source');
+  const button = h.f.render(start.type, start.props);
+  assert.match(text(button), /^开始参赛任务/);
+  button.props.onClick();
+  assert.equal(h.drawerElement(), undefined);
+  const overlay = h.f.registrations.get('playground.task-start').definition.inject();
+  assert.deepEqual(overlay.hooks.taskRequest.getSnapshot(), { id: 'a b/c', title: '合成赛题', mode: 'participate', sessionId: 'source' });
+});
+
+test('the drawer start button follows the catalog card start rule', async (t) => {
+  for (const [sessionId, access, note] of [[null, true, '打开一个 DSH 对话后才能从目录创建任务。'], ['source', false, '当前连接没有在此对话中创建任务的权限。']]) {
+    const h = await challengeDrawerHarness(t, { sessionId, access });
+    // The card's start is blocked, but "查看详情" stays usable (calling onClick alone would pass on a disabled button).
+    const catalog = h.catalog();
+    assert.equal(h.f.find(catalog, (node) => node.type?.name === 'StartTaskButton').props.disabled, true, note);
+    assert.notEqual(h.f.find(catalog, buttonLabelled('查看详情')).props.disabled, true, note);
+    h.open();
+    await h.respond(0, challengeDetail());
+    const tree = h.view();
+    assert.equal(h.f.find(tree, (node) => node.type?.name === 'StartTaskButton').props.disabled, true);
+    assert.ok(text(tree).includes(note), note);
+    // Opening the web page needs no conversation.
+    assert.equal(findAll(tree, isOpenWeb).length, 1);
+    h.unmountDrawer();
+  }
+});

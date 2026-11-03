@@ -96,3 +96,27 @@ test('the attempt query reads one submission by id, forwards cancellation and re
     assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
   }
 });
+
+test('the challenge detail query accepts only a challengeId, trims it and forwards cancellation', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  // A workflow with only `challenge`: any other call would throw, so this read can reach nothing else.
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    challenge: async (id, exec) => { calls.push([id, exec]); return { ok: true, id, title: 'Synthetic', ignored: undefined }; },
+  });
+  const descriptor = contribution.invocations.find((item) => item.method === 'query');
+  const schema = descriptor.parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  assert.deepEqual(await services.get('playgroundQueries').query(schema.parse({ action: 'challenge', challengeId: ' challenge-a ' }), signal),
+    { ok: true, id: 'challenge-a', title: 'Synthetic' });
+  assert.deepEqual(calls, [['challenge-a', { signal }]]);
+  assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'x'.repeat(200) }).success, true);
+  for (const invalid of [{ action: 'challenge' }, { action: 'challenge', challengeId: '' }, { action: 'challenge', challengeId: '   ' },
+    { action: 'challenge', challengeId: 'x'.repeat(201) }, { action: 'challenge', challengeId: 7 }, { action: 'challenge', challengeId: null },
+    { action: 'challenge', challenge_id: 'challenge-a' }, { action: 'challenge', challengeId: 'challenge-a', sessionId: 'A' },
+    { action: 'challenge', challengeId: 'challenge-a', cwd: '/workspace' }, { action: 'challenge', challengeId: 'challenge-a', max_content_chars: 10 },
+    { action: 'challenge', challengeId: 'challenge-a', confirm: true }, { action: 'challenge', challengeId: { id: 'challenge-a' } }]) {
+    assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
+  }
+});
