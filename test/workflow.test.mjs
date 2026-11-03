@@ -583,6 +583,32 @@ test('F-03: CLI receipts clear confirmation on invalid submission ids without re
   }
 });
 
+test('#21: CLI receipts interpret snake_case scoring state like the API path', async () => {
+  const cases = [
+    { attempt: { id: 31, status: 'submitted', scoring_state: 'queued', score: 0, bundle_status: 'ready' }, state: 'queued', score: 0, final: false },
+    { attempt: { id: 31, status: 'submitted', scoring_state: 'queued', score: 7, bundle_status: 'ready' }, state: 'queued', score: 7, final: false },
+    { attempt: { id: 31, status: 'submitted', scoring_state: 'final', score: 12, bundle_status: 'ready' }, state: 'final', score: 12, final: true },
+    { attempt: { id: 31, status: 'submitted', scoringState: { state: 'final', scoreIsFinal: true, displayScore: 9 }, score: 9, bundle_status: 'ready' }, state: 'final', score: 9, final: true },
+  ];
+  for (const { attempt, state, score, final } of cases) {
+    const f = await fixture({ submit: async () => ({ attempt_id: '31', attempt }) });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(checked);
+    const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+    f.record(result);
+    for (const receipt of [result, f.states.get('source').receipt]) {
+      assert.equal(receipt.scoringState.state, state);
+      assert.equal(receipt.scoringState.scoreIsFinal, final);
+      assert.equal(receipt.scoringState.displayScore, final ? score : undefined);
+      assert.equal(receipt.score, score);
+      assert.equal(receipt.status, 'submitted');
+      // bundle_status is still read from the CLI output, so ok and bundleStatus do not change.
+      assert.equal(receipt.ok, true);
+      assert.equal(receipt.bundleStatus, 'ready');
+    }
+  }
+});
+
 // CLI 0.1.43 prints the update notice on every run, then `error: <cleaned reason>` on stderr.
 const CLI_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.50.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash';
 const CLI_RETRY = ' 可重试：playground submit --challenge-id <原任务ID> --attempt-id 42 --bundle "C:\\Users\\someone\\work\\bundle.zip"';
