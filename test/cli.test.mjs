@@ -131,9 +131,11 @@ test('errors say whether the CLI process started', async () => {
   await assert.rejects(() => failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started('cli_error'));
   const text = createPlaygroundCli({ command: await fakeCli(join(bin, 'text.mjs'), "console.log('not json');") });
   await assert.rejects(() => text.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started(undefined));
-  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes.
+  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes. The CLI takes
+  // much longer than the login timeout because ending a process tree on Windows (taskkill) can take
+  // over a second on a slow runner, and a CLI that finishes meanwhile is a success, not a termination.
   const slow = createPlaygroundCli({
-    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 1500);"),
+    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 4000);"),
     timeoutMs: 300,
     submitTimeoutMs: 30000,
   });
