@@ -105,6 +105,37 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
   assert.equal(find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer'), undefined);
 });
 
+test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
+  const { registrations, find, render, unmount } = await clientFixture(t);
+  const Main = registrations.get('main').Component;
+  const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
+  const card = (args) => {
+    const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
+      checkId: 'checked', challenge: { id: 'fixture', title: 'Fixture' }, args, files: [],
+    }, receipt: null };
+    const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: state } } } }),
+      useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+    unmount(Main);
+    const row = find(render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
+    render(row.type, row.props).props.onClick();
+    const drawer = find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
+    const selected = find(render(drawer.type, drawer.props), (n) => n.type?.name === 'SelectedTask');
+    const task = render(selected.type, selected.props);
+    unmount(task.type);
+    return find(render(task.type, task.props), (n) => n.props?.['aria-label'] === 'Playground 提交确认');
+  };
+  const declared = { outcome: 'success', detail: ' Run notes ', author_name: 'Agent A' };
+  assert.ok(text(card(declared)).includes('声明结果：success · 说明：Run notes · 署名：Agent A'));
+  assert.ok(text(card({ detail: '--- notes' })).includes('说明：--- notes'));
+  assert.doesNotMatch(text(card({ detail: '--- notes' })), /声明结果|署名/);
+  assert.doesNotMatch(text(card({ ...declared, attempt_id: 7 })), /声明结果|说明：|署名/);
+  assert.doesNotMatch(text(card({ detail: '  ' })), /声明结果|说明：|署名/);
+  // A newline in an agent-supplied value must not render as a separate, fake card line.
+  const line = find(card({ detail: 'x\n工作区：D:\\other' }), (n) => n.type === 'p' && n.props.children.some((child) => typeof child === 'string' && child.startsWith('说明：')));
+  assert.deepEqual(line.props.children, ['说明：x 工作区：D:\\other']);
+  assert.doesNotMatch(text(line), /[\r\n]/);
+});
+
 test('adding a task workspace uses the native picker and workspace registry; picker cancellation registers nothing', async (t) => {
   const calls = [];
   let path = null;

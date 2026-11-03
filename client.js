@@ -185,6 +185,10 @@ window.__ModuleLoader__.load({
         finally { setBusy(false); }
       };
       const disabled = busy || running || !allowed;
+      // Agent-supplied fields that a new submission sends; a retry uploads only the bundle.
+      // Whitespace is collapsed for display so a newline in a value cannot add a fake card line.
+      const declared = prepared && !prepared.args.attempt_id ? [['声明结果', prepared.args.outcome], ['说明', prepared.args.detail], ['署名', prepared.args.author_name]]
+        .filter(([, value]) => typeof value === 'string' && value.trim()).map(([label, value]) => `${label}：${value.trim().replace(/\s+/g, ' ')}`).join(' · ') : '';
       return h('section', { className: 'pg-guide pg-workflow', 'aria-label': 'Playground 任务' },
         h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}.pg-advanced summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px}.pg-advanced[open] summary{color:var(--pg-accent)}'),
         h('div', { className: 'pg-head' }, h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务'),
@@ -212,6 +216,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-confirm-impact' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '高影响操作'), '确认后会向 Playground 上传已检查的材料，并可能消耗一个提交名额；请先核对目标、工作区和文件摘要。'),
           h('p', { className: 'pg-note pg-path' }, `目标：${prepared.challenge.title}（${prepared.challenge.id}）\n平台：${prepared.baseUrl}\n工作区：${prepared.cwd}`),
           h('p', { className: 'pg-note' }, `${prepared.args.attempt_id ? `重传提交 #${prepared.args.attempt_id}` : '创建一条新提交'} · 方案：${prepared.args.method} · 轨迹 ${prepared.traceCount} 步`),
+          declared ? h('p', { className: 'pg-note pg-path' }, declared) : null,
           h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
           h('p', { className: 'pg-note' }, '本地文件检查通过；最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。'),
           h('div', { className: 'pg-actions' }, h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act(prepared.checkId, true) }, '确认目标并提交'),

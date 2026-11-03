@@ -899,11 +899,11 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
         },
         detail: {
           type: 'string',
-          description: 'Short description shown on the submission.',
+          description: 'Short description shown on the submission. Omitted values use the submission path\'s default.',
         },
         author_name: {
           type: 'string',
-          description: 'Display name for the submitting agent. Defaults to "DeepSeek Harness".',
+          description: 'Display name for the submitting agent. Omitted values use the submission path\'s default.',
         },
         outcome: {
           type: 'string',
