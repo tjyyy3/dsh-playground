@@ -96,7 +96,7 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
   const tree = render(Main, props);
   assert.equal(find(tree, (n) => n.type?.name === 'TaskDetailDrawer'), undefined);
   const row = find(tree, (n) => n.type?.name === 'TaskSummaryRow');
-  render(row.type, row.props).props.onClick();
+  find(render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
   const drawer = find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
   const drawerTree = render(drawer.type, drawer.props);
   const selected = find(drawerTree, (n) => n.type?.name === 'SelectedTask');
@@ -116,7 +116,7 @@ function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
     useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
   const row = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
-  f.render(row.type, row.props).props.onClick();
+  f.find(f.render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
   return () => {
     const drawer = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
     const selected = f.find(f.render(drawer.type, drawer.props), (n) => n.type?.name === 'SelectedTask');
@@ -178,6 +178,147 @@ test('the workbench usage help names only the participation start', async (t) =>
   assert.doesNotMatch(text(help), /开始出题任务/);
 });
 
+// Shared setup for the "open conversation" tests: one task session in the workbench, openTask recorded.
+// Navigation is deferred by one microtask, so callers await settle() before reading `opened`.
+// `options.reject` and `options.throws` are read at call time, so a test can change the outcome between clicks.
+async function openTaskFixture(t, options = {}) {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const opened = [];
+  const openTask = (id) => {
+    opened.push(id);
+    if (options.throws) throw Error('openSession threw');
+    return options.reject ? Promise.reject(Error('session gone')) : undefined;
+  };
+  const session = { id: 's', displayTitle: 'Playground · Fixture' };
+  const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: null, receipt: null };
+  session.projectionValues = { playgroundTask: state };
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: state } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask, openChat: () => {}, login: async () => {}, t: (s) => s };
+  const drawer = () => f.find(f.render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
+  const row = () => { const element = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow'); return f.render(element.type, element.props); };
+  const announcement = () => text(f.find(f.render(Main, props), (n) => n.props?.role === 'status'));
+  const visibleError = () => f.find(f.render(Main, props), (n) => n.props?.className?.includes?.('pg-open-error'));
+  return { ...f, opened, drawer, row, announcement, visibleError };
+}
+
+test('a task row has two sibling buttons and "打开对话" opens the conversation without the drawer', async (t) => {
+  const { opened, drawer, row } = await openTaskFixture(t);
+  const tree = row();
+  assert.notEqual(tree.type, 'button', 'the row itself is a container, not a button');
+  assert.equal(tree.props.role, 'listitem');
+  const buttons = findAll(tree, (n) => n.type === 'button');
+  assert.equal(buttons.length, 2);
+  // Neither button contains another button.
+  for (const button of buttons) assert.equal(findAll(button, (n) => n.type === 'button').length, 1);
+  const [select, open] = buttons;
+  assert.equal(select.props.className, 'pg-task-row-select');
+  // The only task is selected by default, so the main area keeps aria-pressed.
+  assert.equal(select.props['aria-pressed'], true);
+  assert.ok(text(select).includes('Fixture'));
+  assert.equal(open.props['aria-label'], '打开对话：Fixture');
+  assert.equal(text(open), '打开对话');
+  open.props.onClick();
+  await settle();
+  assert.deepEqual(opened, ['s']);
+  assert.equal(drawer(), undefined);
+  select.props.onClick();
+  assert.ok(drawer());
+  assert.deepEqual(opened, ['s']);
+});
+
+test('the task drawer header opens the task conversation next to "关闭"', async (t) => {
+  const { opened, drawer, row, render, find } = await openTaskFixture(t);
+  find(row(), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
+  const element = drawer();
+  const header = find(render(element.type, element.props), (n) => n.props?.className === 'pg-drawer-header');
+  const labels = findAll(header, (n) => n.type === 'button').map((n) => n.props['aria-label']);
+  assert.deepEqual(labels, ['打开任务对话：Fixture', '关闭任务详情']);
+  find(header, (n) => n.type === 'button' && n.props['aria-label'] === '打开任务对话：Fixture').props.onClick();
+  assert.equal(drawer(), undefined, 'the drawer closes once navigation starts');
+  await settle();
+  assert.deepEqual(opened, ['s']);
+});
+
+test('a rejected task conversation navigation is caught and announced from both buttons', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const { opened, drawer, row, render, find, announcement } = await openTaskFixture(t, { reject: true });
+  find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+  await settle();
+  assert.deepEqual(opened, ['s']);
+  assert.equal(announcement(), '无法打开任务对话，请重试。');
+  assert.equal(drawer(), undefined);
+  find(row(), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
+  assert.equal(announcement(), '已打开任务：Playground · Fixture');
+  const element = drawer();
+  find(render(element.type, element.props), (n) => n.type === 'button' && n.props['aria-label'] === '打开任务对话：Fixture').props.onClick();
+  await settle();
+  assert.deepEqual(opened, ['s', 's']);
+  assert.equal(announcement(), '无法打开任务对话，请重试。');
+  assert.equal(warn.mock.callCount(), 2);
+});
+
+test('a synchronous throw from openTask is caught and the drawer still closes', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  const { opened, drawer, row, render, find, announcement } = await openTaskFixture(t, { throws: true });
+  find(row(), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
+  const element = drawer();
+  const open = find(render(element.type, element.props), (n) => n.type === 'button' && n.props['aria-label'] === '打开任务对话：Fixture');
+  assert.doesNotThrow(() => open.props.onClick());
+  assert.equal(drawer(), undefined, 'close() runs even though openTask throws');
+  await settle();
+  assert.deepEqual(opened, ['s']);
+  assert.equal(announcement(), '无法打开任务对话，请重试。');
+  assert.equal(warn.mock.callCount(), 1);
+});
+
+test('two consecutive failures from the same button both announce', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { opened, row, find, announcement } = await openTaskFixture(t, { reject: true });
+  for (const attempt of [1, 2]) {
+    find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+    // The live region is emptied before navigating, so the same message is a fresh change each time.
+    assert.equal(announcement(), '', `attempt ${attempt} clears the previous announcement`);
+    await settle();
+    assert.equal(announcement(), '无法打开任务对话，请重试。', `attempt ${attempt} is announced`);
+  }
+  assert.deepEqual(opened, ['s', 's']);
+});
+
+test('a failed navigation shows a visible note near the task list until the next attempt', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const { row, find, visibleError } = await openTaskFixture(t, { reject: true });
+  assert.equal(visibleError(), undefined);
+  find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+  await settle();
+  const note = visibleError();
+  assert.ok(note, 'the failure is visible');
+  assert.equal(note.type, 'p');
+  assert.equal(note.props.className, 'pg-note pg-error pg-open-error');
+  assert.equal(note.props.role, 'none', 'the live region already announces it');
+  assert.equal(text(note), '无法打开任务对话，请重试。');
+  // The next attempt clears the note as it starts.
+  find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+  assert.equal(visibleError(), undefined);
+  // Let the second rejection land while console.warn is still mocked; it shows the note again.
+  await settle();
+  assert.ok(visibleError());
+});
+
+test('a successful navigation after a failure leaves no visible note', async (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const options = { reject: true };
+  const { opened, row, find, visibleError } = await openTaskFixture(t, options);
+  find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+  await settle();
+  assert.ok(visibleError());
+  options.reject = false;
+  find(row(), (n) => n.props?.className === 'pg-task-row-open').props.onClick();
+  await settle();
+  assert.equal(visibleError(), undefined);
+  assert.deepEqual(opened, ['s', 's']);
+});
+
 test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
   const { registrations, find, render, unmount } = await clientFixture(t);
   const Main = registrations.get('main').Component;
@@ -190,7 +331,7 @@ test('the confirmation card lists declared outcome, detail and author only for a
       useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
     unmount(Main);
     const row = find(render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
-    render(row.type, row.props).props.onClick();
+    find(render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
     const drawer = find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
     const selected = find(render(drawer.type, drawer.props), (n) => n.type?.name === 'SelectedTask');
     const task = render(selected.type, selected.props);
@@ -600,7 +741,7 @@ function taskViews(f, playgroundTask, t, { running = false } = {}) {
   const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
   const row = f.render(rowElement.type, rowElement.props);
   const part = (className) => f.find(row, (node) => node.props?.className === className);
-  row.props.onClick();
+  part('pg-task-row-select').props.onClick();
   const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
   const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
   const workflow = f.render(selected.type, selected.props);
@@ -989,7 +1130,7 @@ test('a refreshed final score reaches the task row and the drawer summary withou
   await h.settled();
   assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评分完成', '80 分']]);
   const element = findAll(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow')[0];
-  h.f.render(element.type, element.props).props.onClick();
+  h.f.find(h.f.render(element.type, element.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
   h.flush();
   const drawer = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
   const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
@@ -1176,7 +1317,7 @@ async function historyFixture(t, respond, state, options) {
   const props = { ...main.definition.inject(), t: f.zh, useSessionAccess: () => true, refreshProjections: async () => {},
     useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: state } } } }) };
   const row = f.find(f.render(main.Component, props), (node) => node.type?.name === 'TaskSummaryRow');
-  f.render(row.type, row.props).props.onClick();
+  f.find(f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
   const drawer = f.find(f.render(main.Component, props), (node) => node.type?.name === 'TaskDetailDrawer');
   const history = f.find(f.render(drawer.type, drawer.props), isHistory);
   assert.ok(history, 'the task drawer renders a submission history section');
@@ -1575,7 +1716,7 @@ function drawerWebButtons(f) {
     let tree = f.render(main.Component, props);
     if (loadCatalog) await f.mount(f.find(tree, (n) => n.type?.name === 'CatalogPanel'));
     const row = f.find(tree, (n) => n.type?.name === 'TaskSummaryRow');
-    f.render(row.type, row.props).props.onClick();
+    f.find(f.render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
     tree = f.render(main.Component, props);
     const drawer = f.find(tree, (n) => n.type?.name === 'TaskDetailDrawer');
     return findAll(f.render(drawer.type, drawer.props), isOpenWeb);

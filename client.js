@@ -486,7 +486,9 @@ window.__ModuleLoader__.load({
         ))));
     }
 
-    function TaskSummaryRow({ session, attempts, selected, onSelect }) {
+    // Two sibling buttons, never nested: the main area selects the task and opens its drawer;
+    // "打开对话" switches to the task's DSH conversation without opening the drawer.
+    function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen }) {
       const state = session.projectionValues?.playgroundTask || {};
       const task = state.task;
       const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
@@ -496,14 +498,16 @@ window.__ModuleLoader__.load({
       const stage = receipt || task || session.running ? progress.stageText : '状态待读取';
       const updatedAt = session.updatedAt || session.lastActivityAt || session.createdAt;
       const updated = updatedAt ? new Date(updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '暂无时间';
-      return h('button', { type: 'button', className: `pg-task-row${selected ? ' is-selected' : ''}`, onClick: onSelect, 'aria-pressed': selected },
-        h('span', { className: 'pg-task-row-main' },
-          h('strong', null, title),
-          h('span', { className: 'pg-task-row-meta' }, challengeId, ' · ', stage)),
-        h('span', { className: 'pg-task-row-side' },
-          h('span', { className: 'pg-badge', 'data-tone': progress.badgeTone }, progress.badgeText),
-          h('span', { className: 'pg-task-row-score' }, progress.scoreText),
-          h('span', { className: 'pg-task-row-updated' }, updated)));
+      return h('div', { className: `pg-task-row${selected ? ' is-selected' : ''}`, role: 'listitem' },
+        h('button', { type: 'button', className: 'pg-task-row-select', onClick: onSelect, 'aria-pressed': selected },
+          h('span', { className: 'pg-task-row-main' },
+            h('strong', null, title),
+            h('span', { className: 'pg-task-row-meta' }, challengeId, ' · ', stage)),
+          h('span', { className: 'pg-task-row-side' },
+            h('span', { className: 'pg-badge', 'data-tone': progress.badgeTone }, progress.badgeText),
+            h('span', { className: 'pg-task-row-score' }, progress.scoreText),
+            h('span', { className: 'pg-task-row-updated' }, updated))),
+        h('button', { type: 'button', className: 'pg-task-row-open', onClick: onOpen, 'aria-label': `打开对话：${title}` }, '打开对话'));
     }
 
     // Mirrors taskAttemptIds in lib/workflow.js: projections persisted without attemptIds derive it from the receipt.
@@ -624,8 +628,12 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: close },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation() },
           h('div', { className: 'pg-drawer-header' },
-            h('div', null, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title' }, title)),
-            h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭')),
+            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title' }, title)),
+            h('div', { className: 'pg-drawer-actions' },
+              // Close after starting navigation so a workbench the host keeps mounted does not come back
+              // to an open modal drawer whose Escape listener is still attached.
+              h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); close(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
+              h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           openWeb ? h('div', { className: 'pg-actions' }, openWeb) : null,
           h(SelectedTask, { key: session.id, session, projection, ...props }),
@@ -646,6 +654,7 @@ window.__ModuleLoader__.load({
       const [drawerOpen, setDrawerOpen] = React.useState(false);
       // Web root reported by the latest catalog read; only tasks recorded without webUrl or baseUrl use it.
       const [webBase, setWebBase] = React.useState('');
+      const [openError, setOpenError] = React.useState('');
       // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
       // in memory only and never reaches a session projection, so refreshing writes no conversation record.
       const [, setVersion] = React.useState(0);
@@ -699,9 +708,21 @@ window.__ModuleLoader__.load({
         if (selected && !taskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
       }, [selected, taskSessions.map((session) => session.id).join(',')]);
       const session = catalog.byId[selected] || taskSessions[0];
+      // The row's "打开对话" and the drawer's "打开任务对话": a failed navigation is reported, not left unhandled.
+      // Navigation is deferred so a synchronous throw is caught too and the caller (the drawer's close) always continues.
+      // Both messages are cleared first, so a repeated failure changes the live region again and a success leaves no stale note.
+      const openConversation = (id) => {
+        setAnnouncement('');
+        setOpenError('');
+        return Promise.resolve().then(() => openTask(id)).catch((failure) => {
+          console.warn('Playground: failed to open the task conversation', failure);
+          setAnnouncement('无法打开任务对话，请重试。');
+          setOpenError('无法打开任务对话，请重试。');
+        });
+      };
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);text-align:left;font:inherit;cursor:pointer}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close{min-height:32px;padding:5px 9px}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{grid-template-columns:minmax(0,1fr) auto;padding:10px}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
@@ -726,10 +747,12 @@ window.__ModuleLoader__.load({
                 store.partial ? '刷新失败，部分任务显示的不是最新状态'
                   : store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : '刷新失败，显示的是任务记录中的状态')
                 : store.refreshedAt ? h('p', { className: 'pg-note pg-refresh-status' }, `状态更新于 ${clock(store.refreshedAt)}`) : null,
+              // Visible copy of the navigation failure; the live region above already announces it.
+              openError ? h('p', { className: 'pg-note pg-error pg-open-error', role: 'none' }, openError) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
-                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
+                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id) })))
                 : h('p', { className: 'pg-task-empty' }, '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'))),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, run, query, webBase, ...props }) : null,
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: () => setDrawerOpen(false), attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
               h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”。'),

@@ -183,9 +183,13 @@ entry takes that result; other entries, including CLI submissions, update when
 the drawer is reopened. In task
 conversations created before this version, only the latest submission is marked
 **本对话**.
-**返回所选任务对话** returns to native chat. Creating another task from
-the catalog creates a new conversation without narrowing or overwriting the
-existing one.
+**返回所选任务对话** returns to native chat. To jump straight to one task's
+conversation, use the small **打开对话** button at the right of its row, which
+does not open the drawer, or **打开任务对话** next to **关闭** in the drawer
+header, which closes the drawer as it switches to the conversation. Clicking the
+task's title or status still opens the drawer. Creating
+another task from the catalog creates a new conversation without narrowing or
+overwriting the existing one.
 
 Chat keeps its historical tool cards and workflow command cards. A pending
 check card offers **前往工作台确认提交**, which opens the workbench for that
