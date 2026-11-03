@@ -702,6 +702,8 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible' } 
   // The second render shows what the effects of the first one changed, as React would after a state update.
   const flush = () => { renderOnce(); return renderOnce(); };
   const unmount = () => { slots.forEach((slot) => slot?.cleanup?.()); slots.length = 0; f.unmount(Main); };
+  // StrictMode-like double mount: every effect cleans up and runs again, and component state survives.
+  const remount = () => { slots.forEach((slot) => slot?.cleanup?.()); slots.length = 0; return flush(); };
   const rows = () => findAll(view.tree, (node) => node.type?.name === 'TaskSummaryRow').map((element) => {
     const row = f.render(element.type, element.props);
     const part = (className) => text(f.find(row, (node) => node.props?.className === className));
@@ -711,7 +713,7 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible' } 
   const status = () => { const node = f.find(view.tree, (node) => String(node.props?.className).includes('pg-refresh-status')); return node && text(node); };
   const release = () => held.splice(0).forEach(respond);
   const settled = async () => { await settle(); await settle(); return flush(); };
-  return { f, document, calls, control, release, sessions, flush, settled, unmount, rows, button, status, view, tick: (ms) => t.mock.timers.tick(ms) };
+  return { f, document, calls, control, release, sessions, flush, settled, unmount, remount, rows, button, status, view, tick: (ms) => t.mock.timers.tick(ms) };
 }
 
 const receiptOf = (attemptId, attempt = queuedAttempt) => ({ attemptId, ok: true, ...attempt });
@@ -758,9 +760,30 @@ test('polling pauses while the page is hidden and resumes when it is visible aga
   h.document.setVisibility('hidden');
   h.tick(twoMinutes);
   assert.equal(h.calls.length, 1);
+});
+
+test('becoming visible starts a round only when the previous one began more than 30 seconds ago, and the interval is separate', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, queuedAttempt]]));
+  h.flush();
+  await h.settled();
+  assert.equal(h.calls.length, 1);
+  // 10 seconds after the opening round: switching tabs back and forth requests nothing.
+  h.tick(10000);
+  h.document.setVisibility('hidden');
   h.document.setVisibility('visible');
-  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 1);
+  // 35 seconds in, the event alone starts a round; the interval is still 85 seconds away.
+  h.tick(25000);
+  h.document.setVisibility('hidden');
+  assert.equal(h.calls.length, 1);
+  h.document.setVisibility('visible');
   assert.equal(h.calls.length, 2);
+  await h.settled();
+  // The interval keeps its own schedule: it fires 120 seconds after the opening, not after the event.
+  h.tick(84000);
+  assert.equal(h.calls.length, 2);
+  h.tick(1000);
+  assert.equal(h.calls.length, 3);
 });
 
 test('closing the workbench stops polling and cancels the request in flight', async (t) => {
@@ -851,4 +874,147 @@ test('a refreshed final score reaches the task row and the drawer summary withou
   const summary = h.f.find(h.f.render(workflow.type, workflow.props), (node) => node.type === 'summary');
   assert.equal(text(summary), '提交 #61 · 评分完成 · 已出最终分 · 80 分');
   assert.equal(JSON.stringify(h.sessions), before);
+});
+
+test('a task finishing neither requests again nor resets the interval for the tasks still pending', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [63, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)], ['b', receiptOf(63)]], platform);
+  h.control.hold = true;
+  h.flush();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63]);
+  // The round takes 90 seconds; 61 comes back final and 63 does not.
+  h.tick(90000);
+  platform.set(61, finalAttempt(80));
+  h.control.hold = false;
+  h.release();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge]), [['a', '评分完成'], ['b', '排队中']]);
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63]);
+  // The next round is still due 120 seconds after the first one began, and asks for 63 only.
+  h.tick(29000);
+  assert.equal(h.calls.length, 2);
+  h.tick(1000);
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 63, 63]);
+});
+
+test('failed and rejected receipts stay failed or rejected against a lookup that is not final', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [62, evaluatingAttempt]]);
+  const h = await refreshHarness(t, [
+    ['a', receiptOf(61, { status: 'failed', scoringState: { state: 'failed', scoreIsFinal: false } })],
+    ['b', receiptOf(62, { status: 'rejected', scoringState: { state: 'rejected', scoreIsFinal: false } })],
+  ], platform);
+  h.flush();
+  assert.equal(h.calls.length, 0);
+  h.button().props.onClick();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 62]);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['失败', '—'], ['未通过', '—']]);
+});
+
+test('a stored result is ignored once its receipt has changed, even when the result is not final', async (t) => {
+  const platform = new Map([[61, { status: 'failed', scoringState: { state: 'failed', scoreIsFinal: false } }]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.badge), ['失败']);
+  // The same submission id is uploaded again: the receipt is submitted, and the old failure no longer applies.
+  h.sessions[0].projectionValues.playgroundTask.receipt = { attemptId: 61, ok: true, status: 'submitted' };
+  h.flush();
+  assert.deepEqual(h.rows().map((row) => row.badge), ['已提交']);
+  // It is unscored again, so it is read again on the next round.
+  platform.set(61, finalAttempt(80));
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 2);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评分完成', '80 分']]);
+});
+
+test('a newer receipt saved by a result query is not overwritten by an older stored lookup', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, queuedAttempt]]));
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['排队中', '—']]);
+  h.sessions[0].projectionValues.playgroundTask.receipt = receiptOf(61, evaluatingAttempt);
+  h.flush();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+});
+
+test('an attempt that omits fields keeps the values of the receipt', async (t) => {
+  const receipt = { attemptId: 61, ok: true, status: 'queued', bundleStatus: 'ready', scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 41 } };
+  const h = await refreshHarness(t, [['a', receipt]], new Map([[61, { status: 'scoring' }]]));
+  h.flush();
+  await h.settled();
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+});
+
+test('awaiting_review is polled like pending_review, and an incomplete bundle is not', async (t) => {
+  const h = await refreshHarness(t, [
+    ['a', { attemptId: 61, ok: true, status: 'awaiting_review' }],
+    ['b', { attemptId: 62, ok: true, status: 'submitted', scoringState: { state: 'awaiting_review' } }],
+    ['c', { attemptId: 63, ok: true, status: 'pending_review' }],
+    ['d', { attemptId: 64, ok: true, status: 'awaiting_review', bundleStatus: 'incomplete' }],
+  ], new Map([[61, finalAttempt(70)], [62, finalAttempt(71)], [63, finalAttempt(72)]]));
+  h.flush();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 62, 63]);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.id, row.score]), [['a', '70 分'], ['b', '71 分'], ['c', '72 分'], ['d', '—']]);
+});
+
+test('pending submissions that appear after the workbench opened are read once, without a second opening round', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61, finalAttempt(80))]], new Map([[61, queuedAttempt]]));
+  h.flush();
+  assert.equal(h.calls.length, 0);
+  h.sessions[0].projectionValues.playgroundTask.receipt = receiptOf(61);
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  await h.settled();
+  h.sessions[0].projectionValues.playgroundTask.receipt = receiptOf(62);
+  h.flush();
+  assert.equal(h.calls.length, 1);
+});
+
+test('a refresh keeps at most four requests in flight', async (t) => {
+  const ids = [61, 62, 63, 64, 65, 66];
+  const h = await refreshHarness(t, ids.map((id) => [`s${id}`, receiptOf(id)]), new Map(ids.map((id) => [id, queuedAttempt])));
+  h.control.hold = true;
+  h.flush();
+  assert.deepEqual(h.calls.map((call) => call.id), [61, 62, 63, 64]);
+  h.release();
+  await settle();
+  assert.deepEqual(h.calls.map((call) => call.id), ids);
+  h.control.hold = false;
+  h.release();
+  await h.settled();
+  assert.equal(h.status(), '状态更新于 09:05');
+  assert.equal(h.rows().length, 6);
+  assert.ok(h.rows().every((row) => row.badge === '排队中'));
+});
+
+test('a partial failure does not claim every row is from the last full refresh', async (t) => {
+  const platform = new Map([[61, queuedAttempt], [63, new Error('Bearer secret-token')]]);
+  const h = await refreshHarness(t, [['a', receiptOf(61, { status: 'submitted' })], ['b', receiptOf(63, { status: 'submitted' })]], platform);
+  h.flush();
+  await h.settled();
+  assert.equal(h.status(), '刷新失败，部分任务显示的不是最新状态');
+  assert.deepEqual(h.rows().map((row) => row.badge), ['排队中', '已提交']);
+  assert.doesNotMatch(text(h.view.tree), /secret-token|\d\d:\d\d/);
+});
+
+test('mounting, cleaning up and mounting again starts a fresh round and drops the first one', async (t) => {
+  const h = await refreshHarness(t, [['a', receiptOf(61)]], new Map([[61, queuedAttempt]]));
+  h.control.hold = true;
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  h.remount();
+  assert.equal(h.calls[0].signal.aborted, true);
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].signal.aborted, false);
+  assert.equal(h.document.listeners.size, 1);
+  h.control.hold = false;
+  h.release();
+  await h.settled();
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.status(), '状态更新于 09:05');
+  assert.deepEqual(h.rows().map((row) => row.badge), ['排队中']);
 });

@@ -167,40 +167,67 @@ window.__ModuleLoader__.load({
       return Number.isSafeInteger(id) && id > 0 ? id : undefined;
     };
 
+    // A refresh round never has more than this many requests in flight.
+    const refreshConcurrency = 4;
+    // A visibility change starts a round only when the previous one began at least this long ago.
+    const visibleRefreshGapMs = 30000;
+
     // A submission still waiting for a platform result. A scored or incomplete bundle, a draft and a
-    // failed upload never change on their own, so they are not polled.
+    // failed upload never change on their own, so they are not polled. `awaiting_review` is polled like
+    // `pending_review`, although the stage display still shows it as submitted.
     function receiptPending(receipt) {
       if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
       const { stage } = receiptProgress(receipt, zhText);
-      return stage === 'evaluating' || (stage === 'submitted' && [undefined, 'submitted'].includes(receipt.status));
+      if (stage === 'evaluating') return true;
+      const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes('awaiting_review');
+      return stage === 'submitted' && ([undefined, 'submitted'].includes(receipt.status) || awaitingReview);
     }
 
-    // Lays the latest platform state of a submission over its receipt. The result lives in workbench
-    // memory only, so it can be older than a receipt a result query has since saved; a non-final lookup
-    // therefore never replaces a receipt that already has a final, failed or rejected result.
-    function withLatestAttempt(receipt, attempt) {
-      if (!receipt || !attempt) return receipt;
-      const merged = { ...receipt, status: attempt.status, bundleStatus: attempt.bundleStatus, score: attempt.score, scoringState: attempt.scoringState };
+    // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
+    // resubmission under the same id or by "查询结果", no longer matches the stored result.
+    const receiptKey = (receipt) => receipt ? JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.ok, receipt.status,
+      receipt.bundleStatus, receipt.score, receipt.scoringState]) : undefined;
+
+    // Lays the latest platform state of a submission over its receipt. `entry` is `{ attempt, receiptKey }`
+    // from the workbench store. A result fetched for an earlier state of the receipt is ignored. Only the
+    // fields the platform returned replace receipt values. A non-final lookup never replaces a receipt
+    // that already has a final, failed or rejected result.
+    function withLatestAttempt(receipt, entry) {
+      if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
+      const merged = { ...receipt };
+      for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
       return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
     }
 
     const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
     // Reads the given submissions through the session-free `attempt` query, one request per id, and keeps
-    // the results in `store`. Nothing is written to any conversation. A round never overlaps another.
+    // the results in `store`, each with the receipt it was fetched for. Nothing is written to any
+    // conversation. A round never overlaps another and keeps at most `refreshConcurrency` requests in flight.
     async function refreshAttempts(store, ids) {
       const wanted = [...new Set(ids)];
       if (!wanted.length || store.controller || store.disposed) return;
       const controller = new AbortController();
       store.controller = controller;
+      store.startedAt = Date.now();
+      const keys = wanted.map((id) => receiptKey(store.receipts.get(id)));
       store.publish();
-      const outcomes = await Promise.allSettled(wanted.map((id) => store.query({ action: 'attempt', attemptId: id }, controller.signal)));
+      const outcomes = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < wanted.length && !controller.signal.aborted) {
+          const index = next++;
+          try { outcomes[index] = { value: await store.query({ action: 'attempt', attemptId: wanted[index] }, controller.signal) }; } catch { /* counted as failed */ }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
       if (store.controller !== controller) return;
       store.controller = null;
-      const usable = (outcome) => outcome.status === 'fulfilled' && outcome.value && typeof outcome.value === 'object';
-      store.attempts = { ...store.attempts, ...Object.fromEntries(outcomes.flatMap((outcome, index) => usable(outcome) ? [[wanted[index], outcome.value]] : [])) };
-      store.failed = !outcomes.every(usable);
-      if (!store.failed) store.refreshedAt = Date.now();
+      const usable = (outcome) => outcome && outcome.value && typeof outcome.value === 'object';
+      const fresh = wanted.flatMap((id, index) => usable(outcomes[index]) ? [[id, { attempt: outcomes[index].value, receiptKey: keys[index] }]] : []);
+      store.attempts = { ...store.attempts, ...Object.fromEntries(fresh) };
+      store.failed = fresh.length < wanted.length;
+      if (!store.failed) { store.refreshedAt = Date.now(); store.partial = false; } else if (fresh.length) store.partial = true;
       store.publish();
     }
 
@@ -444,33 +471,52 @@ window.__ModuleLoader__.load({
       const [drawerOpen, setDrawerOpen] = React.useState(false);
       // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
       // in memory only and never reaches a session projection, so refreshing writes no conversation record.
-      const [store] = React.useState(() => ({ attempts: {}, refreshedAt: undefined, failed: false, controller: null, disposed: false,
-        version: 0, publish: () => {}, query: null, pendingIds: [], taskIds: [] }));
       const [, setVersion] = React.useState(0);
-      store.publish = () => setVersion(++store.version);
-      store.query = query;
-      store.taskIds = [...new Set(taskSessions.map((item) => receiptAttemptId(item.projectionValues?.playgroundTask?.receipt)).filter((id) => id !== undefined))];
-      store.pendingIds = store.taskIds.filter((id) => taskSessions.some((item) => {
+      const [store] = React.useState(() => {
+        const holder = { attempts: {}, refreshedAt: undefined, failed: false, partial: false, controller: null, disposed: false, startedAt: undefined,
+          version: 0, query: null, pendingIds: [], taskIds: [], receipts: new Map() };
+        holder.publish = () => setVersion(++holder.version);
+        return holder;
+      });
+      const receiptsById = new Map();
+      for (const item of taskSessions) {
+        const receipt = item.projectionValues?.playgroundTask?.receipt;
+        const id = receiptAttemptId(receipt);
+        if (id !== undefined && !receiptsById.has(id)) receiptsById.set(id, receipt);
+      }
+      const taskIds = [...receiptsById.keys()];
+      const pendingIds = taskIds.filter((id) => taskSessions.some((item) => {
         const receipt = item.projectionValues?.playgroundTask?.receipt;
         return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
       }));
-      const pendingKey = store.pendingIds.join(',');
+      const anyPending = pendingIds.length > 0;
+      // The timers and listeners below read these at call time. Declared first, so they are current
+      // when the mount and polling effects run.
+      React.useEffect(() => { store.query = query; store.taskIds = taskIds; store.pendingIds = pendingIds; store.receipts = receiptsById; });
+      const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+      // Opening the workbench reads the pending submissions once. A mount that follows a cleanup, as in
+      // StrictMode, starts over.
       React.useEffect(() => {
         store.disposed = false;
+        if (pageVisible()) refreshAttempts(store, store.pendingIds);
         return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
       }, []);
-      // Poll only while a submission is unscored: now, then every two minutes, paused while the page is hidden.
+      // While any submission is unscored: every two minutes, and when the page becomes visible again unless a
+      // round began in the last 30 seconds. It depends on whether anything is pending, not on which ids, so a
+      // task finishing neither requests again nor resets the timer. The ids are read when a round starts.
       React.useEffect(() => {
-        if (!pendingKey) return undefined;
-        const tick = () => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') refreshAttempts(store, store.pendingIds); };
-        tick();
+        if (!anyPending) return undefined;
+        const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingIds); };
+        const onVisibility = () => { if (store.startedAt === undefined || Date.now() - store.startedAt >= visibleRefreshGapMs) tick(); };
+        // Pending submissions that appear before any round has run (a list that loaded after mounting).
+        if (store.startedAt === undefined) tick();
         const timer = setInterval(tick, attemptRefreshMs);
-        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', tick);
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
         return () => {
           clearInterval(timer);
-          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', tick);
+          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
         };
-      }, [pendingKey]);
+      }, [anyPending]);
       const refreshing = Boolean(store.controller);
       React.useEffect(() => {
         if (selected && !taskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
@@ -497,10 +543,11 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'),
                 h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
-                  taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !store.taskIds.length,
+                  taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !taskIds.length,
                     onClick: () => refreshAttempts(store, store.taskIds) }, refreshing ? '正在刷新…' : '刷新') : null)),
               store.failed ? h('p', { className: 'pg-note pg-refresh-status pg-error', role: 'status' },
-                store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : '刷新失败，显示的是任务记录中的状态')
+                store.partial ? '刷新失败，部分任务显示的不是最新状态'
+                  : store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : '刷新失败，显示的是任务记录中的状态')
                 : store.refreshedAt ? h('p', { className: 'pg-note pg-refresh-status' }, `状态更新于 ${clock(store.refreshedAt)}`) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
                 taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setAnnouncement(`已打开任务：${item.displayTitle}`); } })))
