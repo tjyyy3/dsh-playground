@@ -122,12 +122,13 @@ select and confirm the destination workspace. The same confirmation applies
 to start buttons in chat result cards. The challenge id stays an implementation
 detail. **在网页中打开** on a challenge card opens the challenge's platform page,
 `<site root>/challenge/<encoded challenge id>` (for example
-`https://play.bohrium.com/challenge/ai-github-98fdb6f0`), in a new window; DSH
-desktop hands it to the system browser. It needs no conversation. The Host
-builds the address from the API base with the same function as the start
-prompt's web URL, dropping any account details, query and `/api` suffix, and
-the workbench shows the button only for `https` addresses (`http` only for
-`localhost` and `127.0.0.1`). The right column lists only
+`https://play.bohrium.com/challenge/ai-github-98fdb6f0`). DSH desktop opens it
+in the system browser; in a browser profile it opens in a new tab. It needs no
+conversation. The Host builds the address from the API base with the same
+function as the start prompt's web URL, dropping any account details, query,
+fragment and `/api` suffix, and the workbench shows the button only for `https`
+addresses (`http` only for the loopback hosts `localhost`, `127.0.0.1` and
+`[::1]`). Chat result cards have no such button. The right column lists only
 Playground task conversations, with a short session id, workspace and task
 state. Ordinary exploration chats do not appear in this selector. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.
@@ -157,8 +158,11 @@ drawer is unchanged: it is your own action and still leaves a result card.
 Select a task to open its detail drawer, check materials, review the exact
 submission target and inspect results. The drawer's **在网页中打开** opens the
 task's challenge page the same way. New tasks record the address when they are
-created; for tasks created before this version, the drawer builds it from the
-site root the catalog reported, and shows no button until the catalog has
+created. For tasks created before this version, the address is built the same
+way from the API base the task recorded when it was created, so the page belongs
+to the site the task was started against even if the plugin now points at
+another one. Only a task with no recorded API base falls back to the site root
+the latest catalog read reported, and shows no button until the catalog has
 loaded. Close the drawer with its close button,
 the backdrop, or Escape. The drawer's **提交历史** section lists every submission
 the logged-in account made for the task's challenge, newest first, including

@@ -1532,8 +1532,12 @@ test('catalog cards open the challenge web page in a new noopener window', async
       { id: 'ai-github-98fdb6f0', title: 'Confirmed', webUrl: 'https://play.bohrium.com/challenge/ai-github-98fdb6f0' },
       { id: 'a b/c', title: 'Encoded', webUrl: 'https://play.bohrium.com/challenge/a%20b%2Fc' },
       { id: 'local', title: 'Local mock', webUrl: 'http://127.0.0.1:15000/challenge/local' },
+      { id: 'upper', title: 'Upper https', webUrl: 'HTTPS://PLAY.BOHRIUM.COM/challenge/upper' },
+      { id: 'upper-local', title: 'Upper localhost', webUrl: 'HTTP://LOCALHOST:1/challenge/upper-local' },
+      { id: 'ipv6', title: 'IPv6 loopback', webUrl: 'http://[::1]:1/challenge/ipv6' },
       { id: 'plain', title: 'Plain http', webUrl: 'http://play.example.test/challenge/plain' },
       { id: 'script', title: 'Script', webUrl: 'javascript:alert(1)' },
+      { id: 'data', title: 'Data', webUrl: 'data:text/html,<p>x</p>' },
       { id: 'account', title: 'Account', webUrl: 'https://user:secret@play.bohrium.com/challenge/account' },
       { id: 'none', title: 'Missing' },
     ] } } }) } } });
@@ -1542,20 +1546,24 @@ test('catalog cards open the challenge web page in a new noopener window', async
   // Opening a web page needs no conversation, so the button shows even when task starts are blocked.
   const panel = await f.mount(f.workbench(undefined).catalog);
   const cards = findAll(panel, (node) => node.type === 'article');
-  assert.equal(cards.length, 7);
+  assert.equal(cards.length, 11);
   const buttons = cards.map((card) => findAll(card, isOpenWeb));
-  assert.deepEqual(buttons.map((list) => list.length), [1, 1, 1, 0, 0, 0, 0]);
+  assert.deepEqual(buttons.map((list) => list.length), [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]);
   assert.equal(buttons[0][0].props['aria-label'], '在网页中打开：Confirmed');
   assert.equal(buttons[0][0].props.disabled, undefined);
-  for (const [button] of buttons.slice(0, 3)) button.props.onClick();
+  for (const [button] of buttons.slice(0, 6)) button.props.onClick();
+  // The opened address is the parsed one: scheme and host are lowercased.
   assert.deepEqual(opened, [
     ['https://play.bohrium.com/challenge/ai-github-98fdb6f0', '_blank', 'noopener,noreferrer'],
     ['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
     ['http://127.0.0.1:15000/challenge/local', '_blank', 'noopener,noreferrer'],
+    ['https://play.bohrium.com/challenge/upper', '_blank', 'noopener,noreferrer'],
+    ['http://localhost:1/challenge/upper-local', '_blank', 'noopener,noreferrer'],
+    ['http://[::1]:1/challenge/ipv6', '_blank', 'noopener,noreferrer'],
   ]);
 });
 
-test('the task drawer opens the task challenge; older tasks use the catalog web root or show no button', async (t) => {
+test('the task drawer opens the task challenge; older tasks use their own API base, then the catalog web root', async (t) => {
   const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { webBase: 'https://play.bohrium.com',
     competitions: { items: [] }, challenges: { items: [] } } }) } } });
   const opened = [];
@@ -1583,13 +1591,28 @@ test('the task drawer opens the task challenge; older tasks use the catalog web 
   const rebuilt = await drawerFor(legacy, { loadCatalog: true });
   assert.equal(rebuilt.length, 1);
   rebuilt[0].props.onClick();
+  // A legacy task that recorded its API base opens that site, before and after the catalog reports another root.
+  const local = { challengeId: 'a b/c', title: 'Fixture', mode: 'participate', baseUrl: 'http://127.0.0.1:15000/api' };
+  const ownBase = await drawerFor(local);
+  assert.equal(ownBase.length, 1);
+  ownBase[0].props.onClick();
+  const ownBaseAfterCatalog = await drawerFor(local, { loadCatalog: true });
+  assert.equal(ownBaseAfterCatalog.length, 1);
+  ownBaseAfterCatalog[0].props.onClick();
+  // The recorded base keeps account details, query and hash; the derived link drops them.
+  const stripped = await drawerFor({ ...local, baseUrl: 'https://user:secret@staging.example.test/api/?q=1#x' }, { loadCatalog: true });
+  assert.equal(stripped.length, 1);
+  stripped[0].props.onClick();
   assert.deepEqual(opened, [
     ['https://play.bohrium.com/challenge/ai-github-98fdb6f0', '_blank', 'noopener,noreferrer'],
     ['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['http://127.0.0.1:15000/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['http://127.0.0.1:15000/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
+    ['https://staging.example.test/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer'],
   ]);
   for (const webUrl of ['http://play.example.test/challenge/x', 'ftp://play.bohrium.com/challenge/x', 'https://user:secret@play.bohrium.com/challenge/x', 'not a url']) {
     // A rejected recorded address is not replaced by one built from the catalog web root.
     assert.equal((await drawerFor({ challengeId: 'x', title: 'Fixture', mode: 'participate', webUrl }, { loadCatalog: true })).length, 0, webUrl);
   }
-  assert.equal(opened.length, 2);
+  assert.equal(opened.length, 5);
 });

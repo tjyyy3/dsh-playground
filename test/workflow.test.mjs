@@ -1242,3 +1242,27 @@ test('the submission-history read lists the account attempts for one challenge a
   await assert.rejects(f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal }), /upstream returned 503/);
   assert.equal(JSON.stringify([...f.states]), before);
 });
+
+test('the projection view derives a missing task webUrl from the API base the task was created against', () => {
+  const view = (task) => workflowProjection.wire.view({ task, prepared: null, receipt: null }).task;
+  const legacy = { challengeId: 'a b/c', title: 'Fixture', mode: 'participate', baseUrl: 'https://user:secret@127.0.0.1:15000/api/?q=1#x' };
+  const derived = view(legacy);
+  assert.equal(derived.webUrl, 'https://127.0.0.1:15000/challenge/a%20b%2Fc');
+  assert.equal(view({ ...legacy, baseUrl: 'http://127.0.0.1:15000/api' }).webUrl, 'http://127.0.0.1:15000/challenge/a%20b%2Fc');
+  assert.equal('webUrl' in legacy, false, 'the persisted task is not mutated');
+  assert.equal(workflowProjection.wire.viewSchema.safeParse({ task: derived, prepared: null, receipt: null, attemptIds: [] }).success, true);
+  // A recorded webUrl wins; a task without a recorded base, and an empty state, stay as they are.
+  const recorded = { ...legacy, webUrl: 'https://play.bohrium.com/challenge/a%20b%2Fc' };
+  assert.equal(view(recorded), recorded);
+  const noBase = { challengeId: 'x', mode: 'participate' };
+  assert.equal(view(noBase), noBase);
+  assert.equal(view(null), null);
+});
+
+test('a mode switch keeps the recorded task webUrl', () => {
+  const task = { challengeId: 'x', mode: 'participate', baseUrl: 'https://play.bohrium.com/api', webUrl: 'https://play.bohrium.com/challenge/x' };
+  const state = workflowProjection.apply(workflowProjection.init(), workflowEvent({ kind: 'task', task }));
+  const switched = workflowProjection.apply(state, workflowEvent({ kind: 'mode', mode: 'author' }));
+  assert.equal(switched.task.mode, 'author');
+  assert.equal(switched.task.webUrl, task.webUrl);
+});

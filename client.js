@@ -102,14 +102,32 @@ window.__ModuleLoader__.load({
       let url;
       try { url = new URL(value); } catch { return undefined; }
       if (url.username || url.password) return undefined;
-      const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
       return url.protocol === 'https:' || (url.protocol === 'http:' && local) ? url.href : undefined;
     }
 
-    // Tasks recorded before webUrl existed rebuild it from the catalog's web root, like the Host does.
+    // Mirrors challengeWebBase in lib/links.js: drop userinfo, query, hash and a trailing /api.
+    function webRootOf(apiBase) {
+      let root = String(apiBase || '');
+      try {
+        const parsed = new URL(root);
+        parsed.username = ''; parsed.password = ''; parsed.search = ''; parsed.hash = '';
+        root = parsed.href;
+      } catch {
+        root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+      }
+      return root.replace(/\/+$/, '').replace(/\/api$/i, '').replace(/\/+$/, '');
+    }
+
+    // Tasks recorded before webUrl existed rebuild it like the Host projection view does: from the API base
+    // the task was created against, and from the catalog's web root only when the task recorded no base.
+    // The session list may carry the persisted state rather than the Host view, so this repeats it here.
     function taskWebUrl(task, webBase) {
       if (typeof task?.webUrl === 'string' && task.webUrl) return task.webUrl;
-      return task?.challengeId && typeof webBase === 'string' && webBase ? `${webBase}/challenge/${encodeURIComponent(task.challengeId)}` : undefined;
+      const id = task?.challengeId;
+      if (!id) return undefined;
+      const root = typeof task.baseUrl === 'string' && task.baseUrl ? webRootOf(task.baseUrl) : typeof webBase === 'string' ? webBase : '';
+      return root ? `${root}/challenge/${encodeURIComponent(id)}` : undefined;
     }
 
     // DSH desktop hands https windows to the system browser.
@@ -626,7 +644,7 @@ window.__ModuleLoader__.load({
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
-      // Web root reported by the latest catalog read; tasks recorded without webUrl build their link from it.
+      // Web root reported by the latest catalog read; only tasks recorded without webUrl or baseUrl use it.
       const [webBase, setWebBase] = React.useState('');
       // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
       // in memory only and never reaches a session projection, so refreshing writes no conversation record.
