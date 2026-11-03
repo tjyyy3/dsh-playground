@@ -318,7 +318,10 @@ as possibly this one; verify its result before retrying into it. The plugin
 shows only its own classified message, never the CLI output. On a timeout or
 a cancellation the plugin ends the CLI and the processes it started, then
 waits up to 5 seconds for them to stop, so the result arrives at most 5 seconds
-after the limit.
+after the limit. If a CLI exits cleanly but a process it started keeps its
+output open, only macOS and Linux end that process; on Windows it is left
+running. If DSH exits normally while a submission is running, the plugin ends
+the CLI on macOS and Linux; a DSH killed by a signal or a crash does not end it.
 
 Submission slots per challenge are limited by the platform's rules;
 the tool never retries a submission on its own.
