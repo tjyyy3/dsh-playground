@@ -227,8 +227,12 @@ restart. Removing it is `plugin_manager action=remove_bundle`, or disable the
 
 If the installation succeeds, other users can use the plugin immediately from
 their own DSH profile. They still need a Playground login (or a token) for
-personal submissions and write operations. The plugin never submits without an
-explicit confirmation.
+personal submissions and write operations. The submission path the plugin
+provides requires the user's confirmation on the confirmation card. An agent
+that runs the Playground CLI directly in the terminal does not go through the
+plugin, and the plugin cannot stop it. DSH's default sandbox
+(`workspace-write`) and approval policy (`ask`) restrict the agent terminal's
+network access, but that is a DSH setting, not a guarantee of this plugin.
 
 ## Authentication
 

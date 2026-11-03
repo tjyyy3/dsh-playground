@@ -447,3 +447,85 @@ test('CLI timeouts: submission defaults to at least the login timeout and both a
   assert.deepEqual(timeouts({ cliTimeoutMs: 3e9, cliSubmitTimeoutMs: 3e9 }), [2147483647, 2147483647]);
   assert.deepEqual(timeouts({ cliTimeoutMs: 3e9 }), [2147483647, 2147483647]);
 });
+
+function mountWorkflowScope(state) {
+  const tools = [];
+  const contexts = [];
+  const scope = {
+    tools: { register: (tool) => tools.push(tool) },
+    commands: { register() {} },
+    sessionProjections: { register() {}, stateOf: () => state },
+    workingDirectory: { get: () => '/synthetic/workspace' },
+    systemPrompt: { context: (entry) => contexts.push(entry), getContextOrder: () => 0 },
+    inject: (services, callback) => { if (services.includes('systemPrompt')) callback(scope); },
+  };
+  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
+  return { tools, contexts, scope };
+}
+
+const forbiddenGuidance = /playground-confirm|slash command/i;
+
+test('D10a: playground_task status never returns the one-time checkId to the model', async () => {
+  const checkId = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
+  const state = {
+    task: { challengeId: 'challenge-a', mode: 'participate', title: 'Synthetic challenge' },
+    receipt: { attemptId: 7, scoringState: { state: 'queued', scoreIsFinal: false } },
+    prepared: {
+      checkId, checkedAt: '2026-11-02T00:00:00.000Z', baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic/workspace',
+      challenge: { id: 'challenge-a', title: 'Synthetic challenge' },
+      files: [{ kind: 'bundle', path: '/synthetic/workspace/bundle.zip', bytes: 12, sha256: 'abc' }],
+      args: { challenge_id: 'challenge-a', bundle_path: '/synthetic/workspace/bundle.zip' }, traceCount: 1,
+    },
+  };
+  const { tools } = mountWorkflowScope(state);
+  const tool = tools.find((item) => item.name === 'playground_task');
+  const value = await tool.execute({ action: 'status' }, { agent: { session: {} } });
+  const rendered = tool.output.render({ action: 'status' }, value).map((part) => part.text).join('\n');
+  assert.equal(JSON.stringify(value).includes(checkId), false);
+  assert.equal(rendered.includes(checkId), false);
+  assert.equal('checkId' in value.prepared, false);
+  assert.equal(value.ok, true);
+  assert.equal(value.prepared.awaitingConfirmation, true);
+  assert.deepEqual(value.prepared.challenge, state.prepared.challenge);
+  assert.deepEqual(value.prepared.files, state.prepared.files);
+  assert.equal(value.prepared.checkedAt, state.prepared.checkedAt);
+  assert.deepEqual(value.prepared.args, state.prepared.args);
+  assert.deepEqual(value.task, state.task);
+  assert.deepEqual(value.receipt, state.receipt);
+  // Only whitelisted prepared members are exposed; baseUrl, cwd and traceCount stay out.
+  assert.deepEqual(Object.keys(value.prepared).sort(), ['args', 'awaitingConfirmation', 'challenge', 'checkedAt', 'files']);
+});
+
+test('D10a: playground_task status without a pending check reports no prepared submission', async () => {
+  const { tools } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, { agent: { session: {} } });
+  assert.deepEqual(value, { ok: true, task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: null, prepared: null });
+});
+
+test('D10a: submission tool descriptions tell the agent to point at the button, not a command', () => {
+  const { tools } = mountWorkflowScope({ task: null, prepared: null, receipt: null });
+  for (const name of ['playground_submit_attempt', 'playground_check_materials']) {
+    const { description } = tools.find((item) => item.name === name);
+    assert.match(description, /clicking "确认目标并提交"/, name);
+    assert.match(description, /"前往工作台确认提交"/, name);
+    assert.match(description, /Never ask the user to type a command/, name);
+    assert.match(description, /never run `playground submit` in the terminal/, name);
+    assert.doesNotMatch(description, forbiddenGuidance, name);
+  }
+});
+
+test('D10a: the task context prompt tells the agent how confirmation works', () => {
+  const { contexts } = mountWorkflowScope({
+    task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: { checkId: 'synthetic-check' }, receipt: null,
+  });
+  const context = contexts.find((entry) => entry.name === 'playground-task:current');
+  assert.ok(context);
+  const text = context.text({ agent: { session: {} } });
+  assert.match(text, /clicking "确认目标并提交"/);
+  assert.match(text, /"前往工作台确认提交"/);
+  assert.match(text, /Never ask the user to type a command/);
+  assert.match(text, /never run `playground submit` in the terminal/);
+  assert.doesNotMatch(text, forbiddenGuidance);
+  assert.equal(text.includes('synthetic-check'), false);
+  assert.equal(context.text({}), '');
+});
