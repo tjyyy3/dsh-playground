@@ -217,6 +217,102 @@ test('personal submissions use authentication, preserve cursor filters and do no
   assert.equal(result.nextCursor, 'next.cursor');
 });
 
+async function listMyAttemptRows(items) {
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test', token: 'test-token',
+    fetchImpl: async () => jsonResponse({ items, next_cursor: null, limit: items.length }),
+  });
+  return (await client.listMyAttempts()).items;
+}
+
+test('personal submissions with a snake_case scoring_state treat only final and late_scored as a final score', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: 12, scoring_state: 'final' },
+    // Observed platform shape: late_scored is a submission status paired with scoring state final.
+    { id: 2, status: 'late_scored', score: 64, scoring_state: 'final' },
+    { id: 3, status: 'scored', score: 0, scoring_state: 'final' },
+    // Assumed shape, not observed on the platform: late_scored as a scoring state.
+    { id: 4, status: 'late_scored', score: 64, scoring_state: 'late_scored' },
+  ]);
+  assert.deepEqual(rows.map((row) => row.scoringState), [
+    { state: 'final', scoreIsFinal: true, displayScore: 12 },
+    { state: 'final', scoreIsFinal: true, displayScore: 64 },
+    { state: 'final', scoreIsFinal: true, displayScore: 0 },
+    { state: 'late_scored', scoreIsFinal: true, displayScore: 64 },
+  ]);
+  assert.deepEqual(rows.map((row) => row.score), [12, 64, 0, 64]);
+});
+
+test('personal submissions only accept a real number as the score of a final snake_case state', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: true, scoring_state: 'final' },
+    { id: 2, status: 'scored', score: ' ', scoring_state: 'final' },
+    { id: 3, status: 'scored', score: '12', scoring_state: 'final' },
+  ]);
+  for (const row of rows) assert.deepEqual(row.scoringState, { state: 'final', scoreIsFinal: false }, `attempt ${row.id}`);
+});
+
+test('personal submissions normalise an object under scoring_state like scoringState', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: 12, scoring_state: { state: 'final', scoreIsFinal: true, displayScore: 12 } },
+    { id: 2, status: 'submitted', score: 0, scoring_state: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+  ]);
+  assert.deepEqual(rows[0].scoringState, { state: 'final', scoreIsFinal: true, displayScore: 12 });
+  assert.deepEqual(rows[1].scoringState, { state: 'queued', scoreIsFinal: false, provisionalScore: 0 });
+});
+
+test('personal submissions with a snake_case queued, evaluating or pending state never carry a final score', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'submitted', score: 0, scoring_state: 'queued' },
+    { id: 2, status: 'submitted', score: 7, scoring_state: 'queued' },
+    { id: 3, status: 'submitted', score: 41, scoring_state: 'evaluating' },
+    { id: 4, status: 'pending_review', score: 0, scoring_state: 'pending_review' },
+  ]);
+  for (const row of rows) {
+    assert.equal(row.scoringState.scoreIsFinal, false, `attempt ${row.id}`);
+    assert.equal(row.scoringState.displayScore, undefined, `attempt ${row.id}`);
+    assert.equal(row.scoringState.provisionalScore, undefined, `attempt ${row.id}`);
+  }
+  assert.deepEqual(rows.map((row) => row.scoringState.state), ['queued', 'queued', 'evaluating', 'pending_review']);
+  assert.deepEqual(rows.map((row) => row.score), [0, 7, 41, 0]);
+});
+
+test('personal submissions with a snake_case failed or rejected state are not final even with a score', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: 0, scoring_state: 'failed' },
+    { id: 2, status: 'scored', score: 72, scoring_state: 'rejected' },
+  ]);
+  assert.deepEqual(rows.map((row) => row.scoringState), [
+    { state: 'failed', scoreIsFinal: false },
+    { state: 'rejected', scoreIsFinal: false },
+  ]);
+});
+
+test('personal submissions with a final state and no numeric score are not final', async () => {
+  const rows = await listMyAttemptRows([{ id: 1, status: 'scored', score: null, scoring_state: 'final' }]);
+  assert.deepEqual(rows[0].scoringState, { state: 'final', scoreIsFinal: false });
+});
+
+test('personal submissions with no scoring state and a numeric score get no scoring state, so the score is never final', async () => {
+  const rows = await listMyAttemptRows([{ id: 1, status: 'submitted', score: 0 }, { id: 2, status: 'scored', score: 55 }]);
+  assert.equal(rows[0].scoringState, undefined);
+  assert.equal(rows[1].scoringState, undefined);
+  assert.deepEqual(rows.map((row) => row.score), [0, 55]);
+});
+
+test('personal submissions keep an explicit camelCase scoringState with its scoreIsFinal flag unchanged', async () => {
+  const rows = await listMyAttemptRows([
+    { id: 1, status: 'scored', score: 12, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 12 } },
+    { id: 2, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
+    { id: 3, status: 'submitted', score: 9, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 9 } },
+    { id: 4, status: 'submitted', score: 5, scoring_state: 'queued', scoringState: { state: 'final', scoreIsFinal: true, displayScore: 5 } },
+  ]);
+  assert.deepEqual(rows[0].scoringState, { state: 'final', scoreIsFinal: true, displayScore: 12 });
+  assert.deepEqual(rows[1].scoringState, { state: 'queued', scoreIsFinal: false, provisionalScore: 0 });
+  assert.deepEqual(rows[2].scoringState, { state: 'evaluating', scoreIsFinal: false, provisionalScore: 9 });
+  assert.deepEqual(rows[3].scoringState, { state: 'final', scoreIsFinal: true, displayScore: 5 });
+});
+
 test('personal submissions refuse anonymous requests before accessing the network', async () => {
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: () => assert.fail('must not fetch') });
   await assert.rejects(() => client.listMyAttempts(), (error) => error.code === 'authentication_required');
