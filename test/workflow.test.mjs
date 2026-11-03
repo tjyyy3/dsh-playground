@@ -6,6 +6,7 @@ import test from 'node:test';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
 import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
+import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
 import { createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
@@ -162,6 +163,44 @@ test('the prompt URL is derived from the API base for every base shape and never
     // The workspace path in the prompt is a temp directory, so check the credential on the URL line only.
     assert.equal(/user|secret/.test(urlLine), false, base);
   }
+});
+
+test('the shared web URL helper strips userinfo, query, hash and /api, and encodes the id', () => {
+  for (const [base, root] of [
+    ['https://play.bohrium.com/api', 'https://play.bohrium.com'],
+    ['https://play.bohrium.com/api/', 'https://play.bohrium.com'],
+    ['https://play.bohrium.com/', 'https://play.bohrium.com'],
+    ['https://host/prefix/api', 'https://host/prefix'],
+    ['http://127.0.0.1:15000/api', 'http://127.0.0.1:15000'],
+    ['https://user:secret@host/api', 'https://host'],
+    ['https://user:secret@host:8443/prefix/api?token=secret#frag', 'https://host:8443/prefix'],
+    ['https://host/api/?q=1', 'https://host'],
+  ]) {
+    assert.equal(challengeWebBase(base), root, base);
+    assert.equal(publicChallengeUrl(base, 'ai-github-98fdb6f0'), `${root}/challenge/ai-github-98fdb6f0`, base);
+  }
+  assert.equal(publicChallengeUrl('https://play.bohrium.com/api', 'ai-github-98fdb6f0'), 'https://play.bohrium.com/challenge/ai-github-98fdb6f0');
+  assert.equal(publicChallengeUrl('https://play.bohrium.com/api', 'a b/c?d#e'), 'https://play.bohrium.com/challenge/a%20b%2Fc%3Fd%23e');
+});
+
+test('catalog challenges carry their web URL and the result names the web root without userinfo', async () => {
+  const f = await fixture();
+  f.client.baseUrl = 'https://user:secret@play.bohrium.com/api';
+  f.client.listChallenges = async () => ({ total: 2, page: 1, perPage: 12, items: [
+    { id: 'ai-github-98fdb6f0', title: 'Confirmed' }, { id: 'a b/c', title: 'Encoded' }] });
+  const result = await f.workflow.catalog({}, f.exec);
+  assert.equal(result.webBase, 'https://play.bohrium.com');
+  assert.deepEqual(result.challenges.items.map((item) => item.webUrl), [
+    'https://play.bohrium.com/challenge/ai-github-98fdb6f0', 'https://play.bohrium.com/challenge/a%20b%2Fc']);
+  assert.equal(result.challenges.total, 2);
+  assert.equal(/user|secret/.test(JSON.stringify({ webBase: result.webBase, items: result.challenges.items })), false);
+});
+
+test('a new task records the challenge web URL, the same one the start prompt shows', async () => {
+  const { text, f } = await promptFor('https://user:secret@play.bohrium.com/api', { id: 'ai-github-98fdb6f0' });
+  const task = f.states.get('new-task').task;
+  assert.equal(task.webUrl, 'https://play.bohrium.com/challenge/ai-github-98fdb6f0');
+  assert.ok(text.includes(`网址：${task.webUrl}\n`));
 });
 
 test('the prompt URL percent-encodes the challenge id', async () => {
