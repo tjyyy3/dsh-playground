@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 
 // Client-side behavior of the workbench reads is covered in client.test.mjs.
@@ -25,6 +26,32 @@ test('the session-free query contract admits only reads and forwards cancellatio
   }
   assert.equal(service.typertRemote.service, service);
   assert.equal(descriptor.cancellation.parameter, 'signal');
+});
+
+test('the catalog query accepts a competition only by an id of the built-in table', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
+  });
+  const descriptor = contribution.invocations.find((item) => item.method === 'query');
+  const schema = descriptor.parameters[0].codec.create();
+  for (const id of COMPETITION_IDS) {
+    const input = { action: 'catalog', competition: id, search: 'x', per_page: 12 };
+    await services.get(descriptor.service).query(schema.parse(input), new AbortController().signal);
+    assert.deepEqual(calls.at(-1), input);
+  }
+  assert.equal(calls.length, COMPETITION_IDS.length);
+  assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product' }).success, true);
+  assert.equal(schema.safeParse({ action: 'catalog', season: 's5' }).success, true, 'API seasons keep using season');
+  for (const invalid of ['', 'unknown', 'Bohr-Product', ' bohr-product', 'bohr-product ', 's4', 'season:s5', 'product-arena', '../x', 7, null, ['agent'], {}]) {
+    assert.equal(schema.safeParse({ action: 'catalog', competition: invalid }).success, false, JSON.stringify(invalid));
+  }
+  // Only the catalog action takes a competition; tag and challenge ids are not query fields.
+  assert.equal(schema.safeParse({ action: 'auth', competition: 'agent' }).success, false);
+  assert.equal(schema.safeParse({ action: 'catalog', tag: 'product-arena' }).success, false);
+  assert.equal(schema.safeParse({ action: 'catalog', challengeIds: ['x'] }).success, false);
 });
 
 test('the submission-history read accepts only challengeId, limit and cursor and forwards cancellation', async () => {

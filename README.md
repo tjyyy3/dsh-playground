@@ -160,6 +160,50 @@ fragment and `/api` suffix, and the workbench shows the button only for `https`
 addresses (`http` only for the loopback hosts `localhost`, `127.0.0.1` and
 `[::1]`). Chat result cards have no such button.
 
+The competition selector next to the search box lists the competitions of the
+Playground website's "赛事" menu in three groups, **进行中**, **即将开始** and
+**已结束**, in that order. Each entry reads `名称 · 状态 · 日期`, so the three
+Paper2Arm hackathons differ by season and date. It starts on **全部比赛**.
+Choosing a competition lists only its challenges, and a row above the list
+shows its status, its time range, its rounds when it has any, and **在网页中打开**
+for its page on the website (for example `<site root>/competition/bohr-product`).
+Search still applies inside the chosen competition.
+
+The competition list is built into the plugin (`lib/competitions.js`). The
+website keeps its menu in front-end code, not behind an API, and the plugin does
+not read the site. **A competition the website adds appears here only in a new
+plugin release.** Status is computed from each entry's start and end time when
+the workbench loads. Challenges are selected by the tag (`玻尔产品周赛`, `追光者计划·招募赛`),
+the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list of
+challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
+`科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`), which the Host reads one by
+one; an id that cannot be read is skipped. `玻尔产品周赛` combines its tag with the
+first period's three untagged challenges, which are listed first. If its tag
+cannot be read, those three are still shown, the result carries
+`partial: true`, and the workbench says
+`标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。`, also when no
+challenge is left to show. The Host reads at most four 50-item pages of a tag
+(200 challenges); a longer tag is cut, the result carries `truncated: true`,
+and the workbench shows the count as a lower bound (`共 203+ 项`).
+Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
+are still listed, so a season the platform adds later does not disappear; one
+whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. If that
+seasons read fails, the catalog still answers with the built-in table alone:
+the result carries `seasonsUnavailable: true`, API-only seasons are missing,
+and the table's season entries keep their own dates and the status computed
+from them. Dates are shown as written in the table or by the API, without
+converting time zones, as the website does (`科学骑士大师赛` reads
+`2026.07.27 — 2027.01.31`). A time of day is shown only for times written with
+`+08:00`, such as the table's own entries (`追光者计划·招募赛` reads
+`2026.10.10 20:00 — 2026.10.11 20:00`); times in any other offset, including the
+API's `+00:00` season times and `Z`, show the date only. The workbench query
+accepts a competition only by one of the table's ids and rejects any other.
+
+The workbench shows the first 12 matching challenges and has no paging yet.
+When more match, a line reads `共 N 项，当前显示前 12 项`; search narrows the list.
+If the chosen competition is missing from a later list, the selector returns to
+**全部比赛** and reads the catalog again.
+
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the
 challenge once when it opens, through the session-free query
@@ -553,8 +597,10 @@ platform.
   scoring refresh (`POST /api/challenges/{id}/refresh-scoring`) are not exposed
   yet; `playground_get_attempt` already pulls the latest worker result for one
   submission.
-- Competitions map to the platform's existing hackathon season endpoints. Their
-  visibility and lifecycle come from the server, not a separate plugin registry.
+- The agent tools `playground_list_competitions` and `playground_get_competition`
+  map to the platform's hackathon season endpoints; visibility and lifecycle
+  come from the server. The workbench's competition selector is different: it
+  uses the built-in table described above, plus the seasons that endpoint lists.
 - Personal history uses `/api/me/attempts`, not a client-side filter over public
   submissions. Its `nextCursor` must be used with unchanged `challenge_id` and
   `status` filters. Empty results are an empty page, not an authentication prompt.

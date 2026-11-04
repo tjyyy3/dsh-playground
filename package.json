@@ -24,7 +24,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node test/api.test.mjs && node test/plugin.test.mjs && node test/workflow.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs",
+    "test": "node test/api.test.mjs && node test/competitions.test.mjs && node test/plugin.test.mjs && node test/workflow.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo:local": "node scripts/demo-local.mjs"
   },
