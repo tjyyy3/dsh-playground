@@ -609,6 +609,9 @@ test('D10a: playground_check_materials renders without the checkId; the structur
       const value = await tool.execute(args, exec);
       assert.equal(value.ok, true);
       assert.equal(value.status, 'awaiting_confirmation');
+      // The configured CLI does not exist, so the precheck is skipped and the card says so.
+      assert.equal(value.cliPrecheck.status, 'skipped');
+      assert.match(value.cliPrecheck.note, /未找到 Playground CLI，未经 CLI 预检/);
       const checkId = value.workflow.prepared.checkId;
       assert.match(checkId, /^[0-9a-f-]{36}$/);
       const rendered = renderedText(tool, args, value);
@@ -673,4 +676,10 @@ test('#45: the material-check description names the CLI precheck, the accepted t
   assert.match(description, /\{"steps": \[\.\.\.\]\} JSON/);
   assert.match(description, /playground trace validate --trace <path>/);
   assert.match(description, /generated only when the CLI accepts the materials/);
+  // The dry run is not described as free of platform requests: it creates and uploads nothing.
+  for (const name of ['playground_submit_attempt', 'playground_check_materials']) {
+    const text = tools.find((item) => item.name === name).description;
+    assert.match(text, /creates and uploads nothing/, name);
+    assert.doesNotMatch(text, /no platform request|before any platform request/, name);
+  }
 });

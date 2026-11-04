@@ -92,14 +92,22 @@ correctness. The platform still owns final validation and grading.
 
 After the local checks pass, the material check runs the installed CLI once with
 the same arguments the confirmed submission will use plus `--dry-run`
-(`playground submit … --dry-run`). The CLI returns before any platform request,
-so nothing is created. A confirmation card is generated only when the CLI
-accepts the materials; otherwise the check shows a plugin-written reason and no
-card. Only CLI 0.1.43 and later are asked to dry-run. When the CLI or Node.js
-is missing, or the CLI is older, the card is generated as before and says
-"未经 CLI 预检". A CLI rejection at confirmation time, before it creates
-anything, is reported as "平台未创建这次提交" and the card is cleared; fix the
-materials and check again.
+(`playground submit … --dry-run`). The CLI returns before the platform creates
+or uploads anything, so no submission exists afterwards (the CLI may still make
+its own release-notice request). A confirmation card is generated only when the
+CLI accepts the materials; otherwise the check shows a plugin-written reason and
+no card. Only CLI 0.1.43 and later are asked to dry-run, and only when
+`playground submit --help` lists `--dry-run`; the plugin runs that probe once per
+CLI command and version, because a version number alone does not identify a
+build. When the CLI or Node.js is missing, or the CLI is older or does not list
+the flag, the card is generated as before and says "未经 CLI 预检". If the
+arguments contain characters that `cmd.exe` would interpret (only on the Windows
+`.cmd` fallback), no card is generated and the check asks for a `cliPath` that
+points to the CLI's JavaScript entry. A CLI rejection at confirmation time,
+before it creates anything, is reported as "平台未创建这次提交" and the card is
+cleared; fix the materials and check again. This includes the CLI's refusal to
+submit from a site that has no scoring Worker of its own (a `baseUrl` other than
+`https://play.bohrium.com`), which the dry run cannot see.
 
 The trace must be in a format the CLI accepts:
 
@@ -337,12 +345,20 @@ the official script:
   `Get-FileHash -Algorithm SHA256 <file>` with its `PACKAGE_SHA256`, then run
   `npm install -g <file>`.
 
+The plugin only runs `playground`; it never calls `bohr`. The official script
+also installs `@dptech-corp/bohr-cli`, which the plugin does not need, so the
+Windows steps above leave it out.
+
 When the CLI reports that it is outdated ("Playground CLI x is outdated; latest
 is y"), the workbench login area and the material check show
 "Playground CLI 版本过旧（x，最新 y），可能影响评分" with these update steps.
-The login area learns this from the read-only `playground update-check`, run
-at most once an hour; a material check also picks it up from the CLI's notice.
-Only the two version numbers are kept, never other CLI output.
+The login area learns this from `playground update-check`, which makes one
+release-notice request (the CLI caches the answer in its own file). The plugin
+runs it at most once an hour and in the background, so the first workbench load
+after a start shows no warning and a later load does. A warning ends as soon as
+the installed version changes (after updating, click **重新检测** in the login
+area, and once more a moment later). A material check also picks the warning up from the CLI's notice. Only the two
+version numbers are kept, never other CLI output.
 
 ### Steps
 

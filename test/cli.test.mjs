@@ -4,7 +4,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from '
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
-import { buildSubmitArgs, createPlaygroundCli, parseCliUpdate } from '../lib/cli.js';
+import { buildSubmitArgs, compareVersions, createPlaygroundCli, parseCliUpdate } from '../lib/cli.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -587,20 +587,24 @@ test('createPlaygroundCli().submit() runs the CLI with the built arguments, incl
 // The update notice and trace error Playground CLI 0.1.47 prints on stderr (maybePrintUpdateNotice,
 // loadTraceSteps and the start of TRACE_REQUIRED_HELP).
 const UPDATE_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.47.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash\n';
-const TRACE_ERROR = 'error: could not derive normalized trace steps from C:\\work\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\n';
+const TRACE_ERROR = 'error: could not derive normalized trace steps from C:\\fake-root\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\n';
 const DRY_RUN = JSON.stringify({ status: 'dry_run', bundle: 'bundle.zip', bundle_sha256: 'a'.repeat(64), manifest: {}, trace_steps: [{ content: 'TRACE-STEP-TEXT' }] }, null, 2);
 
 // Fake CLI for the precheck: logs each argv as a JSON line, answers --version and update-check, and
 // prints `stderr`, `stdout` and exits with `exit` for submit.
-function precheckSource(log, { version = '0.1.43', stderr = '', stdout = DRY_RUN, exit = 0, update = { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true } } = {}) {
+const SUBMIT_HELP = 'playground submit --challenge-id ID --bundle PATH [--dry-run]\n  --dry-run   Build and validate the bundle without submitting\n';
+// `big` appends that many characters to the stdout of submit, as a long trace does; the process ends
+// by itself so the output is flushed.
+function precheckSource(log, { version = '0.1.43', stderr = '', stdout = DRY_RUN, exit = 0, help = SUBMIT_HELP, helpExit = 0, big = 0, update = { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true } } = {}) {
   return `import { appendFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 appendFileSync(${quote(log)}, JSON.stringify(argv) + '\\n');
 if (argv[0] === '--version') { console.log(${quote(version)}); process.exit(0); }
 if (argv[0] === 'update-check') { console.log(${quote(JSON.stringify(update, null, 2))}); process.exit(0); }
+if (argv[0] === 'submit' && argv.includes('--help')) { console.log(${quote(help)}); process.exit(${helpExit}); }
 process.stderr.write(${quote(stderr)});
-console.log(${quote(stdout)});
-process.exit(${exit});`;
+console.log(${quote(stdout)} + 'x'.repeat(${big}));
+process.exitCode = ${exit};`;
 }
 const loggedCalls = async (log) => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
 
@@ -619,20 +623,79 @@ test('precheck runs submit with the same arguments plus --dry-run and returns on
   await cli.submit(options);
   const calls = await loggedCalls(log);
   assert.deepEqual(calls[0], ['--version']);
-  assert.deepEqual(calls[1], [...buildSubmitArgs(options), '--dry-run', '--api-base', 'http://127.0.0.1:9']);
+  assert.deepEqual(calls[1], ['submit', '--help']);
+  assert.deepEqual(calls[2], [...buildSubmitArgs(options), '--dry-run', '--api-base', 'http://127.0.0.1:9']);
   // The confirmed submission sends exactly the dry-run arguments without --dry-run.
-  assert.deepEqual(calls[2], calls[1].filter((arg) => arg !== '--dry-run'));
-  // The notice the precheck saw serves the login area without another CLI run.
+  assert.deepEqual(calls[3], calls[2].filter((arg) => arg !== '--dry-run'));
+  // The help probe runs once per command and version.
+  await cli.precheck(options);
+  assert.equal((await loggedCalls(log)).filter((call) => call.includes('--help')).length, 1);
+  // The notice the precheck saw serves the login area; a positive result is checked against the installed version.
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.equal((await loggedCalls(log)).length, 3);
+  assert.deepEqual((await loggedCalls(log)).slice(-1), [['--version']]);
+  assert.equal((await loggedCalls(log)).some((call) => call[0] === 'update-check'), false);
 });
 
 test('precheck never asks a CLI older than 0.1.43, or of unknown version, to dry-run', async () => {
-  for (const [name, version, expected] of [['old', '0.1.42', '0.1.42'], ['odd', 'playground (custom build)', undefined]]) {
+  for (const [name, version, expected, reason] of [['old', '0.1.42', '0.1.42', 'old_version'], ['odd', 'playground (custom build)', undefined, 'unknown_version']]) {
     const { log, cli } = await precheckCli(name, { version });
     await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
-      (error) => error.code === 'cli_precheck_unsupported' && error.version === expected, name);
+      (error) => error.code === 'cli_precheck_unsupported' && error.version === expected && error.reason === reason, name);
     assert.deepEqual(await loggedCalls(log), [['--version']], name);
+  }
+});
+
+test('precheck never dry-runs a CLI whose submit help does not list --dry-run, even at an allowed version', async () => {
+  for (const [name, options] of [
+    ['no flag', { help: 'playground submit --challenge-id ID --bundle PATH\n' }],
+    ['similar flag', { help: 'playground submit [--dry-run-extra] [--no-dry-run]\n' }],
+    ['help fails', { helpExit: 2 }],
+  ]) {
+    const { log, cli } = await precheckCli(name, options);
+    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
+      (error) => error.code === 'cli_precheck_unsupported' && error.reason === 'no_dry_run' && error.version === '0.1.43' && error.started === true, name);
+    assert.deepEqual(await loggedCalls(log), [['--version'], ['submit', '--help']], name);
+  }
+  // A definite answer is cached per version; a failing probe is not.
+  const { log, cli } = await precheckCli('cached', { help: 'playground submit\n' });
+  for (let round = 0; round < 2; round += 1) await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { reason: 'no_dry_run' });
+  assert.equal((await loggedCalls(log)).filter((call) => call.includes('--help')).length, 1);
+  const failing = await precheckCli('uncached', { helpExit: 2 });
+  for (let round = 0; round < 2; round += 1) await assert.rejects(() => failing.cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { reason: 'no_dry_run' });
+  assert.equal((await loggedCalls(failing.log)).filter((call) => call.includes('--help')).length, 2);
+});
+
+test('precheck keeps only the head of a long dry-run output', async () => {
+  // The head carries the status; the rest is a 5 MB trace that is not valid JSON, so only the
+  // head can have been used.
+  const head = '{\n  "status": "dry_run",\n  "trace_steps": [\n    "';
+  const { cli } = await precheckCli('big ok', { stdout: head, big: 5_000_000 });
+  assert.equal((await cli.precheck({ ...required, tracePath: 'trace.jsonl' })).status, 'dry_run');
+  // Streams of a failed run stay bounded too, and stderr is untouched.
+  const failing = await precheckCli('big fail', { stdout: head, big: 5_000_000, stderr: UPDATE_NOTICE + TRACE_ERROR, exit: 1 });
+  const error = await failing.cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
+  assert.ok(error.stdout.length <= 65536, `stdout kept ${error.stdout.length} characters`);
+  assert.match(error.stderr, /could not derive normalized trace steps/);
+  // A head without a status is still not a dry-run result.
+  const noStatus = await precheckCli('big no status', { stdout: '{\n  "trace_steps": [\n    "', big: 5_000_000 });
+  await assert.rejects(() => noStatus.cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { code: 'cli_invalid_output' });
+});
+
+test('buildSubmitArgs never emits --cite, which would make a dry run use the network', () => {
+  const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', model: 'm', harness: 'h', method: 'x', manifestPath: 'a.json', outcome: 'stuck', detail: '--cite', authorName: '--cite' });
+  assert.equal(args.includes('--cite'), false);
+  // A user value that looks like the flag stays inside its own `--flag=value` argument.
+  assert.ok(args.includes('--detail=--cite'));
+  assert.equal(buildSubmitArgs({ ...required, attemptId: 7 }).includes('--cite'), false);
+});
+
+test('compareVersions orders dotted versions numerically and puts a pre-release before its release', () => {
+  for (const [a, b, expected] of [
+    ['0.1.100', '0.1.43', 1], ['0.1.43', '0.1.43', 0], ['0.1.42', '0.1.43', -1], ['0.1.9', '0.1.10', -1],
+    ['1.0', '1.0.0', 0], ['0.2', '0.1.99', 1], ['0.2.0-beta.1', '0.2.0', -1], ['0.2.0', '0.2.0-beta.1', 1], ['0.2.0-beta.1', '0.1.99', 1],
+  ]) {
+    assert.equal(compareVersions(a, b), expected, `${a} vs ${b}`);
+    assert.equal(compareVersions(b, a), -expected || 0, `${b} vs ${a}`);
   }
 });
 
@@ -658,8 +721,9 @@ test('precheck refuses a CLI that exits cleanly without a dry-run result', async
 test('updateStatus runs the read-only update-check once and reports only a newer release', async () => {
   const { log, cli } = await precheckCli('update', {});
   assert.deepEqual(await Promise.all([cli.updateStatus(), cli.updateStatus()]), [{ current: '0.1.43', latest: '0.1.47' }, { current: '0.1.43', latest: '0.1.47' }]);
+  // Concurrent callers shared one update-check; a later call only confirms the installed version.
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.deepEqual(await loggedCalls(log), [['update-check']]);
+  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
   const current = await precheckCli('current', { update: { current: '0.1.47', latest: '0.1.47', checked: true, update_available: false } });
   assert.equal(await current.cli.updateStatus(), null);
   const hostile = await precheckCli('hostile', { update: { current: '0.1.43; rm -rf /', latest: '<b>9</b>', update_available: true } });
@@ -667,6 +731,75 @@ test('updateStatus runs the read-only update-check once and reports only a newer
   const failing = createPlaygroundCli({ command: await fakeCli(join(root, 'precheck failing', 'cli.mjs'), 'process.exit(2);') });
   assert.equal(await failing.updateStatus(), null);
   assert.equal(await createPlaygroundCli({ command: `playground-missing-${process.pid}` }).updateStatus(), null);
+});
+
+// A fake whose answers come from a state file, so a test can "update the CLI" between calls.
+async function statefulCli(name) {
+  const dir = join(root, `stateful ${name}`);
+  const state = join(dir, 'state.json');
+  const log = join(dir, 'calls.log');
+  const set = (version, update) => writeFile(state, JSON.stringify({ version, update }));
+  await mkdir(dir, { recursive: true });
+  await set('0.1.43', { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true });
+  const command = await fakeCli(join(dir, 'cli.mjs'), `import { appendFileSync, readFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+appendFileSync(${quote(log)}, JSON.stringify(argv) + '\\n');
+const state = JSON.parse(readFileSync(${quote(state)}, 'utf8'));
+if (argv[0] === '--version') console.log(state.version);
+if (argv[0] === 'update-check') console.log(JSON.stringify(state.update));`);
+  return { log, set, cli: createPlaygroundCli({ command }) };
+}
+const minutes = (count) => count * 60 * 1000;
+const OUTDATED = { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true };
+const UP_TO_DATE = { current: '0.1.47', latest: '0.1.47', checked: true, update_available: false };
+
+test('updateStatus: a warning ends when the CLI is updated, and each result keeps its own lifetime', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
+  const { log, set, cli } = await statefulCli('positive');
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  // Same installed version: the cached warning stands, after a --version check only.
+  t.mock.timers.tick(minutes(10));
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
+  // The user installs 0.1.47: the next call drops the warning at once, without waiting for the hour.
+  await set('0.1.47', UP_TO_DATE);
+  assert.equal(await cli.updateStatus(), null);
+  assert.deepEqual((await loggedCalls(log)).slice(2), [['--version'], ['update-check']]);
+  // "No update" is kept for an hour.
+  t.mock.timers.tick(minutes(59));
+  assert.equal(await cli.updateStatus(), null);
+  assert.equal((await loggedCalls(log)).length, 4);
+  t.mock.timers.tick(minutes(2));
+  assert.equal(await cli.updateStatus(), null);
+  assert.deepEqual((await loggedCalls(log)).slice(4), [['update-check']]);
+  // A positive result also expires after an hour and is then looked up again.
+  await set('0.1.43', OUTDATED);
+  t.mock.timers.tick(minutes(61));
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  t.mock.timers.tick(minutes(61));
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual((await loggedCalls(log)).slice(5), [['update-check'], ['update-check']]);
+});
+
+test('updateStatus: a failed check, including one the CLI reports itself, is retried after five minutes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
+  // The CLI exits 0 and reports a failed fetch in `error`; a payload without a latest version is no answer either.
+  for (const [name, payload] of [
+    ['error field', { checked: true, error: 'fetch failed', update_available: false }],
+    ['no latest', { checked: true, update_available: false }],
+  ]) {
+    const { log, set, cli } = await statefulCli(`failed ${name}`);
+    await set('0.1.43', payload);
+    assert.equal(await cli.updateStatus(), null, name);
+    t.mock.timers.tick(minutes(4));
+    assert.equal(await cli.updateStatus(), null, name);
+    assert.equal((await loggedCalls(log)).length, 1, `${name} is not asked again within five minutes`);
+    // The network is back and the release is newer.
+    await set('0.1.43', OUTDATED);
+    t.mock.timers.tick(minutes(2));
+    assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' }, name);
+    assert.equal((await loggedCalls(log)).length, 2, name);
+  }
 });
 
 test('parseCliUpdate keeps only the two version numbers of the outdated notice', () => {
