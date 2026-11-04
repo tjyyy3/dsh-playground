@@ -46,6 +46,18 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   Resolve path identity through `workspaceRegistry.resolveByPath`, including
   directory aliases. In an existing Playground task conversation, continue that
   task; create another only when the user explicitly asks for a new task.
+- Binding (`playground_bind_task`) turns the current conversation into a task
+  conversation without creating a session or sending a prompt. It takes no
+  directory: the conversation's own working directory must resolve through
+  `workspaceRegistry.resolveByPath` to a registered DSH workspace, otherwise
+  binding is refused. It writes nothing to the platform. A bound conversation
+  keeps its task: the same challenge is a no-op that leaves receipts and
+  `attemptIds` untouched, and another challenge is refused. Binding a
+  conversation without a task keeps its pending card, receipt and `attemptIds`
+  for the bound challenge and is refused when they belong to another one. Bind
+  only on an explicit request to work on or submit a challenge in this
+  conversation; a refused bind is reported to the user, never followed by an
+  unrequested `playground_start_task`.
 
 ## Current state
 

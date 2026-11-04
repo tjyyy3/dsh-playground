@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
 import { publicChallengeUrl } from '../lib/links.js';
@@ -3109,4 +3111,32 @@ test('while 其他 waits for a key, 重试 is disabled and reads nothing', async
   // Once a key is typed, 重试 is offered again.
   f.find(view(), (node) => node.props?.id === 'pg-other-discipline').props.onChange({ target: { value: 'science' } });
   assert.equal(button('重试').props.disabled, false);
+});
+
+test('#25: an ordinary conversation bound with playground_bind_task appears in the workbench task list', async (t) => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-bind-client-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // The Host side binds the conversation; its tool result feeds the projection exactly as DSH applies it.
+  let state = workflowProjection.init();
+  const workflow = createWorkflow({ ctx: {
+    workingDirectory: { get: () => directory },
+    sessionProjections: { stateOf: () => state },
+    workspaceRegistry: { list: () => [{ id: 'workspace', path: directory }], resolveByPath: async (path) => ((await realpath(path)) === directory ? { id: 'workspace', path: directory } : undefined) },
+  }, client: { baseUrl: 'https://play.bohrium.com/api', getChallenge: async (id) => ({ id, title: 'Bound challenge', content: 'x', resources: [] }) } });
+  const bound = await workflow.bind({ challenge_id: 'challenge-a' }, { agent: { id: 'bound', session: { id: 'bound' } }, signal: new AbortController().signal });
+  assert.equal(bound.ok, true);
+  state = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: bound.workflow } } });
+  const view = workflowProjection.wire.view(state);
+  const f = await clientFixture(t);
+  const main = f.registrations.get('main');
+  // Neither conversation has a "Playground · " title: only the bound projection puts one in the list.
+  const sessions = [{ id: 'bound', displayTitle: '普通对话', projectionValues: { playgroundTask: view } },
+    { id: 'plain', displayTitle: '另一个普通对话', projectionValues: { playgroundTask: workflowProjection.wire.view(workflowProjection.init()) } }];
+  const props = { ...main.definition.inject(),
+    useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])), projectionsBySession: {} }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, openTask: () => {}, openChat: () => {}, t: (s) => s };
+  const tree = f.render(main.Component, props);
+  const rows = findAll(tree, (node) => node.type?.name === 'TaskSummaryRow');
+  assert.deepEqual(rows.map((row) => row.props.session.id), ['bound']);
+  assert.match(text(f.render(rows[0].type, rows[0].props)), /Bound challenge/);
 });

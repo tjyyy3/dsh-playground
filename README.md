@@ -20,6 +20,7 @@ from npm.
 | `playground_get_competition` | Read a competition's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
 | `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/me/attempts` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
+| `playground_bind_task` | Make the current conversation the task conversation of one challenge | DSH projections and `GET /api/challenges/{id}` |
 | `playground_check_materials` | Check explicit target, ZIP, trace, manifest and file hashes | Local reads and challenge metadata |
 | `playground_task` | Read task/receipt, switch working mode or refresh latest result | DSH projections and `GET /api/attempts/{id}` |
 
@@ -75,12 +76,40 @@ requires authentication and can consume a platform submission slot.
    `results`. The task supplies its receipt id. Result details are collapsible;
    task, pending card and receipt restore from the native session log.
 
+To work on a challenge in the conversation you are already in, ask the agent
+to work on, solve or submit it there. Reading, browsing, explaining or
+comparing challenges does not bind, and a binding cannot be undone. The agent
+calls `playground_bind_task` with the challenge id and,
+optionally, `mode` (`participate` by default). The tool records the same task
+context as `playground_start_task` in the current conversation: the
+conversation then appears in the workbench task list, and material checks, the
+confirmation card and result queries work in it. Binding creates no
+conversation, sends no first prompt, runs no command and writes nothing to the
+platform, so it asks for no confirmation. The workspace is the conversation's
+own working directory; the tool takes no directory. DSH must resolve that
+directory, or an alias of it, to a registered workspace, and the task records
+the registered path. A conversation without a working directory, or whose
+directory is missing or not registered, is refused with an explanation; the
+agent then tells you and waits. You can add the directory as a workspace in
+the Playground workbench, or ask for a new task conversation in a registered
+workspace you name. The
+tool reads the challenge first and refuses a challenge that does not exist or
+whose statement needs access permission. A conversation that already has a
+task keeps it: binding the same challenge again changes nothing, including its
+receipt and submission history, and another challenge is refused with
+"如需做另一道题，请新开任务对话". A conversation without a task keeps its pending
+confirmation card, receipt and submission history when they are for the bound
+challenge; if they are for another challenge, binding is refused and nothing
+changes. A second bind of the same conversation while one is still running is
+refused. The agent calls `playground_start_task` only when you explicitly ask
+for a new task conversation.
+
 **参赛 / 出题** are working modes, not account identities. Author mode (出题)
 is not open yet: the workbench and chat cards only start participation tasks,
 and task details no longer offer a mode selector. A task that is in author
 mode (created by an earlier version, or set by an agent through
-`playground_start_task` with `mode: "author"` or `playground_task` with
-`action: "mode"`) still opens with its author note and a **切回参赛** button;
+`playground_start_task` or `playground_bind_task` with `mode: "author"` or
+`playground_task` with `action: "mode"`) still opens with its author note and a **切回参赛** button;
 switching back preserves the receipt, clears a pending confirmation and
 restores material checks. Platform problem creation/editing/publication is
 outside this MVP. Codex chat management is also outside scope.
@@ -292,7 +321,8 @@ and confirmation as the card; it is disabled in the same cases.
 
 The right column lists only
 Playground task conversations, with a short session id, workspace and task
-state. Ordinary exploration chats do not appear in this selector. The split can
+state. Ordinary exploration chats do not appear in this selector unless they are
+bound to a challenge with `playground_bind_task`. The split can
 be adjusted between 35% and 65%, and narrow windows fall back to one column.
 
 Evaluation can take several minutes, so the task list keeps itself current while

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { apply, createSubmitTool, inject, name, normalizeSettings, presentationMeta } from '../index.js';
+import { workflowProjection } from '../lib/workflow.js';
 
 function mount(config = {}) {
   const registered = [];
@@ -426,9 +427,70 @@ test('native task creation tool requires an explicit target directory in its sch
   assert.deepEqual(tool.parameters.required, ['challenge_id', 'cwd']);
   assert.match(tool.parameters.properties.cwd.description, /absolute path of a registered DSH workspace/);
   // Without this guidance the model tends to solve challenges in place, so they never reach the task list.
-  assert.match(tool.description, /call this tool instead of working on it in the current conversation/);
+  // #25: in place now means binding the current conversation; a new one only on explicit request.
+  assert.match(tool.description, /when the user explicitly asks to work on, solve or submit a specific Playground challenge in this conversation, call playground_bind_task to bind this conversation instead of creating a new one/);
+  assert.match(tool.description, /before preparing materials for submission in this conversation, bind it/);
+  assert.match(tool.description, /Reading, browsing, explaining or comparing challenges needs neither tool/);
+  assert.doesNotMatch(tool.description, /never work on a challenge in a conversation that is not bound to it/);
+  assert.match(tool.description, /Call this tool only when the user explicitly asks for a new or separate task conversation\./);
+  // A refused bind is no reason to create a conversation the user did not ask for.
+  assert.doesNotMatch(tool.description, /refuses/);
   assert.match(tool.description, /If this conversation already has a Playground task, continue working here/);
   assert.match(tool.description, /Only create another task when the user explicitly requests a new task/);
+});
+
+test('#25: the bind tool takes a challenge and an optional mode, never a directory', () => {
+  const { tools } = mountWorkflowScope({ task: null, prepared: null, receipt: null });
+  const tool = tools.find((item) => item.name === 'playground_bind_task');
+  assert.ok(tool);
+  assert.deepEqual(tool.parameters.required, ['challenge_id']);
+  assert.deepEqual(Object.keys(tool.parameters.properties).sort(), ['challenge_id', 'mode']);
+  assert.deepEqual(tool.parameters.properties.mode.enum, ['participate', 'author']);
+  assert.equal(typeof tool.output.presentationMeta, 'function');
+  assert.match(tool.description, /CURRENT conversation/);
+  assert.match(tool.description, /Creates no conversation, sends no prompt and writes nothing to the platform/);
+  assert.match(tool.description, /this conversation's own working directory, which must be a registered DSH workspace/);
+  assert.match(tool.description, /use playground_start_task only when the user explicitly asks for a new task/);
+  assert.match(tool.description, /Call it only when the user explicitly asks to work on, solve or submit a specific challenge in this conversation; reading, browsing, explaining or comparing challenges must not bind/);
+  assert.match(tool.description, /A binding cannot be undone/);
+  assert.doesNotMatch(tool.description, /start, do or solve/);
+  assert.match(tool.description, /explain that to the user and wait; do not create a task conversation on your own/);
+});
+
+test('#25: playground_bind_task binds the calling conversation through its tool result', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-bind-')));
+  try {
+    await withSyntheticPlatform(async () => {
+      // Mutated in place, so the strict stateOf stub keeps checking the session and key the tools read.
+      const state = workflowProjection.init();
+      const { tools, scope, exec } = mountWorkflowScope(state, { config: SYNTHETIC_CONFIG, cwd: directory });
+      const resolved = [];
+      scope.workspaceRegistry = { list: () => [{ id: 'workspace', path: directory }],
+        async resolveByPath(path) { resolved.push(path); return (await realpath(path)) === directory ? { id: 'workspace', path: directory } : undefined; } };
+      const tool = tools.find((item) => item.name === 'playground_bind_task');
+      // A directory argument is ignored: the workspace is the conversation's own.
+      const args = { challenge_id: 'challenge-a', cwd: tmpdir() };
+      const value = await tool.execute(args, exec);
+      assert.equal(value.ok, true);
+      assert.deepEqual(resolved, [directory]);
+      const meta = tool.output.presentationMeta(args, value);
+      assert.equal(meta.playgroundWorkflow.kind, 'bind');
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta } }));
+      assert.equal(state.task.challengeId, 'challenge-a');
+      assert.equal(state.task.cwd, directory);
+      assert.equal(state.task.mode, 'participate');
+      assert.equal(state.task.sourceSessionId, 'synthetic-agent');
+      // The status tool now reports the bound task.
+      const status = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+      assert.deepEqual(status.task, { challengeId: 'challenge-a', title: 'Synthetic challenge', mode: 'participate', cwd: directory });
+      const refused = await tool.execute({ challenge_id: 'challenge-b' }, exec);
+      assert.equal(refused.ok, false);
+      assert.match(refused.error.message, /如需做另一道题，请新开任务对话/);
+      assert.match(renderedText(tool, { challenge_id: 'challenge-b' }, refused), /如需做另一道题/);
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('CLI timeouts: submission defaults to at least the login timeout and both are clamped', () => {
