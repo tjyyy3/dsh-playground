@@ -198,6 +198,12 @@ test('the catalog query takes a period only as a slug of the chosen competition\
     { season: 's5', period: '1' }, { period: '1' }, { competition: 'nope', period: '1' }]) {
     assert.equal(schema.safeParse({ action: 'catalog', ...input }).success, false, JSON.stringify(input));
   }
+  // Each refusal names its own reason: no competition, a competition without periods, or an unknown slug.
+  const periodMessage = (input) => schema.safeParse({ action: 'catalog', ...input }).error.issues.find((issue) => issue.path.join('.') === 'period')?.message;
+  assert.equal(periodMessage({ period: '1' }), 'period needs a competition');
+  assert.equal(periodMessage({ season: 's5', period: '1' }), 'period needs a competition');
+  assert.equal(periodMessage({ competition: 'agent', period: '1' }), 'the chosen competition has no periods');
+  assert.equal(periodMessage({ competition: 'bohr-product', period: '3' }), 'period must be one of 1, 2');
   assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', period: '1' }).success, false);
   assert.equal(calls.length, 2);
 });

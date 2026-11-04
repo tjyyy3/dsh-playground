@@ -1878,6 +1878,14 @@ test('a fixed id that fails is skipped; only a read where every id fails is an e
   const partial = await f.workflow.catalog({ competition: 'harness' }, f.exec);
   assert.deepEqual(partial.challenges.items.map((item) => item.id), ['biomaster-harness-optimization-4f6eec24']);
   assert.equal(partial.challenges.total, 1);
+  // The unread id is counted, so the list can say it is incomplete; a search that matches nothing keeps the count.
+  assert.equal(partial.challenges.missing, 1);
+  assert.equal((await f.workflow.catalog({ competition: 'harness', search: 'nothing here' }, f.exec)).challenges.missing, 1);
+  // A null answer counts as unread too; a complete read carries no `missing`.
+  f.client.getChallenge = async (id) => (id === 'agent-optimization-v1' ? null : { id, title: id });
+  await assert.rejects(() => f.workflow.catalog({ competition: 'agent' }, f.exec));
+  f.client.getChallenge = async (id) => { if (failing.has(id)) throw notFound(); return { id, title: id }; };
+  assert.equal('missing' in (await f.workflow.catalog({ competition: 'pku' }, f.exec)).challenges, false);
   failing.add('biomaster-harness-optimization-4f6eec24');
   await assert.rejects(() => f.workflow.catalog({ competition: 'harness' }, f.exec), (error) => error.code === 'not_found');
 });
@@ -1956,9 +1964,12 @@ test('the product weekly contest lists the website\'s periods by fixed id from a
     const details = { 'skill-13890f6a': '论文阅读Skill', 'ai-github-98fdb6f0': 'AI 文献阅读 GitHub 技术分享', 'ai-635bc8b5': '小红书图文分享：AI 文献阅读经验',
       ...Object.fromEntries(PERIOD_2.map((id, index) => [id, `第二期 ${index + 1}`])), 'challenge-9313ad0a': '写作19｜思维导图' };
     const requested = [];
+    // Ids that answer 503 for now.
+    const down = new Set();
     const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
     const real = createPlaygroundClient({ baseUrl: 'https://play.bohrium.com', fetchImpl: async (url) => {
       requested.push(`${url.pathname}${url.search}`);
+      if (down.has(decodeURIComponent(url.pathname.replace('/api/challenges/', '')))) return reply({ detail: 'Service unavailable' }, 503);
       if (url.pathname === '/api/hackathon/seasons') return reply([{ id: 4, slug: 's4', nameEn: 'Agentic Science Challenge', nameZh: '科学骑士大师赛', status: 'active', startAt: '2026-07-27T00:00:00+00:00', endAt: '2027-01-31T23:59:59+00:00' }]);
       if (url.pathname === '/api/challenges') return reply({ error: 'unexpected list' }, 500);
       const id = decodeURIComponent(url.pathname.replace('/api/challenges/', ''));
@@ -1991,9 +2002,20 @@ test('the product weekly contest lists the website\'s periods by fixed id from a
       ['2', '第二期', 'live', '2026.11.04 16:00 — 2026.11.11 16:00', 'https://play.bohrium.com/competition/bohr-product?period=2']]);
     assert.equal(JSON.stringify(result.competitionTable).includes('product-arena-08'), false, 'challenge ids stay on the Host');
     assert.ok(result.competitionTable.filter((item) => item.id !== 'bohr-product').every((item) => !('periods' in item)));
-    // A challenge the platform has dropped is skipped; the rest of the period stays in order.
+    assert.equal([all, first, second].some((page) => 'missing' in page), false, 'a complete read carries no missing count');
+    // A challenge the platform has dropped is skipped and counted; the rest of the period stays in order.
     delete details['product-arena-06-6d8cf72b'];
-    assert.deepEqual((await list({ period: '2' })).items.map((item) => item.id), PERIOD_2.filter((id) => id !== 'product-arena-06-6d8cf72b'));
+    const shorter = await list({ period: '2' });
+    assert.deepEqual(shorter.items.map((item) => item.id), PERIOD_2.filter((id) => id !== 'product-arena-06-6d8cf72b'));
+    assert.deepEqual([shorter.total, shorter.missing], [9, 1]);
+    assert.deepEqual([(await list({})).total, (await list({})).missing], [12, 1]);
+    assert.equal('missing' in await list({ period: '1' }), false, 'period 1 was read in full');
+    // A transient failure (503) counts the same as a dropped id; only every id failing is an error.
+    down.add('skill-13890f6a'); down.add('ai-635bc8b5');
+    const degraded = await list({ period: '1' });
+    assert.deepEqual([degraded.total, degraded.missing, degraded.items.map((item) => item.id)], [1, 2, ['ai-github-98fdb6f0']]);
+    down.add('ai-github-98fdb6f0');
+    await assert.rejects(() => list({ period: '1' }));
   } finally {
     mock.timers.reset();
   }
@@ -2012,10 +2034,11 @@ test('a period is refused unless it is a slug of the chosen competition\'s perio
     assert.equal(result.error.message, message, JSON.stringify(args));
   };
   for (const period of ['3', '', ' 1', '1 ', '01', 'all', 2, null]) await refused({ competition: 'bohr-product', period }, '未知的分期。请从分期选择器中选择。');
-  for (const args of [{ competition: 'agent', period: '1' }, { competition: 'light-chasing', period: '1' }, { competition: 'knight-s4', period: '2' },
-    { period: '1' }, { season: 's5', period: '1' }]) {
+  for (const args of [{ competition: 'agent', period: '1' }, { competition: 'light-chasing', period: '1' }, { competition: 'knight-s4', period: '2' }]) {
     await refused(args, '所选比赛没有分期，不能指定 period。');
   }
+  // Without a competition (no field, or only an API season) the refusal says a competition is needed.
+  for (const args of [{ period: '1' }, { season: 's5', period: '1' }, { period: '' }]) await refused(args, '指定 period 时必须选择比赛。');
   await refused({ competition: 'nope', period: '1' }, '未知的比赛。请从比赛选择器中选择。');
   assert.equal(listings.length, 0);
   assert.equal(seasons, 0);
@@ -2030,6 +2053,7 @@ test('fixed-id reads share an internal signal that is released once the read is 
   assert.equal(result.ok, true);
   assert.deepEqual(result.challenges.items.map((item) => item.id), ['ai-github-98fdb6f0', 'ai-635bc8b5']);
   assert.equal(result.challenges.total, 2);
+  assert.equal(result.challenges.missing, 1);
   assert.equal('partial' in result.challenges, false);
   assert.equal('truncated' in result.challenges, false);
   assert.equal(signals.length, 3);

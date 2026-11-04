@@ -263,6 +263,14 @@ test('the default period is the live one, else the most recently started, else t
   const bohr = findCompetition('bohr-product').periods;
   assert.equal(defaultPeriod(bohr, at('2026-11-02T12:00:00Z')), '1', 'period 1 is live');
   assert.equal(defaultPeriod(bohr, at('2026-11-03T15:59:59Z')), '1', 'the last second before 11.03 24:00');
+  // Exactly 11.03 24:00 (+08:00): period 1 has ended and period 2 has not started, so period 1 stays the default.
+  assert.deepEqual(bohr.map((period) => competitionStatus(period, at('2026-11-03T16:00:00Z'))), ['ended', 'upcoming']);
+  assert.equal(defaultPeriod(bohr, at('2026-11-03T16:00:00Z')), '1', 'the end of period 1: the most recently started');
+  assert.equal(defaultPeriod(bohr, at('2026-11-04T07:59:59Z')), '1', 'the last second before period 2 starts');
+  // Exactly 11.11 16:00 (+08:00): period 2 has ended too and stays the default as the most recently started.
+  assert.equal(competitionStatus(bohr[1], at('2026-11-11T07:59:59Z')), 'live');
+  assert.deepEqual(bohr.map((period) => competitionStatus(period, at('2026-11-11T08:00:00Z'))), ['ended', 'ended']);
+  assert.equal(defaultPeriod(bohr, at('2026-11-11T08:00:00Z')), '2', 'the end of period 2: the most recently started');
   assert.equal(defaultPeriod(bohr, at('2026-11-03T20:00:00Z')), '1', 'between the periods: the most recently started');
   assert.equal(defaultPeriod(bohr, at('2026-11-04T08:00:00Z')), '2', 'period 2 is live from its start');
   assert.equal(defaultPeriod(bohr, at('2026-12-01T00:00:00Z')), '2', 'all ended: the most recently started');

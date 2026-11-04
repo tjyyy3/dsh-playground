@@ -206,6 +206,8 @@ started most recently, else the first. With a period chosen, the row shows that
 period's status and time, and **在网页中打开** goes to
 `<site root>/competition/bohr-product?period=<slug>`; **全部期** shows the
 competition's own time and rounds and opens `<site root>/competition/bohr-product`.
+As on the website, `玻尔产品周赛` itself has no end date and stays **进行中** after
+both periods have ended, while each period shows its own status (**已结束**).
 Changing the period reads page 1 again with the search and filters.
 
 The competition list is built into the plugin (`lib/competitions.js`). The
@@ -216,8 +218,10 @@ the workbench loads. Challenges are selected by the tag (`追光者计划·招�
 the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list of
 challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
 `科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`, and each period of
-`玻尔产品周赛`), which the Host reads one by one; an id that cannot be read is
-skipped. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
+`玻尔产品周赛`), which the Host reads one by one. An id that cannot be read is
+skipped and counted: the page carries `missing: n`, and the competition row says
+`有 n 道赛题暂时读取失败，列表不完整。` with **重试**, which reads page 1 again. A read
+where every id fails is an error. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
 `skill-13890f6a`, `ai-github-98fdb6f0` and `ai-635bc8b5` (the Skill, GitHub and
 小红书 tracks, in that order), 第二期 has the ten `product-arena-01` to
 `product-arena-10` challenges in the website's order, and 全部期 lists both
@@ -243,7 +247,7 @@ for a competition without periods, and a `period` without a competition;
 without `period`, a competition with periods lists all of them.
 
 If the chosen competition is missing from a later list, the selector returns to
-**全部比赛** and reads the catalog again.
+**全部比赛**, the period choice is cleared, and the catalog is read again.
 
 ### Catalog paging and filters
 

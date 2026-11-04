@@ -2615,6 +2615,81 @@ test('changing the period reads page 1 again with the other controls, and 全部
   assert.equal(pending.some((item) => item.input.page !== undefined && item !== pending[3]), false, 'only 加载更多 reads a later page');
 });
 
+test('a period answer that arrives after another period was chosen is dropped', async (t) => {
+  const { f, pending, view, control } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(['p2a'], { total: 1 }));
+  await settle();
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  control('选择分期').props.onChange({ target: { value: '2' } });
+  assert.deepEqual([pending[2].input.period, pending[3].input.period], ['1', '2']);
+  assert.equal(pending[2].signal.aborted, true, 'choosing period 2 aborts the period 1 read');
+  // The period 1 answer comes first, while period 2 still loads: nothing of it shows; the earlier period 2
+  // list stays under the period 2 control.
+  pending[2].resolve(catalogPage(['p1-late'], { total: 1, missing: 2 }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['p2a']);
+  assert.doesNotMatch(text(view()), /读取失败，列表不完整/);
+  assert.equal(control('选择分期').props.value, '2');
+  pending[3].resolve(catalogPage(['p2a', 'p2b'], { total: 2 }));
+  await settle();
+  // And once more after period 2 has answered.
+  pending[2].resolve(catalogPage(['p1-later'], { total: 1, missing: 1 }));
+  await settle();
+  const panel = view();
+  assert.equal(control('选择分期').props.value, '2');
+  assert.deepEqual(cardIds(panel), ['p2a', 'p2b']);
+  assert.equal(squash(text(f.find(infoRow(panel), (node) => node.type === 'p'))), '进行中 第二期 时间：2026.11.04 16:00 — 2026.11.11 16:00');
+  assert.doesNotMatch(text(panel), /读取失败，列表不完整/);
+});
+
+test('a list with unread fixed ids says so in the info row and 重试 reads page 1 again', async (t) => {
+  const { f, pending, view, control, button, count } = await pagedCatalog(t);
+  const note = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.props?.className === 'pg-note pg-catalog-missing').map((node) => text(node));
+  const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试');
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 9), { total: 9, missing: 1 }));
+  await settle();
+  let panel = view();
+  assert.deepEqual(note(panel), ['有 1 道赛题暂时读取失败，列表不完整。']);
+  assert.equal(count(), '共 9 道');
+  assert.deepEqual(cardIds(panel), range(0, 9), 'the challenges that were read stay shown');
+  assert.equal(infoRetry(panel).length, 1);
+  // 重试 reads page 1 of the same controls; a complete answer removes the note.
+  button('重试').props.onClick();
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2', per_page: 20 });
+  assert.equal(infoRetry(view())[0].props.disabled, true, 'disabled while the read runs');
+  pending[2].resolve(catalogPage(range(0, 10), { total: 10 }));
+  await settle();
+  assert.deepEqual(note(view()), []);
+  assert.equal(infoRetry(view()).length, 0);
+  // The count follows the newest answer, with the number the Host sent.
+  control('选择分期').props.onChange({ target: { value: '' } });
+  pending[3].resolve(catalogPage(range(0, 10), { total: 10, missing: 3 }));
+  await settle();
+  assert.deepEqual(note(view()), ['有 3 道赛题暂时读取失败，列表不完整。']);
+  // A failed read keeps the cards and the note; only the failure's own 重试 is offered.
+  button('刷新目录').props.onClick();
+  pending[4].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
+  await settle();
+  panel = view();
+  assert.equal(text(f.find(panel, (node) => node.props?.role === 'alert')), '赛题目录读取失败，下面仍是上一次读取的赛题。');
+  assert.deepEqual(note(panel), ['有 3 道赛题暂时读取失败，列表不完整。']);
+  assert.equal(infoRetry(panel).length, 0);
+  assert.equal(findAll(panel, (node) => node.type === 'button' && text(node) === '重试').length, 1);
+  // Values that are not a positive count show nothing.
+  for (const missing of [0, -1, 1.5, '2', null, true]) {
+    button('刷新目录').props.onClick();
+    pending.at(-1).resolve(catalogPage(['c1'], { total: 1, missing }));
+    await settle();
+    assert.deepEqual(note(view()), [], JSON.stringify(missing));
+  }
+});
+
 test('the info row omits rounds when a competition has none, and opens no unsafe address', async (t) => {
   const { choose } = await competitionPanel(t);
   const season = findAll(await choose('competition:knight-s4'), (node) => node.props?.['aria-label'] === '比赛信息')[0];
@@ -2729,6 +2804,43 @@ test('a chosen competition the new table no longer lists resets the selector to 
   await settle();
   assert.equal(calls.length, 5);
   assert.doesNotMatch(text(view()), /已不在列表中/);
+});
+
+test('a chosen competition with a period that the new table no longer lists resets the period too', async (t) => {
+  const calls = [];
+  let table = competitionTable;
+  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, _endpoint, payload) => {
+    calls.push(payload.args.input);
+    return { ok: true, value: { competitions: { items: [] }, competitionTable: table, challenges: { total: 1, items: [{ id: `c${calls.length}`, title: 'Challenge' }] } } };
+  } } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  const control = (label) => f.find(view(), (node) => node.props?.['aria-label'] === label);
+  const refresh = async () => { await f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick(); await settle(); };
+  await f.mount(catalog);
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await settle();
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  await settle();
+  assert.equal(calls.at(-1).period, '1');
+  table = competitionTable.filter((item) => item.id !== 'bohr-product');
+  await refresh();
+  // The read for the vanished competition, then 全部比赛 without any period.
+  assert.deepEqual(calls.slice(3), [{ action: 'catalog', search: '', competition: 'bohr-product', period: '1', per_page: 20 }, { action: 'catalog', search: '', per_page: 20 }]);
+  assert.equal(control('选择比赛').props.value, '');
+  assert.equal(control('选择分期'), undefined);
+  assert.deepEqual(cardIds(view()), ['c5']);
+  // Later reads carry no period, and the list is shown: the reset list's period matches the cleared control.
+  await refresh();
+  assert.equal('period' in calls.at(-1), false);
+  assert.deepEqual(cardIds(view()), ['c6']);
+  // When the competition comes back, choosing it starts on the default period, not the old choice.
+  table = competitionTable;
+  await refresh();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await settle();
+  assert.equal(calls.at(-1).period, '2');
+  assert.equal(control('选择分期').props.value, '2');
 });
 
 test('the list says how many challenges match, and how many are shown when that is fewer', async (t) => {

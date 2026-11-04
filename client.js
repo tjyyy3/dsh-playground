@@ -483,8 +483,9 @@ window.__ModuleLoader__.load({
       return { top: value.top.filter((entry) => key(entry?.key)).map((entry) => entry.key),
         otherKeys: Array.isArray(value.otherKeys) ? value.otherKeys.filter(key) : [] };
     }
-    // The list facts of one catalog page.
-    const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total : undefined, hasMore: page?.hasMore === true });
+    // The list facts of one catalog page. `missing` counts the fixed ids the Host could not read (0 when none).
+    const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total : undefined, hasMore: page?.hasMore === true,
+      missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0 });
 
     function CatalogPanel({ sessionId, allowed, query, requestTask, onWebBase }) {
       const [search, setSearch] = React.useState('');
@@ -599,6 +600,8 @@ window.__ModuleLoader__.load({
       const loaded = shownList ? shownList.items : [];
       const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
       const total = shownList?.total;
+      // Fixed ids of the shown list that the Host could not read; the info row says the list is incomplete.
+      const missing = shownList?.missing || 0;
       // Under 只看开放 the grid shows fewer cards than are loaded, so the line counts loaded, then open ones.
       const countLine = shownList ? [total !== undefined ? `共 ${total} 道` : '',
         openOnly ? `已加载 ${loaded.length} 道` : total !== undefined && loaded.length < total ? `已显示 ${loaded.length} 道` : '',
@@ -671,7 +674,11 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)),
             ` ${infoTime}`,
             !selectedPeriod && selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
-          openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName)) : null,
+          openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
+          // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 again; while a
+          // failed read shows its own 重试, this one is left out.
+          missing ? h('p', { className: 'pg-note pg-catalog-missing' }, `有 ${missing} 道赛题暂时读取失败，列表不完整。`) : null,
+          missing && !failure ? h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: () => load() }, '重试') : null) : null,
         notice ? h('p', { className: 'pg-note' }, notice) : null,
         failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
           h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,
