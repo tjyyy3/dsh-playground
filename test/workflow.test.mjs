@@ -7,7 +7,7 @@ import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readM
 import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
-import { CHALLENGE_CONTENT_MAX, createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
+import { CHALLENGE_CONTENT_MAX, createWorkflow, submissionFailure, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -978,6 +978,131 @@ test('D3: worker-stage failures with a retry hint keep the created submission', 
     assert.equal(f.states.get('source').prepared, null, reason);
     assert.equal(f.states.get('source').receipt.attemptId, 42, reason);
   }
+});
+
+// Real stderr of `playground submit` (CLI 0.1.47) when the platform answered 500 at creation; the
+// last line is the Node/libuv crash that makes the process exit with 3221226505 on Windows.
+const REQUEST_ID = '65cdfd8f59104150a212d37b22d4a2b1';
+const SERVER_500 = `error: 未能发送成功，请稍后再试。若持续失败，请在群里联系维护者。\n服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"error":"Internal server error","request_id":"${REQUEST_ID}"}\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+const serverError = (stderr = SERVER_500) => Object.assign(new Error(stderr), { code: 'cli_error', stderr, stdout: '', exitCode: 3221226505 });
+const LEAKS = /Internal server error|INTERNAL SERVER ERROR|Assertion failed|async\.c|UV_HANDLE|服务端返回/;
+
+test('#45: a platform 5xx at creation is a server_error with the request id, and the Windows crash line is ignored', async () => {
+  const queries = [];
+  const { f, calls, checkId, result } = await failedConfirm(serverError(), (f) => {
+    f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.error.reason, 'server_error');
+  assert.equal(result.requestId, REQUEST_ID);
+  assert.equal(result.error.requestId, REQUEST_ID);
+  assert.equal(result.error.message, `平台在创建提交时返回了服务器错误（HTTP 500），通常表示没有创建提交。请先查看本题的提交记录确认没有新增，再稍后重试；如果持续出现，请把请求编号 ${REQUEST_ID} 发给平台维护者。`);
+  assert.doesNotMatch(commandText(result), LEAKS);
+  assert.doesNotMatch(commandText(result), RAW_CLI);
+  // The card stays cleared and the confirmation cannot be replayed.
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(calls.length, 1);
+  // The single-match lookup still runs: a 500 can follow a commit.
+  assert.equal(queries.length, 1);
+  assert.equal(queries[0].challengeId, 'challenge-a');
+});
+
+test('#45: the server_error classification also reads a bare HTTP 5xx and only accepts hex request ids', async () => {
+  for (const [stderr, status, id] of [
+    ['error: 创建提交记录失败（HTTP 503）', '503', undefined],
+    [`error: 服务端返回：HTTP 502 BAD GATEWAY: {"request_id":"ABCDEF0123456789"}`, '502', 'ABCDEF0123456789'],
+    ['error: 服务端返回：HTTP 500: {"request_id":"short"}', '500', undefined],
+    ['error: 服务端返回：HTTP 500: {"request_id":"C:\\\\Users\\\\someone\\\\token-1234567890"}', '500', undefined],
+    [`error: 服务端返回：HTTP 500: {"request_id":"${'a'.repeat(65)}"}`, '500', undefined],
+  ]) {
+    const { result } = await failedConfirm(serverError(stderr));
+    assert.equal(result.error.reason, 'server_error', stderr);
+    assert.match(result.error.message, new RegExp(`（HTTP ${status}）`), stderr);
+    assert.equal(result.requestId, id, stderr);
+    if (id) assert.ok(result.error.message.includes(id), stderr);
+    else assert.doesNotMatch(result.error.message, /请求编号/, stderr);
+    assert.doesNotMatch(commandText(result), /someone|token|short|aaaaaaaa/, stderr);
+  }
+});
+
+test('#45: a server_error adopts the single matching submission after confirmation', async () => {
+  const items = [{ id: 71, challengeId: 'challenge-a', method: 'DSH Playground plugin', harness: 'DeepSeek Harness', traceCount: 1, status: 'submitted', createdAt: new Date().toISOString() }];
+  const { f, result } = await failedConfirm(serverError(), (f) => {
+    f.client.listMyAttempts = async () => ({ items, nextCursor: null });
+  });
+  assert.equal(result.attemptId, 71);
+  assert.equal(result.error.reason, 'server_error');
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.requestId, REQUEST_ID);
+  assert.match(result.error.message, /可能属于本次的提交 #71/);
+  assert.ok(result.error.message.includes(REQUEST_ID));
+  assert.equal(result.workflow.kind, 'receipt');
+  assert.doesNotMatch(commandText(result), LEAKS);
+  replay(f, result);
+  assert.equal(f.states.get('source').receipt.attemptId, 71);
+  assert.equal(f.states.get('source').prepared, null);
+});
+
+test('#45: a 5xx that carries an --attempt-id retry hint keeps the retry behaviour', async () => {
+  let queried = false;
+  const stderr = `error: 服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"request_id":"${REQUEST_ID}"}${CLI_RETRY}${CLI_TAIL}`;
+  const { f, result } = await failedConfirm(serverError(stderr), (f) => {
+    f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
+  });
+  assert.notEqual(result.error.reason, 'server_error');
+  assert.equal(result.error.code, 'upload_failed');
+  assert.equal(result.attemptId, 42);
+  assert.equal(result.requestId, undefined);
+  assert.match(result.error.message, /检查后重传原提交 #42/);
+  assert.doesNotMatch(result.error.message, /通常表示没有创建提交/);
+  assert.equal(queried, false);
+  assert.equal(result.workflow.kind, 'receipt');
+  replay(f, result);
+  assert.equal(f.states.get('source').receipt.attemptId, 42);
+});
+
+test('#45: a 5xx while retrying into an existing submission never claims nothing was created', async () => {
+  const calls = [];
+  const f = await fixture({ submit: async (input) => { calls.push(input); throw serverError(); } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 42);
+  assert.notEqual(result.error.reason, 'server_error');
+  assert.doesNotMatch(result.error.message, /通常表示没有创建提交/);
+  assert.equal(result.workflow.kind, 'receipt');
+});
+
+test('#45: a 4xx at creation is not a server_error', async () => {
+  for (const [stderr, reason] of [
+    [`error: 创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制。${CLI_TAIL}`, 'too_large'],
+    [`error: 服务端返回：HTTP 400 BAD REQUEST: {"request_id":"${REQUEST_ID}"}`, 'other'],
+    [`error: 服务端返回：HTTP 404 NOT FOUND: {"request_id":"${REQUEST_ID}"}`, 'other'],
+  ]) {
+    const { result } = await failedConfirm(serverError(stderr));
+    assert.equal(result.error.reason, reason, stderr);
+    assert.equal(result.requestId, undefined, stderr);
+    assert.doesNotMatch(result.error.message, /通常表示没有创建提交|请求编号/, stderr);
+  }
+});
+
+test('#45: an error printed before a non-standard exit code still classifies by its text', () => {
+  for (const code of [3221226505, 3, 134]) {
+    const stderr = `${CLI_NOTICE}\nerror: 认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+    const failure = submissionFailure(Object.assign(new Error(stderr), { code: 'cli_error', stderr, stdout: '', exitCode: code }));
+    assert.equal(failure.reason, 'auth_failed', String(code));
+  }
+  const failure = submissionFailure(serverError());
+  assert.equal(failure.reason, 'server_error');
+  assert.equal(failure.requestId, REQUEST_ID);
+  assert.doesNotMatch(failure.message, LEAKS);
+  // Without any recognisable text the crash is still just an unknown failure.
+  const bare = `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+  assert.equal(submissionFailure(Object.assign(new Error(bare), { code: 'cli_error', stderr: bare, stdout: '' })).reason, 'other');
 });
 
 // The /playground-confirm handler records its result as command/done text, not tool/result meta.

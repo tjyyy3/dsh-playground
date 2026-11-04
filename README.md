@@ -465,8 +465,14 @@ the confirmation card. If the CLI names the created submission (its
 a CLI argument error) returns `submission_rejected`. Otherwise the result is
 `outcome_unknown`: check the challenge's submissions before submitting again.
 When exactly one matching recent submission is listed, the receipt suggests it
-as possibly this one; verify its result before retrying into it. The plugin
-shows only its own classified message, never the CLI output. On a timeout or
+as possibly this one; verify its result before retrying into it. A platform
+5xx while creating the submission (`server_error`) is the platform's error, not
+the plugin's: it usually means nothing was created, the result is still
+`outcome_unknown` with a short message, and the platform's request id (a hex
+token, also in `requestId`) is shown so you can send it to the maintainers.
+The classification uses the text the CLI printed, so a CLI that then crashes
+on exit (for example Windows exit code 3221226505) is classified the same way.
+The plugin shows only its own classified message, never the CLI output. On a timeout or
 a cancellation the plugin ends the CLI and the processes it started, then
 waits up to 5 seconds for them to stop, so the result arrives at most 5 seconds
 after the limit. If a CLI exits cleanly but a process it started keeps its
