@@ -179,16 +179,25 @@ challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harne
 `科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`), which the Host reads one by
 one; an id that cannot be read is skipped. `玻尔产品周赛` combines its tag with the
 first period's three untagged challenges, which are listed first. If its tag
-cannot be read, those three are still shown and the result carries
-`partial: true`. The Host reads at most four 50-item pages of a tag (200
-challenges); a longer tag is cut and the result carries `truncated: true`.
+cannot be read, those three are still shown, the result carries
+`partial: true`, and the workbench says
+`标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。`, also when no
+challenge is left to show. The Host reads at most four 50-item pages of a tag
+(200 challenges); a longer tag is cut, the result carries `truncated: true`,
+and the workbench shows the count as a lower bound (`共 203+ 项`).
 Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
 are still listed, so a season the platform adds later does not disappear; one
-whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. Dates and
-times are shown as written in the table or by the API, without converting time
-zones, as the website does (`科学骑士大师赛` reads `2026.07.27 — 2027.01.31`). The
-workbench query accepts a competition only by one of the table's ids and rejects
-any other.
+whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. If that
+seasons read fails, the catalog still answers with the built-in table alone:
+the result carries `seasonsUnavailable: true`, API-only seasons are missing,
+and the table's season entries keep their own dates and the status computed
+from them. Dates are shown as written in the table or by the API, without
+converting time zones, as the website does (`科学骑士大师赛` reads
+`2026.07.27 — 2027.01.31`). A time of day is shown only for times written with
+`+08:00`, such as the table's own entries (`追光者计划·招募赛` reads
+`2026.10.10 20:00 — 2026.10.11 20:00`); times in any other offset, including the
+API's `+00:00` season times and `Z`, show the date only. The workbench query
+accepts a competition only by one of the table's ids and rejects any other.
 
 The workbench shows the first 12 matching challenges and has no paging yet.
 When more match, a line reads `共 N 项，当前显示前 12 项`; search narrows the list.

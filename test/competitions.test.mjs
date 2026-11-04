@@ -90,7 +90,7 @@ test('table statuses at one fixed time', () => {
     ['llm-deploy', 'knight-s4']);
 });
 
-test('dates and times are shown as written, without converting time zones', () => {
+test('dates are shown as written; a time of day only with +08:00', () => {
   const find = (id) => findCompetition(id);
   assert.equal(competitionDateText(find('light-chasing')), '2026.10.10 — 2026.10.11');
   assert.equal(competitionTimeText(find('light-chasing')), '2026.10.10 20:00 — 2026.10.11 20:00');
@@ -98,21 +98,36 @@ test('dates and times are shown as written, without converting time zones', () =
   assert.equal(competitionTimeText(find('bohr-product')), '2026.10.21 16:00 起');
   assert.equal(competitionDateText(find('pku')), '日期待定');
   assert.equal(competitionTimeText(find('pku')), '日期待定');
+  // Z times are not Beijing clock times (s1 ran 13:00 to 17:00 there), so the season shows its date only.
   assert.equal(competitionDateText(find('paper2arm-s1')), '2026.04.17', 'one day collapses to one date');
-  assert.equal(competitionTimeText(find('paper2arm-s1')), '2026.04.17 05:00 — 2026.04.17 09:00');
-  // s4 reads as on the website: its end is 2027.01.31, not 2027.02.01 07:59 in UTC+8.
+  assert.equal(competitionTimeText(find('paper2arm-s1')), '2026.04.17', 'no time of day for a Z string');
+  // s4 reads as on the website: its end is 2027.01.31, not 2027.02.01 in UTC+8, and no clock time is shown.
   assert.equal(competitionDateText(find('knight-s4')), '2026.07.27 — 2027.01.31');
-  assert.equal(competitionTimeText(find('knight-s4')), '2026.07.27 00:00 — 2027.01.31 23:59');
-  // The live API writes +00:00; the digits are kept the same way.
+  assert.equal(competitionTimeText(find('knight-s4')), '2026.07.27 — 2027.01.31');
+  // The live API writes +00:00; it keeps the written dates and shows no time of day either.
   const api = { startAt: '2026-07-27T00:00:00+00:00', endAt: '2027-01-31T23:59:59+00:00' };
-  assert.equal(competitionTimeText(api), '2026.07.27 00:00 — 2027.01.31 23:59');
+  assert.equal(competitionTimeText(api), '2026.07.27 — 2027.01.31');
+  assert.equal(competitionTimeText({ startAt: '2026-04-17T05:00:00+00:00', endAt: '2026-04-17T09:00:00+00:00' }), '2026.04.17');
+  assert.equal(competitionTimeText({ startAt: '2026-04-17T05:00:00-05:00' }), '2026.04.17 起');
+  assert.equal(competitionTimeText({ startAt: '2026-04-17T05:00:00' }), '2026.04.17 起', 'no offset: date only');
   assert.equal(competitionDateText({ endAt: '2026-10-21T00:00:00Z' }), '至 2026.10.21');
-  // An explicit +08:00 keeps its written value, even where the UTC date is a day earlier.
+  // An explicit +08:00 keeps its written value, even where the UTC date is a day earlier, with or without
+  // seconds, fractions or the colon in the offset.
   assert.equal(competitionTimeText({ startAt: '2026-09-18T00:00:00+08:00' }), '2026.09.18 00:00 起');
-  // A bare date has no time of day; a parseable non-ISO string falls back to UTC+8; an unparseable one is absent.
+  assert.equal(competitionTimeText({ startAt: '2026-09-18T00:00+08:00' }), '2026.09.18 00:00 起');
+  assert.equal(competitionTimeText({ startAt: '2026-09-18T07:30:00.000+08:00' }), '2026.09.18 07:30 起');
+  assert.equal(competitionTimeText({ startAt: '2026-09-18T07:30:00+0800' }), '2026.09.18 07:30 起');
+  // Mixed offsets: each end keeps its own rule.
+  assert.equal(competitionTimeText({ startAt: '2026-09-18T20:00:00+08:00', endAt: '2026-09-19T12:00:00Z' }), '2026.09.18 20:00 — 2026.09.19');
+  // A bare date has no time of day; a parseable non-ISO string gives its UTC+8 date; an unparseable one is absent.
   assert.equal(competitionTimeText({ startAt: '2026-09-18' }), '2026.09.18 起');
-  assert.equal(competitionTimeText({ startAt: 'Tue, 01 Dec 2026 00:00:00 GMT' }), '2026.12.01 08:00 起');
+  assert.equal(competitionTimeText({ startAt: 'Tue, 01 Dec 2026 20:00:00 GMT' }), '2026.12.02 起');
   assert.equal(competitionTimeText({ startAt: 'soon', endAt: '2026-13-45' }), '日期待定');
+  // Padded strings parse like their trimmed value.
+  assert.equal(competitionTimeText({ startAt: ' 2026-10-10T20:00:00+08:00 ', endAt: '\t2026-10-11T20:00:00+08:00\n' }), '2026.10.10 20:00 — 2026.10.11 20:00');
+  assert.equal(competitionDateText({ startAt: ' 2026-07-27T08:00:00Z ' }), '2026.07.27 起');
+  assert.equal(competitionStatus({ startAt: ' 2026-07-27T08:00:00Z ' }, at('2026-07-27T08:00:00Z')), 'live');
+  assert.equal(competitionStatus({ startAt: ' 2026-07-27T08:00:00Z ' }, at('2026-07-27T07:59:59Z')), 'upcoming');
   // Status still compares real instants: the written 23:59 with +00:00 is 07:59 the next day in UTC+8.
   assert.equal(competitionStatus(api, at('2027-01-31T23:59:58Z')), 'live');
   assert.equal(competitionStatus(api, at('2027-01-31T23:59:59Z')), 'ended');
@@ -138,7 +153,7 @@ test('competitionList computes status now, groups live first and keeps API seaso
   const extra = items.find((item) => item.id === 'season:s5');
   assert.deepEqual(extra, { id: 'season:s5', kind: 'season', season: 's5', nameZh: '春季赛 · 第五季', name: 'Spring Cup', status: 'upcoming',
     startAt: '2026-12-01T00:00:00Z', endAt: '2026-12-08T00:00:00Z', dateText: '2026.12.01 — 2026.12.08',
-    timeText: '2026.12.01 00:00 — 2026.12.08 00:00', pagePath: 'hackathon-s5' });
+    timeText: '2026.12.01 — 2026.12.08', pagePath: 'hackathon-s5' });
   const bohr = items.find((item) => item.id === 'bohr-product');
   assert.equal(bohr.rounds, '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
   assert.equal(bohr.pagePath, 'competition/bohr-product');

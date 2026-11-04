@@ -495,9 +495,13 @@ window.__ModuleLoader__.load({
       const current = Boolean(catalog) && loadedFor === season;
       const challenges = current ? catalog?.challenges?.items || [] : [];
       const total = catalog?.challenges?.total;
+      // A tag longer than the Host reads is cut (`truncated`): its total is only a lower bound, shown as `N+`.
+      const truncated = current && catalog?.challenges?.truncated === true;
       // Until the list pages, say when it shows only part of the matches.
-      const shownPart = current && challenges.length && Number.isInteger(total) && total > challenges.length
-        ? `共 ${total} 项，当前显示前 ${challenges.length} 项` : '';
+      const shownPart = current && challenges.length && Number.isInteger(total) && (truncated || total > challenges.length)
+        ? `共 ${total}${truncated ? '+' : ''} 项，当前显示前 ${challenges.length} 项` : '';
+      // The tag read failed and only the fixed challenges came back (`partial`), possibly none after a search.
+      const partial = current && catalog?.challenges?.partial === true;
       // Browsing is session-free; creating a task still runs through an open conversation.
       const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
         : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
@@ -525,6 +529,7 @@ window.__ModuleLoader__.load({
         startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
         busy && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
         busy && catalog && !current ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
+        partial ? h('p', { className: 'pg-note' }, '标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。') : null,
         current && !challenges.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或比赛筛选条件试试。') : null,
         shownPart ? h('p', { className: 'pg-note' }, shownPart) : null,
         h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },

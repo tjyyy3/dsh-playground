@@ -2114,3 +2114,49 @@ test('the model deployment contest lists both arena rounds', async () => {
   f.client.getChallenge = async (id) => { if (id.endsWith('v2')) throw notFound(); return { id, title: id }; };
   assert.deepEqual((await f.workflow.catalog({ competition: 'llm-deploy' }, f.exec)).challenges.items.map((item) => item.id), ['llm-challenge-arena-v1']);
 });
+
+test('a failing seasons read still returns the built-in table and the challenges', async () => {
+  mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-02T12:00:00Z') });
+  try {
+    const f = await fixture();
+    f.client.baseUrl = 'https://play.bohrium.com/api';
+    f.client.listCompetitions = async () => { throw Object.assign(new Error('HTTP 503'), { code: 'server_error', status: 503 }); };
+    const result = await f.workflow.catalog({}, f.exec);
+    assert.equal(result.ok, true);
+    assert.equal(result.seasonsUnavailable, true);
+    assert.equal('competitions' in result, false);
+    assert.deepEqual(result.challenges.items.map((item) => item.id), ['challenge-a']);
+    // The table alone: no API-only season, and the season entries are judged by the table's own dates.
+    const table = result.competitionTable;
+    assert.deepEqual(table.map((item) => item.id).sort(), [...COMPETITION_IDS].sort());
+    const knight = table.find((item) => item.id === 'knight-s4');
+    assert.equal(knight.status, 'live');
+    assert.equal(knight.dateText, '2026.07.27 — 2027.01.31');
+    assert.equal(knight.webUrl, 'https://play.bohrium.com/hackathon-s4');
+    assert.equal(table.find((item) => item.id === 'paper2arm-s1').status, 'ended');
+    mock.timers.setTime(Date.parse('2027-02-01T00:00:00Z'));
+    assert.equal((await f.workflow.catalog({}, f.exec)).competitionTable.find((item) => item.id === 'knight-s4').status, 'ended');
+    // A competition read works the same way.
+    f.client.getChallenge = async (id) => ({ id, title: id });
+    const agent = await f.workflow.catalog({ competition: 'agent' }, f.exec);
+    assert.equal(agent.seasonsUnavailable, true);
+    assert.deepEqual(agent.challenges.items.map((item) => item.id), ['agent-optimization-v1']);
+    // A seasons read that works again brings the API list back.
+    f.client.listCompetitions = async () => ({ items: [{ slug: 's9', status: 'active' }] });
+    const again = await f.workflow.catalog({}, f.exec);
+    assert.equal('seasonsUnavailable' in again, false);
+    assert.ok(again.competitionTable.some((item) => item.id === 'season:s9'));
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('a cancelled seasons read still fails the catalog', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  f.client.listCompetitions = (_params, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  f.client.listChallenges = async () => ({ items: [] });
+  const pending = f.workflow.catalog({}, { ...f.exec, signal: controller.signal });
+  controller.abort(new Error('user left'));
+  await assert.rejects(() => pending, /user left/);
+});
