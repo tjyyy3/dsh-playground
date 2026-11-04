@@ -174,3 +174,30 @@ test('the catalog query takes strict page, origin, discipline and sort filters, 
   assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', page: 2 }).success, false);
   assert.equal(schema.safeParse({ action: 'auth', origin: 'arena' }).success, false);
 });
+
+test('the catalog query takes a period only as a slug of the chosen competition\'s periods', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
+  });
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  for (const period of ['1', '2']) {
+    const input = { action: 'catalog', search: '', competition: 'bohr-product', period, sort: 'attempts', page: 2, per_page: 20 };
+    await services.get('playgroundQueries').query(schema.parse(input), new AbortController().signal);
+    assert.deepEqual(calls.at(-1), input);
+  }
+  assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product' }).success, true, 'no period is all periods');
+  // Exactly one of the competition's slugs; nothing is trimmed or coerced.
+  for (const period of ['3', '', ' 1', '1 ', '01', 'all', '第一期', 1, null, ['1'], {}]) {
+    assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product', period }).success, false, JSON.stringify(period));
+  }
+  // A competition without periods, a season or no competition at all takes no period.
+  for (const input of [{ competition: 'agent', period: '1' }, { competition: 'light-chasing', period: '1' }, { competition: 'knight-s4', period: '1' },
+    { season: 's5', period: '1' }, { period: '1' }, { competition: 'nope', period: '1' }]) {
+    assert.equal(schema.safeParse({ action: 'catalog', ...input }).success, false, JSON.stringify(input));
+  }
+  assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', period: '1' }).success, false);
+  assert.equal(calls.length, 2);
+});
