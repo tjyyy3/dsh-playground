@@ -169,7 +169,9 @@ than raw CLI output, credentials, account details or local paths; expanding a
 card never reruns it.
 
 In v0.4.4, **Playground** in the native left navigation opens a global workbench
-with a Playground login form and authentication status check.
+with a Playground login area (an API token, or email and password under
+**其他登录方式**, see [Authentication](#authentication)) and an authentication
+status check.
 The plugin no longer adds any controls above the composer. The workbench uses
 DSH's existing session catalog, workspace paths and persisted task projections;
 it does not embed the website or create a separate conversation store.
@@ -559,8 +561,8 @@ restart. Removing it is `plugin_manager action=remove_bundle`, or disable the
 `playground-competition` row.
 
 If the installation succeeds, other users can use the plugin immediately from
-their own DSH profile. They still need a Playground login (or a token) for
-personal submissions and write operations. The submission path the plugin
+their own DSH profile. They still need a Playground login (an API token, or
+email and password) for personal submissions and write operations. The submission path the plugin
 provides requires the user's confirmation in the Playground workbench (the
 **确认目标并提交** button). The plugin cannot stop an agent from running the
 Playground CLI directly in a terminal, because that does not go through the
@@ -580,22 +582,85 @@ button.
 
 Public challenge and competition reads work anonymously where platform access
 rules allow. Personal submissions and writes require authentication. The plugin
-uses the installed Playground CLI for login and submission, then resolves a
-Playground token per operation in this order:
+resolves a Playground token per operation in this order:
 
 1. `token` in the row's `config` (discouraged: it is stored in the profile);
-2. the DSH credential store under the name `PLAYGROUND_TOKEN`;
+2. the DSH credential store under the name `PLAYGROUND_TOKEN`. DSH also
+   answers this name from its own environment when nothing is stored, so an
+   inherited `PLAYGROUND_TOKEN` variable is found here, before the CLI file;
 3. the CLI credentials file (`PLAYGROUND_CREDENTIALS_PATH`, or the CLI default
    `~/.config/playground/credentials.env`);
 4. the `PLAYGROUND_TOKEN` environment variable.
 
-Use the Playground side panel to enter the account email and password. The
-plugin stores the password through the DSH credential channel, invokes
-`playground auth login --email ...`, and never puts the password in a command
-line or chat message. Login runs through a session-free Host call, so it works
-without an open conversation and adds no record to any conversation. The CLI
-writes its normal credentials file; the plugin reads the token from that file
-for subsequent API reads. The CLI executable is
+The same token is used for the plugin's own API requests and for the CLI. The
+material check's `playground submit … --dry-run` and the confirmed
+`playground submit` receive it as the `PLAYGROUND_TOKEN` environment variable
+of the CLI process. The CLI prefers that variable over its credentials file, so
+the identity the workbench shows is the identity that submits. The token is
+never a command-line argument, and the plugin never logs or returns it. A user
+whose token is only in the DSH credential store can complete a submission.
+
+### Log in with an API token
+
+The login area in the workbench's **Playground 连接状态** card uses an API
+token as its main login:
+
+1. Click **去网站生成令牌**. It opens `<site root>/#dashboard/api` (我的面板 →
+   API 与 Agent) in the system browser, on the site the plugin talks to.
+   The button appears only for `https` addresses, or `http` on a loopback
+   host.
+2. Log in on the website and generate a personal API token (`asp_…`) or the
+   token of an Agent account.
+3. Paste it into **API 令牌** and click **保存令牌**. The field is a password
+   field with autocomplete off. Surrounding whitespace is trimmed; an empty
+   token, or one with spaces or line breaks inside, is refused before anything
+   is stored.
+
+The Client stores the token with DSH's `remote.credentials.set('PLAYGROUND_TOKEN', …)`.
+It never travels in a Playground RPC argument, a command, a conversation or a
+log, and saving it adds no record to any conversation. The workbench then
+checks the login again.
+
+When logged in, the card shows whether the identity is **本人** or an
+**Agent 账号**, because submissions are recorded under that identity. For an
+Agent account it also shows the operator (`operatorName`, or `#operatorId`)
+with **已确认** or **未确认**, and the Agent framework, when the platform
+returns them. The Host reads `/api/auth/me` answers in camelCase or snake_case
+(`user_type`, `operator_id`, `operator_confirmed`, `agent_framework`) and
+accepts a `{ "user": … }` wrapper, as the CLI does. These Agent fields follow
+the CLI 0.1.47 handling and still need checking against real platform answers.
+The card also shows **令牌来源**: DSH 凭据, CLI 凭据文件, 环境变量 or 插件配置.
+The Host reports only the source, never the value.
+
+**清除令牌** appears when the token comes from the DSH credential store. It
+only calls `remote.credentials.unset('PLAYGROUND_TOKEN')`; the CLI credentials
+file is never modified. If that file also holds a token (the Host checks for
+its presence only), the card says that after clearing the plugin will still use
+the token from that file, and names the file with `~` for the home directory.
+**更换令牌** replaces a saved token.
+
+The platform answers `401` for a token that is invalid, expired or revoked,
+and cannot tell these apart. A refused token is kept. The card shows
+**令牌无效、已过期或已撤销**, with the next step for where the token came from,
+and **清除令牌** when it is stored in DSH. A `403` shows **无权访问** instead.
+The auth query reports `reason` as `no_token`, `rejected` (401), `forbidden`
+(403), `network` (the platform could not be reached or timed out) or
+`unavailable` (any other failure), so an unreachable platform is not reported
+as a bad token. Operations that need a login return
+`authentication_required` with the same `reason` and point to the token login.
+
+### Log in with email and password
+
+Accounts registered with the CLI that have a password can still log in under
+**其他登录方式**, which is collapsed by default. The Client stores the password
+through the DSH credential channel as `PLAYGROUND_PASSWORD`, the Host invokes
+`playground auth login --email ...`, and the password never appears in a
+command line or chat message. Login runs through a session-free Host call, so
+it works without an open conversation and adds no record to any conversation.
+When the call returns, successfully or not, the Client removes
+`PLAYGROUND_PASSWORD` from the DSH credential store. The CLI writes its normal
+credentials file, and the plugin reads the token from that file for later API
+reads, unless a token stored in DSH takes precedence. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
 the `PLAYGROUND_CLI` environment variable. Prefer an absolute `cliPath`; on
 every platform, a relative path containing a slash is resolved against the
@@ -606,8 +671,7 @@ not reparse the arguments. Other wrappers run through a guarded `cmd.exe`
 fallback that refuses arguments `cmd.exe` would interpret. If the plugin reports
 `cli_unsafe_argument`, or a wrapper should be bypassed, set `cliPath` to the
 CLI's `.js` entry (for example `...\dist\index.js`). A missing token returns
-`authentication_required` with the same guidance; public catalog reads remain
-anonymous.
+`authentication_required`; public catalog reads remain anonymous.
 
 ## Submitting for scoring
 
@@ -678,7 +742,7 @@ The row accepts:
 | `credentialsPath` | CLI default | Optional `PLAYGROUND_CREDENTIALS_PATH`-style credentials file override |
 | `cliTimeoutMs` | `120000` | Maximum duration for one CLI login (at most `2147483647`), followed by up to 5 s of shutdown |
 | `cliSubmitTimeoutMs` | `600000` or `cliTimeoutMs`, whichever is larger | Maximum duration for one CLI submission, including the bundle upload and the CLI's retries (at most `2147483647`), followed by up to 5 s of shutdown |
-| `token` | — | Playground token override; prefer `PLAYGROUND_TOKEN` |
+| `token` | — | Playground token override; it wins over every other source, including a token saved in the workbench. Prefer the workbench token login |
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
 

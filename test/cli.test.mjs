@@ -4,7 +4,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from '
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
-import { buildSubmitArgs, compareVersions, createPlaygroundCli, parseCliUpdate } from '../lib/cli.js';
+import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -877,4 +877,62 @@ test('parseCliUpdate keeps only the two version numbers of the outdated notice',
     'Playground CLI 0.1.43 is outdated; latest is <script>.']) {
     assert.equal(parseCliUpdate(text), undefined, String(text));
   }
+});
+
+// Fake CLI that answers like precheckSource and reports the PLAYGROUND_TOKEN it received with its argv.
+const PRINT_TOKEN = `const argv = process.argv.slice(2);
+if (argv[0] === '--version') { console.log('0.1.47'); process.exit(0); }
+if (argv.includes('--help')) { console.log('playground submit [--dry-run]'); process.exit(0); }
+const token = process.env.PLAYGROUND_TOKEN ?? null;
+console.log(JSON.stringify(argv.includes('--dry-run') ? { status: 'dry_run', argv, token } : { argv, token }));`;
+
+test('#12: submit and the dry-run precheck hand the resolved token to the CLI as PLAYGROUND_TOKEN, never as an argument', async () => {
+  const command = await fakeCli(join(root, 'token env', 'cli.mjs'), PRINT_TOKEN);
+  let resolved = '  synthetic-dsh-token  ';
+  const cli = createPlaygroundCli({ command, resolveToken: async () => (resolved instanceof Error ? Promise.reject(resolved) : resolved) });
+  const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
+  const submitted = await cli.submit(options);
+  assert.equal(submitted.token, 'synthetic-dsh-token');
+  assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')));
+  // The precheck's dry run sees the same token; its result carries neither the token nor the CLI output.
+  const prechecked = await cli.precheck(options);
+  assert.deepEqual(prechecked, { status: 'dry_run', version: '0.1.47' });
+  // A token the resolver cannot give leaves the CLI's own lookup (environment, then its file) alone.
+  const ambient = process.env.PLAYGROUND_TOKEN ?? null;
+  for (const value of ['', '   ', new Error('store unavailable')]) {
+    resolved = value;
+    assert.equal((await cli.submit(options)).token, ambient, String(value));
+  }
+  // Without a resolver the CLI keeps the earlier behaviour.
+  assert.equal((await createPlaygroundCli({ command }).submit(options)).token, ambient);
+});
+
+test('#12: the dry run itself carries the resolved token', async () => {
+  const log = join(root, 'token precheck', 'calls.log');
+  const source = `import { appendFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+if (argv[0] === '--version') { console.log('0.1.47'); process.exit(0); }
+if (argv.includes('--help')) { console.log('playground submit [--dry-run]'); process.exit(0); }
+appendFileSync(${quote(log)}, JSON.stringify({ argv, token: process.env.PLAYGROUND_TOKEN ?? null }) + '\\n');
+console.log(JSON.stringify({ status: 'dry_run' }));`;
+  const command = await fakeCli(join(root, 'token precheck', 'cli.mjs'), source);
+  const cli = createPlaygroundCli({ command, resolveToken: async () => 'synthetic-dsh-token' });
+  await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' });
+  const [call] = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(call.token, 'synthetic-dsh-token');
+  assert.ok(call.argv.includes('--dry-run'));
+  assert.ok(!call.argv.some((arg) => arg.includes('synthetic-')));
+});
+
+test('#12: the credentials file path is shown with ~ for the home directory', () => {
+  const home = process.platform === 'win32' ? 'C:\\Users\\Someone' : '/home/someone';
+  const sep = process.platform === 'win32' ? '\\' : '/';
+  const inside = [home, '.config', 'playground', 'credentials.env'].join(sep);
+  assert.equal(displayCredentialsPath(inside, home), ['~', '.config', 'playground', 'credentials.env'].join(sep));
+  assert.equal(displayCredentialsPath(`${home}${sep}`, `${home}${sep}`), `~${sep}`);
+  // A sibling directory that only shares the prefix is not the home directory.
+  assert.equal(displayCredentialsPath(`${home}-other${sep}credentials.env`, home), `${home}-other${sep}credentials.env`);
+  const outside = process.platform === 'win32' ? 'D:\\creds\\credentials.env' : '/etc/playground/credentials.env';
+  assert.equal(displayCredentialsPath(outside, home), outside);
+  if (process.platform === 'win32') assert.equal(displayCredentialsPath('c:\\users\\someone\\x.env', home), '~\\x.env');
 });

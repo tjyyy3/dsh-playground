@@ -382,12 +382,39 @@ window.__ModuleLoader__.load({
         cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
     }
 
-    function AuthStatusPanel({ query, login }) {
+    // Where the Host found the token it uses (`tokenSource` of the auth query); the value never reaches the Client.
+    const TOKEN_SOURCES = { dsh: 'DSH 凭据', cli_file: 'CLI 凭据文件', env: '环境变量', config: '插件配置' };
+    const TOKEN_PAGE = '网站“我的面板 → API 与 Agent”';
+    const isAgentUser = (user) => typeof user?.userType === 'string' && user.userType.trim().toLowerCase() === 'agent';
+    // The website's API token page (我的面板 → API 与 Agent), on the site the plugin talks to.
+    function tokenPageUrl(apiBase) {
+      const root = typeof apiBase === 'string' && apiBase ? webRootOf(apiBase) : '';
+      return root ? openableWebUrl(`${root}/#dashboard/api`) : undefined;
+    }
+    const authCss = '.pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}';
+
+    // Why a saved or found token does not log in, with the next step for where it came from.
+    function tokenProblem(state) {
+      const source = state.tokenSource;
+      const fromFile = state.cliFilePath ? `CLI 凭据文件 ${state.cliFilePath}` : 'CLI 凭据文件';
+      const next = source === 'dsh' ? `请到${TOKEN_PAGE}生成新令牌，粘贴到下方保存（会替换当前令牌），或点击“清除令牌”。`
+        : source === 'cli_file' ? `当前令牌来自${fromFile}。请在下方保存新令牌（DSH 凭据优先于该文件），或在终端运行 playground auth login 重新登录。`
+          : source === 'env' ? '当前令牌来自环境变量 PLAYGROUND_TOKEN。请在下方保存新令牌（DSH 凭据优先于环境变量），或更新该环境变量后重启 DSH。'
+            : source === 'config' ? '当前令牌来自插件配置，它优先于其他来源。请修改或删除插件配置中的令牌。'
+              : `请到${TOKEN_PAGE}生成新令牌并保存。`;
+      if (state.reason === 'rejected') return ['令牌无效', `令牌无效、已过期或已撤销。${next}`];
+      return ['无权访问', `Playground 拒绝了当前账号的访问（HTTP 403）。请确认账号状态，或换用其他账号的令牌。${next}`];
+    }
+
+    function AuthStatusPanel({ query, login, saveToken, clearToken }) {
       const [state, setState] = React.useState({ loading: true });
       const [email, setEmail] = React.useState('');
       const [password, setPassword] = React.useState('');
       const [loginBusy, setLoginBusy] = React.useState(false);
       const [loginError, setLoginError] = React.useState('');
+      const [token, setToken] = React.useState('');
+      const [tokenBusy, setTokenBusy] = React.useState(false);
+      const [tokenError, setTokenError] = React.useState('');
       const check = async () => {
         setState({ loading: true });
         try {
@@ -407,30 +434,82 @@ window.__ModuleLoader__.load({
         } catch (failure) { setLoginError(failure.message); }
         finally { setLoginBusy(false); }
       };
-      return h('section', { className: 'pg-guide pg-auth', 'aria-label': 'Playground 登录状态', 'aria-live': 'polite', 'aria-busy': state.loading || loginBusy },
+      // The token goes only to the DSH credential store; the auth check that follows carries no token.
+      const submitToken = async () => {
+        if (!token.trim()) { setTokenError('请先粘贴 API 令牌。'); return; }
+        setTokenBusy(true); setTokenError('');
+        try {
+          await saveToken(token);
+          setToken('');
+          await check();
+        } catch (failure) { setTokenError(failure.message); }
+        finally { setTokenBusy(false); }
+      };
+      const removeToken = async () => {
+        setTokenBusy(true); setTokenError('');
+        try {
+          await clearToken();
+          await check();
+        } catch (failure) { setTokenError(failure.message); }
+        finally { setTokenBusy(false); }
+      };
+      const user = state.user || {};
+      const agent = isAgentUser(user);
+      const operator = user.operatorName || (user.operatorId !== undefined && user.operatorId !== null && user.operatorId !== '' ? `#${user.operatorId}` : '');
+      const operatorState = user.operatorConfirmed === true ? '（已确认）' : user.operatorConfirmed === false ? '（未确认）' : '';
+      const sourceLabel = TOKEN_SOURCES[state.tokenSource];
+      const stored = state.tokenSource === 'dsh';
+      const pageUrl = tokenPageUrl(state.baseUrl);
+      const refused = state.reason === 'rejected' || state.reason === 'forbidden';
+      const [refusedBadge, refusedText] = refused ? tokenProblem(state) : [];
+      const fileNote = stored && state.cliFileToken
+        ? h('p', { className: 'pg-note pg-auth-file' }, `CLI 凭据文件 ${state.cliFilePath || ''} 中也有令牌。清除 DSH 中的令牌后，插件仍会使用该文件中的令牌；插件不会修改这个文件。`) : null;
+      const clearButton = stored ? h('button', { type: 'button', className: 'pg-button', disabled: tokenBusy || state.loading, onClick: removeToken }, '清除令牌') : null;
+      const tokenForm = h('form', { className: 'pg-form pg-auth-token', 'aria-label': 'API 令牌登录', onSubmit: (event) => { event.preventDefault(); if (!tokenBusy) submitToken(); } },
+        h('p', { className: 'pg-note' }, `在${TOKEN_PAGE}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`),
+        pageUrl ? h('div', { className: 'pg-actions' }, h('button', { type: 'button', className: 'pg-button', onClick: () => { window.open(pageUrl, '_blank', 'noopener,noreferrer'); } }, '去网站生成令牌')) : null,
+        h('label', { className: 'pg-field' }, 'API 令牌', h('input', { className: 'pg-input', type: 'password', value: token, autoComplete: 'off', spellCheck: false, onChange: (event) => setToken(event.target.value) })),
+        h('div', { className: 'pg-actions' }, h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: tokenBusy || !token.trim() }, tokenBusy ? '正在保存…' : '保存令牌')),
+        tokenError ? h('p', { className: 'pg-error', role: 'alert' }, tokenError) : null);
+      return h('section', { className: 'pg-guide pg-auth', 'aria-label': 'Playground 登录状态', 'aria-live': 'polite', 'aria-busy': state.loading || loginBusy || tokenBusy },
+        h('style', null, authCss),
         h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand' }, 'Playground 连接状态'),
           h('button', { className: 'pg-button', disabled: state.loading, onClick: check }, state.loading ? '正在检测…' : '重新检测')),
         state.loading ? h('p', { className: 'pg-note', role: 'status' }, '正在检查当前 DSH 是否已配置 Playground 凭据…') : null,
         !state.loading && state.cliUpdate?.warning ? h('p', { className: 'pg-note pg-cli-update' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', state.cliUpdate.warning) : null,
         !state.loading && state.authenticated ? h(React.Fragment, null,
-          h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'success' }, '已登录'), ' ', state.user?.name || state.user?.email || 'Playground 用户'),
-          state.user?.email ? h('p', { className: 'pg-note' }, state.user.email) : null,
-          state.baseUrl ? h('p', { className: 'pg-note pg-path' }, `API：${state.baseUrl}`) : null)
+          h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'success' }, '已登录'), ' ', user.name || user.email || 'Playground 用户'),
+          h('p', { className: 'pg-note pg-auth-identity' }, `身份：${agent ? 'Agent 账号' : '本人'}。提交会记在这个身份名下。`),
+          agent && operator ? h('p', { className: 'pg-note' }, `操作人：${operator}${operatorState}`) : null,
+          agent && user.agentFramework ? h('p', { className: 'pg-note' }, `Agent 框架：${user.agentFramework}`) : null,
+          user.email ? h('p', { className: 'pg-note' }, user.email) : null,
+          sourceLabel ? h('p', { className: 'pg-note' }, `令牌来源：${sourceLabel}`) : null,
+          fileNote,
+          state.baseUrl ? h('p', { className: 'pg-note pg-path' }, `API：${state.baseUrl}`) : null,
+          clearButton ? h('div', { className: 'pg-actions' }, clearButton) : null,
+          h('details', { className: 'pg-auth-other' }, h('summary', null, '更换令牌'), tokenForm))
           : !state.loading ? h(React.Fragment, null,
-             h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': state.error ? 'error' : 'warning' }, state.error ? '检测失败' : '未登录'), ' 公开赛题仍可浏览；查询个人提交和上传评测包需要 token。'),
-            state.error ? h('p', { className: 'pg-error', role: 'alert' }, state.error) : null,
-            h('ol', { className: 'pg-note pg-auth-steps' },
-              h('li', null, '使用下面的登录表单；插件会调用已安装的 Playground CLI。'),
-              h('li', null, '密码只通过受保护的凭据通道传给 CLI，不会写入聊天。'),
-              h('li', null, '也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。'),
-              h('li', null, '登录成功后即可创建任务、辅助做题、打包提交和查看个人结果。'),
-            ),
-            h('form', { className: 'pg-form', onSubmit: (event) => { event.preventDefault(); if (!loginBusy && email.trim() && password) submitLogin(); } },
-              h('label', { className: 'pg-field' }, 'Playground 邮箱', h('input', { className: 'pg-input', type: 'email', value: email, autoComplete: 'username', onChange: (event) => setEmail(event.target.value) })),
-              h('label', { className: 'pg-field' }, 'Playground 密码', h('input', { className: 'pg-input', type: 'password', value: password, autoComplete: 'current-password', onChange: (event) => setPassword(event.target.value) })),
-              h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: loginBusy || !email.trim() || !password }, loginBusy ? '正在登录…' : '登录 Playground'),
-              loginError ? h('p', { className: 'pg-error', role: 'alert' }, loginError) : null,
-            )) : null);
+            refused ? h(React.Fragment, null,
+              h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'error' }, refusedBadge), sourceLabel ? ` 令牌来源：${sourceLabel}` : ''),
+              h('p', { className: 'pg-error', role: 'alert' }, refusedText))
+              : state.reason === 'network' || state.reason === 'unavailable' ? h(React.Fragment, null,
+                h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'error' }, '检测失败'), sourceLabel ? ` 令牌来源：${sourceLabel}` : ''),
+                h('p', { className: 'pg-error', role: 'alert' }, state.reason === 'network'
+                  ? '无法连接 Playground 平台，暂时无法确认登录状态。请检查网络后点击“重新检测”。'
+                  : 'Playground 平台暂时无法确认登录状态，请稍后点击“重新检测”。'))
+                : h(React.Fragment, null,
+                  h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': state.error ? 'error' : 'warning' }, state.error ? '检测失败' : '未登录'), ' 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。'),
+                  state.error ? h('p', { className: 'pg-error', role: 'alert' }, state.error) : null),
+            fileNote,
+            clearButton ? h('div', { className: 'pg-actions' }, clearButton) : null,
+            tokenForm,
+            h('details', { className: 'pg-auth-other' }, h('summary', null, '其他登录方式'),
+              h('p', { className: 'pg-note' }, '用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。DSH 凭据中保存了令牌时，插件仍优先使用该令牌。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。'),
+              h('form', { className: 'pg-form', onSubmit: (event) => { event.preventDefault(); if (!loginBusy && email.trim() && password) submitLogin(); } },
+                h('label', { className: 'pg-field' }, 'Playground 邮箱', h('input', { className: 'pg-input', type: 'email', value: email, autoComplete: 'username', onChange: (event) => setEmail(event.target.value) })),
+                h('label', { className: 'pg-field' }, 'Playground 密码', h('input', { className: 'pg-input', type: 'password', value: password, autoComplete: 'current-password', onChange: (event) => setPassword(event.target.value) })),
+                h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: loginBusy || !email.trim() || !password }, loginBusy ? '正在登录…' : '登录 Playground'),
+                loginError ? h('p', { className: 'pg-error', role: 'alert' }, loginError) : null))) : null);
     }
 
     // The competition selector. The Host returns built-in competitions (queried by `competition`) and API
@@ -1006,7 +1085,7 @@ window.__ModuleLoader__.load({
           historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
       const catalog = useSessions((state) => state);
       // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
       // the archive controls stay hidden.
@@ -1126,7 +1205,7 @@ window.__ModuleLoader__.load({
             h('h1', null, 'Playground 主控面板'),
             h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
-          h(AuthStatusPanel, { query, login }),
+          h(AuthStatusPanel, { query, login, saveToken, clearToken }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
           h('div', { className: 'pg-split-control' },
             h('span', null, '调整左右栏宽度'),
@@ -1438,13 +1517,32 @@ window.__ModuleLoader__.load({
             return JSON.parse(text);
           },
           // Session-free: the password goes to the DSH credential store, never into the call or a conversation.
+          // It is only needed for this one CLI login, so it is removed from the store afterwards, whatever the outcome.
           login: async (email, password) => {
-            await ctx.remote.credentials.set('PLAYGROUND_PASSWORD', password);
-            const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/login', { args: { input: { email } } })
-              .catch(() => ({ ok: false, error: { code: 'transport' } }));
-            if (!result.ok) throw new Error(queryFailure(result.error));
-            if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || 'Playground 登录失败，请重试。');
-            return result.value;
+            try {
+              await ctx.remote.credentials.set('PLAYGROUND_PASSWORD', password);
+              const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/login', { args: { input: { email } } })
+                .catch(() => ({ ok: false, error: { code: 'transport' } }));
+              if (!result.ok) throw new Error(queryFailure(result.error));
+              if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || 'Playground 登录失败，请重试。');
+              return result.value;
+            } finally {
+              await Promise.resolve().then(() => ctx.remote.credentials.unset?.('PLAYGROUND_PASSWORD')).catch(() => {});
+            }
+          },
+          // The API token goes only to the DSH credential store, never into an RPC, a command or a conversation.
+          // The Host reads it from there per operation, for its own requests and for the CLI it starts.
+          saveToken: async (value) => {
+            const token = typeof value === 'string' ? value.trim() : '';
+            if (!token) throw new Error('请先粘贴 API 令牌。');
+            if (/\s/.test(token)) throw new Error('令牌中不能有空格或换行，请从网站重新复制。');
+            try { await ctx.remote.credentials.set('PLAYGROUND_TOKEN', token); }
+            catch { throw new Error('无法把令牌保存到 DSH 凭据存储，请重试。'); }
+          },
+          // Clears only the DSH copy; the CLI credentials file is never modified.
+          clearToken: async () => {
+            try { await ctx.remote.credentials.unset('PLAYGROUND_TOKEN'); }
+            catch { throw new Error('无法清除 DSH 凭据存储中的令牌，请重试。'); }
           },
         };
         ctx.effect(() => ctx.locale.register('playground', Object.fromEntries(
