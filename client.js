@@ -446,44 +446,142 @@ window.__ModuleLoader__.load({
       return { season: value.startsWith('season:') ? value.slice('season:'.length) : value };
     }
 
+    // Catalog filters. 来源 and 排序 are the list API's own values. 学科 lists the top disciplines the Host
+    // sends (`disciplineFacets`) and 其他, which opens a free-text field for one exact discipline key: the API
+    // matches `disc` exactly and cannot ask for "none of the top ones". The API has no open-status filter, so
+    // 只看开放 hides the loaded cards that are not open and reads nothing.
+    const CATALOG_PER_PAGE = 20;
+    const OTHER_DISCIPLINE = '__other__';
+    const ORIGIN_OPTIONS = [['', '全部来源'], ['community', '社区'], ['benchmark', '基准'], ['hackathon', '黑客松'], ['arena', '竞技场']];
+    const SORT_OPTIONS = [['newest', '最新'], ['attempts', '提交最多']];
+    // The catalog query of one filter set; defaults (all origins, all disciplines, newest, page 1) are left out.
+    function catalogInput(filters, page = 1) {
+      return { action: 'catalog', search: filters.search.trim(), ...competitionFilter(filters.season),
+        ...(filters.origin ? { origin: filters.origin } : {}), ...(filters.discipline ? { discipline: filters.discipline } : {}),
+        ...(filters.sort === 'attempts' ? { sort: 'attempts' } : {}), ...(page > 1 ? { page } : {}), per_page: CATALOG_PER_PAGE };
+    }
+    // Cards with an id, each id once; `seen` holds the ids already listed when a page is appended.
+    function uniqueCards(items, seen = new Set()) {
+      const cards = [];
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item || typeof item !== 'object' || item.id === undefined || item.id === null || seen.has(String(item.id))) continue;
+        seen.add(String(item.id));
+        cards.push(item);
+      }
+      return cards;
+    }
+    function catalogFacets(value) {
+      if (!value || typeof value !== 'object' || !Array.isArray(value.top)) return undefined;
+      const key = (entry) => typeof entry === 'string' && entry.length > 0 && entry.length <= 100;
+      return { top: value.top.filter((entry) => key(entry?.key)).map((entry) => entry.key),
+        otherKeys: Array.isArray(value.otherKeys) ? value.otherKeys.filter(key) : [] };
+    }
+    // The list facts of one catalog page.
+    const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total : undefined, hasMore: page?.hasMore === true,
+      truncated: page?.truncated === true, partial: page?.partial === true });
+
     function CatalogPanel({ sessionId, allowed, query, requestTask, onWebBase }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
+      const [origin, setOrigin] = React.useState('');
+      // The 学科 select: '' (all), a top discipline key, or OTHER_DISCIPLINE with the key typed in `otherDiscipline`.
+      const [disciplineChoice, setDisciplineChoice] = React.useState('');
+      const [otherDiscipline, setOtherDiscipline] = React.useState('');
+      const [sort, setSort] = React.useState('newest');
+      const [openOnly, setOpenOnly] = React.useState(false);
       const [catalog, setCatalog] = React.useState(null);
-      // The selector value the shown catalog was read for; the grid stays hidden while it differs from `season`.
-      const [loadedFor, setLoadedFor] = React.useState('');
-      const [busy, setBusy] = React.useState(false);
-      const [error, setError] = React.useState('');
+      // The shown list: the cards of every page read so far for one query (`input`), the last page's facts,
+      // and the selector value it was read for; the grid stays hidden while that differs from `season`.
+      const [list, setList] = React.useState(null);
+      // The 学科 choices of the first catalog answer that had them; later answers do not replace them.
+      const [facets, setFacets] = React.useState(null);
+      // '' when idle, 'load' for a first page, 'more' for an appended page.
+      const [busy, setBusy] = React.useState('');
+      // The failed read: { kind: 'load', filters } or { kind: 'more' }. Its text is fixed; causes are not shown.
+      const [failure, setFailure] = React.useState(null);
       const [status, setStatus] = React.useState('');
       const [notice, setNotice] = React.useState('');
-      // Mutable holder (not render state): only the newest search or filter may update the panel.
-      const [latest] = React.useState(() => ({ controller: null }));
+      // Mutable holder (not render state): only the newest read, first page or appended, may update the panel.
+      const [latest] = React.useState(() => ({ controller: null, facets: null }));
       // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
       const [detail, setDetail] = React.useState(null);
-      const load = async (nextSearch = search, nextSeason = season, nextNotice = '') => {
+      const filters = { search, season, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+      // Page 1 for the current filters with `changes` applied; it replaces the list. Any read still running,
+      // an appended page included, is aborted and can no longer change the panel.
+      const load = async (changes = {}, nextNotice = '') => {
+        const next = { ...filters, ...changes };
         latest.controller?.abort();
         const controller = new AbortController();
         latest.controller = controller;
-        setBusy(true); setError(''); setNotice(nextNotice); setStatus('正在读取比赛和赛题…');
+        setBusy('load'); setFailure(null); setNotice(nextNotice); setStatus('正在读取比赛和赛题…');
         try {
-          const result = await query({ action: 'catalog', search: nextSearch.trim(), ...competitionFilter(nextSeason), per_page: 12 }, controller.signal);
+          const input = catalogInput(next);
+          const result = await query(input, controller.signal);
           if (latest.controller !== controller) return;
-          setCatalog(result); setLoadedFor(nextSeason);
+          setCatalog(result);
+          setList({ season: next.season, input, page: 1, items: uniqueCards(result?.challenges?.items), ...pageFacts(result?.challenges) });
+          const received = latest.facets ? undefined : catalogFacets(result?.disciplineFacets);
+          if (received) { latest.facets = received; setFacets(received); }
           if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
           // A chosen competition the new table no longer lists: go back to 全部比赛 and read once more.
           const table = Array.isArray(result?.competitionTable) ? result.competitionTable : undefined;
-          if (nextSeason && table && !table.some((item) => item && typeof item === 'object' && competitionValue(item) === nextSeason)) {
+          if (next.season && table && !table.some((item) => item && typeof item === 'object' && competitionValue(item) === next.season)) {
             setSeason('');
-            load(nextSearch, '', '之前选择的比赛已不在列表中，已改为显示全部比赛。');
+            load({ ...next, season: '' }, '之前选择的比赛已不在列表中，已改为显示全部比赛。');
             return;
           }
           setStatus('赛题目录已更新。');
-        } catch (failure) {
+        } catch {
           if (latest.controller !== controller) return;
-          setError(failure.message); setStatus('赛题目录读取失败。');
+          setFailure({ kind: 'load', filters: next }); setStatus('赛题目录读取失败。');
         } finally {
-          if (latest.controller === controller) { latest.controller = null; setBusy(false); }
+          if (latest.controller === controller) { latest.controller = null; setBusy(''); }
         }
+      };
+      // 其他 with an empty field reads nothing: the list stays and a hint asks for a key.
+      const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
+      // 加载更多 is offered only while the shown list is the one the controls describe: not after a failed
+      // page-1 read (the old list stays under the new controls), not while the controls hold edits not
+      // read yet (typed search, another filter) and not while 其他 waits for a key, whose query would
+      // otherwise equal 全部学科's. Otherwise it would append the old query's next page.
+      const canLoadMore = Boolean(list?.hasMore) && list.season === season && failure?.kind !== 'load' && !otherPending
+        && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
+      // The next page of the shown list's own query, appended without repeats.
+      const loadMore = async () => {
+        const shown = list;
+        if (!canLoadMore || latest.controller) return;
+        const controller = new AbortController();
+        latest.controller = controller;
+        setBusy('more'); setFailure(null); setStatus('正在加载更多赛题…');
+        try {
+          const page = shown.page + 1;
+          const result = await query({ ...shown.input, page }, controller.signal);
+          if (latest.controller !== controller) return;
+          const facts = pageFacts(result?.challenges);
+          // A merged list whose tag read failed for this page only (`partial` now, not before) holds just
+          // the fixed challenges: its total and end are not the list's. Treat it as a failed append.
+          if (facts.partial && !shown.partial) {
+            setFailure({ kind: 'more' }); setStatus('加载更多赛题失败。');
+            return;
+          }
+          const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
+          // An empty page ends the list even if it claims more.
+          setList({ ...shown, page, items: [...shown.items, ...added], ...facts, total: facts.total ?? shown.total,
+            hasMore: facts.hasMore && Array.isArray(result?.challenges?.items) && result.challenges.items.length > 0 });
+          setStatus(added.length ? `已加载 ${added.length} 道赛题。` : '没有更多赛题。');
+        } catch {
+          if (latest.controller !== controller) return;
+          setFailure({ kind: 'more' }); setStatus('加载更多赛题失败。');
+        } finally {
+          if (latest.controller === controller) { latest.controller = null; setBusy(''); }
+        }
+      };
+      // A failed append is retried as long as the controls still describe the shown list; after edits since,
+      // 重试 reads page 1 of the controls instead of doing nothing. While 其他 waits for a key it reads
+      // nothing (and is disabled): any read then would be the unfiltered list.
+      const retry = () => {
+        if (otherPending) return undefined;
+        return failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters);
       };
       React.useEffect(() => {
         load();
@@ -492,46 +590,83 @@ window.__ModuleLoader__.load({
       const competitions = Array.isArray(catalog?.competitionTable) ? catalog.competitionTable.filter((item) => item && typeof item === 'object') : [];
       const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : undefined;
       // Challenges show only for the selection they were read for, never under another competition's info row.
-      const current = Boolean(catalog) && loadedFor === season;
-      const challenges = current ? catalog?.challenges?.items || [] : [];
-      const total = catalog?.challenges?.total;
+      const shownList = list && list.season === season ? list : null;
+      const loaded = shownList ? shownList.items : [];
+      const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
+      const total = shownList?.total;
       // A tag longer than the Host reads is cut (`truncated`): its total is only a lower bound, shown as `N+`.
-      const truncated = current && catalog?.challenges?.truncated === true;
-      // Until the list pages, say when it shows only part of the matches.
-      const shownPart = current && challenges.length && Number.isInteger(total) && (truncated || total > challenges.length)
-        ? `共 ${total}${truncated ? '+' : ''} 项，当前显示前 ${challenges.length} 项` : '';
+      const truncated = shownList?.truncated === true;
+      // Under 只看开放 the grid shows fewer cards than are loaded, so the line counts loaded, then open ones.
+      const countLine = shownList ? [total !== undefined ? `共 ${total}${truncated ? '+' : ''} 道` : '',
+        openOnly ? `已加载 ${loaded.length} 道` : total !== undefined && loaded.length < total ? `已显示 ${loaded.length} 道` : '',
+        openOnly ? `其中开放 ${challenges.length} 道（只看开放仅筛选已加载的赛题）` : ''].filter(Boolean).join(' · ') : '';
       // The tag read failed and only the fixed challenges came back (`partial`), possibly none after a search.
-      const partial = current && catalog?.challenges?.partial === true;
+      const partial = shownList?.partial === true;
+      const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
+        : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
+      const applyOther = () => { if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() }); };
       // Browsing is session-free; creating a task still runs through an open conversation.
       const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
         : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
-      return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': busy },
+      return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': Boolean(busy) },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('div', { className: 'pg-head' }, h('div', null, h('h2', { className: 'pg-brand' }, '选择比赛或赛题'),
           h('p', { className: 'pg-note' }, '先从目录选择题目，再创建独立任务对话；不需要记住赛题 ID。')),
-          h('button', { className: 'pg-button', disabled: busy, onClick: () => load() }, busy ? '正在刷新…' : '刷新目录')),
+          h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load() }, busy === 'load' ? '正在刷新…' : '刷新目录')),
         h('div', { className: 'pg-search' },
           h('input', { className: 'pg-input', 'aria-label': '搜索 Playground 赛题', placeholder: '按题目名称、方向或关键词搜索', value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
-          h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => { setSeason(event.target.value); load(search, event.target.value); } },
+          h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => { setSeason(event.target.value); load({ season: event.target.value }); } },
             h('option', { value: '' }, '全部比赛'),
             // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
             COMPETITION_GROUPS.map(([group, label]) => {
               const members = competitions.filter((item) => item.status === group);
               return members.length ? h('optgroup', { key: group, label }, members.map((item) => h('option', { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
             }))),
+        // Each change reads page 1 again, combined with the competition and the search box; 只看开放 reads nothing.
+        h('div', { className: 'pg-catalog-filters', role: 'group', 'aria-label': '筛选赛题' },
+          h('label', { className: 'pg-filter' }, h('span', null, '来源'),
+            h('select', { className: 'pg-input', 'aria-label': '按来源筛选', value: origin, onChange: (event) => { setOrigin(event.target.value); load({ origin: event.target.value }); } },
+              ORIGIN_OPTIONS.map(([value, label]) => h('option', { key: value || 'all', value }, label)))),
+          h('label', { className: 'pg-filter' }, h('span', null, '学科'),
+            h('select', { className: 'pg-input', 'aria-label': '按学科筛选', value: disciplineChoice, onChange: (event) => {
+              const value = event.target.value;
+              setDisciplineChoice(value);
+              if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) { setStatus('输入学科后按回车筛选'); return; }
+              load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
+            } },
+              h('option', { value: '' }, '全部学科'),
+              (facets?.top || []).map((key) => h('option', { key, value: key }, key)),
+              h('option', { value: OTHER_DISCIPLINE }, '其他（输入学科）'))),
+          disciplineChoice === OTHER_DISCIPLINE ? h('div', { className: 'pg-filter pg-filter-other' },
+            h('label', { htmlFor: 'pg-other-discipline' }, '其他学科（英文学科名，精确匹配）'),
+            h('div', { className: 'pg-filter-row' },
+              h('input', { id: 'pg-other-discipline', className: 'pg-input', value: otherDiscipline, maxLength: 100, placeholder: '例如 science，按回车筛选',
+                ...(facets?.otherKeys?.length ? { list: 'pg-other-discipline-keys' } : {}),
+                onChange: (event) => setOtherDiscipline(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') applyOther(); } }),
+              h('button', { type: 'button', className: 'pg-button', onClick: applyOther }, '筛选')),
+            facets?.otherKeys?.length ? h('datalist', { id: 'pg-other-discipline-keys' }, facets.otherKeys.map((key) => h('option', { key, value: key }))) : null) : null,
+          h('label', { className: 'pg-filter' }, h('span', null, '排序'),
+            h('select', { className: 'pg-input', 'aria-label': '排序方式', value: sort, onChange: (event) => { setSort(event.target.value); load({ sort: event.target.value }); } },
+              SORT_OPTIONS.map(([value, label]) => h('option', { key: value, value }, label)))),
+          h('label', { className: 'pg-filter-check' },
+            h('input', { type: 'checkbox', checked: openOnly, onChange: (event) => setOpenOnly(event.target.checked) }), '只看开放',
+            h('span', { className: 'pg-note' }, '（仅筛选已加载的赛题）'))),
         selectedCompetition ? h('div', { className: 'pg-competition-info', role: 'group', 'aria-label': '比赛信息' },
           h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': COMPETITION_TONES[selectedCompetition.status] }, competitionStatusText(selectedCompetition.status)),
             ` 时间：${selectedCompetition.timeText || selectedCompetition.dateText || '日期待定'}`,
             selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
           openWebButton(selectedCompetition.webUrl, selectedCompetition.nameZh || selectedCompetition.name)) : null,
         notice ? h('p', { className: 'pg-note' }, notice) : null,
-        error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
+        failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
+          h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,
         startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
-        busy && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
-        busy && catalog && !current ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
+        busy === 'load' && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
+        busy === 'load' && catalog && !shownList ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
         partial ? h('p', { className: 'pg-note' }, '标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。') : null,
-        current && !challenges.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或比赛筛选条件试试。') : null,
-        shownPart ? h('p', { className: 'pg-note' }, shownPart) : null,
+        shownList && !loaded.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或筛选条件试试。') : null,
+        shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${canLoadMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
+        otherPending ? h('p', { className: 'pg-note pg-catalog-hint' }, '输入学科后按回车筛选') : null,
+        countLine ? h('p', { className: 'pg-note pg-catalog-count' }, countLine) : null,
         h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
           h('div', { className: 'pg-head' }, h('h3', null, item.titleZh || item.title || item.id), item.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
@@ -541,6 +676,8 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'pg-button', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item) }, '查看详情'),
             openWebButton(item.webUrl, item.titleZh || item.title || item.id))
         ))),
+        canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', disabled: Boolean(busy), 'aria-busy': busy === 'more', onClick: loadMore },
+          busy === 'more' ? '正在加载…' : '加载更多') : null,
         // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
         detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, sessionId, requestTask, startBlocked, close: () => setDetail(null) }) : null);
     }
@@ -956,7 +1093,7 @@ window.__ModuleLoader__.load({
       };
       const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
