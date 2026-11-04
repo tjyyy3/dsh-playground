@@ -15,7 +15,7 @@ import { CHALLENGE_CONTENT_MAX, createWorkflow, disciplineFacets, submissionFail
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(cli) {
+async function fixture(cli, options = {}) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'playground-workflow-')));
   directories.push(cwd);
   // A real ZIP fixture, not a renamed text file.
@@ -68,7 +68,7 @@ async function fixture(cli) {
     async uploadBundle(id) { calls.push(['upload', id]); return { bundleStatus: 'ready', attempt: { id, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, violations: [] }; },
     async getAttempt(id) { return { id, challengeId: 'challenge-a', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }; },
   };
-  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta, ...options });
   return { cwd, workflow, states, exec, calls, record, client, ctx };
 }
 
@@ -2817,4 +2817,55 @@ test('#25: a workspace lookup that fails for another reason than a missing direc
   f.record(result);
   assert.equal(f.states.get('source').task, null);
   assert.equal(reads, 0);
+});
+
+test('#12: the login check tells no token, a refused token and an unreachable platform apart, and reports the token source', async () => {
+  let identity;
+  let status = { tokenSource: 'dsh', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' };
+  const f = await fixture(undefined, { tokenStatus: async () => status });
+  f.client.getCurrentUser = async () => { if (identity instanceof Error) throw identity; return identity; };
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'rejected' };
+  assert.deepEqual(await f.workflow.auth(f.exec), { ...identity, tokenSource: 'dsh', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' });
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'forbidden' };
+  assert.equal((await f.workflow.auth(f.exec)).reason, 'forbidden');
+  status = { tokenSource: 'none', cliFileToken: false, cliFilePath: '~/.config/playground/credentials.env' };
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'no_token' };
+  // The file path is only reported while the file holds a token.
+  assert.deepEqual(await f.workflow.auth(f.exec), { ...identity, tokenSource: 'none' });
+  for (const [error, reason] of [
+    [new PlaygroundApiError('could not reach 127.0.0.1: fetch failed', { code: 'network_error' }), 'network'],
+    [new PlaygroundApiError('request timed out after 20000 ms', { code: 'timeout' }), 'network'],
+    [new PlaygroundApiError('HTTP 503', { code: 'http_error', status: 503 }), 'unavailable'],
+  ]) {
+    identity = error;
+    const result = await f.workflow.auth(f.exec);
+    assert.deepEqual(result, { authenticated: false, baseUrl: f.client.baseUrl, reason, tokenSource: 'none' }, reason);
+    assert.doesNotMatch(JSON.stringify(result), /fetch failed|HTTP 503|timed out/);
+  }
+  // A cancelled check still rejects; there is nobody to show it to.
+  identity = new PlaygroundApiError('request was cancelled', { code: 'cancelled' });
+  await assert.rejects(() => f.workflow.auth(f.exec), { code: 'cancelled' });
+  // A broken status source never breaks the login check.
+  const broken = await fixture(undefined, { tokenStatus: async () => { throw new Error('unreadable'); } });
+  assert.equal((await broken.workflow.auth(broken.exec)).authenticated, true);
+});
+
+test('#12: operations that need a login point to the API token login and explain a refused token', async () => {
+  const f = await fixture();
+  for (const [reason, expected] of [
+    ['no_token', /去网站生成令牌.*API 与 Agent.*其他登录方式/],
+    [undefined, /去网站生成令牌/],
+    ['rejected', /令牌无效、已过期或已撤销.*清除令牌/],
+    ['forbidden', /HTTP 403/],
+  ]) {
+    f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, ...(reason ? { reason } : {}) });
+    for (const result of [await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec), await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)]) {
+      assert.equal(result.error.code, 'authentication_required', String(reason));
+      assert.equal(result.error.reason, reason, String(reason));
+      assert.match(result.error.message, expected, String(reason));
+      // The Client hides messages that contain the English word, so the guidance must not use it.
+      assert.doesNotMatch(result.error.message, /token/i);
+    }
+  }
+  assert.match(submissionFailure(Object.assign(new Error('认证失败，请先运行 playground auth login 后重试。'), { code: 'cli_error' })).message, /API 令牌/);
 });

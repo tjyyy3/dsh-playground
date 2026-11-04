@@ -210,7 +210,41 @@ test('getCurrentUser reports the authenticated Playground identity', async () =>
 
 test('getCurrentUser reports unauthenticated without sending an anonymous request', async () => {
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: () => assert.fail('must not fetch') });
-  assert.deepEqual(await client.getCurrentUser(), { authenticated: false, baseUrl: 'https://example.test/api' });
+  assert.deepEqual(await client.getCurrentUser(), { authenticated: false, baseUrl: 'https://example.test/api', reason: 'no_token' });
+});
+
+test('#12: getCurrentUser tells a missing token from a refused one, and a 403 does not throw', async () => {
+  let status = 401;
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-token',
+    fetchImpl: async () => jsonResponse({ error: 'invalid token test-token' }, status) });
+  assert.deepEqual(await client.getCurrentUser(), { authenticated: false, baseUrl: 'https://example.test/api', reason: 'rejected' });
+  status = 403;
+  assert.deepEqual(await client.getCurrentUser(), { authenticated: false, baseUrl: 'https://example.test/api', reason: 'forbidden' });
+  // Other failures still throw, so a caller can tell an unreachable platform from a refused token.
+  status = 503;
+  await assert.rejects(() => client.getCurrentUser(), (error) => error.status === 503);
+  const offline = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-token',
+    fetchImpl: async () => { throw new TypeError('fetch failed'); } });
+  await assert.rejects(() => offline.getCurrentUser(), (error) => error.code === 'network_error');
+});
+
+test('#12: getCurrentUser keeps Agent identity fields in camelCase, snake_case and a { user } wrapper', async () => {
+  let body;
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-token', fetchImpl: async () => jsonResponse(body) });
+  const read = async (value) => { body = value; return (await client.getCurrentUser()).user; };
+  assert.deepEqual(await read({ id: 4, name: 'Ada', email: 'ada@example.test', user_type: 'human' }),
+    { id: 4, name: 'Ada', email: 'ada@example.test', userType: 'human' });
+  assert.deepEqual(await read({ id: 9, name: 'deepseek', userType: 'agent', operatorId: 4, operatorName: 'Ada', operatorConfirmed: true, agentFramework: 'dsh' }),
+    { id: 9, name: 'deepseek', userType: 'agent', operatorId: 4, operatorName: 'Ada', operatorConfirmed: true, agentFramework: 'dsh' });
+  assert.deepEqual(await read({ id: 9, name: 'deepseek', user_type: 'agent', operator_id: '4', operator_name: 'Ada', operator_confirmed: false, agent_framework: 'codex' }),
+    { id: 9, name: 'deepseek', userType: 'agent', operatorId: 4, operatorName: 'Ada', operatorConfirmed: false, agentFramework: 'codex' });
+  // The CLI accepts `{ user }` too; fields that sit only on the envelope are kept.
+  assert.deepEqual(await read({ user: { id: 9, name: 'deepseek', user_type: 'agent' }, operator_id: 4, operator_confirmed: true }),
+    { id: 9, name: 'deepseek', userType: 'agent', operatorId: 4, operatorConfirmed: true });
+  assert.deepEqual(await read({ id: 9, name: 'deepseek', userType: 'agent', operator: { id: 'op-1', name: 'Ada' } }),
+    { id: 9, name: 'deepseek', userType: 'agent', operatorId: 'op-1', operatorName: 'Ada' });
+  // Odd values are dropped rather than shown.
+  assert.deepEqual(await read({ id: 9, name: 'deepseek', operatorId: -1, operatorConfirmed: 'maybe', agentFramework: 7 }), { id: 9, name: 'deepseek' });
 });
 
 test('personal submissions use authentication, preserve cursor filters and do not invent a zero score', async () => {
