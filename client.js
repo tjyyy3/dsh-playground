@@ -538,10 +538,13 @@ window.__ModuleLoader__.load({
           if (latest.controller === controller) { latest.controller = null; setBusy(''); }
         }
       };
+      // 其他 with an empty field reads nothing: the list stays and a hint asks for a key.
+      const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
       // 加载更多 is offered only while the shown list is the one the controls describe: not after a failed
-      // page-1 read (the old list stays under the new controls) and not while the controls hold edits not
-      // read yet (typed search, another filter). Otherwise it would append the old query's next page.
-      const canLoadMore = Boolean(list?.hasMore) && list.season === season && failure?.kind !== 'load'
+      // page-1 read (the old list stays under the new controls), not while the controls hold edits not
+      // read yet (typed search, another filter) and not while 其他 waits for a key, whose query would
+      // otherwise equal 全部学科's. Otherwise it would append the old query's next page.
+      const canLoadMore = Boolean(list?.hasMore) && list.season === season && failure?.kind !== 'load' && !otherPending
         && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
       // The next page of the shown list's own query, appended without repeats.
       const loadMore = async () => {
@@ -574,8 +577,12 @@ window.__ModuleLoader__.load({
         }
       };
       // A failed append is retried as long as the controls still describe the shown list; after edits since,
-      // 重试 reads page 1 of the controls instead of doing nothing.
-      const retry = () => (failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters));
+      // 重试 reads page 1 of the controls instead of doing nothing. While 其他 waits for a key it reads
+      // nothing (and is disabled): any read then would be the unfiltered list.
+      const retry = () => {
+        if (otherPending) return undefined;
+        return failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters);
+      };
       React.useEffect(() => {
         load();
         return () => { latest.controller?.abort(); latest.controller = null; };
@@ -597,8 +604,6 @@ window.__ModuleLoader__.load({
       const partial = shownList?.partial === true;
       const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
         : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
-      // 其他 with an empty field reads nothing: the list stays and a hint asks for a key.
-      const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
       const applyOther = () => { if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() }); };
       // Browsing is session-free; creating a task still runs through an open conversation.
       const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
@@ -626,7 +631,7 @@ window.__ModuleLoader__.load({
             h('select', { className: 'pg-input', 'aria-label': '按学科筛选', value: disciplineChoice, onChange: (event) => {
               const value = event.target.value;
               setDisciplineChoice(value);
-              if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) return;
+              if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) { setStatus('输入学科后按回车筛选'); return; }
               load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
             } },
               h('option', { value: '' }, '全部学科'),
@@ -635,7 +640,7 @@ window.__ModuleLoader__.load({
           disciplineChoice === OTHER_DISCIPLINE ? h('div', { className: 'pg-filter pg-filter-other' },
             h('label', { htmlFor: 'pg-other-discipline' }, '其他学科（英文学科名，精确匹配）'),
             h('div', { className: 'pg-filter-row' },
-              h('input', { id: 'pg-other-discipline', className: 'pg-input', value: otherDiscipline, maxLength: 100, placeholder: '例如 combustion，按回车筛选',
+              h('input', { id: 'pg-other-discipline', className: 'pg-input', value: otherDiscipline, maxLength: 100, placeholder: '例如 science，按回车筛选',
                 ...(facets?.otherKeys?.length ? { list: 'pg-other-discipline-keys' } : {}),
                 onChange: (event) => setOtherDiscipline(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') applyOther(); } }),
               h('button', { type: 'button', className: 'pg-button', onClick: applyOther }, '筛选')),
@@ -653,7 +658,7 @@ window.__ModuleLoader__.load({
           openWebButton(selectedCompetition.webUrl, selectedCompetition.nameZh || selectedCompetition.name)) : null,
         notice ? h('p', { className: 'pg-note' }, notice) : null,
         failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
-          h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy), onClick: retry }, '重试')) : null,
+          h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,
         startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
         busy === 'load' && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
         busy === 'load' && catalog && !shownList ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,

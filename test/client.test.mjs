@@ -3034,3 +3034,79 @@ test('without discipline facets the catalog still shows its challenges and 学�
   await settle();
   assert.deepEqual(findAll(control('按学科筛选'), (node) => node.type === 'option').map((node) => node.props.value), ['', 'biology', '__other__']);
 });
+
+test('an appended page without competitionTable keeps the competition choices and the 比赛信息 row', async (t) => {
+  const { pending, view, control, button } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 30, hasMore: true }));
+  await settle();
+  const choices = () => findAll(control('选择比赛'), (node) => node.type === 'option').map((node) => node.props.value);
+  const before = choices();
+  assert.equal(before.length, competitionTable.length + 1);
+  assert.match(text(infoRow(view())), /2026\.10\.21 16:00 起/);
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
+  // The Host answers a page after the first with the challenges only: no competitionTable, no competitions.
+  pending[2].resolve({ ok: true, value: { challenges: { items: range(20, 30).map((id) => ({ id, title: id, status: 'open' })), total: 30, hasMore: false } } });
+  await settle();
+  assert.deepEqual(cardIds(view()), range(0, 30));
+  assert.deepEqual(choices(), before);
+  assert.equal(control('选择比赛').props.value, 'competition:bohr-product');
+  assert.match(text(infoRow(view())), /2026\.10\.21 16:00 起/);
+  assert.equal(pending.length, 3, 'the missing table does not reset the selector or read again');
+  assert.doesNotMatch(text(view()), /已不在列表中/);
+});
+
+test('an empty 其他 hides 加载更多 even when the shown list was read for 全部学科', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  assert.ok(button('加载更多'));
+  control('按学科筛选').props.onChange({ target: { value: '__other__' } });
+  assert.equal(pending.length, 1, 'no read for an empty 其他');
+  assert.deepEqual(cardIds(view()), range(0, 20));
+  assert.equal(button('加载更多'), undefined, 'the unfiltered list is not paged under 其他');
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选', 'the hint is announced');
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  assert.equal(other().props.placeholder, '例如 science，按回车筛选');
+  // A typed key read for 其他 pages that key's list.
+  other().props.onChange({ target: { value: 'science' } });
+  other().props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[1].input, { action: 'catalog', search: '', discipline: 'science', per_page: 20 });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 25, hasMore: true }));
+  await settle();
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', discipline: 'science', page: 2, per_page: 20 });
+});
+
+test('while 其他 waits for a key, 重试 is disabled and reads nothing', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const failed = { ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } };
+  pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  // A failed append of the unfiltered list, then 其他 with an empty field.
+  button('加载更多').props.onClick();
+  pending[1].resolve(failed);
+  await settle();
+  control('按学科筛选').props.onChange({ target: { value: '__other__' } });
+  assert.equal(button('重试').props.disabled, true);
+  button('重试').props.onClick();
+  assert.equal(pending.length, 2, 'no append and no unfiltered page 1');
+  // A failed page-1 read (提交最多 under 全部学科), then 其他 with an empty field.
+  control('按学科筛选').props.onChange({ target: { value: '' } });
+  pending[2].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  control('排序方式').props.onChange({ target: { value: 'attempts' } });
+  pending[3].resolve(failed);
+  await settle();
+  control('按学科筛选').props.onChange({ target: { value: '__other__' } });
+  assert.equal(button('重试').props.disabled, true);
+  button('重试').props.onClick();
+  assert.equal(pending.length, 4, 'the failed unfiltered read is not repeated under 其他');
+  assert.deepEqual(cardIds(view()), range(0, 20));
+  // Once a key is typed, 重试 is offered again.
+  f.find(view(), (node) => node.props?.id === 'pg-other-discipline').props.onChange({ target: { value: 'science' } });
+  assert.equal(button('重试').props.disabled, false);
+});

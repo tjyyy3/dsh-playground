@@ -209,8 +209,10 @@ followed by `已显示 M 道` while only part of the list is loaded. **加载更
 reads the next 20 challenges and appends them; a challenge id already shown
 is not added again, and the button is disabled while a page loads. It is
 offered only while the shown list matches the controls: it is hidden after a
-failed page-1 read (the previous list stays under the new controls) and while
-the search box or the 其他 field holds text that has not been read yet. Below
+failed page-1 read (the previous list stays under the new controls), while
+the search box or the 其他 field holds text that has not been read yet, and
+while 其他 is chosen with an empty field, whichever 学科 the shown list was
+read for. Below
 the search box, a filter bar holds:
 
 - **来源**: 全部来源 / 社区 / 基准 / 黑客松 / 竞技场 (`origin` = `community`,
@@ -223,7 +225,8 @@ the search box, a filter bar holds:
   free-text field for one exact English key (for example `science` or
   `heat-transfer`), with up to 200 of the remaining discipline keys by count
   as suggestions. Choosing 其他 with an empty field reads nothing: the list
-  stays and the panel says `输入学科后按回车筛选`. When the platform sends no
+  stays, the panel says `输入学科后按回车筛选`, and **重试** after a failed read
+  is disabled until a key is typed. When the platform sends no
   broad fields, the select lists the 10 discipline keys with the most
   challenges instead. Challenges without a discipline appear only under
   全部学科.
