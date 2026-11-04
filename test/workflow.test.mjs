@@ -1920,8 +1920,12 @@ test('a tag competition with extra ids merges both lists without duplicates', as
   // The whole tag is read in pages of 50; the API's own paging is not forwarded for the merged list.
   assert.deepEqual(listings.map((item) => [item.tag, item.page, item.perPage]), [['product-arena', 1, 50], ['product-arena', 2, 50]]);
   assert.deepEqual(read, ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5']);
-  assert.deepEqual(result.challenges.items.map((item) => item.id), ['challenge-9313ad0a', 'ai-635bc8b5', 'product-arena-01-5a9928c1', 'ai-github-98fdb6f0']);
+  // Pinned ids first in table order, then the rest of the tag; a pinned id the tag also lists keeps the tag's card.
+  assert.deepEqual(result.challenges.items.map((item) => item.id), ['ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
+  assert.equal(result.challenges.items[1].title, 'Also fixed');
   assert.equal(result.challenges.total, 4);
+  assert.equal('partial' in result.challenges, false);
+  assert.equal('truncated' in result.challenges, false);
   // Search reaches the tag list through the API and the fixed ids on the Host.
   await f.workflow.catalog({ competition: 'bohr-product', search: 'github' }, f.exec);
   assert.ok(listings.slice(2).every((item) => item.search === 'github'));
@@ -1992,15 +1996,121 @@ test('the product weekly contest returns challenge-9313ad0a and the untagged per
   } });
   Object.assign(f.client, real);
   const result = await f.workflow.catalog({ competition: 'bohr-product', search: '', per_page: 12 }, f.exec);
-  assert.deepEqual(result.challenges.items.map((item) => item.id), ['challenge-9313ad0a', 'product-arena-01-5a9928c1', 'skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5']);
-  assert.equal(result.challenges.items[0].titleZh, undefined, 'a Chinese-only title stays the title');
-  assert.equal(result.challenges.items[0].title, '写作19｜思维导图');
-  assert.equal(result.challenges.items[3].title, 'AI 文献阅读 GitHub 技术分享');
-  assert.equal(result.challenges.items[0].webUrl, 'https://play.bohrium.com/challenge/challenge-9313ad0a');
+  assert.deepEqual(result.challenges.items.map((item) => item.id), ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
+  assert.equal(result.challenges.items[3].titleZh, undefined, 'a Chinese-only title stays the title');
+  assert.equal(result.challenges.items[3].title, '写作19｜思维导图');
+  assert.equal(result.challenges.items[1].title, 'AI 文献阅读 GitHub 技术分享');
+  assert.equal(result.challenges.items[3].webUrl, 'https://play.bohrium.com/challenge/challenge-9313ad0a');
   assert.ok(requested.includes('/api/challenges?tag=product-arena&sort=newest&page=1&per_page=50'), requested.join('\n'));
   // The same contest also answers when the platform has dropped one of the fixed challenges.
   delete details['ai-635bc8b5'];
   const without = await f.workflow.catalog({ competition: 'bohr-product' }, f.exec);
-  assert.deepEqual(without.challenges.items.map((item) => item.id), ['challenge-9313ad0a', 'product-arena-01-5a9928c1', 'skill-13890f6a', 'ai-github-98fdb6f0']);
+  assert.deepEqual(without.challenges.items.map((item) => item.id), ['skill-13890f6a', 'ai-github-98fdb6f0', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
+  // With the real tag size (19 tagged plus 3 pinned), page one of 12 holds both acceptance challenges.
+  details['ai-635bc8b5'] = '小红书图文分享：AI 文献阅读经验';
+  tagged.push(...Array.from({ length: 17 }, (_, index) => card(`product-arena-${String(index + 2).padStart(2, '0')}-synthetic`, `赛题 ${index + 2}`, arena)));
+  assert.equal(tagged.length, 19);
+  const full = await f.workflow.catalog({ competition: 'bohr-product', search: '', per_page: 12 }, f.exec);
+  assert.equal(full.challenges.total, 22);
+  assert.equal(full.challenges.items.length, 12);
+  const firstPage = full.challenges.items.map((item) => item.id);
+  assert.ok(firstPage.includes('ai-github-98fdb6f0') && firstPage.includes('challenge-9313ad0a'), firstPage.join());
+  assert.deepEqual(firstPage.slice(0, 4), ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a']);
   assert.equal(without.competitionTable.some((item) => item.id === 'season:s4'), false, 's4 is in the table already');
+});
+
+test('a failing tag read keeps the pinned challenges and marks the list partial', async () => {
+  const f = await fixture();
+  const signals = [];
+  f.client.listChallenges = async (_params, { signal }) => { signals.push(signal); throw Object.assign(new Error('HTTP 503'), { code: 'server_error', status: 503 }); };
+  f.client.getChallenge = async (id, { signal }) => { signals.push(signal); if (id === 'skill-13890f6a') throw notFound(); return { id, title: `Fixed ${id}` }; };
+  const result = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12 }, f.exec);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.challenges.items.map((item) => item.id), ['ai-github-98fdb6f0', 'ai-635bc8b5']);
+  assert.equal(result.challenges.partial, true);
+  assert.equal(result.challenges.total, 2);
+  // Every read used the internal signal, which is released once the read is over; the caller's is untouched.
+  assert.equal(signals.length, 4);
+  assert.ok(signals.every((signal) => signal !== f.exec.signal && signal === signals[0] && signal.aborted));
+  assert.equal(f.exec.signal.aborted, false);
+});
+
+test('a failing tag read with every pinned id failing reports the tag failure', async () => {
+  const f = await fixture();
+  let tagSignal;
+  f.client.listChallenges = async (_params, { signal }) => { tagSignal = signal; throw Object.assign(new Error('HTTP 503'), { code: 'server_error', status: 503 }); };
+  f.client.getChallenge = async () => { throw notFound(); };
+  await assert.rejects(() => f.workflow.catalog({ competition: 'bohr-product' }, f.exec), (error) => error.code === 'server_error');
+  assert.equal(tagSignal.aborted, true, 'nothing keeps running after the failure');
+});
+
+test('a cancelled tag read stops the pinned reads and rejects with the cancellation', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  const fixedSignals = [];
+  // The tag read hangs until it is aborted; the pinned reads hang and ignore their signal.
+  f.client.listChallenges = (_params, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+  f.client.getChallenge = (_id, { signal }) => { fixedSignals.push(signal); return new Promise(() => {}); };
+  const pending = f.workflow.catalog({ competition: 'bohr-product' }, { ...f.exec, signal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fixedSignals.length, 3);
+  assert.ok(fixedSignals.every((signal) => !signal.aborted));
+  controller.abort(new Error('user left'));
+  await assert.rejects(() => pending, /user left/);
+  assert.ok(fixedSignals.every((signal) => signal.aborted), 'the pinned reads were told to stop');
+});
+
+test('an already-cancelled merged read starts no challenge read and rejects', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  controller.abort(new Error('gone'));
+  const seen = [];
+  f.client.listChallenges = async (_params, { signal }) => { seen.push(signal.aborted); return { items: [] }; };
+  f.client.getChallenge = async (id, { signal }) => { seen.push(signal.aborted); return { id }; };
+  f.client.listCompetitions = async () => ({ items: [] });
+  await assert.rejects(() => f.workflow.catalog({ competition: 'bohr-product' }, { ...f.exec, signal: controller.signal }), /gone/);
+  assert.deepEqual(seen, []);
+});
+
+test('a tag longer than four pages is cut at 200 challenges and flagged truncated', async () => {
+  const f = await fixture();
+  const listings = [];
+  f.client.listChallenges = async (params) => {
+    listings.push(params.page);
+    return { total: 260, page: params.page, perPage: params.perPage, pages: 6, hasMore: true,
+      items: Array.from({ length: params.perPage }, (_, index) => ({ id: `tagged-${params.page}-${index}`, title: 'Tagged' })) };
+  };
+  f.client.getChallenge = async (id) => ({ id, title: id });
+  const result = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12 }, f.exec);
+  assert.deepEqual(listings, [1, 2, 3, 4]);
+  assert.equal(result.challenges.truncated, true);
+  assert.equal(result.challenges.total, 203, 'the total counts what was read');
+  // A tag that ends on the fourth page is complete.
+  f.client.listChallenges = async (params) => ({ page: params.page, hasMore: params.page < 4, items: [{ id: `tagged-${params.page}`, title: 'Tagged' }] });
+  const complete = await f.workflow.catalog({ competition: 'bohr-product' }, f.exec);
+  assert.equal('truncated' in complete.challenges, false);
+  assert.equal(complete.challenges.total, 7);
+});
+
+test('an API season with an unusual slug is listed without a web address', async () => {
+  const f = await fixture();
+  f.client.baseUrl = 'https://play.bohrium.com/api';
+  f.client.listCompetitions = async () => ({ items: [{ slug: 'a/b', status: 'active' }, { slug: 's9', status: 'active' }] });
+  const { competitionTable } = await f.workflow.catalog({}, f.exec);
+  const odd = competitionTable.find((item) => item.id === 'season:a/b');
+  assert.ok(odd);
+  assert.equal('webUrl' in odd, false);
+  assert.equal(competitionTable.find((item) => item.id === 'season:s9').webUrl, 'https://play.bohrium.com/hackathon-s9');
+});
+
+test('the model deployment contest lists both arena rounds', async () => {
+  const f = await fixture();
+  const read = [];
+  f.client.getChallenge = async (id) => { read.push(id); return { id, title: id, status: id.endsWith('v2') ? 'closed' : 'open' }; };
+  const result = await f.workflow.catalog({ competition: 'llm-deploy' }, f.exec);
+  assert.deepEqual(read, ['llm-challenge-arena-v1', 'llm-challenge-arena-v2']);
+  assert.deepEqual(result.challenges.items.map((item) => [item.id, item.status]), [['llm-challenge-arena-v1', 'open'], ['llm-challenge-arena-v2', 'closed']]);
+  // Only the missing second round still lists the first.
+  f.client.getChallenge = async (id) => { if (id.endsWith('v2')) throw notFound(); return { id, title: id }; };
+  assert.deepEqual((await f.workflow.catalog({ competition: 'llm-deploy' }, f.exec)).challenges.items.map((item) => item.id), ['llm-challenge-arena-v1']);
 });

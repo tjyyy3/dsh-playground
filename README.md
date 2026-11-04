@@ -175,12 +175,25 @@ not read the site. **A competition the website adds appears here only in a new
 plugin release.** Status is computed from each entry's start and end time when
 the workbench loads. Challenges are selected by the tag (`玻尔产品周赛`, `追光者计划·招募赛`),
 the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list of
-challenge ids (`模型部署赛`, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
+challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
 `科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`), which the Host reads one by
-one; an id that cannot be read is skipped. Seasons that
-`GET /api/hackathon/seasons` returns and the table does not hold are still listed,
-so a season the platform adds later does not disappear. The workbench query
-accepts a competition only by one of the table's ids and rejects any other.
+one; an id that cannot be read is skipped. `玻尔产品周赛` combines its tag with the
+first period's three untagged challenges, which are listed first. If its tag
+cannot be read, those three are still shown and the result carries
+`partial: true`. The Host reads at most four 50-item pages of a tag (200
+challenges); a longer tag is cut and the result carries `truncated: true`.
+Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
+are still listed, so a season the platform adds later does not disappear; one
+whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. Dates and
+times are shown as written in the table or by the API, without converting time
+zones, as the website does (`科学骑士大师赛` reads `2026.07.27 — 2027.01.31`). The
+workbench query accepts a competition only by one of the table's ids and rejects
+any other.
+
+The workbench shows the first 12 matching challenges and has no paging yet.
+When more match, a line reads `共 N 项，当前显示前 12 项`; search narrows the list.
+If the chosen competition is missing from a later list, the selector returns to
+**全部比赛** and reads the catalog again.
 
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
 import { publicChallengeUrl } from '../lib/links.js';
@@ -2434,14 +2435,14 @@ const competitionTable = [
   { id: 'bohr-product', kind: 'competition', nameZh: '玻尔产品周赛', name: 'Bohrium Product Weekly Contest', status: 'live', startAt: '2026-10-21T16:00:00+08:00',
     dateText: '2026.10.21 起', timeText: '2026.10.21 16:00 起', rounds: '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00',
     webUrl: 'https://play.bohrium.com/competition/bohr-product' },
-  { id: 'knight-s4', kind: 'competition', season: 's4', nameZh: '科学骑士大师赛', status: 'live', dateText: '2026.07.27 — 2027.02.01',
-    timeText: '2026.07.27 08:00 — 2027.02.01 07:59', webUrl: 'https://play.bohrium.com/hackathon-s4' },
+  { id: 'knight-s4', kind: 'competition', season: 's4', nameZh: '科学骑士大师赛', status: 'live', dateText: '2026.07.27 — 2027.01.31',
+    timeText: '2026.07.27 00:00 — 2027.01.31 23:59', webUrl: 'https://play.bohrium.com/hackathon-s4' },
   { id: 'season:s5', kind: 'season', season: 's5', nameZh: '春季赛 · 第五季', status: 'upcoming', dateText: '2026.12.01 — 2026.12.08',
-    timeText: '2026.12.01 08:00 — 2026.12.08 08:00', webUrl: 'https://play.bohrium.com/hackathon-s5' },
+    timeText: '2026.12.01 00:00 — 2026.12.08 00:00', webUrl: 'https://play.bohrium.com/hackathon-s5' },
   { id: 'light-chasing', kind: 'competition', nameZh: '追光者计划·招募赛', status: 'ended', dateText: '2026.10.10 — 2026.10.11',
     timeText: '2026.10.10 20:00 — 2026.10.11 20:00', webUrl: 'javascript:alert(1)' },
   { id: 'paper2arm-s1', kind: 'competition', season: 's1', nameZh: 'Paper2Arm 黑客松 · 第一季', status: 'ended', dateText: '2026.04.17',
-    timeText: '2026.04.17 13:00 — 2026.04.17 17:00', webUrl: 'https://play.bohrium.com/hackathon-s1' },
+    timeText: '2026.04.17 05:00 — 2026.04.17 09:00', webUrl: 'https://play.bohrium.com/hackathon-s1' },
 ];
 
 async function competitionPanel(t, table = competitionTable) {
@@ -2470,7 +2471,7 @@ test('the competition selector groups competitions by status and starts on 全�
   const options = (group) => findAll(group, (node) => node.type === 'option').map((node) => [node.props.value, text(node)]);
   assert.deepEqual(options(groups[0]), [
     ['competition:bohr-product', '玻尔产品周赛 · 进行中 · 2026.10.21 起'],
-    ['competition:knight-s4', '科学骑士大师赛 · 进行中 · 2026.07.27 — 2027.02.01']]);
+    ['competition:knight-s4', '科学骑士大师赛 · 进行中 · 2026.07.27 — 2027.01.31']]);
   assert.deepEqual(options(groups[1]), [['season:s5', '春季赛 · 第五季 · 即将开始 · 2026.12.01 — 2026.12.08']]);
   assert.deepEqual(options(groups[2]), [
     ['competition:light-chasing', '追光者计划·招募赛 · 已结束 · 2026.10.10 — 2026.10.11'],
@@ -2511,7 +2512,7 @@ test('choosing a competition sends its id, shows the info row and opens its page
 test('the info row omits rounds when a competition has none, and opens no unsafe address', async (t) => {
   const { choose } = await competitionPanel(t);
   const season = findAll(await choose('competition:knight-s4'), (node) => node.props?.['aria-label'] === '比赛信息')[0];
-  assert.match(text(season), /时间：2026\.07\.27 08:00 — 2027\.02\.01 07:59/);
+  assert.match(text(season), /时间：2026\.07\.27 00:00 — 2027\.01\.31 23:59/);
   assert.doesNotMatch(text(season), /轮次/);
   assert.equal(findAll(season, isOpenWeb).length, 1);
   const unsafe = findAll(await choose('competition:light-chasing'), (node) => node.props?.['aria-label'] === '比赛信息')[0];
@@ -2549,4 +2550,87 @@ test('a catalog without a competition table still renders the plain selector', a
   const children = f.find(panel, (node) => node.type === 'select').props.children.flat(Infinity).filter(Boolean);
   assert.deepEqual(children.map((node) => node.type), ['option']);
   assert.equal(findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息').length, 0);
+});
+
+const cardIds = (panel) => findAll(panel, (node) => node.type === 'article').map((node) => node.props.key);
+const infoRow = (panel) => findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息')[0];
+
+test('while a newly chosen competition loads, or after its read fails, the previous challenges stay hidden', async (t) => {
+  const pending = [];
+  const f = await clientFixture(t, { connection: { rpc: { call: (_route, _endpoint, payload) => new Promise((resolve) => pending.push({ input: payload.args.input, resolve })) } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  const page = (id) => ({ ok: true, value: { competitions: { items: [] }, competitionTable, challenges: { total: 1, items: [{ id, title: id }] } } });
+  const choose = (value) => f.find(view(), (node) => node.type === 'select').props.onChange({ target: { value } });
+  await f.mount(catalog);
+  pending[0].resolve(page('all-1'));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['all-1']);
+  // Pending: the new info row shows, the previous competition's cards do not.
+  choose('competition:knight-s4');
+  let panel = view();
+  assert.deepEqual(pending[1].input, { action: 'catalog', search: '', competition: 'knight-s4', per_page: 12 });
+  assert.match(text(infoRow(panel)), /2026\.07\.27 00:00 — 2027\.01\.31 23:59/);
+  assert.deepEqual(cardIds(panel), []);
+  assert.match(text(panel), /正在读取所选比赛的赛题/);
+  assert.doesNotMatch(text(panel), /没有找到匹配赛题/);
+  pending[1].resolve(page('s4-1'));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['s4-1']);
+  // Failed: the error shows under the new row, still without the old cards.
+  choose('competition:bohr-product');
+  pending[2].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
+  await settle();
+  panel = view();
+  assert.match(text(infoRow(panel)), /轮次：第一期/);
+  assert.match(text(f.find(panel, (node) => node.props?.role === 'alert')), /upstream returned 503/);
+  assert.deepEqual(cardIds(panel), []);
+  assert.doesNotMatch(text(panel), /正在读取所选比赛的赛题/);
+  // Choosing the loaded competition again shows its cards without waiting for the new read.
+  choose('competition:knight-s4');
+  assert.deepEqual(cardIds(view()), ['s4-1']);
+});
+
+test('a chosen competition the new table no longer lists resets the selector to 全部比赛 and reads once more', async (t) => {
+  const calls = [];
+  let table = competitionTable;
+  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, _endpoint, payload) => {
+    calls.push(payload.args.input);
+    return { ok: true, value: { competitions: { items: [] }, competitionTable: table, challenges: { total: 1, items: [{ id: `c${calls.length}`, title: 'Challenge' }] } } };
+  } } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  await f.mount(catalog);
+  f.find(view(), (node) => node.type === 'select').props.onChange({ target: { value: 'season:s5' } });
+  await settle();
+  assert.equal(calls.length, 2);
+  assert.ok(infoRow(view()));
+  table = competitionTable.filter((item) => item.id !== 'season:s5');
+  await f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
+  await settle();
+  assert.deepEqual(calls.slice(2), [{ action: 'catalog', search: '', season: 's5', per_page: 12 }, { action: 'catalog', search: '', per_page: 12 }]);
+  const panel = view();
+  assert.equal(f.find(panel, (node) => node.type === 'select').props.value, '');
+  assert.equal(infoRow(panel), undefined);
+  assert.deepEqual(cardIds(panel), ['c4']);
+  assert.match(text(panel), /之前选择的比赛已不在列表中，已改为显示全部比赛/);
+  // The notice belongs to that reset only; the next read clears it.
+  await f.find(panel, (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
+  await settle();
+  assert.equal(calls.length, 5);
+  assert.doesNotMatch(text(view()), /已不在列表中/);
+});
+
+test('the list says how many challenges match when it shows only the first ones', async (t) => {
+  let total = 30;
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { competitions: { items: [] }, competitionTable,
+    challenges: { total, items: Array.from({ length: Math.min(total, 12) }, (_, index) => ({ id: `c${index}`, title: `Challenge ${index}` })) } } }) } } });
+  assert.match(text(await f.mount(f.workbench('A').catalog)), /共 30 项，当前显示前 12 项/);
+  for (total of [12, 5, 0]) assert.doesNotMatch(text(await f.mount(f.workbench('A').catalog)), /共 \d+ 项/);
+});
+
+test('the competition info row has its own layout rule', async () => {
+  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8');
+  assert.match(source, /\.pg-competition-info\{display:flex;flex-wrap:wrap;[^}]*gap:/);
+  assert.match(source, /\.pg-competition-info \.pg-note\{[^}]*overflow-wrap:anywhere/);
 });

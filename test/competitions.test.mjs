@@ -41,7 +41,11 @@ test('the table selects challenges the way the website does', () => {
   assert.deepEqual(competitionSelection('harness').challengeIds, ['biomaster-harness-optimization-4f6eec24', 'harness-45c4688b']);
   assert.deepEqual(competitionSelection('agent').challengeIds, ['agent-optimization-v1']);
   assert.deepEqual(competitionSelection('science-reliability').challengeIds, ['scimaster-harness-arena-0ece77a4']);
-  assert.deepEqual(competitionSelection('llm-deploy').challengeIds, ['llm-challenge-arena-v1']);
+  // Both rounds of the website's arena list; the second one (v2) is closed but still listed.
+  assert.deepEqual(competitionSelection('llm-deploy').challengeIds, ['llm-challenge-arena-v1', 'llm-challenge-arena-v2']);
+  const fixed = COMPETITIONS.flatMap((item) => item.select.challengeIds || []);
+  assert.equal(fixed.length, 13, 'the DPA id is listed twice (DPA deploy and the PKU zone)');
+  assert.equal(new Set(fixed).size, 12);
   assert.deepEqual(competitionSelection('dpa-deploy').challengeIds, ['optimize-the-complete-dpa4c-nano-lammps-md-step-ac-6a1e56aa']);
   assert.equal(competitionSelection('pku').challengeIds.length, 3);
   for (const unknown of ['', 'nope', 'BOHR-PRODUCT', 's4', undefined, null, 4, {}]) assert.equal(competitionSelection(unknown), undefined);
@@ -86,7 +90,7 @@ test('table statuses at one fixed time', () => {
     ['llm-deploy', 'knight-s4']);
 });
 
-test('dates and times are written in the website time zone', () => {
+test('dates and times are shown as written, without converting time zones', () => {
   const find = (id) => findCompetition(id);
   assert.equal(competitionDateText(find('light-chasing')), '2026.10.10 — 2026.10.11');
   assert.equal(competitionTimeText(find('light-chasing')), '2026.10.10 20:00 — 2026.10.11 20:00');
@@ -95,8 +99,24 @@ test('dates and times are written in the website time zone', () => {
   assert.equal(competitionDateText(find('pku')), '日期待定');
   assert.equal(competitionTimeText(find('pku')), '日期待定');
   assert.equal(competitionDateText(find('paper2arm-s1')), '2026.04.17', 'one day collapses to one date');
-  assert.equal(competitionDateText(find('knight-s4')), '2026.07.27 — 2027.02.01');
+  assert.equal(competitionTimeText(find('paper2arm-s1')), '2026.04.17 05:00 — 2026.04.17 09:00');
+  // s4 reads as on the website: its end is 2027.01.31, not 2027.02.01 07:59 in UTC+8.
+  assert.equal(competitionDateText(find('knight-s4')), '2026.07.27 — 2027.01.31');
+  assert.equal(competitionTimeText(find('knight-s4')), '2026.07.27 00:00 — 2027.01.31 23:59');
+  // The live API writes +00:00; the digits are kept the same way.
+  const api = { startAt: '2026-07-27T00:00:00+00:00', endAt: '2027-01-31T23:59:59+00:00' };
+  assert.equal(competitionTimeText(api), '2026.07.27 00:00 — 2027.01.31 23:59');
   assert.equal(competitionDateText({ endAt: '2026-10-21T00:00:00Z' }), '至 2026.10.21');
+  // An explicit +08:00 keeps its written value, even where the UTC date is a day earlier.
+  assert.equal(competitionTimeText({ startAt: '2026-09-18T00:00:00+08:00' }), '2026.09.18 00:00 起');
+  // A bare date has no time of day; a parseable non-ISO string falls back to UTC+8; an unparseable one is absent.
+  assert.equal(competitionTimeText({ startAt: '2026-09-18' }), '2026.09.18 起');
+  assert.equal(competitionTimeText({ startAt: 'Tue, 01 Dec 2026 00:00:00 GMT' }), '2026.12.01 08:00 起');
+  assert.equal(competitionTimeText({ startAt: 'soon', endAt: '2026-13-45' }), '日期待定');
+  // Status still compares real instants: the written 23:59 with +00:00 is 07:59 the next day in UTC+8.
+  assert.equal(competitionStatus(api, at('2027-01-31T23:59:58Z')), 'live');
+  assert.equal(competitionStatus(api, at('2027-01-31T23:59:59Z')), 'ended');
+  assert.equal(competitionStatus({ startAt: '2026-09-18T00:00:00+08:00' }, at('2026-09-17T16:00:00Z')), 'live');
 });
 
 test('competitionList computes status now, groups live first and keeps API seasons the table lacks', () => {
@@ -118,7 +138,7 @@ test('competitionList computes status now, groups live first and keeps API seaso
   const extra = items.find((item) => item.id === 'season:s5');
   assert.deepEqual(extra, { id: 'season:s5', kind: 'season', season: 's5', nameZh: '春季赛 · 第五季', name: 'Spring Cup', status: 'upcoming',
     startAt: '2026-12-01T00:00:00Z', endAt: '2026-12-08T00:00:00Z', dateText: '2026.12.01 — 2026.12.08',
-    timeText: '2026.12.01 08:00 — 2026.12.08 08:00', pagePath: 'hackathon-s5' });
+    timeText: '2026.12.01 00:00 — 2026.12.08 00:00', pagePath: 'hackathon-s5' });
   const bohr = items.find((item) => item.id === 'bohr-product');
   assert.equal(bohr.rounds, '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
   assert.equal(bohr.pagePath, 'competition/bohr-product');
@@ -154,6 +174,16 @@ test('an API season without dates is judged by its own status', () => {
   assert.equal(status({}).status, 'upcoming');
   assert.equal(status({}).nameZh, 's9');
   assert.equal(status({}).dateText, '日期待定');
+});
+
+test('an API season gets a page path only for a plain slug', () => {
+  const now = at('2026-11-02T12:00:00Z');
+  const seasons = ['s6', 'spring_2027-A', 'a/b', '../admin', 's 7', '%2F', 'é'].map((slug) => ({ slug, status: 'active' }));
+  const extra = competitionList({ seasons, now }).filter((item) => item.kind === 'season');
+  assert.deepEqual(extra.map((item) => [item.season, item.pagePath]), [
+    ['s6', 'hackathon-s6'], ['spring_2027-A', 'hackathon-spring_2027-A'],
+    ['a/b', undefined], ['../admin', undefined], ['s 7', undefined], ['%2F', undefined], ['é', undefined]]);
+  assert.ok(extra.filter((item) => item.pagePath === undefined).every((item) => !('pagePath' in item)));
 });
 
 test('publicPageUrl joins the web root and a page path', () => {
