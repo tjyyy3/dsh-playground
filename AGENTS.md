@@ -52,7 +52,12 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   `workspaceRegistry.resolveByPath` to a registered DSH workspace, otherwise
   binding is refused. It writes nothing to the platform. A bound conversation
   keeps its task: the same challenge is a no-op that leaves receipts and
-  `attemptIds` untouched, and another challenge is refused.
+  `attemptIds` untouched, and another challenge is refused. Binding a
+  conversation without a task keeps its pending card, receipt and `attemptIds`
+  for the bound challenge and is refused when they belong to another one. Bind
+  only on an explicit request to work on or submit a challenge in this
+  conversation; a refused bind is reported to the user, never followed by an
+  unrequested `playground_start_task`.
 
 ## Current state
 

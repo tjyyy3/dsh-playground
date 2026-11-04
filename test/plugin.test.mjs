@@ -428,9 +428,13 @@ test('native task creation tool requires an explicit target directory in its sch
   assert.match(tool.parameters.properties.cwd.description, /absolute path of a registered DSH workspace/);
   // Without this guidance the model tends to solve challenges in place, so they never reach the task list.
   // #25: in place now means binding the current conversation; a new one only on explicit request.
-  assert.match(tool.description, /call playground_bind_task to bind this conversation instead of creating a new one/);
-  assert.match(tool.description, /never work on a challenge in a conversation that is not bound to it/);
-  assert.match(tool.description, /Call this tool only when the user explicitly asks for a new or separate task conversation/);
+  assert.match(tool.description, /when the user explicitly asks to work on, solve or submit a specific Playground challenge in this conversation, call playground_bind_task to bind this conversation instead of creating a new one/);
+  assert.match(tool.description, /before preparing materials for submission in this conversation, bind it/);
+  assert.match(tool.description, /Reading, browsing, explaining or comparing challenges needs neither tool/);
+  assert.doesNotMatch(tool.description, /never work on a challenge in a conversation that is not bound to it/);
+  assert.match(tool.description, /Call this tool only when the user explicitly asks for a new or separate task conversation\./);
+  // A refused bind is no reason to create a conversation the user did not ask for.
+  assert.doesNotMatch(tool.description, /refuses/);
   assert.match(tool.description, /If this conversation already has a Playground task, continue working here/);
   assert.match(tool.description, /Only create another task when the user explicitly requests a new task/);
 });
@@ -447,15 +451,19 @@ test('#25: the bind tool takes a challenge and an optional mode, never a directo
   assert.match(tool.description, /Creates no conversation, sends no prompt and writes nothing to the platform/);
   assert.match(tool.description, /this conversation's own working directory, which must be a registered DSH workspace/);
   assert.match(tool.description, /use playground_start_task only when the user explicitly asks for a new task/);
+  assert.match(tool.description, /Call it only when the user explicitly asks to work on, solve or submit a specific challenge in this conversation; reading, browsing, explaining or comparing challenges must not bind/);
+  assert.match(tool.description, /A binding cannot be undone/);
+  assert.doesNotMatch(tool.description, /start, do or solve/);
+  assert.match(tool.description, /explain that to the user and wait; do not create a task conversation on your own/);
 });
 
 test('#25: playground_bind_task binds the calling conversation through its tool result', async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-bind-')));
   try {
     await withSyntheticPlatform(async () => {
-      let state = workflowProjection.init();
+      // Mutated in place, so the strict stateOf stub keeps checking the session and key the tools read.
+      const state = workflowProjection.init();
       const { tools, scope, exec } = mountWorkflowScope(state, { config: SYNTHETIC_CONFIG, cwd: directory });
-      scope.sessionProjections.stateOf = () => state;
       const resolved = [];
       scope.workspaceRegistry = { list: () => [{ id: 'workspace', path: directory }],
         async resolveByPath(path) { resolved.push(path); return (await realpath(path)) === directory ? { id: 'workspace', path: directory } : undefined; } };
@@ -465,9 +473,9 @@ test('#25: playground_bind_task binds the calling conversation through its tool 
       const value = await tool.execute(args, exec);
       assert.equal(value.ok, true);
       assert.deepEqual(resolved, [directory]);
-      const meta = presentationMeta(args, value);
-      assert.equal(meta.playgroundWorkflow.kind, 'task');
-      state = workflowProjection.apply(state, { type: 'tool/result', data: { meta } });
+      const meta = tool.output.presentationMeta(args, value);
+      assert.equal(meta.playgroundWorkflow.kind, 'bind');
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta } }));
       assert.equal(state.task.challengeId, 'challenge-a');
       assert.equal(state.task.cwd, directory);
       assert.equal(state.task.mode, 'participate');

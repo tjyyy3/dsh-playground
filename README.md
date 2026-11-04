@@ -77,7 +77,9 @@ requires authentication and can consume a platform submission slot.
    task, pending card and receipt restore from the native session log.
 
 To work on a challenge in the conversation you are already in, ask the agent
-to do it there. It calls `playground_bind_task` with the challenge id and,
+to work on, solve or submit it there. Reading, browsing, explaining or
+comparing challenges does not bind, and a binding cannot be undone. The agent
+calls `playground_bind_task` with the challenge id and,
 optionally, `mode` (`participate` by default). The tool records the same task
 context as `playground_start_task` in the current conversation: the
 conversation then appears in the workbench task list, and material checks, the
@@ -87,14 +89,20 @@ platform, so it asks for no confirmation. The workspace is the conversation's
 own working directory; the tool takes no directory. DSH must resolve that
 directory, or an alias of it, to a registered workspace, and the task records
 the registered path. A conversation without a working directory, or whose
-directory is missing or not registered, is refused with an explanation. The
+directory is missing or not registered, is refused with an explanation; the
+agent then tells you and waits. You can add the directory as a workspace in
+the Playground workbench, or ask for a new task conversation in a registered
+workspace you name. The
 tool reads the challenge first and refuses a challenge that does not exist or
 whose statement needs access permission. A conversation that already has a
 task keeps it: binding the same challenge again changes nothing, including its
 receipt and submission history, and another challenge is refused with
-"如需做另一道题，请新开任务对话". The agent calls `playground_start_task` only when
-you explicitly ask for a new task conversation, or when the current
-conversation's directory is not a registered workspace.
+"如需做另一道题，请新开任务对话". A conversation without a task keeps its pending
+confirmation card, receipt and submission history when they are for the bound
+challenge; if they are for another challenge, binding is refused and nothing
+changes. A second bind of the same conversation while one is still running is
+refused. The agent calls `playground_start_task` only when you explicitly ask
+for a new task conversation.
 
 **参赛 / 出题** are working modes, not account identities. Author mode (出题)
 is not open yet: the workbench and chat cards only start participation tasks,
