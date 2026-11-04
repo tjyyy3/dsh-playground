@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
 import test, { mock } from 'node:test';
-import { createPlaygroundClient } from '../lib/api.js';
+import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
 import { buildSubmitArgs } from '../lib/cli.js';
@@ -2347,4 +2347,192 @@ test('a slow facets read does not hold the catalog, and its answer serves the ne
   finish({ disciplines: { physics: 1307 } });
   assert.deepEqual((await waiting).disciplineFacets.top, [{ key: 'physics', count: 1307 }]);
   assert.equal(reads, 1);
+});
+
+// #25: binding the current conversation to a challenge.
+const noSessionWork = (f) => {
+  f.ctx.commands.execute = async () => assert.fail('binding ran a session command');
+  f.ctx.sessionController.create = async () => assert.fail('binding created a session');
+  f.ctx.sessionController.prompt = async () => assert.fail('binding sent a prompt');
+};
+
+test('#25: binding an ordinary conversation records the task in it, without a new session, prompt or platform write', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  const sessions = [];
+  f.ctx.workingDirectory.get = (session) => { sessions.push(session); return f.cwd; };
+  const result = await f.workflow.bind({ challenge_id: ' challenge-a ' }, f.exec);
+  assert.equal(result.ok, true);
+  assert.equal(result.workflow.kind, 'task');
+  assert.deepEqual(sessions, [f.exec.agent.session]);
+  f.record(result);
+  const state = f.states.get('source');
+  assert.deepEqual(state.task, {
+    challengeId: 'challenge-a', title: 'Synthetic challenge', cwd: f.cwd, mode: 'participate', sourceSessionId: 'source',
+    baseUrl: 'http://127.0.0.1:15000/api', webUrl: 'http://127.0.0.1:15000/challenge/challenge-a',
+  });
+  assert.equal(state.prepared, null);
+  assert.equal(state.receipt, null);
+  assert.deepEqual(workflowProjection.wire.view(state).task, state.task);
+  assert.deepEqual(f.calls, []);
+  // The task record has exactly the fields a task created by start() has.
+  const started = await fixture();
+  await started.workflow.start({ challenge_id: 'challenge-a', cwd: started.cwd }, started.exec);
+  assert.deepEqual(Object.keys(state.task).sort(), Object.keys(started.states.get('new-task').task).sort());
+  // The tool result carries the mutation to the projection the same way the material check does.
+  assert.deepEqual(presentationMeta({}, result).playgroundWorkflow, result.workflow);
+  const author = await fixture();
+  noSessionWork(author);
+  const authored = await author.workflow.bind({ challenge_id: 'challenge-a', mode: 'author' }, author.exec);
+  author.record(authored);
+  assert.equal(author.states.get('source').task.mode, 'author');
+});
+
+test('#25: a directory alias of the conversation resolves to the registered workspace path', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'playground-alias-')));
+  directories.push(parent);
+  const alias = join(parent, 'linked-workspace');
+  // A junction needs no privilege on Windows; elsewhere the type is ignored and a directory symlink is made.
+  await symlink(f.cwd, alias, 'junction');
+  const aliases = [alias, ...(process.platform === 'win32' ? [f.cwd.toUpperCase(), toNamespacedPath(f.cwd)] : [])];
+  for (const directory of aliases) {
+    f.states.set('source', workflowProjection.init());
+    f.ctx.workingDirectory.get = () => directory;
+    const result = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(result.ok, true, directory);
+    f.record(result);
+    assert.equal(f.states.get('source').task.cwd, f.cwd, directory);
+  }
+});
+
+test('#25: binding the same challenge again succeeds and keeps the receipt and attemptIds', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  f.record(await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  f.record(await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec));
+  const before = f.states.get('source');
+  assert.equal(before.receipt.attemptId, 7);
+  assert.deepEqual(before.attemptIds, [7]);
+  for (const args of [{ challenge_id: 'challenge-a' }, { challenge_id: 'challenge-a', mode: 'participate' }, { challenge_id: 'challenge-a', mode: 'author' }]) {
+    const again = await f.workflow.bind(args, f.exec);
+    assert.equal(again.ok, true);
+    assert.equal(again.alreadyBound, true);
+    assert.equal(again.workflow, undefined);
+    assert.equal(again.challengeId, 'challenge-a');
+    f.record(again);
+    assert.deepEqual(f.states.get('source'), before);
+    if (args.mode === 'author') assert.match(again.note, /playground_task 的 mode/);
+    else assert.equal(again.note.includes('playground_task'), false);
+  }
+  assert.deepEqual(taskAttemptIds(f.states.get('source')), [7]);
+  assert.equal(f.calls.filter(([kind]) => kind === 'create').length, 1);
+});
+
+test('#25: a conversation bound to another challenge refuses and stays unchanged', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  f.record(await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec));
+  const before = f.states.get('source');
+  let reads = 0;
+  f.client.getChallenge = async (id) => { reads += 1; return { id, title: 'Other challenge', content: 'x', resources: [] }; };
+  const result = await f.workflow.bind({ challenge_id: 'challenge-b' }, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'task_already_bound');
+  assert.match(result.error.message, /如需做另一道题，请新开任务对话/);
+  assert.equal(result.workflow, undefined);
+  f.record(result);
+  assert.equal(f.states.get('source'), before);
+  assert.equal(reads, 0);
+  // A task conversation created by start() is treated the same way.
+  const started = await fixture();
+  await started.workflow.start({ challenge_id: 'challenge-a', cwd: started.cwd }, started.exec);
+  const taskExec = { agent: started.ctx.agents.get('new-task'), signal: started.exec.signal };
+  const refused = await started.workflow.bind({ challenge_id: 'challenge-b' }, taskExec);
+  assert.equal(refused.error.code, 'task_already_bound');
+  const same = await started.workflow.bind({ challenge_id: 'challenge-a' }, taskExec);
+  assert.equal(same.ok, true);
+  assert.equal(same.workflow, undefined);
+});
+
+test('#25: binding refuses a conversation without a registered workspace directory', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  const other = await realpath(await mkdtemp(join(tmpdir(), 'playground-unregistered-')));
+  directories.push(other);
+  let reads = 0;
+  f.client.getChallenge = async (id) => { reads += 1; return { id, title: 'Synthetic challenge', content: 'x', resources: [] }; };
+  for (const [get, pattern] of [
+    [() => undefined, /没有可用的工作目录/],
+    [() => '', /没有可用的工作目录/],
+    [() => 'relative/dir', /没有可用的工作目录/],
+    [() => { throw new Error('no working directory'); }, /没有可用的工作目录/],
+    [() => other, /不是已添加的 DSH 工作区/],
+    [() => join(f.cwd, 'missing'), /工作目录不存在/],
+  ]) {
+    f.ctx.workingDirectory.get = get;
+    const result = await f.workflow.bind({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+    assert.equal(result.ok, false, String(pattern));
+    assert.equal(result.error.code, 'workspace_required');
+    assert.match(result.error.message, pattern);
+    assert.match(result.error.message, /playground_start_task/);
+    assert.equal(result.workflow, undefined);
+    f.record(result);
+    assert.equal(f.states.get('source').task, null);
+  }
+  // A registered workspace whose directory has gone is refused too.
+  f.ctx.workingDirectory.get = () => f.cwd;
+  f.ctx.workspaceRegistry.resolveByPath = async () => ({ id: 'gone', path: join(f.cwd, 'deleted') });
+  const gone = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(gone.error.code, 'workspace_required');
+  assert.match(gone.error.message, /不存在或不可访问/);
+  assert.equal(reads, 0);
+});
+
+test('#25: a missing or gated challenge is refused and nothing is bound', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  f.client.getChallenge = async () => { throw new PlaygroundApiError('Not found', { code: 'not_found', status: 404 }); };
+  const missing = await f.workflow.bind({ challenge_id: 'no-such-challenge' }, f.exec);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.error.code, 'not_found');
+  assert.match(missing.error.message, /找不到赛题 no-such-challenge，未绑定任务/);
+  f.record(missing);
+  assert.equal(f.states.get('source').task, null);
+  f.client.getChallenge = async (id) => ({ id, title: 'Gated', contentGated: true, resources: [] });
+  const gated = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(gated.ok, false);
+  assert.equal(gated.error.code, 'content_gated');
+  assert.match(gated.error.message, /题面不可读取/);
+  f.record(gated);
+  assert.equal(f.states.get('source').task, null);
+  // Other read failures reach the tool's error handling instead of binding.
+  f.client.getChallenge = async () => { throw new PlaygroundApiError('Network down', { code: 'network_error' }); };
+  await assert.rejects(f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec), /Network down/);
+  for (const challenge_id of [undefined, '', '   ']) {
+    const result = await f.workflow.bind({ challenge_id }, f.exec);
+    assert.equal(result.ok, false);
+    assert.match(result.error.message, /challenge_id/);
+  }
+  assert.equal(f.states.get('source').task, null);
+});
+
+test('#25: after binding, the material check issues the confirmation card in the bound conversation', async () => {
+  const f = await fixture();
+  noSessionWork(f);
+  f.record(await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.equal(checked.status, 'awaiting_confirmation');
+  f.record(checked);
+  const state = f.states.get('source');
+  assert.equal(state.task.challengeId, 'challenge-a');
+  assert.equal(state.prepared.checkId, checked.workflow.prepared.checkId);
+  assert.equal(state.prepared.cwd, f.cwd);
+  const result = await f.workflow.results({}, f.exec);
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /还没有提交回执/);
 });
