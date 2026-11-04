@@ -588,12 +588,18 @@ test('attempt formatters show scoring state and submission outcome', () => {
 
 test('getChallengeFacets reads the discipline counts and rejects a response without them', async () => {
   const requested = [];
-  let body = { attempts: 48415, total: 6985, unclassified: 2354, formalDisciplines: { materials: 1411 }, subDisciplines: {},
+  let body = { attempts: 48415, total: 6985, unclassified: 2354, formalDisciplines: { materials: 1411, ' physics ': 1307, zero: 0, '': 2 }, subDisciplines: {},
     disciplines: { materials: 1411, ' physics ': 1307, '': 5, ['x'.repeat(101)]: 9, zero: 0, half: 1.5, text: '3' } };
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: async (url) => { requested.push(url); return jsonResponse(body); } });
-  assert.deepEqual(await client.getChallengeFacets(), { total: 6985, unclassified: 2354, disciplines: { materials: 1411, physics: 1307 } });
+  assert.deepEqual(await client.getChallengeFacets(), { total: 6985, unclassified: 2354, disciplines: { materials: 1411, physics: 1307 },
+    formalDisciplines: { materials: 1411, physics: 1307 } });
   assert.equal(requested[0].origin + requested[0].pathname, 'https://example.test/api/challenges/facets');
   assert.equal(requested[0].search, '');
+  // A missing or malformed formal set is left out; the disciplines still answer.
+  for (const formalDisciplines of [undefined, null, [], 'materials']) {
+    body = { disciplines: { materials: 1411 }, ...(formalDisciplines === undefined ? {} : { formalDisciplines }) };
+    assert.deepEqual(await client.getChallengeFacets(), { disciplines: { materials: 1411 } }, JSON.stringify(formalDisciplines));
+  }
   for (body of [null, [], { total: 1 }, { disciplines: [] }, { disciplines: null }]) {
     await assert.rejects(() => client.getChallengeFacets(), (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response', JSON.stringify(body));
   }

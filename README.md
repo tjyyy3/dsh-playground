@@ -207,21 +207,31 @@ If the chosen competition is missing from a later list, the selector returns to
 The catalog shows `共 N 道` for the current competition, search and filters,
 followed by `已显示 M 道` while only part of the list is loaded. **加载更多**
 reads the next 20 challenges and appends them; a challenge id already shown
-is not added again, and the button is disabled while a page loads. Below the
-search box, a filter bar holds:
+is not added again, and the button is disabled while a page loads. It is
+offered only while the shown list matches the controls: it is hidden after a
+failed page-1 read (the previous list stays under the new controls) and while
+the search box or the 其他 field holds text that has not been read yet. Below
+the search box, a filter bar holds:
 
 - **来源**: 全部来源 / 社区 / 基准 / 黑客松 / 竞技场 (`origin` = `community`,
   `benchmark`, `hackathon`, `arena`).
-- **学科**: 全部学科, the 10 disciplines with the most challenges, and
+- **学科**: 全部学科, the platform's curated broad fields
+  (`formalDisciplines`, for example `materials`, `physics`, `biology`,
+  `fluid-dynamics`, `math`) ordered by challenge count, and
   **其他（输入学科）**. The list API matches a discipline key exactly
   (`disc=physics`) and cannot ask for "none of these", so 其他 opens a
-  free-text field for one exact English key (for example `combustion`), with
-  the next 200 keys by count as suggestions. Challenges without a discipline
-  appear only under 全部学科.
+  free-text field for one exact English key (for example `science` or
+  `heat-transfer`), with up to 200 of the remaining discipline keys by count
+  as suggestions. Choosing 其他 with an empty field reads nothing: the list
+  stays and the panel says `输入学科后按回车筛选`. When the platform sends no
+  broad fields, the select lists the 10 discipline keys with the most
+  challenges instead. Challenges without a discipline appear only under
+  全部学科.
 - **排序**: 最新 (`newest`, default) / 提交最多 (`attempts`).
 - **只看开放** (off by default). The list API ignores a `status` parameter, so
   this checkbox reads nothing: it hides the loaded challenges that are not
-  open, and the count line says it filters only what is loaded.
+  open, and the count line reads `共 N 道 · 已加载 M 道 · 其中开放 K 道` with a
+  note that it filters only what is loaded.
 
 Changing 来源, 学科, 排序, the competition or the search reads page 1 again, and
 the filters combine with each other, the competition and the search. Only the
@@ -230,7 +240,9 @@ including a **加载更多** page. A failed read keeps the loaded challenges and
 shows fixed text with **重试**: `赛题目录读取失败。`,
 `赛题目录读取失败，下面仍是上一次读取的赛题。` when cards of the same competition
 stay shown, or `加载更多赛题失败，已加载的赛题仍保留。`. The platform's error text
-is not shown.
+is not shown. An appended page of `玻尔产品周赛` whose tag read failed
+(`partial: true` on a list that was complete) counts as a failed append: the
+loaded cards, the total and **加载更多** stay as they were.
 
 The workbench query takes these as `page` (integer 1–100000), `origin`,
 `discipline` (1–100 characters, trimmed) and `sort`, each validated strictly;
@@ -242,14 +254,21 @@ returns an empty page with `hasMore: false` past the end. 提交最多 sorts the
 whole merged list by attempts; 最新 keeps the fixed challenges first in table
 order, then the tag in the API's newest order, because a challenge read by id
 has no creation time. Each page of such a list reads the whole list again.
+Pages after the first do not read `/api/hackathon/seasons` and carry only
+`webBase` and `challenges`; the competition selector keeps the first page's
+table.
 
 The 学科 choices come from `GET /api/challenges/facets`. The Host reads it at
 most once per 10 minutes, shared by all callers, and adds the result as
 `disciplineFacets` (`{ top, otherCount, otherKeys }`) to first-page catalog
-answers only. A failed facets read is not kept and leaves the field out; a
-slow one holds a catalog answer for at most one second. Either way the catalog
-still answers, and 学科 then offers only 全部学科 and 其他. The workbench keeps
-the first choices it receives for as long as the panel is open.
+answers only. `top` is `formalDisciplines` by count (or the 10 largest
+`disciplines` keys when that set is missing or empty); `otherKeys` and
+`otherCount` cover every other `disciplines` key. A failed facets read leaves
+the field out and is remembered for 60 seconds, during which first pages
+neither read the facets again nor wait for them; a slow one holds a catalog
+answer for at most one second. Either way the catalog still answers, and 学科
+then offers only 全部学科 and 其他. The workbench keeps the first choices it
+receives for as long as the panel is open.
 
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the

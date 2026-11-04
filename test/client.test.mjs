@@ -2825,8 +2825,11 @@ test('加载更多 appends the next 20 of the loaded query without repeating a c
   await settle();
   assert.equal(count(), '共 45 道 · 已显示 20 道');
   assert.equal(button('加载更多').props.disabled, false);
-  // Text typed but not applied does not change the list being paged.
-  f.find(view(), (node) => node.type === 'input').props.onChange({ target: { value: 'typed' } });
+  // Text typed but not applied hides 加载更多, so the old query is never paged under new controls.
+  const searchBox = () => f.find(view(), (node) => node.type === 'input');
+  searchBox().props.onChange({ target: { value: 'typed' } });
+  assert.equal(button('加载更多'), undefined);
+  searchBox().props.onChange({ target: { value: '' } });
   button('加载更多').props.onClick();
   assert.deepEqual(pending[1].input, { action: 'catalog', search: '', page: 2, per_page: 20 });
   const loading = f.find(view(), (node) => node.type === 'button' && text(node) === '正在加载…');
@@ -2896,6 +2899,68 @@ test('failed reads keep the loaded challenges and offer 重试 with fixed text',
   assert.equal(button('重试'), undefined);
 });
 
+test('after a failed filter change 加载更多 is hidden, so the old query is never appended under the new controls', async (t) => {
+  const { f, pending, view, control, button, count } = await pagedCatalog(t);
+  const failed = { ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } };
+  const alert = () => text(f.find(view(), (node) => node.props?.role === 'alert'));
+  pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  assert.ok(button('加载更多'));
+  control('排序方式').props.onChange({ target: { value: 'attempts' } });
+  pending[1].resolve(failed);
+  await settle();
+  // The old newest list stays under 提交最多, with the alert and no way to page it.
+  assert.equal(control('排序方式').props.value, 'attempts');
+  assert.deepEqual(cardIds(view()), range(0, 20));
+  assert.equal(alert(), '赛题目录读取失败，下面仍是上一次读取的赛题。');
+  assert.equal(button('加载更多'), undefined);
+  assert.equal(count(), '共 45 道 · 已显示 20 道');
+  assert.equal(pending.length, 2, 'no append was sent');
+  // A successful read of the current controls brings 加载更多 back, paging that read.
+  control('排序方式').props.onChange({ target: { value: 'newest' } });
+  pending[2].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  assert.equal(f.find(view(), (node) => node.props?.role === 'alert'), undefined);
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', page: 2, per_page: 20 });
+});
+
+test('an append whose answer is partial for a list that was not is a failed append and keeps the shown facts', async (t) => {
+  const { f, pending, view, control, button, count } = await pagedCatalog(t);
+  const alert = () => text(f.find(view(), (node) => node.props?.role === 'alert'));
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 22, hasMore: true }));
+  await settle();
+  assert.equal(count(), '共 22 道 · 已显示 20 道');
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
+  // The tag read failed on page 2: only the three pinned challenges are counted, and the slice is empty.
+  pending[2].resolve(catalogPage([], { total: 3, hasMore: false, partial: true }));
+  await settle();
+  assert.equal(alert(), '加载更多赛题失败，已加载的赛题仍保留。');
+  assert.deepEqual(cardIds(view()), range(0, 20));
+  assert.equal(count(), '共 22 道 · 已显示 20 道');
+  assert.doesNotMatch(text(view()), /当前只显示固定赛题/);
+  assert.equal(button('加载更多').props.disabled, false);
+  button('重试').props.onClick();
+  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
+  pending[3].resolve(catalogPage(['c20', 'c21'], { total: 22, hasMore: false }));
+  await settle();
+  assert.equal(f.find(view(), (node) => node.props?.role === 'alert'), undefined);
+  assert.deepEqual(cardIds(view()), range(0, 22));
+  assert.equal(count(), '共 22 道');
+  assert.equal(button('加载更多'), undefined);
+  // A list that was partial from page 1 keeps taking partial pages.
+  control('选择比赛').props.onChange({ target: { value: '' } });
+  pending[4].resolve(catalogPage(range(0, 20), { total: 30, hasMore: true, partial: true }));
+  await settle();
+  button('加载更多').props.onClick();
+  pending[5].resolve(catalogPage(range(20, 30), { total: 30, hasMore: false, partial: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), range(0, 30));
+  assert.equal(f.find(view(), (node) => node.props?.role === 'alert'), undefined);
+});
+
 test('只看开放 hides the loaded closed challenges without reading again and says it filters only what is loaded', async (t) => {
   const { f, pending, view, count } = await pagedCatalog(t);
   pending[0].resolve(catalogPage(['a1', 'x1', 'a2', 'x2'], { total: 30, hasMore: true }));
@@ -2904,9 +2969,10 @@ test('只看开放 hides the loaded closed challenges without reading again and 
   toggle(true);
   assert.equal(pending.length, 1, 'no request');
   assert.deepEqual(cardIds(view()), ['a1', 'a2']);
-  assert.equal(count(), '共 30 道 · 已显示 4 道 · 已加载的 4 道中开放 2 道（只看开放仅筛选已加载的赛题）');
+  assert.equal(count(), '共 30 道 · 已加载 4 道 · 其中开放 2 道（只看开放仅筛选已加载的赛题）');
   toggle(false);
   assert.deepEqual(cardIds(view()), ['a1', 'x1', 'a2', 'x2']);
+  assert.equal(count(), '共 30 道 · 已显示 4 道');
   toggle(true);
   f.find(view(), (node) => node.props?.['aria-label'] === '按来源筛选').props.onChange({ target: { value: 'arena' } });
   pending[1].resolve(catalogPage(['x3'], { total: 21, hasMore: true }));
@@ -2929,23 +2995,31 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   pending[1].resolve(catalogPage(['c2'], { total: 1 }, { disciplineFacets: { top: [{ key: 'science', count: 237 }], otherKeys: [] } }));
   await settle();
   assert.deepEqual(options().map(([value]) => value), ['', 'materials', 'physics', '__other__']);
-  // 其他 with no text reads all disciplines; the typed key is sent on Enter or 筛选.
+  // 其他 with no text reads nothing: the list stays and a hint asks for a key; the typed key is sent on Enter or 筛选.
+  const hint = () => f.find(view(), (node) => node.props?.className === 'pg-note pg-catalog-hint');
+  assert.equal(hint(), undefined);
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', origin: 'benchmark', per_page: 20 });
-  pending[2].resolve(catalogPage(['c3'], { total: 1 }));
-  await settle();
+  assert.equal(pending.length, 2, 'no read for an empty 其他');
+  assert.equal(text(hint()), '输入学科后按回车筛选');
+  assert.deepEqual(cardIds(view()), ['c2']);
   const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  other().props.onChange({ target: { value: '   ' } });
+  other().props.onKeyDown({ key: 'Enter' });
+  button('筛选').props.onClick();
+  assert.equal(pending.length, 2, 'blank text reads nothing either');
   assert.equal(other().props.list, 'pg-other-discipline-keys');
   assert.deepEqual(findAll(f.find(view(), (node) => node.type === 'datalist'), (node) => node.type === 'option').map((node) => node.props.value), ['combustion', 'cosmology']);
   assert.equal(f.find(view(), (node) => node.type === 'label' && node.props.htmlFor === 'pg-other-discipline') !== undefined, true);
   other().props.onChange({ target: { value: ' combustion ' } });
+  assert.equal(hint(), undefined);
   other().props.onKeyDown({ key: 'Enter' });
-  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'combustion', per_page: 20 });
-  pending[3].resolve(catalogPage(['c4'], { total: 1 }));
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'combustion', per_page: 20 });
+  pending[2].resolve(catalogPage(['c4'], { total: 1 }));
   await settle();
+  assert.deepEqual(cardIds(view()), ['c4']);
   other().props.onChange({ target: { value: 'cosmology' } });
   button('筛选').props.onClick();
-  assert.deepEqual(pending[4].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'cosmology', per_page: 20 });
+  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'cosmology', per_page: 20 });
 });
 
 test('without discipline facets the catalog still shows its challenges and 学科 offers only 全部学科 and 其他', async (t) => {

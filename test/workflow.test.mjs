@@ -2238,6 +2238,26 @@ test('disciplineFacets keeps the ten largest disciplines and merges the rest int
   assert.equal(facets.otherCount, 91 + 90 + 89 + 88 + 87);
   assert.deepEqual(disciplineFacets({ disciplines: { a: 1 } }), { top: [{ key: 'a', count: 1 }], otherCount: 0, otherKeys: [] });
   assert.deepEqual(disciplineFacets(null), { top: [], otherCount: 0, otherKeys: [] });
+  // An empty or broken formal set falls back to the ten largest disciplines.
+  for (const formalDisciplines of [{}, [], null, { '': 3, zero: 0 }]) {
+    assert.deepEqual(disciplineFacets({ disciplines, formalDisciplines }).top, facets.top, JSON.stringify(formalDisciplines));
+  }
+});
+
+test('disciplineFacets offers the formal broad fields by count, and every other discipline under 其他', () => {
+  // The live facets shape: sub-areas such as science sit in `disciplines` beside the formal fields.
+  const disciplines = { materials: 1411, physics: 1307, biology: 1163, 'fluid-dynamics': 597, science: 237, 'numerical-analysis': 72,
+    math: 45, combustion: 39, cosmology: 36, genomics: 36, ai: 17, AI: 2, economics: 16 };
+  for (let index = 0; index < 250; index += 1) disciplines[`sub-${String(index).padStart(3, '0')}`] = 1;
+  const formalDisciplines = { ai: 17, biology: 1163, combustion: 39, economics: 16, 'fluid-dynamics': 597, genomics: 36, materials: 1411, math: 45, physics: 1307 };
+  const facets = disciplineFacets({ disciplines, formalDisciplines });
+  assert.deepEqual(facets.top.map((entry) => entry.key),
+    ['materials', 'physics', 'biology', 'fluid-dynamics', 'math', 'combustion', 'genomics', 'ai', 'economics']);
+  assert.deepEqual(facets.top[0], { key: 'materials', count: 1411 });
+  assert.deepEqual(facets.otherKeys.slice(0, 5), ['science', 'numerical-analysis', 'cosmology', 'AI', 'sub-000']);
+  assert.equal(facets.otherKeys.length, 200, 'suggestions are capped at 200');
+  assert.equal(facets.otherKeys.some((key) => key in formalDisciplines), false);
+  assert.equal(facets.otherCount, 237 + 72 + 36 + 2 + 250);
 });
 
 test('the first catalog page carries the cached discipline facets; later pages and failures do not', async (t) => {
@@ -2254,17 +2274,60 @@ test('the first catalog page carries the cached discipline facets; later pages a
   assert.ok((await f.workflow.catalog({ competition: 'light-chasing' }, f.exec)).disciplineFacets);
   assert.equal('disciplineFacets' in (await f.workflow.catalog({ page: 2 }, f.exec)), false);
   assert.equal(reads, 1);
-  // After the time to live, the next first page reads again; a failed read leaves the field out and is not kept.
+  // After the time to live, the next first page reads again; a failed read leaves the field out.
   const now = Date.now();
-  t.mock.method(Date, 'now', () => now + 11 * 60 * 1000);
+  let clock = now + 11 * 60 * 1000;
+  t.mock.method(Date, 'now', () => clock);
   reply = () => { throw Object.assign(new Error('HTTP 503'), { code: 'http_error', status: 503 }); };
   const failed = await f.workflow.catalog({}, f.exec);
   assert.equal(failed.ok, true);
   assert.equal('disciplineFacets' in failed, false);
   assert.deepEqual(failed.challenges.items.map((item) => item.id), ['challenge-a']);
+  assert.equal(reads, 2);
+  // The failure is remembered for 60 s: first pages in that time neither read nor wait.
   reply = () => ({ disciplines: { biology: 1163 } });
+  clock += 59 * 1000;
+  assert.equal('disciplineFacets' in (await f.workflow.catalog({}, f.exec)), false);
+  assert.equal(reads, 2);
+  clock += 2 * 1000;
   assert.deepEqual((await f.workflow.catalog({}, f.exec)).disciplineFacets.top, [{ key: 'biology', count: 1163 }]);
   assert.equal(reads, 3);
+});
+
+test('a hanging facets read that fails is not waited for again within 60 s', async () => {
+  const f = await fixture();
+  let reads = 0;
+  let fail;
+  f.client.getChallengeFacets = () => { reads += 1; return new Promise((_resolve, reject) => { fail = reject; }); };
+  const started = Date.now();
+  assert.equal('disciplineFacets' in (await f.workflow.catalog({}, f.exec)), false);
+  assert.ok(Date.now() - started >= 900, 'the first page waited for the running read');
+  fail(Object.assign(new Error('timed out'), { code: 'timeout' }));
+  await settled();
+  const again = Date.now();
+  const second = await f.workflow.catalog({ origin: 'arena' }, f.exec);
+  assert.ok(Date.now() - again < 500, 'no second wait');
+  assert.equal(second.ok, true);
+  assert.equal('disciplineFacets' in second, false);
+  assert.equal(reads, 1);
+});
+
+test('a load-more page skips the seasons read and carries no competition fields', async () => {
+  const f = await fixture();
+  let seasons = 0;
+  f.client.listCompetitions = async () => { seasons += 1; return { items: [{ slug: 's9', status: 'active' }] }; };
+  f.client.getChallengeFacets = async () => ({ disciplines: { physics: 1307 } });
+  const first = await f.workflow.catalog({ per_page: 20 }, f.exec);
+  assert.equal(seasons, 1);
+  assert.ok(Array.isArray(first.competitionTable));
+  for (const args of [{ page: 2, per_page: 20 }, { competition: 'pku', page: 2, per_page: 1 }]) {
+    const more = await f.workflow.catalog(args, f.exec);
+    assert.equal(more.ok, true);
+    assert.equal(typeof more.webBase, 'string');
+    assert.ok(Array.isArray(more.challenges.items));
+    for (const field of ['competitions', 'competitionTable', 'seasonsUnavailable', 'disciplineFacets']) assert.equal(field in more, false, field);
+  }
+  assert.equal(seasons, 1);
 });
 
 test('a slow facets read does not hold the catalog, and its answer serves the next first page', async () => {
@@ -2274,7 +2337,9 @@ test('a slow facets read does not hold the catalog, and its answer serves the ne
   f.client.getChallengeFacets = () => { reads += 1; return new Promise((resolve) => { finish = resolve; }); };
   const started = Date.now();
   const result = await f.workflow.catalog({}, f.exec);
-  assert.ok(Date.now() - started < 5000);
+  const waited = Date.now() - started;
+  // The wait is bounded at one second after the catalog's own reads.
+  assert.ok(waited >= 900 && waited < 1500, `waited ${waited} ms`);
   assert.equal(result.ok, true);
   assert.equal('disciplineFacets' in result, false);
   // A second first page while the read is still running shares it.

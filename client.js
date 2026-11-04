@@ -538,10 +538,15 @@ window.__ModuleLoader__.load({
           if (latest.controller === controller) { latest.controller = null; setBusy(''); }
         }
       };
-      // The next page of the shown list's own query (not of filters edited since), appended without repeats.
+      // 加载更多 is offered only while the shown list is the one the controls describe: not after a failed
+      // page-1 read (the old list stays under the new controls) and not while the controls hold edits not
+      // read yet (typed search, another filter). Otherwise it would append the old query's next page.
+      const canLoadMore = Boolean(list?.hasMore) && list.season === season && failure?.kind !== 'load'
+        && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
+      // The next page of the shown list's own query, appended without repeats.
       const loadMore = async () => {
         const shown = list;
-        if (!shown?.hasMore || latest.controller) return;
+        if (!canLoadMore || latest.controller) return;
         const controller = new AbortController();
         latest.controller = controller;
         setBusy('more'); setFailure(null); setStatus('正在加载更多赛题…');
@@ -549,8 +554,14 @@ window.__ModuleLoader__.load({
           const page = shown.page + 1;
           const result = await query({ ...shown.input, page }, controller.signal);
           if (latest.controller !== controller) return;
-          const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
           const facts = pageFacts(result?.challenges);
+          // A merged list whose tag read failed for this page only (`partial` now, not before) holds just
+          // the fixed challenges: its total and end are not the list's. Treat it as a failed append.
+          if (facts.partial && !shown.partial) {
+            setFailure({ kind: 'more' }); setStatus('加载更多赛题失败。');
+            return;
+          }
+          const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
           // An empty page ends the list even if it claims more.
           setList({ ...shown, page, items: [...shown.items, ...added], ...facts, total: facts.total ?? shown.total,
             hasMore: facts.hasMore && Array.isArray(result?.challenges?.items) && result.challenges.items.length > 0 });
@@ -562,7 +573,9 @@ window.__ModuleLoader__.load({
           if (latest.controller === controller) { latest.controller = null; setBusy(''); }
         }
       };
-      const retry = () => (failure?.kind === 'more' ? loadMore() : load(failure?.filters));
+      // A failed append is retried as long as the controls still describe the shown list; after edits since,
+      // 重试 reads page 1 of the controls instead of doing nothing.
+      const retry = () => (failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters));
       React.useEffect(() => {
         load();
         return () => { latest.controller?.abort(); latest.controller = null; };
@@ -576,14 +589,17 @@ window.__ModuleLoader__.load({
       const total = shownList?.total;
       // A tag longer than the Host reads is cut (`truncated`): its total is only a lower bound, shown as `N+`.
       const truncated = shownList?.truncated === true;
+      // Under 只看开放 the grid shows fewer cards than are loaded, so the line counts loaded, then open ones.
       const countLine = shownList ? [total !== undefined ? `共 ${total}${truncated ? '+' : ''} 道` : '',
-        total !== undefined && loaded.length < total ? `已显示 ${loaded.length} 道` : '',
-        openOnly ? `已加载的 ${loaded.length} 道中开放 ${challenges.length} 道（只看开放仅筛选已加载的赛题）` : ''].filter(Boolean).join(' · ') : '';
+        openOnly ? `已加载 ${loaded.length} 道` : total !== undefined && loaded.length < total ? `已显示 ${loaded.length} 道` : '',
+        openOnly ? `其中开放 ${challenges.length} 道（只看开放仅筛选已加载的赛题）` : ''].filter(Boolean).join(' · ') : '';
       // The tag read failed and only the fixed challenges came back (`partial`), possibly none after a search.
       const partial = shownList?.partial === true;
       const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
         : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
-      const applyOther = () => load({ discipline: otherDiscipline.trim() });
+      // 其他 with an empty field reads nothing: the list stays and a hint asks for a key.
+      const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
+      const applyOther = () => { if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() }); };
       // Browsing is session-free; creating a task still runs through an open conversation.
       const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
         : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
@@ -610,6 +626,7 @@ window.__ModuleLoader__.load({
             h('select', { className: 'pg-input', 'aria-label': '按学科筛选', value: disciplineChoice, onChange: (event) => {
               const value = event.target.value;
               setDisciplineChoice(value);
+              if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) return;
               load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
             } },
               h('option', { value: '' }, '全部学科'),
@@ -642,7 +659,8 @@ window.__ModuleLoader__.load({
         busy === 'load' && catalog && !shownList ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
         partial ? h('p', { className: 'pg-note' }, '标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。') : null,
         shownList && !loaded.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或筛选条件试试。') : null,
-        shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${shownList.hasMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
+        shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${canLoadMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
+        otherPending ? h('p', { className: 'pg-note pg-catalog-hint' }, '输入学科后按回车筛选') : null,
         countLine ? h('p', { className: 'pg-note pg-catalog-count' }, countLine) : null,
         h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
           h('div', { className: 'pg-head' }, h('h3', null, item.titleZh || item.title || item.id), item.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
@@ -653,7 +671,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'pg-button', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item) }, '查看详情'),
             openWebButton(item.webUrl, item.titleZh || item.title || item.id))
         ))),
-        shownList?.hasMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', disabled: Boolean(busy), 'aria-busy': busy === 'more', onClick: loadMore },
+        canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', disabled: Boolean(busy), 'aria-busy': busy === 'more', onClick: loadMore },
           busy === 'more' ? '正在加载…' : '加载更多') : null,
         // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
         detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, sessionId, requestTask, startBlocked, close: () => setDetail(null) }) : null);
