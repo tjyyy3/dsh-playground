@@ -1011,9 +1011,9 @@ test('#45: a platform 5xx at creation is a server_error with the request id, and
   assert.equal(queries[0].challengeId, 'challenge-a');
 });
 
-test('#45: the server_error classification also reads a bare HTTP 5xx and only accepts hex request ids', async () => {
+test('#45: the server_error classification reads the status on the reply line and only accepts hex request ids', async () => {
   for (const [stderr, status, id] of [
-    ['error: 创建提交记录失败（HTTP 503）', '503', undefined],
+    ['error: 未能发送成功，请稍后再试。\n服务端返回：HTTP 503 SERVICE UNAVAILABLE: ', '503', undefined],
     [`error: 服务端返回：HTTP 502 BAD GATEWAY: {"request_id":"ABCDEF0123456789"}`, '502', 'ABCDEF0123456789'],
     ['error: 服务端返回：HTTP 500: {"request_id":"short"}', '500', undefined],
     ['error: 服务端返回：HTTP 500: {"request_id":"C:\\\\fake-root\\\\token-1234567890"}', '500', undefined],
@@ -1473,7 +1473,8 @@ test('#45: a trace the CLI rejects produces no confirmation card and explains th
 test('#45: other precheck failures block the card with plugin-written text only', async () => {
   for (const [failure, reason, expected] of [
     [cliError(`未能连接 worker，请稍后再试。${CLI_TAIL}`), 'network', /本地预检没有通过/],
-    [Object.assign(new Error('Playground CLI did not print a dry-run result.'), { code: 'cli_invalid_output', started: true, stdout: 'TRACE-STEP' }), 'other', /本地预检没有通过/],
+    [Object.assign(new Error('Playground CLI did not print a dry-run result.'), { code: 'cli_invalid_output', started: true, stdout: 'TRACE-STEP' }), 'other', /预检无法完成，不是材料问题/],
+    [Object.assign(cliError('boom'), { precheckStage: 'version' }), 'other', /预检无法完成，不是材料问题.*playground --version/],
     [cliError('', 'cli_terminated'), 'terminated', /中断或超时/],
     [cliError('missing --challenge-id'), 'cli_usage', /插件缺陷/],
   ]) {
@@ -1483,7 +1484,11 @@ test('#45: other precheck failures block the card with plugin-written text only'
     assert.equal(result.error.reason, reason);
     assert.match(result.error.message, expected, reason);
     assert.deepEqual(result.workflow, { kind: 'clear' }, reason);
-    assert.doesNotMatch(commandText(result), RAW_CLI, reason);
+    // Only a broken CLI gets the "not the materials" text (which names the install script); the others keep the materials advice.
+    const brokenCli = failure.code === 'cli_invalid_output' || failure.precheckStage === 'version';
+    assert.doesNotMatch(commandText(result), brokenCli ? RAW_PRECHECK : RAW_CLI, reason);
+    assert.equal(/不是材料问题/.test(result.error.message), brokenCli, reason);
+    assert.equal(/检查评测包、manifest/.test(result.error.message), !brokenCli && reason !== 'terminated' && reason !== 'cli_usage', reason);
   }
 });
 
@@ -1524,12 +1529,8 @@ test('#45: an outdated CLI is reported as a short warning field with the officia
     assert.doesNotMatch(value.warning, /npm i -g|@paper2arm/);
   }
   assert.ok(checked.note.includes(checked.cliUpdate.warning));
-  // The login area gets the same field from the update status, one call after it was read.
+  // The login area gets the same field from the update status, already in the first (cold) call.
   const workflow = authWorkflow(f, { updateStatus: async () => UPDATE });
-  const cold = await workflow.auth(f.exec);
-  assert.equal(cold.authenticated, true);
-  assert.equal('cliUpdate' in cold, false);
-  await settled();
   const auth = await workflow.auth(f.exec);
   assert.equal(auth.authenticated, true);
   assert.deepEqual(auth.cliUpdate, checked.cliUpdate);
@@ -1558,34 +1559,42 @@ const authWorkflow = (f, cli) => createWorkflow({ ctx: f.ctx, client: f.client, 
 // Lets the background update refresh finish: it only needs promise callbacks, which run before this.
 const settled = () => new Promise((done) => setImmediate(done));
 
-test('#45: the login check never waits for the CLI update check and starts one refresh at a time', async () => {
+test('#45: the login check waits at most 1.5 s for the CLI update check and starts one refresh at a time', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = await fixture();
   let calls = 0;
   let finish;
   const hanging = new Promise((done) => { finish = done; });
   const workflow = authWorkflow(f, { updateStatus: () => { calls += 1; return hanging; } });
   for (let round = 0; round < 3; round += 1) {
-    const value = await workflow.auth(f.exec);
+    const pending = workflow.auth(f.exec);
+    let answered = false;
+    pending.then(() => { answered = true; });
+    await settled();
+    // Still within the wait: the answer is not given yet, and not before 1.5 s have passed.
+    t.mock.timers.tick(1499);
+    await settled();
+    assert.equal(answered, false, `round ${round} answered early`);
+    t.mock.timers.tick(1);
+    const value = await pending;
     assert.equal(value.authenticated, true);
     assert.equal('cliUpdate' in value, false);
-    await settled();
   }
   // The first refresh is still running; no second one was started.
   assert.equal(calls, 1);
   finish(UPDATE);
   await settled();
+  // The slow answer arrived after the last response; the next call has it at once.
   assert.deepEqual((await workflow.auth(f.exec)).cliUpdate?.latest, '0.1.47');
 });
 
-test('#45: a stale update warning is shown once more and then ends when the refresh reports no update', async () => {
+test('#45: a refresh that answers within the wait is in the same response, so a stale warning ends on the first check', async () => {
   const f = await fixture();
   const answers = [UPDATE, null];
   const workflow = authWorkflow(f, { updateStatus: async () => answers.shift() ?? null });
-  assert.equal('cliUpdate' in await workflow.auth(f.exec), false);
-  await settled();
+  // Cold start: the warning is already in the first response.
   assert.equal((await workflow.auth(f.exec)).cliUpdate.current, '0.1.43');
-  await settled();
-  // The user updated the CLI: the refresh now says so, and the next call shows no warning.
+  // The user updated the CLI: the refresh now says so, and the very next call shows no warning.
   assert.equal('cliUpdate' in await workflow.auth(f.exec), false);
 });
 
@@ -1596,7 +1605,7 @@ test('#45: without a runnable CLI the card is generated as before and says it wa
     [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), /Node\.js.*未经 CLI 预检/],
     [Object.assign(new Error('too old'), { code: 'cli_precheck_unsupported', started: true, version: '0.1.40' }), /CLI 0\.1\.40 低于 0\.1\.43，不支持安全的预检，未经 CLI 预检/],
     [Object.assign(new Error('old'), { code: 'cli_precheck_unsupported', reason: 'old_version', started: true, version: '0.1.40' }), /CLI 0\.1\.40 低于 0\.1\.43/],
-    [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), /无法识别已安装 Playground CLI 的版本，未经 CLI 预检。请更新 CLI。/],
+    [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), /无法识别已安装 Playground CLI 的版本，未经 CLI 预检。请更新 CLI/],
     [Object.assign(new Error('no flag'), { code: 'cli_precheck_unsupported', reason: 'no_dry_run', started: true, version: '0.1.45' }), /CLI 0\.1\.45 的 submit 命令不支持 --dry-run，未经 CLI 预检/],
   ]) {
     const { f, submits } = await precheckFixture(async () => { throw failure; });
@@ -1607,6 +1616,12 @@ test('#45: without a runnable CLI the card is generated as before and says it wa
     assert.match(checked.cliPrecheck.note, note);
     // Neither the unknown-version note nor any other claims the CLI is lower than the floor by mistake.
     if (failure.reason === 'unknown_version') assert.doesNotMatch(checked.cliPrecheck.note, /低于/);
+    // An outdated CLI is told where the update steps are.
+    if (failure.code === 'cli_precheck_unsupported') {
+      assert.match(checked.cliPrecheck.note, /请更新 CLI（官方安装脚本 https:\/\/play\.bohrium\.com\/install\.sh；Windows 上的步骤见 README/);
+    } else {
+      assert.doesNotMatch(checked.cliPrecheck.note, /install\.sh/);
+    }
     assert.match(checked.note, note);
     assert.deepEqual(checked.workflow.prepared.cliPrecheck, checked.cliPrecheck);
     assert.deepEqual(submits, []);
@@ -1694,6 +1709,28 @@ test('#45: a server_error is decided by the first HTTP status, and the platform 
   assert.equal(result.error.reason, 'server_error');
   assert.equal(result.requestId, REQUEST_ID);
   assert.doesNotMatch(commandText(result), /未通过校验|BAD GATEWAY|invalid/);
+});
+
+test('#45: HTTP numbers in the CLI\'s own text before the reply line do not decide a server_error', async () => {
+  // A creation 429 that the CLI retried prints a progress line first; the final reply is a 503.
+  const retried = `创建提交记录未成功（HTTP 429），等待 2 秒后重试（第 2/3 次）\nerror: 未能发送成功，请稍后再试。${CLI_TAIL}\n服务端返回：HTTP 503 SERVICE UNAVAILABLE: {"error":"unavailable","request_id":"${REQUEST_ID}"}`;
+  const failure = submissionFailure(serverError(retried));
+  assert.equal(failure.reason, 'server_error');
+  assert.equal(failure.requestId, REQUEST_ID);
+  const { result } = await failedConfirm(serverError(retried));
+  assert.equal(result.error.reason, 'server_error');
+  assert.match(result.error.message, /（HTTP 503）/);
+  assert.equal(result.requestId, REQUEST_ID);
+  // The CLI writes its own "（HTTP 413）" reason when a 5xx body says "too large"; the reply line still says 500.
+  const tooLarge = `error: 创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}\n服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"error":"payload too large","request_id":"${REQUEST_ID}"}`;
+  const large = submissionFailure(serverError(tooLarge));
+  assert.equal(large.reason, 'server_error');
+  assert.equal(large.requestId, REQUEST_ID);
+  const confirmed = await failedConfirm(serverError(tooLarge));
+  assert.equal(confirmed.result.error.reason, 'server_error');
+  assert.doesNotMatch(confirmed.result.error.message, /平台未创建这次提交/);
+  // Without a reply line there is no status to read.
+  assert.equal(submissionFailure(serverError('error: 创建提交记录失败（HTTP 503）')).reason, 'other');
 });
 
 test('#45: a request cancelled before the CLI started returns no confirmation card', async () => {

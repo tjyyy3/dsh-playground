@@ -354,11 +354,14 @@ is y"), the workbench login area and the material check show
 "Playground CLI 版本过旧（x，最新 y），可能影响评分" with these update steps.
 The login area learns this from `playground update-check`, which makes one
 release-notice request (the CLI caches the answer in its own file). The plugin
-runs it at most once an hour and in the background, so the first workbench load
-after a start shows no warning and a later load does. A warning ends as soon as
-the installed version changes (after updating, click **重新检测** in the login
-area, and once more a moment later). A material check also picks the warning up from the CLI's notice. Only the two
-version numbers are kept, never other CLI output.
+runs it at most once an hour, and the login check waits for it for at most 1.5
+seconds. A normal answer (about a second) is in the first workbench load after a
+start; if the CLI is slower, that load shows no warning and the next one does.
+A shown warning is checked against the installed version at most every 30
+seconds and ends soon after the installed version changes (after updating, click
+**重新检测** in the login area); if that check fails, the warning stays for five
+minutes. A material check also picks the warning up from the CLI's notice. Only
+the two version numbers are kept, never other CLI output.
 
 ### Steps
 

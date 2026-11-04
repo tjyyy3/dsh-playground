@@ -630,9 +630,11 @@ test('precheck runs submit with the same arguments plus --dry-run and returns on
   // The help probe runs once per command and version.
   await cli.precheck(options);
   assert.equal((await loggedCalls(log)).filter((call) => call.includes('--help')).length, 1);
-  // The notice the precheck saw serves the login area; a positive result is checked against the installed version.
+  // The notice the precheck saw serves the login area. The precheck's own --version just confirmed
+  // the installed version, so no further process is needed.
+  const before = (await loggedCalls(log)).length;
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.deepEqual((await loggedCalls(log)).slice(-1), [['--version']]);
+  assert.equal((await loggedCalls(log)).length, before);
   assert.equal((await loggedCalls(log)).some((call) => call[0] === 'update-check'), false);
 });
 
@@ -643,6 +645,18 @@ test('precheck never asks a CLI older than 0.1.43, or of unknown version, to dry
       (error) => error.code === 'cli_precheck_unsupported' && error.version === expected && error.reason === reason, name);
     assert.deepEqual(await loggedCalls(log), [['--version']], name);
   }
+});
+
+test('precheck marks a failing --version, so the caller does not blame the materials', async () => {
+  const broken = createPlaygroundCli({ command: await fakeCli(join(root, 'precheck broken version', 'cli.mjs'), 'process.exit(2);') });
+  const error = await broken.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
+  assert.equal(error.code, 'cli_error');
+  assert.equal(error.precheckStage, 'version');
+  // A dry run that fails is a materials failure and carries no such mark.
+  const { cli } = await precheckCli('materials fail', { stderr: TRACE_ERROR, stdout: '', exit: 1 });
+  const rejected = await cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
+  assert.equal(rejected.code, 'cli_error');
+  assert.equal(rejected.precheckStage, undefined);
 });
 
 test('precheck never dry-runs a CLI whose submit help does not list --dry-run, even at an allowed version', async () => {
@@ -718,10 +732,15 @@ test('precheck refuses a CLI that exits cleanly without a dry-run result', async
   }
 });
 
-test('updateStatus runs the read-only update-check once and reports only a newer release', async () => {
+test('updateStatus runs the read-only update-check once and reports only a newer release', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
   const { log, cli } = await precheckCli('update', {});
   assert.deepEqual(await Promise.all([cli.updateStatus(), cli.updateStatus()]), [{ current: '0.1.43', latest: '0.1.47' }, { current: '0.1.43', latest: '0.1.47' }]);
-  // Concurrent callers shared one update-check; a later call only confirms the installed version.
+  // Concurrent callers shared one update-check; a call within 30 s starts no process at all.
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(await loggedCalls(log), [['update-check']]);
+  // A later call only confirms the installed version.
+  t.mock.timers.tick(31_000);
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
   assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
   const current = await precheckCli('current', { update: { current: '0.1.47', latest: '0.1.47', checked: true, update_available: false } });
@@ -738,13 +757,14 @@ async function statefulCli(name) {
   const dir = join(root, `stateful ${name}`);
   const state = join(dir, 'state.json');
   const log = join(dir, 'calls.log');
-  const set = (version, update) => writeFile(state, JSON.stringify({ version, update }));
+  const set = (version, update, failVersion = false) => writeFile(state, JSON.stringify({ version, update, failVersion }));
   await mkdir(dir, { recursive: true });
   await set('0.1.43', { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true });
   const command = await fakeCli(join(dir, 'cli.mjs'), `import { appendFileSync, readFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 appendFileSync(${quote(log)}, JSON.stringify(argv) + '\\n');
 const state = JSON.parse(readFileSync(${quote(state)}, 'utf8'));
+if (argv[0] === '--version' && state.failVersion) process.exit(2);
 if (argv[0] === '--version') console.log(state.version);
 if (argv[0] === 'update-check') console.log(JSON.stringify(state.update));`);
   return { log, set, cli: createPlaygroundCli({ command }) };
@@ -761,8 +781,9 @@ test('updateStatus: a warning ends when the CLI is updated, and each result keep
   t.mock.timers.tick(minutes(10));
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
   assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
-  // The user installs 0.1.47: the next call drops the warning at once, without waiting for the hour.
+  // The user installs 0.1.47: the next call after the 30 s window drops the warning, without waiting for the hour.
   await set('0.1.47', UP_TO_DATE);
+  t.mock.timers.tick(31_000);
   assert.equal(await cli.updateStatus(), null);
   assert.deepEqual((await loggedCalls(log)).slice(2), [['--version'], ['update-check']]);
   // "No update" is kept for an hour.
@@ -779,6 +800,53 @@ test('updateStatus: a warning ends when the CLI is updated, and each result keep
   t.mock.timers.tick(minutes(61));
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
   assert.deepEqual((await loggedCalls(log)).slice(5), [['update-check'], ['update-check']]);
+});
+
+test('updateStatus: --version is not run again within 30 s of the last confirmation', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
+  const { log, cli } = await statefulCli('throttle');
+  for (let round = 0; round < 3; round += 1) assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  t.mock.timers.tick(29_000);
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(await loggedCalls(log), [['update-check']]);
+  // The window restarts at each confirmation.
+  t.mock.timers.tick(2_000);
+  await cli.updateStatus();
+  t.mock.timers.tick(29_000);
+  await cli.updateStatus();
+  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
+  t.mock.timers.tick(2_000);
+  await cli.updateStatus();
+  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version'], ['--version']]);
+});
+
+test('updateStatus: a failing --version keeps a known warning for five minutes, from the first failure', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
+  const { log, set, cli } = await statefulCli('keep');
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  await set('0.1.43', OUTDATED, true);
+  t.mock.timers.tick(31_000);
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
+  // Still failing 40 s later: the warning stays, and the lifetime is not extended.
+  t.mock.timers.tick(40_000);
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.equal((await loggedCalls(log)).length, 3);
+  // --version works again with the same version: the warning goes on as a normal one.
+  await set('0.1.43', OUTDATED);
+  t.mock.timers.tick(31_000);
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  t.mock.timers.tick(minutes(30));
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.equal((await loggedCalls(log)).some((call, index) => index > 0 && call[0] === 'update-check'), false);
+  // A fresh failure that lasts past five minutes ends the warning (update-check is asked and says no update).
+  const lasting = await statefulCli('keep lasting');
+  await lasting.cli.updateStatus();
+  await lasting.set('0.1.43', { checked: true, error: 'fetch failed', update_available: false }, true);
+  t.mock.timers.tick(31_000);
+  assert.deepEqual(await lasting.cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  t.mock.timers.tick(minutes(5));
+  assert.equal(await lasting.cli.updateStatus(), null);
 });
 
 test('updateStatus: a failed check, including one the CLI reports itself, is retried after five minutes', async (t) => {
