@@ -7,7 +7,7 @@ import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readM
 import { buildSubmitArgs } from '../lib/cli.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
-import { CHALLENGE_CONTENT_MAX, createWorkflow, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
+import { CHALLENGE_CONTENT_MAX, createWorkflow, submissionFailure, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -980,6 +980,131 @@ test('D3: worker-stage failures with a retry hint keep the created submission', 
   }
 });
 
+// Real stderr of `playground submit` (CLI 0.1.47) when the platform answered 500 at creation; the
+// last line is the Node/libuv crash that makes the process exit with 3221226505 on Windows.
+const REQUEST_ID = '65cdfd8f59104150a212d37b22d4a2b1';
+const SERVER_500 = `error: 未能发送成功，请稍后再试。若持续失败，请在群里联系维护者。\n服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"error":"Internal server error","request_id":"${REQUEST_ID}"}\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+const serverError = (stderr = SERVER_500) => Object.assign(new Error(stderr), { code: 'cli_error', stderr, stdout: '', exitCode: 3221226505 });
+const LEAKS = /Internal server error|INTERNAL SERVER ERROR|Assertion failed|async\.c|UV_HANDLE|服务端返回/;
+
+test('#45: a platform 5xx at creation is a server_error with the request id, and the Windows crash line is ignored', async () => {
+  const queries = [];
+  const { f, calls, checkId, result } = await failedConfirm(serverError(), (f) => {
+    f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.error.reason, 'server_error');
+  assert.equal(result.requestId, REQUEST_ID);
+  assert.equal(result.error.requestId, REQUEST_ID);
+  assert.equal(result.error.message, `平台在创建提交时返回了服务器错误（HTTP 500），通常表示没有创建提交。请先查看本题的提交记录确认没有新增，再稍后重试；如果持续出现，请把请求编号 ${REQUEST_ID} 发给平台维护者。`);
+  assert.doesNotMatch(commandText(result), LEAKS);
+  assert.doesNotMatch(commandText(result), RAW_CLI);
+  // The card stays cleared and the confirmation cannot be replayed.
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(calls.length, 1);
+  // The single-match lookup still runs: a 500 can follow a commit.
+  assert.equal(queries.length, 1);
+  assert.equal(queries[0].challengeId, 'challenge-a');
+});
+
+test('#45: the server_error classification reads the status on the reply line and only accepts hex request ids', async () => {
+  for (const [stderr, status, id] of [
+    ['error: 未能发送成功，请稍后再试。\n服务端返回：HTTP 503 SERVICE UNAVAILABLE: ', '503', undefined],
+    [`error: 服务端返回：HTTP 502 BAD GATEWAY: {"request_id":"ABCDEF0123456789"}`, '502', 'ABCDEF0123456789'],
+    ['error: 服务端返回：HTTP 500: {"request_id":"short"}', '500', undefined],
+    ['error: 服务端返回：HTTP 500: {"request_id":"C:\\\\fake-root\\\\token-1234567890"}', '500', undefined],
+    [`error: 服务端返回：HTTP 500: {"request_id":"${'a'.repeat(65)}"}`, '500', undefined],
+  ]) {
+    const { result } = await failedConfirm(serverError(stderr));
+    assert.equal(result.error.reason, 'server_error', stderr);
+    assert.match(result.error.message, new RegExp(`（HTTP ${status}）`), stderr);
+    assert.equal(result.requestId, id, stderr);
+    if (id) assert.ok(result.error.message.includes(id), stderr);
+    else assert.doesNotMatch(result.error.message, /请求编号/, stderr);
+    assert.doesNotMatch(commandText(result), /fake-root|token|short|aaaaaaaa/, stderr);
+  }
+});
+
+test('#45: a server_error adopts the single matching submission after confirmation', async () => {
+  const items = [{ id: 71, challengeId: 'challenge-a', method: 'DSH Playground plugin', harness: 'DeepSeek Harness', traceCount: 1, status: 'submitted', createdAt: new Date().toISOString() }];
+  const { f, result } = await failedConfirm(serverError(), (f) => {
+    f.client.listMyAttempts = async () => ({ items, nextCursor: null });
+  });
+  assert.equal(result.attemptId, 71);
+  assert.equal(result.error.reason, 'server_error');
+  assert.equal(result.error.code, 'outcome_unknown');
+  assert.equal(result.requestId, REQUEST_ID);
+  assert.match(result.error.message, /可能属于本次的提交 #71/);
+  assert.ok(result.error.message.includes(REQUEST_ID));
+  assert.equal(result.workflow.kind, 'receipt');
+  assert.doesNotMatch(commandText(result), LEAKS);
+  replay(f, result);
+  assert.equal(f.states.get('source').receipt.attemptId, 71);
+  assert.equal(f.states.get('source').prepared, null);
+});
+
+test('#45 (regression guard): a 5xx that carries an --attempt-id retry hint keeps the retry behaviour', async () => {
+  let queried = false;
+  const stderr = `error: 服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"request_id":"${REQUEST_ID}"}${CLI_RETRY}${CLI_TAIL}`;
+  const { f, result } = await failedConfirm(serverError(stderr), (f) => {
+    f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
+  });
+  assert.notEqual(result.error.reason, 'server_error');
+  assert.equal(result.error.code, 'upload_failed');
+  assert.equal(result.attemptId, 42);
+  assert.equal(result.requestId, undefined);
+  assert.match(result.error.message, /检查后重传原提交 #42/);
+  assert.doesNotMatch(result.error.message, /通常表示没有创建提交/);
+  assert.equal(queried, false);
+  assert.equal(result.workflow.kind, 'receipt');
+  replay(f, result);
+  assert.equal(f.states.get('source').receipt.attemptId, 42);
+});
+
+test('#45 (regression guard): a 5xx while retrying into an existing submission never claims nothing was created', async () => {
+  const calls = [];
+  const f = await fixture({ submit: async (input) => { calls.push(input); throw serverError(); } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 42);
+  assert.notEqual(result.error.reason, 'server_error');
+  assert.doesNotMatch(result.error.message, /通常表示没有创建提交/);
+  assert.equal(result.workflow.kind, 'receipt');
+});
+
+test('#45 (regression guard): a 4xx at creation is not a server_error', async () => {
+  for (const [stderr, reason] of [
+    [`error: 创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制。${CLI_TAIL}`, 'too_large'],
+    [`error: 服务端返回：HTTP 400 BAD REQUEST: {"request_id":"${REQUEST_ID}"}`, 'other'],
+    [`error: 服务端返回：HTTP 404 NOT FOUND: {"request_id":"${REQUEST_ID}"}`, 'other'],
+  ]) {
+    const { result } = await failedConfirm(serverError(stderr));
+    assert.equal(result.error.reason, reason, stderr);
+    assert.equal(result.requestId, undefined, stderr);
+    assert.doesNotMatch(result.error.message, /通常表示没有创建提交|请求编号/, stderr);
+  }
+});
+
+test('#45: an error printed before a non-standard exit code still classifies by its text', () => {
+  for (const code of [3221226505, 3, 134]) {
+    const stderr = `${CLI_NOTICE}\nerror: 认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+    const failure = submissionFailure(Object.assign(new Error(stderr), { code: 'cli_error', stderr, stdout: '', exitCode: code }));
+    assert.equal(failure.reason, 'auth_failed', String(code));
+  }
+  const failure = submissionFailure(serverError());
+  assert.equal(failure.reason, 'server_error');
+  assert.equal(failure.requestId, REQUEST_ID);
+  assert.doesNotMatch(failure.message, LEAKS);
+  // Without any recognisable text the crash is still just an unknown failure.
+  const bare = `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+  assert.equal(submissionFailure(Object.assign(new Error(bare), { code: 'cli_error', stderr: bare, stdout: '' })).reason, 'other');
+});
+
 // The /playground-confirm handler records its result as command/done text, not tool/result meta.
 function replay(f, result) {
   f.states.set('source', workflowProjection.apply(f.states.get('source'), { type: 'command/done', data: { text: commandText(result) } }));
@@ -1304,4 +1429,360 @@ test('the challenge detail read returns only the drawer fields, caps the stateme
   f.client.getChallenge = async () => { throw new Error('upstream returned 503'); };
   await assert.rejects(f.workflow.challenge('a b/c', { signal }), /upstream returned 503/);
   assert.equal(JSON.stringify([...f.states]), before);
+});
+
+// #45: the material check runs `playground submit … --dry-run` after the local checks.
+// The trace error Playground CLI 0.1.47 prints (loadTraceSteps and the start of TRACE_REQUIRED_HELP).
+const TRACE_REJECTED = 'could not derive normalized trace steps from C:\\fake-root\\work\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\nAccepted trajectory formats:\n  playground trace validate --trace PATH';
+const UPDATE = { current: '0.1.43', latest: '0.1.47' };
+const TRACE_HELP = [/原生会话 JSONL/, /\{"role","content"\}/, /\{"steps":\[\.\.\.\]\}/, /playground trace validate --trace <路径>/];
+// The plugin's own warning carries install.sh, so only raw CLI fragments are checked here.
+const RAW_PRECHECK = /error: |could not derive|REQUIRED|fake-root|outdated|score may be affected|TRACE-STEP/;
+
+function precheckFixture(precheck, submit = async () => assert.fail('a precheck must not submit')) {
+  const prechecks = [];
+  const submits = [];
+  const cli = {
+    precheck: async (input) => { prechecks.push(input); return precheck(input); },
+    submit: async (input) => { submits.push(input); return submit(input); },
+  };
+  return fixture(cli).then((f) => ({ f, prechecks, submits }));
+}
+
+test('#45: a trace the CLI rejects produces no confirmation card and explains the accepted formats', async () => {
+  const { f, prechecks, submits } = await precheckFixture(async () => {
+    throw Object.assign(cliError(TRACE_REJECTED), { started: true, update: UPDATE });
+  });
+  const result = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(prechecks.length, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'precheck_failed');
+  assert.equal(result.error.reason, 'local_check');
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  for (const pattern of TRACE_HELP) assert.match(result.error.message, pattern);
+  assert.match(result.error.message, /未生成确认卡，没有提交任何内容/);
+  assert.match(result.error.message, /版本过旧（0\.1\.43，最新 0\.1\.47）/);
+  assert.equal(result.cliUpdate.current, '0.1.43');
+  assert.doesNotMatch(commandText(result), RAW_PRECHECK);
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.deepEqual(submits, []);
+  assert.deepEqual(f.calls, []);
+});
+
+test('#45: other precheck failures block the card with plugin-written text only', async () => {
+  for (const [failure, reason, expected] of [
+    [cliError(`未能连接 worker，请稍后再试。${CLI_TAIL}`), 'network', /本地预检没有通过/],
+    [Object.assign(new Error('Playground CLI did not print a dry-run result.'), { code: 'cli_invalid_output', started: true, stdout: 'TRACE-STEP' }), 'other', /预检无法完成，不是材料问题/],
+    [Object.assign(cliError('boom'), { precheckStage: 'version' }), 'other', /预检无法完成，不是材料问题.*playground --version/],
+    [cliError('', 'cli_terminated'), 'terminated', /中断或超时/],
+    [cliError('missing --challenge-id'), 'cli_usage', /插件缺陷/],
+  ]) {
+    const { f } = await precheckFixture(async () => { throw Object.assign(failure, { started: true }); });
+    const result = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(result.ok, false, reason);
+    assert.equal(result.error.reason, reason);
+    assert.match(result.error.message, expected, reason);
+    assert.deepEqual(result.workflow, { kind: 'clear' }, reason);
+    // Only a broken CLI gets the "not the materials" text (which names the install script); the others keep the materials advice.
+    const brokenCli = failure.code === 'cli_invalid_output' || failure.precheckStage === 'version';
+    assert.doesNotMatch(commandText(result), brokenCli ? RAW_PRECHECK : RAW_CLI, reason);
+    assert.equal(/不是材料问题/.test(result.error.message), brokenCli, reason);
+    assert.equal(/检查评测包、manifest/.test(result.error.message), !brokenCli && reason !== 'terminated' && reason !== 'cli_usage', reason);
+  }
+});
+
+test('#45: materials the CLI accepts get the same confirmation card, and confirm submits the prechecked arguments', async () => {
+  const { f, prechecks, submits } = await precheckFixture(async () => ({ status: 'dry_run', version: '0.1.47' }),
+    async () => ({ attempt_id: 7, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', model: 'model-a', detail: 'Run notes' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.equal(checked.status, 'awaiting_confirmation');
+  assert.deepEqual(checked.cliPrecheck, { status: 'passed' });
+  assert.equal(checked.cliUpdate, undefined);
+  assert.match(checked.note, /本地材料检查和 Playground CLI 预检均已通过/);
+  const prepared = checked.workflow.prepared;
+  assert.deepEqual(prepared.cliPrecheck, { status: 'passed' });
+  assert.equal(prepared.traceCount, 1);
+  assert.equal(prepared.files[0].path, resolve(f.cwd, 'bundle.zip'));
+  assert.equal(prechecks[0].cwd, f.cwd);
+  assert.equal(prechecks[0].tracePath, resolve(f.cwd, 'trace.json'));
+  assert.deepEqual(submits, []);
+  f.record(checked);
+  const result = await f.workflow.confirm(prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 7);
+  // One option builder feeds both calls, so the dry run checked exactly what was submitted.
+  assert.deepEqual(submits, prechecks);
+  assert.deepEqual(buildSubmitArgs(submits[0]), buildSubmitArgs(prechecks[0]));
+});
+
+test('#45: an outdated CLI is reported as a short warning field with the official update method', async () => {
+  const { f } = await precheckFixture(async () => ({ status: 'dry_run', version: '0.1.43', update: UPDATE }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  for (const value of [checked.cliUpdate, checked.workflow.prepared.cliUpdate]) {
+    assert.equal(value.current, '0.1.43');
+    assert.equal(value.latest, '0.1.47');
+    assert.match(value.warning, /^Playground CLI 版本过旧（0\.1\.43，最新 0\.1\.47），可能影响评分。/);
+    assert.match(value.warning, /https:\/\/play\.bohrium\.com\/install\.sh/);
+    assert.match(value.warning, /\.tgz，核对 SHA-256 后运行 npm install -g <文件>/);
+    assert.doesNotMatch(value.warning, /npm i -g|@paper2arm/);
+  }
+  assert.ok(checked.note.includes(checked.cliUpdate.warning));
+  // The login area gets the same field from the update status, already in the first (cold) call.
+  const workflow = authWorkflow(f, { updateStatus: async () => UPDATE });
+  const auth = await workflow.auth(f.exec);
+  assert.equal(auth.authenticated, true);
+  assert.deepEqual(auth.cliUpdate, checked.cliUpdate);
+  // A failing or empty check never fails the identity check or shows a warning, and rejects nothing.
+  const unhandled = [];
+  const listener = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', listener);
+  try {
+    for (const updateStatus of [async () => null, async () => { throw new Error('outdated'); }, () => { throw new Error('sync'); }]) {
+      const failing = authWorkflow(f, { updateStatus });
+      for (let round = 0; round < 2; round += 1) {
+        const plain = await failing.auth(f.exec);
+        assert.equal(plain.authenticated, true);
+        assert.equal('cliUpdate' in plain, false);
+        await settled();
+      }
+    }
+    await settled();
+  } finally {
+    process.off('unhandledRejection', listener);
+  }
+  assert.deepEqual(unhandled, []);
+});
+
+const authWorkflow = (f, cli) => createWorkflow({ ctx: f.ctx, client: f.client, cli, submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta });
+// Lets the background update refresh finish: it only needs promise callbacks, which run before this.
+const settled = () => new Promise((done) => setImmediate(done));
+
+test('#45: the login check waits at most 1.5 s for the CLI update check and starts one refresh at a time', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = await fixture();
+  let calls = 0;
+  let finish;
+  const hanging = new Promise((done) => { finish = done; });
+  const workflow = authWorkflow(f, { updateStatus: () => { calls += 1; return hanging; } });
+  for (let round = 0; round < 3; round += 1) {
+    const pending = workflow.auth(f.exec);
+    let answered = false;
+    pending.then(() => { answered = true; });
+    await settled();
+    // Still within the wait: the answer is not given yet, and not before 1.5 s have passed.
+    t.mock.timers.tick(1499);
+    await settled();
+    assert.equal(answered, false, `round ${round} answered early`);
+    t.mock.timers.tick(1);
+    const value = await pending;
+    assert.equal(value.authenticated, true);
+    assert.equal('cliUpdate' in value, false);
+  }
+  // The first refresh is still running; no second one was started.
+  assert.equal(calls, 1);
+  finish(UPDATE);
+  await settled();
+  // The slow answer arrived after the last response; the next call has it at once.
+  assert.deepEqual((await workflow.auth(f.exec)).cliUpdate?.latest, '0.1.47');
+});
+
+test('#45: a refresh that answers within the wait is in the same response, so a stale warning ends on the first check', async () => {
+  const f = await fixture();
+  const answers = [UPDATE, null];
+  const workflow = authWorkflow(f, { updateStatus: async () => answers.shift() ?? null });
+  // Cold start: the warning is already in the first response.
+  assert.equal((await workflow.auth(f.exec)).cliUpdate.current, '0.1.43');
+  // The user updated the CLI: the refresh now says so, and the very next call shows no warning.
+  assert.equal('cliUpdate' in await workflow.auth(f.exec), false);
+});
+
+test('#45: without a runnable CLI the card is generated as before and says it was not prechecked', async () => {
+  for (const [failure, note] of [
+    [Object.assign(new Error('Playground CLI was not found.'), { code: 'cli_not_found', started: false }), /未找到 Playground CLI，未经 CLI 预检/],
+    [Object.assign(new Error('spawn playground ENOENT'), { code: 'ENOENT' }), /未找到 Playground CLI，未经 CLI 预检/],
+    [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), /Node\.js.*未经 CLI 预检/],
+    [Object.assign(new Error('too old'), { code: 'cli_precheck_unsupported', started: true, version: '0.1.40' }), /CLI 0\.1\.40 低于 0\.1\.43，不支持安全的预检，未经 CLI 预检/],
+    [Object.assign(new Error('old'), { code: 'cli_precheck_unsupported', reason: 'old_version', started: true, version: '0.1.40' }), /CLI 0\.1\.40 低于 0\.1\.43/],
+    [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), /无法识别已安装 Playground CLI 的版本，未经 CLI 预检。请更新 CLI/],
+    [Object.assign(new Error('no flag'), { code: 'cli_precheck_unsupported', reason: 'no_dry_run', started: true, version: '0.1.45' }), /CLI 0\.1\.45 的 submit 命令不支持 --dry-run，未经 CLI 预检/],
+  ]) {
+    const { f, submits } = await precheckFixture(async () => { throw failure; });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(checked.ok, true, failure.code);
+    assert.equal(checked.status, 'awaiting_confirmation');
+    assert.equal(checked.cliPrecheck.status, 'skipped');
+    assert.match(checked.cliPrecheck.note, note);
+    // Neither the unknown-version note nor any other claims the CLI is lower than the floor by mistake.
+    if (failure.reason === 'unknown_version') assert.doesNotMatch(checked.cliPrecheck.note, /低于/);
+    // An outdated CLI is told where the update steps are.
+    if (failure.code === 'cli_precheck_unsupported') {
+      assert.match(checked.cliPrecheck.note, /请更新 CLI（官方安装脚本 https:\/\/play\.bohrium\.com\/install\.sh；Windows 上的步骤见 README/);
+    } else {
+      assert.doesNotMatch(checked.cliPrecheck.note, /install\.sh/);
+    }
+    assert.match(checked.note, note);
+    assert.deepEqual(checked.workflow.prepared.cliPrecheck, checked.cliPrecheck);
+    assert.deepEqual(submits, []);
+  }
+});
+
+test('#45: a CLI local rejection at confirmation says the platform created nothing', async () => {
+  for (const sample of [TRACE_REJECTED, 'no agent trace was found automatically.\nA trajectory is REQUIRED for every agent submission.']) {
+    const queries = [];
+    const { f, result } = await failedConfirm(cliError(sample), (f) => {
+      f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'submission_rejected');
+    assert.equal(result.error.reason, 'local_check');
+    assert.match(result.error.message, /平台未创建这次提交/);
+    assert.doesNotMatch(result.error.message, /结果未知/);
+    for (const pattern of TRACE_HELP) assert.match(result.error.message, pattern);
+    assert.deepEqual(queries, []);
+    assert.deepEqual(result.workflow, { kind: 'clear' });
+    assert.doesNotMatch(commandText(result), RAW_CLI);
+    f.record(result);
+    assert.equal(f.states.get('source').prepared, null);
+  }
+  // The missing-trace usage error also carries the trace help, but it stays a plugin defect.
+  const { result } = await failedConfirm(cliError('使用 --bundle 创建新提交时，请同时提供 --trace 或 --raw-messages；重试已有提交可使用 --attempt-id。\nA trajectory is REQUIRED for every agent submission.'));
+  assert.equal(result.error.reason, 'cli_usage');
+});
+
+// Playground CLI 0.1.47 refuseForeignWorker: thrown after `--dry-run` returned, so only a real submit meets it.
+const FOREIGN_WORKER = [
+  '这个站(http://127.0.0.1:15000)没有自己的评分 Worker:playground submit 会把包传到正式站的 Worker,',
+  '那边只给 play.bohrium.com 评分,这里的提交收不到包。什么都没有创建。',
+  '在这个站上做题:雇一个智能体来做 —— playground hire challenge-a "完成这道题并提交" --wait',
+  'This site (http://127.0.0.1:15000) has no scoring Worker of its own: playground submit would send your bundle',
+  "to the official site's Worker, which scores for play.bohrium.com only. Nothing was created.",
+  'To get this challenge done here, hire an agent: playground hire challenge-a "完成这道题并提交" --wait',
+].join('\n');
+
+test('#45: the CLI refusal to submit from a site without its own scoring Worker says the platform created nothing', async () => {
+  for (const sample of [FOREIGN_WORKER, 'Nothing was created.']) {
+    const queries = [];
+    const { f, result } = await failedConfirm(cliError(sample), (f) => {
+      f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'submission_rejected');
+    assert.equal(result.error.reason, 'local_check');
+    assert.match(result.error.message, /没有自己的评分 Worker.*baseUrl.*平台未创建这次提交/);
+    assert.doesNotMatch(result.error.message, /结果未知/);
+    assert.deepEqual(queries, []);
+    assert.deepEqual(result.workflow, { kind: 'clear' });
+    assert.doesNotMatch(commandText(result), RAW_CLI);
+    assert.doesNotMatch(commandText(result), /hire|127\.0\.0\.1/);
+    f.record(result);
+    assert.equal(f.states.get('source').prepared, null);
+  }
+});
+
+test('#45: a server_error is decided by the first HTTP status, and the platform reply text never picks a failure reason', async () => {
+  // The CLI picks its own reason from the reply body too, so any reason line can precede a 5xx.
+  const reasons = ['未能发送成功，请稍后再试', '创建提交记录未通过校验，请检查提交元数据和轨迹文件', '未能连接创建接口，请稍后再试', '认证失败，请先运行 playground auth login 后重试'];
+  const bodies = ['invalid request', 'network ENOTFOUND fetch failed', '限流 提交过于频繁', '提交上限 认证失败 未通过校验', 'HTTP 413 请求体限制', 'missing --challenge-id', 'unknown command'];
+  for (const reason of reasons) {
+    for (const body of bodies) {
+      const stderr = `error: ${reason}。${CLI_TAIL}\n服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"error":"${body}","request_id":"${REQUEST_ID}"}`;
+      const failure = submissionFailure(serverError(stderr));
+      assert.equal(failure.reason, 'server_error', stderr);
+      assert.equal(failure.requestId, REQUEST_ID, stderr);
+    }
+  }
+  // Patterns read only what the CLI wrote itself, not the text after "服务端返回：".
+  for (const body of ['限流 提交过于频繁', 'ENOTFOUND fetch failed', '认证失败', 'HTTP 413', 'missing --x', 'Submission limit reached']) {
+    const stderr = `error: 未能发送成功，请稍后再试。${CLI_TAIL}\n服务端返回：HTTP 409 CONFLICT: {"error":"${body}"}`;
+    assert.equal(submissionFailure(serverError(stderr)).reason, 'other', stderr);
+  }
+  // A 404 that names a 5xx inside the platform's reply stays a 404.
+  const notFound = `error: 找不到题目「x」或它当前不接受提交（HTTP 404），请检查 --challenge-id。${CLI_TAIL}\n服务端返回：HTTP 404 NOT FOUND: {"error":"upstream said HTTP 503","request_id":"${REQUEST_ID}"}`;
+  const failure = submissionFailure(serverError(notFound));
+  assert.equal(failure.reason, 'other');
+  assert.equal(failure.requestId, undefined);
+  // A real server_error through the whole confirmation path also keeps the reply text out of the result.
+  const stderr = `error: 创建提交记录未通过校验，请检查提交元数据和轨迹文件。${CLI_TAIL}\n服务端返回：HTTP 502 BAD GATEWAY: {"error":"invalid","request_id":"${REQUEST_ID}"}`;
+  const { result } = await failedConfirm(serverError(stderr));
+  assert.equal(result.error.reason, 'server_error');
+  assert.equal(result.requestId, REQUEST_ID);
+  assert.doesNotMatch(commandText(result), /未通过校验|BAD GATEWAY|invalid/);
+});
+
+test('#45: HTTP numbers in the CLI\'s own text before the reply line do not decide a server_error', async () => {
+  // A creation 429 that the CLI retried prints a progress line first; the final reply is a 503.
+  const retried = `创建提交记录未成功（HTTP 429），等待 2 秒后重试（第 2/3 次）\nerror: 未能发送成功，请稍后再试。${CLI_TAIL}\n服务端返回：HTTP 503 SERVICE UNAVAILABLE: {"error":"unavailable","request_id":"${REQUEST_ID}"}`;
+  const failure = submissionFailure(serverError(retried));
+  assert.equal(failure.reason, 'server_error');
+  assert.equal(failure.requestId, REQUEST_ID);
+  const { result } = await failedConfirm(serverError(retried));
+  assert.equal(result.error.reason, 'server_error');
+  assert.match(result.error.message, /（HTTP 503）/);
+  assert.equal(result.requestId, REQUEST_ID);
+  // The CLI writes its own "（HTTP 413）" reason when a 5xx body says "too large"; the reply line still says 500.
+  const tooLarge = `error: 创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}\n服务端返回：HTTP 500 INTERNAL SERVER ERROR: {"error":"payload too large","request_id":"${REQUEST_ID}"}`;
+  const large = submissionFailure(serverError(tooLarge));
+  assert.equal(large.reason, 'server_error');
+  assert.equal(large.requestId, REQUEST_ID);
+  const confirmed = await failedConfirm(serverError(tooLarge));
+  assert.equal(confirmed.result.error.reason, 'server_error');
+  assert.doesNotMatch(confirmed.result.error.message, /平台未创建这次提交/);
+  // Without a reply line there is no status to read.
+  assert.equal(submissionFailure(serverError('error: 创建提交记录失败（HTTP 503）')).reason, 'other');
+});
+
+test('#45: a request cancelled before the CLI started returns no confirmation card', async () => {
+  const controller = new AbortController();
+  const { f, submits } = await precheckFixture(async () => {
+    controller.abort();
+    throw Object.assign(new Error('Playground CLI was cancelled before it started.'), { code: 'cli_terminated', started: false });
+  });
+  f.exec.signal = controller.signal;
+  await assert.rejects(f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec), { name: 'AbortError' });
+  assert.equal(f.states.get('source').prepared, null);
+  assert.deepEqual(submits, []);
+});
+
+test('#45: arguments that cmd.exe would interpret fail the check instead of issuing a card that cannot be confirmed', async () => {
+  const unsafe = Object.assign(new Error('Playground CLI arguments contain characters that cmd.exe would interpret.'), { code: 'cli_unsafe_argument', started: false });
+  const { f, submits } = await precheckFixture(async () => { throw unsafe; });
+  const result = await f.workflow.prepare({ challenge_id: 'challenge-a', method: 'a & b' }, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'precheck_failed');
+  assert.equal(result.error.reason, 'unsafe_argument');
+  assert.match(result.error.message, /^未生成确认卡，没有提交任何内容。提交参数中含有 cmd 会解释的字符/);
+  assert.match(result.error.message, /cliPath 设为 CLI 的 JS 入口文件.*重新检查材料/);
+  assert.doesNotMatch(result.error.message, /cmd\.exe would/);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.deepEqual(submits, []);
+});
+
+test('#45: the first prompt points to the tool description for the trace formats and names the self-check command', async () => {
+  const { text } = await promptFor('https://play.bohrium.com/api');
+  assert.match(text, /轨迹格式见 playground_check_materials 的说明/);
+  assert.match(text, /playground trace validate --trace <路径>/);
+  assert.match(text, /不要自创/);
+  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+});
+
+test('#45: the first prompt stays within 800 characters for a 121-character title and a 70-character workspace path', async () => {
+  const f = await fixture();
+  // A workspace path of at least 70 characters, as a registered directory.
+  const long = join(f.cwd, 'w'.repeat(Math.max(1, 70 - f.cwd.length - 1)));
+  await mkdir(long);
+  assert.ok(long.length >= 70, `path is ${long.length} characters`);
+  f.ctx.workspaceRegistry.list = () => [{ id: 'workspace', path: long }];
+  const title = '题'.repeat(130);
+  f.client.getChallenge = async (id) => ({ id, title, content: 'Use the fixture.', resources: [] });
+  const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: long }, f.exec);
+  assert.equal(result.ok, true);
+  const text = startPrompts(f)[0][1].content[0].text;
+  const line = text.split('\n').find((item) => item.startsWith('赛题：'));
+  assert.equal(Array.from(line.slice('赛题：「'.length, line.lastIndexOf('」（challenge-a）'))).length, 121);
+  assert.ok(text.includes(`工作区：${long}`));
+  assert.ok(text.length <= 800, `prompt is ${text.length} characters`);
 });

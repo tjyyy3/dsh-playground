@@ -2395,3 +2395,36 @@ test('an unarchive failure in the host\'s own format shows only the generic mess
   const actions = a.registrations.get('main').definition.inject();
   assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '取消归档未完成，请重试。' });
 });
+
+const CLI_WARNING = 'Playground CLI 版本过旧（0.1.43，最新 0.1.47），可能影响评分。请用官方安装脚本 https://play.bohrium.com/install.sh 更新。';
+
+test('#45: the confirmation card shows the CLI precheck result and an outdated-CLI warning', async (t) => {
+  const f = await clientFixture(t);
+  const base = { checkId: 'checked', challenge: { id: 'fixture', title: 'Fixture' }, args: { method: 'm' }, files: [], traceCount: 1 };
+  for (const [prepared, expected, warned] of [
+    [{ ...base, cliPrecheck: { status: 'passed' }, cliUpdate: { current: '0.1.43', latest: '0.1.47', warning: CLI_WARNING } }, /本地文件检查和 Playground CLI 预检均已通过/, true],
+    [{ ...base, cliPrecheck: { status: 'skipped', note: '未找到 Playground CLI，未经 CLI 预检。' } }, /本地文件检查通过；未找到 Playground CLI，未经 CLI 预检。/, false],
+    [base, /本地文件检查通过；最终协议/, false],
+  ]) {
+    const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared, receipt: null };
+    const content = text(taskDrawer(f, () => state, async () => ({ ok: true }))());
+    assert.match(content, expected);
+    assert.equal(content.includes(CLI_WARNING), warned);
+    assert.equal(/CLI 需更新/.test(content), warned);
+  }
+});
+
+test('#45: the login area shows the outdated-CLI warning from the auth query', async (t) => {
+  let value = { authenticated: true, user: { name: 'Test user' }, cliUpdate: { current: '0.1.43', latest: '0.1.47', warning: CLI_WARNING } };
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value }) } } });
+  let content = text(await f.mount(f.workbench(undefined).auth));
+  assert.match(content, /已登录/);
+  assert.ok(content.includes(CLI_WARNING));
+  value = { authenticated: false, cliUpdate: value.cliUpdate };
+  content = text(await f.mount(f.workbench(undefined).auth));
+  assert.match(content, /未登录/);
+  assert.ok(content.includes(CLI_WARNING));
+  value = { authenticated: true, user: { name: 'Test user' } };
+  content = text(await f.mount(f.workbench(undefined).auth));
+  assert.doesNotMatch(content, /CLI 需更新|版本过旧/);
+});

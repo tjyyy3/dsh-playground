@@ -352,7 +352,9 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note' }, `${prepared.args.attempt_id ? `重传提交 #${prepared.args.attempt_id}` : '创建一条新提交'} · 方案：${prepared.args.method} · 轨迹 ${prepared.traceCount} 步`),
           declared ? h('p', { className: 'pg-note pg-path' }, declared) : null,
           h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
-          h('p', { className: 'pg-note' }, '本地文件检查通过；最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。'),
+          h('p', { className: 'pg-note' }, `${prepared.cliPrecheck?.status === 'passed' ? '本地文件检查和 Playground CLI 预检均已通过；'
+            : prepared.cliPrecheck?.note ? `本地文件检查通过；${prepared.cliPrecheck.note}` : '本地文件检查通过；'}最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。`),
+          prepared.cliUpdate?.warning ? h('p', { className: 'pg-note', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', prepared.cliUpdate.warning) : null,
           h('div', { className: 'pg-actions' }, h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act(prepared.checkId, true) }, '确认目标并提交'),
             h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'cancel' }) }, '取消本次提交'))) : null,
         edited && prepared ? h('p', { className: 'pg-note' }, '输入已改变，请重新检查材料。') : null,
@@ -409,6 +411,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand' }, 'Playground 连接状态'),
           h('button', { className: 'pg-button', disabled: state.loading, onClick: check }, state.loading ? '正在检测…' : '重新检测')),
         state.loading ? h('p', { className: 'pg-note', role: 'status' }, '正在检查当前 DSH 是否已配置 Playground 凭据…') : null,
+        !state.loading && state.cliUpdate?.warning ? h('p', { className: 'pg-note pg-cli-update' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', state.cliUpdate.warning) : null,
         !state.loading && state.authenticated ? h(React.Fragment, null,
           h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': 'success' }, '已登录'), ' ', state.user?.name || state.user?.email || 'Playground 用户'),
           state.user?.email ? h('p', { className: 'pg-note' }, state.user.email) : null,
