@@ -129,6 +129,21 @@ test('listChallenges sends filters and normalizes cards', async () => {
   assert.equal(result.items[0].titleZh, '演示');
 });
 
+test('listChallenges sends the tag filter and leaves it out when empty', async () => {
+  const requests = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async (url) => { requests.push(url); return jsonResponse({ items: [{ id: 'demo-1', title: 'Demo' }], total: 1 }); },
+  });
+  await client.listChallenges({ tag: ' 追光者计划·招募赛 ', season: 's2' });
+  await client.listChallenges({ tag: '' });
+  await client.listChallenges({});
+  assert.equal(requests[0].searchParams.get('tag'), '追光者计划·招募赛');
+  assert.equal(requests[0].searchParams.get('season'), 's2');
+  assert.equal(requests[1].searchParams.has('tag'), false);
+  assert.equal(requests[2].searchParams.has('tag'), false);
+});
+
 test('listChallenges maps 404 to not_found', async () => {
   const client = createPlaygroundClient({
     baseUrl: 'https://example.test',

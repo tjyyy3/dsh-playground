@@ -433,6 +433,19 @@ window.__ModuleLoader__.load({
             )) : null);
     }
 
+    // The competition selector. The Host returns built-in competitions (queried by `competition`) and API
+    // seasons the table lacks (queried by `season`); the select value says which. A bare value is a season slug.
+    const COMPETITION_GROUPS = [['live', '进行中'], ['upcoming', '即将开始'], ['ended', '已结束']];
+    const COMPETITION_TONES = { live: 'success', upcoming: 'warning' };
+    const competitionStatusText = (status) => (COMPETITION_GROUPS.find(([key]) => key === status) || [])[1] || '';
+    const competitionValue = (item) => (item.kind === 'season' ? `season:${item.season}` : `competition:${item.id}`);
+    const competitionLabel = (item) => [item.nameZh || item.name || item.id, competitionStatusText(item.status), item.dateText].filter(Boolean).join(' · ');
+    function competitionFilter(value) {
+      if (!value) return {};
+      if (value.startsWith('competition:')) return { competition: value.slice('competition:'.length) };
+      return { season: value.startsWith('season:') ? value.slice('season:'.length) : value };
+    }
+
     function CatalogPanel({ sessionId, allowed, query, requestTask, onWebBase }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
@@ -450,7 +463,7 @@ window.__ModuleLoader__.load({
         latest.controller = controller;
         setBusy(true); setError(''); setStatus('正在读取比赛和赛题…');
         try {
-          const result = await query({ action: 'catalog', search: nextSearch.trim(), ...(nextSeason ? { season: nextSeason } : {}), per_page: 12 }, controller.signal);
+          const result = await query({ action: 'catalog', search: nextSearch.trim(), ...competitionFilter(nextSeason), per_page: 12 }, controller.signal);
           if (latest.controller !== controller) return;
           setCatalog(result); setStatus('赛题目录已更新。');
           if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
@@ -465,7 +478,8 @@ window.__ModuleLoader__.load({
         load();
         return () => { latest.controller?.abort(); latest.controller = null; };
       }, [query]);
-      const competitions = catalog?.competitions?.items || [];
+      const competitions = Array.isArray(catalog?.competitionTable) ? catalog.competitionTable.filter((item) => item && typeof item === 'object') : [];
+      const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : undefined;
       const challenges = catalog?.challenges?.items || [];
       // Browsing is session-free; creating a task still runs through an open conversation.
       const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
@@ -478,7 +492,17 @@ window.__ModuleLoader__.load({
         h('div', { className: 'pg-search' },
           h('input', { className: 'pg-input', 'aria-label': '搜索 Playground 赛题', placeholder: '按题目名称、方向或关键词搜索', value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
           h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => { setSeason(event.target.value); load(search, event.target.value); } },
-            h('option', { value: '' }, '全部比赛'), competitions.map((item) => h('option', { key: item.slug, value: item.slug }, item.nameZh || item.name)))),
+            h('option', { value: '' }, '全部比赛'),
+            // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
+            COMPETITION_GROUPS.map(([group, label]) => {
+              const members = competitions.filter((item) => item.status === group);
+              return members.length ? h('optgroup', { key: group, label }, members.map((item) => h('option', { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+            }))),
+        selectedCompetition ? h('div', { className: 'pg-competition-info', role: 'group', 'aria-label': '比赛信息' },
+          h('p', { className: 'pg-note' }, h('span', { className: 'pg-badge', 'data-tone': COMPETITION_TONES[selectedCompetition.status] }, competitionStatusText(selectedCompetition.status)),
+            ` 时间：${selectedCompetition.timeText || selectedCompetition.dateText || '日期待定'}`,
+            selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
+          openWebButton(selectedCompetition.webUrl, selectedCompetition.nameZh || selectedCompetition.name)) : null,
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
         startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
         busy && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,

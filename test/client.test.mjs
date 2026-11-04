@@ -2428,3 +2428,125 @@ test('#45: the login area shows the outdated-CLI warning from the auth query', a
   content = text(await f.mount(f.workbench(undefined).auth));
   assert.doesNotMatch(content, /CLI 需更新|版本过旧/);
 });
+
+// Competition selector: grouped options, default, info row and the query each choice sends.
+const competitionTable = [
+  { id: 'bohr-product', kind: 'competition', nameZh: '玻尔产品周赛', name: 'Bohrium Product Weekly Contest', status: 'live', startAt: '2026-10-21T16:00:00+08:00',
+    dateText: '2026.10.21 起', timeText: '2026.10.21 16:00 起', rounds: '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00',
+    webUrl: 'https://play.bohrium.com/competition/bohr-product' },
+  { id: 'knight-s4', kind: 'competition', season: 's4', nameZh: '科学骑士大师赛', status: 'live', dateText: '2026.07.27 — 2027.02.01',
+    timeText: '2026.07.27 08:00 — 2027.02.01 07:59', webUrl: 'https://play.bohrium.com/hackathon-s4' },
+  { id: 'season:s5', kind: 'season', season: 's5', nameZh: '春季赛 · 第五季', status: 'upcoming', dateText: '2026.12.01 — 2026.12.08',
+    timeText: '2026.12.01 08:00 — 2026.12.08 08:00', webUrl: 'https://play.bohrium.com/hackathon-s5' },
+  { id: 'light-chasing', kind: 'competition', nameZh: '追光者计划·招募赛', status: 'ended', dateText: '2026.10.10 — 2026.10.11',
+    timeText: '2026.10.10 20:00 — 2026.10.11 20:00', webUrl: 'javascript:alert(1)' },
+  { id: 'paper2arm-s1', kind: 'competition', season: 's1', nameZh: 'Paper2Arm 黑客松 · 第一季', status: 'ended', dateText: '2026.04.17',
+    timeText: '2026.04.17 13:00 — 2026.04.17 17:00', webUrl: 'https://play.bohrium.com/hackathon-s1' },
+];
+
+async function competitionPanel(t, table = competitionTable) {
+  const calls = [];
+  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, _endpoint, payload) => {
+    calls.push(payload.args.input);
+    return { ok: true, value: { webBase: 'https://play.bohrium.com', competitions: { items: [] }, competitionTable: table,
+      challenges: { items: [{ id: 'c1', title: 'Challenge' }] } } };
+  } } } });
+  const { catalog } = f.workbench('A');
+  const panel = await f.mount(catalog);
+  const select = (view) => f.find(view, (node) => node.type === 'select');
+  const choose = async (value) => { select(f.render(catalog.type, catalog.props)).props.onChange({ target: { value } }); await settle(); return f.render(catalog.type, catalog.props); };
+  return { f, calls, panel, select, choose };
+}
+
+test('the competition selector groups competitions by status and starts on 全部比赛', async (t) => {
+  const { f, calls, panel, select } = await competitionPanel(t);
+  const view = select(panel);
+  assert.equal(view.props.value, '');
+  const [all, ...groups] = view.props.children.flat(Infinity).filter(Boolean);
+  assert.equal(all.type, 'option');
+  assert.equal(all.props.value, '');
+  assert.equal(text(all), '全部比赛');
+  assert.deepEqual(groups.map((group) => [group.type, group.props.label]), [['optgroup', '进行中'], ['optgroup', '即将开始'], ['optgroup', '已结束']]);
+  const options = (group) => findAll(group, (node) => node.type === 'option').map((node) => [node.props.value, text(node)]);
+  assert.deepEqual(options(groups[0]), [
+    ['competition:bohr-product', '玻尔产品周赛 · 进行中 · 2026.10.21 起'],
+    ['competition:knight-s4', '科学骑士大师赛 · 进行中 · 2026.07.27 — 2027.02.01']]);
+  assert.deepEqual(options(groups[1]), [['season:s5', '春季赛 · 第五季 · 即将开始 · 2026.12.01 — 2026.12.08']]);
+  assert.deepEqual(options(groups[2]), [
+    ['competition:light-chasing', '追光者计划·招募赛 · 已结束 · 2026.10.10 — 2026.10.11'],
+    ['competition:paper2arm-s1', 'Paper2Arm 黑客松 · 第一季 · 已结束 · 2026.04.17']]);
+  // The first read asks for everything: no competition and no season. There is no info row yet.
+  assert.deepEqual(calls, [{ action: 'catalog', search: '', per_page: 12 }]);
+  assert.equal(findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息').length, 0);
+  assert.equal(findAll(panel, isOpenWeb).length, 0, 'no competition chosen: no competition web button');
+  assert.equal(f.find(panel, (node) => node.type === 'optgroup' && !node.props.children.flat(Infinity).length), undefined);
+});
+
+test('an empty status group is not rendered', async (t) => {
+  const { panel, select } = await competitionPanel(t, [competitionTable[0]]);
+  const groups = select(panel).props.children.flat(Infinity).filter((node) => node?.type === 'optgroup');
+  assert.deepEqual(groups.map((group) => group.props.label), ['进行中']);
+});
+
+test('choosing a competition sends its id, shows the info row and opens its page in the browser', async (t) => {
+  const { calls, choose } = await competitionPanel(t);
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const panel = await choose('competition:bohr-product');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'bohr-product', per_page: 12 });
+  const [info] = findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息');
+  assert.ok(info);
+  assert.match(text(info), /进行中/);
+  assert.match(text(info), /时间：2026\.10\.21 16:00 起/);
+  assert.match(text(info), /轮次：第一期 10\.21 16:00 — 11\.03 24:00 · 第二期 11\.04 16:00 — 11\.11 16:00/);
+  const [open] = findAll(info, isOpenWeb);
+  assert.equal(open.props['aria-label'], '在网页中打开：玻尔产品周赛');
+  open.props.onClick();
+  assert.deepEqual(opened, [['https://play.bohrium.com/competition/bohr-product', '_blank', 'noopener,noreferrer']]);
+  // The challenge card keeps its own start, detail and web buttons.
+  assert.equal(findAll(panel, (node) => node.type?.name === 'StartTaskButton').length, 1);
+  assert.equal(findAll(panel, (node) => node.type === 'button' && /^查看详情/.test(node.props['aria-label'] || '')).length, 1);
+});
+
+test('the info row omits rounds when a competition has none, and opens no unsafe address', async (t) => {
+  const { choose } = await competitionPanel(t);
+  const season = findAll(await choose('competition:knight-s4'), (node) => node.props?.['aria-label'] === '比赛信息')[0];
+  assert.match(text(season), /时间：2026\.07\.27 08:00 — 2027\.02\.01 07:59/);
+  assert.doesNotMatch(text(season), /轮次/);
+  assert.equal(findAll(season, isOpenWeb).length, 1);
+  const unsafe = findAll(await choose('competition:light-chasing'), (node) => node.props?.['aria-label'] === '比赛信息')[0];
+  assert.match(text(unsafe), /已结束/);
+  assert.equal(findAll(unsafe, isOpenWeb).length, 0, 'a javascript: address is never opened');
+});
+
+test('an API season sends season, 全部比赛 sends neither, and the info row follows the choice', async (t) => {
+  const { calls, choose } = await competitionPanel(t);
+  let panel = await choose('season:s5');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', season: 's5', per_page: 12 });
+  assert.match(text(findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息')[0]), /即将开始/);
+  panel = await choose('competition:paper2arm-s1');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'paper2arm-s1', per_page: 12 });
+  panel = await choose('');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', per_page: 12 });
+  assert.equal(findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息').length, 0);
+});
+
+test('search keeps the chosen competition', async (t) => {
+  const { f, calls, choose } = await competitionPanel(t);
+  await choose('competition:bohr-product');
+  const { catalog } = f.workbench('A');
+  let panel = f.render(catalog.type, catalog.props);
+  f.find(panel, (node) => node.type === 'input').props.onChange({ target: { value: '思维导图' } });
+  panel = f.render(catalog.type, catalog.props);
+  f.find(panel, (node) => node.type === 'input').props.onKeyDown({ key: 'Enter' });
+  await settle();
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '思维导图', competition: 'bohr-product', per_page: 12 });
+});
+
+test('a catalog without a competition table still renders the plain selector', async (t) => {
+  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { competitions: { items: [{ slug: 'old', name: 'Old' }] }, challenges: { items: [] } } }) } } });
+  const panel = await f.mount(f.workbench('A').catalog);
+  const children = f.find(panel, (node) => node.type === 'select').props.children.flat(Infinity).filter(Boolean);
+  assert.deepEqual(children.map((node) => node.type), ['option']);
+  assert.equal(findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息').length, 0);
+});
