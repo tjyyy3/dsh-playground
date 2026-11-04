@@ -1305,3 +1305,158 @@ test('the challenge detail read returns only the drawer fields, caps the stateme
   await assert.rejects(f.workflow.challenge('a b/c', { signal }), /upstream returned 503/);
   assert.equal(JSON.stringify([...f.states]), before);
 });
+
+// #45: the material check runs `playground submit … --dry-run` after the local checks.
+// The trace error Playground CLI 0.1.47 prints (loadTraceSteps and the start of TRACE_REQUIRED_HELP).
+const TRACE_REJECTED = 'could not derive normalized trace steps from C:\\Users\\someone\\work\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\nAccepted trajectory formats:\n  playground trace validate --trace PATH';
+const UPDATE = { current: '0.1.43', latest: '0.1.47' };
+const TRACE_HELP = [/原生会话 JSONL/, /\{"role","content"\}/, /\{"steps":\[\.\.\.\]\}/, /playground trace validate --trace <路径>/];
+// The plugin's own warning carries install.sh, so only raw CLI fragments are checked here.
+const RAW_PRECHECK = /error: |could not derive|REQUIRED|someone|outdated|score may be affected|TRACE-STEP/;
+
+function precheckFixture(precheck, submit = async () => assert.fail('a precheck must not submit')) {
+  const prechecks = [];
+  const submits = [];
+  const cli = {
+    precheck: async (input) => { prechecks.push(input); return precheck(input); },
+    submit: async (input) => { submits.push(input); return submit(input); },
+  };
+  return fixture(cli).then((f) => ({ f, prechecks, submits }));
+}
+
+test('#45: a trace the CLI rejects produces no confirmation card and explains the accepted formats', async () => {
+  const { f, prechecks, submits } = await precheckFixture(async () => {
+    throw Object.assign(cliError(TRACE_REJECTED), { started: true, update: UPDATE });
+  });
+  const result = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(prechecks.length, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'precheck_failed');
+  assert.equal(result.error.reason, 'local_check');
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  for (const pattern of TRACE_HELP) assert.match(result.error.message, pattern);
+  assert.match(result.error.message, /未生成确认卡，没有提交任何内容/);
+  assert.match(result.error.message, /版本过旧（0\.1\.43，最新 0\.1\.47）/);
+  assert.equal(result.cliUpdate.current, '0.1.43');
+  assert.doesNotMatch(commandText(result), RAW_PRECHECK);
+  f.record(result);
+  assert.equal(f.states.get('source').prepared, null);
+  assert.deepEqual(submits, []);
+  assert.deepEqual(f.calls, []);
+});
+
+test('#45: other precheck failures block the card with plugin-written text only', async () => {
+  for (const [failure, reason, expected] of [
+    [cliError(`未能连接 worker，请稍后再试。${CLI_TAIL}`), 'network', /本地预检没有通过/],
+    [Object.assign(new Error('Playground CLI did not print a dry-run result.'), { code: 'cli_invalid_output', started: true, stdout: 'TRACE-STEP' }), 'other', /本地预检没有通过/],
+    [cliError('', 'cli_terminated'), 'terminated', /中断或超时/],
+    [cliError('missing --challenge-id'), 'cli_usage', /插件缺陷/],
+  ]) {
+    const { f } = await precheckFixture(async () => { throw Object.assign(failure, { started: true }); });
+    const result = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(result.ok, false, reason);
+    assert.equal(result.error.reason, reason);
+    assert.match(result.error.message, expected, reason);
+    assert.deepEqual(result.workflow, { kind: 'clear' }, reason);
+    assert.doesNotMatch(commandText(result), RAW_CLI, reason);
+  }
+});
+
+test('#45: materials the CLI accepts get the same confirmation card, and confirm submits the prechecked arguments', async () => {
+  const { f, prechecks, submits } = await precheckFixture(async () => ({ status: 'dry_run', version: '0.1.47' }),
+    async () => ({ attempt_id: 7, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', model: 'model-a', detail: 'Run notes' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.equal(checked.status, 'awaiting_confirmation');
+  assert.deepEqual(checked.cliPrecheck, { status: 'passed' });
+  assert.equal(checked.cliUpdate, undefined);
+  assert.match(checked.note, /本地材料检查和 Playground CLI 预检均已通过/);
+  const prepared = checked.workflow.prepared;
+  assert.deepEqual(prepared.cliPrecheck, { status: 'passed' });
+  assert.equal(prepared.traceCount, 1);
+  assert.equal(prepared.files[0].path, resolve(f.cwd, 'bundle.zip'));
+  assert.equal(prechecks[0].cwd, f.cwd);
+  assert.equal(prechecks[0].tracePath, resolve(f.cwd, 'trace.json'));
+  assert.deepEqual(submits, []);
+  f.record(checked);
+  const result = await f.workflow.confirm(prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 7);
+  // One option builder feeds both calls, so the dry run checked exactly what was submitted.
+  assert.deepEqual(submits, prechecks);
+  assert.deepEqual(buildSubmitArgs(submits[0]), buildSubmitArgs(prechecks[0]));
+});
+
+test('#45: an outdated CLI is reported as a short warning field with the official update method', async () => {
+  const { f } = await precheckFixture(async () => ({ status: 'dry_run', version: '0.1.43', update: UPDATE }));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  for (const value of [checked.cliUpdate, checked.workflow.prepared.cliUpdate]) {
+    assert.equal(value.current, '0.1.43');
+    assert.equal(value.latest, '0.1.47');
+    assert.match(value.warning, /^Playground CLI 版本过旧（0\.1\.43，最新 0\.1\.47），可能影响评分。/);
+    assert.match(value.warning, /https:\/\/play\.bohrium\.com\/install\.sh/);
+    assert.match(value.warning, /\.tgz，核对 SHA-256 后运行 npm install -g <文件>/);
+    assert.doesNotMatch(value.warning, /npm i -g|@paper2arm/);
+  }
+  assert.ok(checked.note.includes(checked.cliUpdate.warning));
+  // The login area gets the same field from the cached update status; a failing check is ignored.
+  f.workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli: { updateStatus: async () => UPDATE }, submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta });
+  const auth = await f.workflow.auth(f.exec);
+  assert.equal(auth.authenticated, true);
+  assert.deepEqual(auth.cliUpdate, checked.cliUpdate);
+  for (const updateStatus of [async () => null, async () => { throw new Error('outdated'); }, () => { throw new Error('sync'); }]) {
+    const workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli: { updateStatus }, submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta });
+    const plain = await workflow.auth(f.exec);
+    assert.equal(plain.authenticated, true);
+    assert.equal('cliUpdate' in plain, false);
+  }
+});
+
+test('#45: without a runnable CLI the card is generated as before and says it was not prechecked', async () => {
+  for (const [failure, note] of [
+    [Object.assign(new Error('Playground CLI was not found.'), { code: 'cli_not_found', started: false }), /未找到 Playground CLI，未经 CLI 预检/],
+    [Object.assign(new Error('spawn playground ENOENT'), { code: 'ENOENT' }), /未找到 Playground CLI，未经 CLI 预检/],
+    [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), /Node\.js.*未经 CLI 预检/],
+    [Object.assign(new Error('too old'), { code: 'cli_precheck_unsupported', started: true, version: '0.1.40' }), /0\.1\.40低于 0\.1\.43.*未经 CLI 预检/],
+  ]) {
+    const { f, submits } = await precheckFixture(async () => { throw failure; });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(checked.ok, true, failure.code);
+    assert.equal(checked.status, 'awaiting_confirmation');
+    assert.equal(checked.cliPrecheck.status, 'skipped');
+    assert.match(checked.cliPrecheck.note, note);
+    assert.match(checked.note, note);
+    assert.deepEqual(checked.workflow.prepared.cliPrecheck, checked.cliPrecheck);
+    assert.deepEqual(submits, []);
+  }
+});
+
+test('#45: a CLI local rejection at confirmation says the platform created nothing', async () => {
+  for (const sample of [TRACE_REJECTED, 'no agent trace was found automatically.\nA trajectory is REQUIRED for every agent submission.']) {
+    const queries = [];
+    const { f, result } = await failedConfirm(cliError(sample), (f) => {
+      f.client.listMyAttempts = async (params) => { queries.push(params); return { items: [], nextCursor: null }; };
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'submission_rejected');
+    assert.equal(result.error.reason, 'local_check');
+    assert.match(result.error.message, /平台未创建这次提交/);
+    assert.doesNotMatch(result.error.message, /结果未知/);
+    for (const pattern of TRACE_HELP) assert.match(result.error.message, pattern);
+    assert.deepEqual(queries, []);
+    assert.deepEqual(result.workflow, { kind: 'clear' });
+    assert.doesNotMatch(commandText(result), RAW_CLI);
+    f.record(result);
+    assert.equal(f.states.get('source').prepared, null);
+  }
+  // The missing-trace usage error also carries the trace help, but it stays a plugin defect.
+  const { result } = await failedConfirm(cliError('使用 --bundle 创建新提交时，请同时提供 --trace 或 --raw-messages；重试已有提交可使用 --attempt-id。\nA trajectory is REQUIRED for every agent submission.'));
+  assert.equal(result.error.reason, 'cli_usage');
+});
+
+test('#45: the first prompt names the accepted trace formats and the self-check command', async () => {
+  const { text } = await promptFor('https://play.bohrium.com/api');
+  for (const pattern of TRACE_HELP) assert.match(text, pattern);
+  assert.match(text, /不要自创/);
+  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+});

@@ -88,7 +88,29 @@ outside this MVP. Codex chat management is also outside scope.
 Local checks cover file existence/size, ZIP signatures, object-valued trace
 records, nonempty execution steps, manifest JSON and exact SHA-256 snapshots.
 They do not execute bundles, validate every ARM rule, or establish scientific
-correctness. The platform still owns final validation and grading. New workflow
+correctness. The platform still owns final validation and grading.
+
+After the local checks pass, the material check runs the installed CLI once with
+the same arguments the confirmed submission will use plus `--dry-run`
+(`playground submit … --dry-run`). The CLI returns before any platform request,
+so nothing is created. A confirmation card is generated only when the CLI
+accepts the materials; otherwise the check shows a plugin-written reason and no
+card. Only CLI 0.1.43 and later are asked to dry-run. When the CLI or Node.js
+is missing, or the CLI is older, the card is generated as before and says
+"未经 CLI 预检". A CLI rejection at confirmation time, before it creates
+anything, is reported as "平台未创建这次提交" and the card is cleared; fix the
+materials and check again.
+
+The trace must be in a format the CLI accepts:
+
+1. a native session JSONL (Codex, Claude Code, OpenCode);
+2. a conversation-record JSONL with one `{"role": ..., "content": ...}` object
+   per line (system, user, assistant, tool);
+3. a `{"steps": [...]}` JSON of normalized ARM trace steps.
+
+Check a trace with `playground trace validate --trace <path>` before
+checking materials. The task's first prompt and the `playground_check_materials`
+description give the agent the same rules. New workflow
 controls currently use Chinese labels; existing query card labels retain
 their Chinese/English translations.
 
@@ -299,9 +321,28 @@ profile.
 
 - DSH with the **Add plugin → Install third-party plugin** entry. The plugin
   runs on the Node.js runtime bundled with DSH.
-- The Playground CLI (`playground`) for login and confirmed submissions; it
-  needs Node.js 20 or newer. Public challenge and competition reads can work
-  without a login.
+- The Playground CLI (`playground`) for login, material prechecks and confirmed
+  submissions; it needs Node.js 20 or newer. Public challenge and competition
+  reads can work without a login.
+
+### Install or update the Playground CLI
+
+The CLI is not published to the public npm registry, so
+`npm i -g @paper2arm/playground-cli` does not work. Install and update it with
+the official script:
+
+- macOS and Linux: `curl -fsSL https://play.bohrium.com/install.sh | bash`
+- Windows: open <https://play.bohrium.com/install.sh>, download the `.tgz`
+  named by its `PACKAGE_URL`, compare
+  `Get-FileHash -Algorithm SHA256 <file>` with its `PACKAGE_SHA256`, then run
+  `npm install -g <file>`.
+
+When the CLI reports that it is outdated ("Playground CLI x is outdated; latest
+is y"), the workbench login area and the material check show
+"Playground CLI 版本过旧（x，最新 y），可能影响评分" with these update steps.
+The login area learns this from the read-only `playground update-check`, run
+at most once an hour; a material check also picks it up from the CLI's notice.
+Only the two version numbers are kept, never other CLI output.
 
 ### Steps
 

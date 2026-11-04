@@ -217,6 +217,8 @@ const SUBMIT_OUTPUT_SCHEMA = {
     stage: { type: 'string' },
     title: { type: 'string' },
     traceCount: { type: 'integer' },
+    cliPrecheck: { type: 'object', properties: { status: { type: 'string' }, note: { type: 'string' } } },
+    cliUpdate: { type: 'object', properties: { current: { type: 'string' }, latest: { type: 'string' }, warning: { type: 'string' } } },
     workflow: { type: 'object', additionalProperties: true },
     error: ERROR_SCHEMA,
   },
@@ -875,7 +877,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
         },
         trace_path: {
           type: 'string',
-          description: 'Absolute path to the trajectory: a JSON array of trace-step objects or a raw_messages JSONL file. Required when creating a new submission.',
+          description: 'Absolute path to the trajectory, in a format the Playground CLI accepts: native session JSONL (Codex / Claude Code / OpenCode), conversation-record JSONL with one {"role", "content"} object per line, or {"steps": [...]} JSON. Check it with `playground trace validate --trace <path>`. Required when creating a new submission.',
         },
         attempt_id: {
           type: 'integer',
@@ -1055,7 +1057,7 @@ export function apply(ctx, config) {
   let workflow;
   const requestSubmission = {
     ...submit,
-    description: 'Prepare a submission to an explicitly named Playground challenge. Checks local files and returns a user confirmation card. Does NOT create or upload a submission. Only a human can confirm via the Playground card; never call shell, browser automation, or commands to confirm on their behalf. ' + confirmGuidance,
+    description: 'Prepare a submission to an explicitly named Playground challenge. Checks local files, prechecks them with the Playground CLI\'s `submit --dry-run` (no platform request) and returns a user confirmation card. Does NOT create or upload a submission. Only a human can confirm via the Playground card; never call shell, browser automation, or commands to confirm on their behalf. ' + confirmGuidance,
     parameters: { ...submit.parameters, required: ['challenge_id'] },
     execute: (args, exec) => workflow ? workflow.prepare(args, exec) : errorValue(new PlaygroundApiError('Native DSH workflow services are unavailable; submitting without user confirmation is disabled.', { code: 'workflow_unavailable' })),
   };
@@ -1099,7 +1101,7 @@ export function apply(ctx, config) {
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, cwd: { type: 'string', description: 'Required absolute path of a registered DSH workspace: the directory the user named, otherwise the current conversation\'s workspace.' }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['challenge_id', 'cwd'] }, output,
       execute: (args, exec) => workflow.start(args, exec).then(toToolValue).catch(errorValue) });
     scope.tools.register({ ...requestSubmission, name: 'playground_check_materials',
-      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. Returns file sizes, hashes and a confirmation card; makes no platform writes. ' + confirmGuidance,
+      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. After the local checks it runs the installed Playground CLI\'s `playground submit ... --dry-run` with the same arguments, which returns before any platform request; a confirmation card is generated only when the CLI accepts the materials. The trace must be in a format the CLI accepts: (1) a native session JSONL (Codex / Claude Code / OpenCode), (2) a conversation-record JSONL with one {"role": ..., "content": ...} object per line, or (3) a {"steps": [...]} JSON of normalized ARM trace steps. Never invent a trace format or fabricate a trajectory; self-check with `playground trace validate --trace <path>` first. Returns file sizes, hashes and a confirmation card; makes no platform writes. ' + confirmGuidance,
       execute: (args, exec) => workflow.prepare(args, exec).then(toToolValue) });
     scope.tools.register({ name: 'playground_task', description: 'Read this Playground task context, switch participate/author working mode, or refresh its latest submission result. Mode is not an account role. No authority to confirm submissions.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results'] }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['action'] }, output,

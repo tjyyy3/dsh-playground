@@ -4,7 +4,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from '
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
-import { buildSubmitArgs, createPlaygroundCli } from '../lib/cli.js';
+import { buildSubmitArgs, createPlaygroundCli, parseCliUpdate } from '../lib/cli.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -582,4 +582,98 @@ test('createPlaygroundCli().submit() runs the CLI with the built arguments, incl
   ]);
   const withoutFields = await cli.submit({ ...required, tracePath: 'trace.jsonl' });
   for (const flag of NEW_FIELD_FLAGS) assert.equal(hasFlag(withoutFields, flag), false, flag);
+});
+
+// The update notice and trace error Playground CLI 0.1.47 prints on stderr (maybePrintUpdateNotice,
+// loadTraceSteps and the start of TRACE_REQUIRED_HELP).
+const UPDATE_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.47.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash\n';
+const TRACE_ERROR = 'error: could not derive normalized trace steps from C:\\work\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\n';
+const DRY_RUN = JSON.stringify({ status: 'dry_run', bundle: 'bundle.zip', bundle_sha256: 'a'.repeat(64), manifest: {}, trace_steps: [{ content: 'TRACE-STEP-TEXT' }] }, null, 2);
+
+// Fake CLI for the precheck: logs each argv as a JSON line, answers --version and update-check, and
+// prints `stderr`, `stdout` and exits with `exit` for submit.
+function precheckSource(log, { version = '0.1.43', stderr = '', stdout = DRY_RUN, exit = 0, update = { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true } } = {}) {
+  return `import { appendFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+appendFileSync(${quote(log)}, JSON.stringify(argv) + '\\n');
+if (argv[0] === '--version') { console.log(${quote(version)}); process.exit(0); }
+if (argv[0] === 'update-check') { console.log(${quote(JSON.stringify(update, null, 2))}); process.exit(0); }
+process.stderr.write(${quote(stderr)});
+console.log(${quote(stdout)});
+process.exit(${exit});`;
+}
+const loggedCalls = async (log) => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+
+async function precheckCli(name, options, cliOptions = {}) {
+  const log = join(root, `precheck ${name}`, 'calls.log');
+  const command = await fakeCli(join(root, `precheck ${name}`, 'cli.mjs'), precheckSource(log, options));
+  return { log, cli: createPlaygroundCli({ command, ...cliOptions }) };
+}
+
+test('precheck runs submit with the same arguments plus --dry-run and returns only its status and versions', async () => {
+  const { log, cli } = await precheckCli('ok', { stderr: UPDATE_NOTICE }, { baseUrl: 'http://127.0.0.1:9/api' });
+  const options = { ...required, tracePath: 'trace.jsonl', method: 'a & b 中文', manifestPath: 'arm manifest.json', detail: '--- notes', model: 'model-a' };
+  const result = await cli.precheck(options);
+  assert.deepEqual(result, { status: 'dry_run', version: '0.1.43', update: { current: '0.1.43', latest: '0.1.47' } });
+  assert.doesNotMatch(JSON.stringify(result), /TRACE-STEP|bundle_sha256|outdated/);
+  await cli.submit(options);
+  const calls = await loggedCalls(log);
+  assert.deepEqual(calls[0], ['--version']);
+  assert.deepEqual(calls[1], [...buildSubmitArgs(options), '--dry-run', '--api-base', 'http://127.0.0.1:9']);
+  // The confirmed submission sends exactly the dry-run arguments without --dry-run.
+  assert.deepEqual(calls[2], calls[1].filter((arg) => arg !== '--dry-run'));
+  // The notice the precheck saw serves the login area without another CLI run.
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.equal((await loggedCalls(log)).length, 3);
+});
+
+test('precheck never asks a CLI older than 0.1.43, or of unknown version, to dry-run', async () => {
+  for (const [name, version, expected] of [['old', '0.1.42', '0.1.42'], ['odd', 'playground (custom build)', undefined]]) {
+    const { log, cli } = await precheckCli(name, { version });
+    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
+      (error) => error.code === 'cli_precheck_unsupported' && error.version === expected, name);
+    assert.deepEqual(await loggedCalls(log), [['--version']], name);
+  }
+});
+
+test('a trace the CLI rejects fails the precheck with the update notice and hidden output streams', async () => {
+  const { cli } = await precheckCli('bad trace', { stderr: UPDATE_NOTICE + TRACE_ERROR, stdout: '', exit: 1 });
+  const error = await cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
+  assert.equal(error.code, 'cli_error');
+  assert.equal(error.started, true);
+  assert.deepEqual(error.update, { current: '0.1.43', latest: '0.1.47' });
+  assert.match(error.stderr, /could not derive normalized trace steps/);
+  assert.equal(Object.keys(error).includes('stderr'), false);
+  assert.doesNotMatch(JSON.stringify(error), /could not derive|outdated/);
+});
+
+test('precheck refuses a CLI that exits cleanly without a dry-run result', async () => {
+  for (const [name, stdout] of [['text', 'submitted'], ['other json', JSON.stringify({ attempt_id: 7 })]]) {
+    const { cli } = await precheckCli(name, { stdout });
+    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
+      (error) => error.code === 'cli_invalid_output' && error.started === true && !Object.keys(error).includes('stdout'), name);
+  }
+});
+
+test('updateStatus runs the read-only update-check once and reports only a newer release', async () => {
+  const { log, cli } = await precheckCli('update', {});
+  assert.deepEqual(await Promise.all([cli.updateStatus(), cli.updateStatus()]), [{ current: '0.1.43', latest: '0.1.47' }, { current: '0.1.43', latest: '0.1.47' }]);
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(await loggedCalls(log), [['update-check']]);
+  const current = await precheckCli('current', { update: { current: '0.1.47', latest: '0.1.47', checked: true, update_available: false } });
+  assert.equal(await current.cli.updateStatus(), null);
+  const hostile = await precheckCli('hostile', { update: { current: '0.1.43; rm -rf /', latest: '<b>9</b>', update_available: true } });
+  assert.equal(await hostile.cli.updateStatus(), null);
+  const failing = createPlaygroundCli({ command: await fakeCli(join(root, 'precheck failing', 'cli.mjs'), 'process.exit(2);') });
+  assert.equal(await failing.updateStatus(), null);
+  assert.equal(await createPlaygroundCli({ command: `playground-missing-${process.pid}` }).updateStatus(), null);
+});
+
+test('parseCliUpdate keeps only the two version numbers of the outdated notice', () => {
+  assert.deepEqual(parseCliUpdate(`${UPDATE_NOTICE}${TRACE_ERROR}`), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(parseCliUpdate('Playground CLI 0.1.43 is outdated; latest is 0.2.0-beta.1.'), { current: '0.1.43', latest: '0.2.0-beta.1' });
+  for (const text of ['', undefined, 'error: could not derive normalized trace steps', 'Playground CLI $(whoami) is outdated; latest is 0.1.47.',
+    'Playground CLI 0.1.43 is outdated; latest is <script>.']) {
+    assert.equal(parseCliUpdate(text), undefined, String(text));
+  }
 });

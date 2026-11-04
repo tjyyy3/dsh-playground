@@ -506,7 +506,9 @@ async function withSyntheticPlatform(body) {
   try { return await body(); } finally { globalThis.fetch = originalFetch; }
 }
 
-const SYNTHETIC_CONFIG = { baseUrl: 'http://127.0.0.1:15000/api', token: 'synthetic-token' };
+// A CLI that is never installed, so the material check skips the CLI precheck on every machine
+// instead of running whatever playground command the developer has.
+const SYNTHETIC_CONFIG = { baseUrl: 'http://127.0.0.1:15000/api', token: 'synthetic-token', cliPath: `playground-not-installed-${process.pid}` };
 
 const forbiddenGuidance = /playground-confirm|slash command/i;
 
@@ -654,4 +656,21 @@ test('D10a: the task context prompt tells the agent how confirmation works', () 
   assert.doesNotMatch(text, forbiddenGuidance);
   assert.equal(text.includes('synthetic-check'), false);
   assert.equal(context.text({}), '');
+});
+
+test('#45: the material-check description names the CLI precheck, the accepted trace formats and the self-check', () => {
+  const { tools } = mountWorkflowScope({ task: null, prepared: null, receipt: null });
+  for (const name of ['playground_submit_attempt', 'playground_check_materials']) {
+    const tool = tools.find((item) => item.name === name);
+    assert.match(tool.description, /--dry-run/, name);
+    assert.match(tool.parameters.properties.trace_path.description, /\{"role", "content"\}/, name);
+    assert.match(tool.parameters.properties.trace_path.description, /\{"steps": \[\.\.\.\]\}/, name);
+    assert.match(tool.parameters.properties.trace_path.description, /playground trace validate --trace <path>/, name);
+  }
+  const { description } = tools.find((item) => item.name === 'playground_check_materials');
+  assert.match(description, /native session JSONL/);
+  assert.match(description, /one \{"role": \.\.\., "content": \.\.\.\} object per line/);
+  assert.match(description, /\{"steps": \[\.\.\.\]\} JSON/);
+  assert.match(description, /playground trace validate --trace <path>/);
+  assert.match(description, /generated only when the CLI accepts the materials/);
 });
