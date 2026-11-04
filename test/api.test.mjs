@@ -585,3 +585,16 @@ test('attempt formatters show scoring state and submission outcome', () => {
   assert.match(submitted, /Submission 99 created/);
   assert.match(submitted, /playground_get_attempt/);
 });
+
+test('getChallengeFacets reads the discipline counts and rejects a response without them', async () => {
+  const requested = [];
+  let body = { attempts: 48415, total: 6985, unclassified: 2354, formalDisciplines: { materials: 1411 }, subDisciplines: {},
+    disciplines: { materials: 1411, ' physics ': 1307, '': 5, ['x'.repeat(101)]: 9, zero: 0, half: 1.5, text: '3' } };
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: async (url) => { requested.push(url); return jsonResponse(body); } });
+  assert.deepEqual(await client.getChallengeFacets(), { total: 6985, unclassified: 2354, disciplines: { materials: 1411, physics: 1307 } });
+  assert.equal(requested[0].origin + requested[0].pathname, 'https://example.test/api/challenges/facets');
+  assert.equal(requested[0].search, '');
+  for (body of [null, [], { total: 1 }, { disciplines: [] }, { disciplines: null }]) {
+    await assert.rejects(() => client.getChallengeFacets(), (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response', JSON.stringify(body));
+  }
+});

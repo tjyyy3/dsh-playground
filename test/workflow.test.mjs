@@ -7,9 +7,10 @@ import { createPlaygroundClient } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
 import { buildSubmitArgs } from '../lib/cli.js';
+import { registerWorkbenchQueries } from '../lib/queries.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
-import { CHALLENGE_CONTENT_MAX, createWorkflow, submissionFailure, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
+import { CHALLENGE_CONTENT_MAX, createWorkflow, disciplineFacets, submissionFailure, taskAttemptIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -2159,4 +2160,126 @@ test('a cancelled seasons read still fails the catalog', async () => {
   const pending = f.workflow.catalog({}, { ...f.exec, signal: controller.signal });
   controller.abort(new Error('user left'));
   await assert.rejects(() => pending, /user left/);
+});
+
+// Catalog paging and filters (#48).
+test('catalog filters and pages pass the query contract and reach the list API for plain lists, tags and seasons', async () => {
+  const f = await fixture();
+  const listings = recordListings(f, { pages: 3 });
+  // Through the real session-free query service, so the input must pass its strict schema first.
+  const services = new Map();
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, f.workflow);
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  const read = (input) => services.get('playgroundQueries').query(schema.parse({ action: 'catalog', ...input }), f.exec.signal);
+  const filters = { search: 'fwi', origin: 'hackathon', discipline: ' combustion ', sort: 'attempts', page: 2, per_page: 20 };
+  assert.equal((await read(filters)).ok, true);
+  await read({ ...filters, competition: 'light-chasing' });
+  await read({ ...filters, competition: 'knight-s4' });
+  const sent = ({ search, discipline, origin, sort, page, perPage, tag, season }) => ({ search, discipline, origin, sort, page, perPage, tag, season });
+  const expected = { search: 'fwi', discipline: 'combustion', origin: 'hackathon', sort: 'attempts', page: 2, perPage: 20, tag: undefined, season: undefined };
+  assert.deepEqual(listings.map(sent), [expected, { ...expected, tag: '追光者计划·招募赛' }, { ...expected, season: 's4' }]);
+});
+
+function fixedCards(f, cards) {
+  const read = [];
+  f.client.getChallenge = async (id) => { read.push(id); if (!cards[id]) throw notFound(); return { id, title: id, ...cards[id] }; };
+  return read;
+}
+
+test('a fixed-id competition is filtered, sorted and paged on the Host; a page past the end is empty', async () => {
+  const f = await fixture();
+  f.client.listChallenges = async () => assert.fail('a fixed-id list does not use the list API');
+  const [dpa, abacus, flow] = ['optimize-the-complete-dpa4c-nano-lammps-md-step-ac-6a1e56aa', 'abacus-fractional-charge-nao-basis-a8033ccd', 'flowforge-periodic-regular-tetrahedra-packing-f45cec7b'];
+  fixedCards(f, { [dpa]: { origin: 'arena', attempts: 1248 }, [abacus]: { origin: 'community', discipline: 'materials', attempts: 3 },
+    [flow]: { origin: 'community', discipline: 'math', attempts: 40 } });
+  const ids = async (args) => (await f.workflow.catalog({ competition: 'pku', ...args }, f.exec)).challenges;
+  assert.deepEqual((await ids({})).items.map((item) => item.id), [dpa, abacus, flow], 'newest keeps the table order');
+  assert.deepEqual((await ids({ sort: 'attempts' })).items.map((item) => item.id), [dpa, flow, abacus]);
+  assert.deepEqual((await ids({ origin: 'community' })).items.map((item) => item.id), [abacus, flow]);
+  assert.deepEqual((await ids({ origin: 'community', discipline: 'math' })).items.map((item) => item.id), [flow]);
+  assert.equal((await ids({ discipline: 'Math' })).total, 0, 'a discipline matches exactly, like the API');
+  const second = await ids({ sort: 'attempts', per_page: 2, page: 2 });
+  assert.deepEqual([second.items.map((item) => item.id), second.page, second.pages, second.hasMore, second.total], [[abacus], 2, 2, false, 3]);
+  const past = await ids({ per_page: 2, page: 3 });
+  assert.deepEqual([past.items, past.page, past.hasMore, past.total], [[], 3, false, 3]);
+});
+
+test('a merged competition passes filters to its tag, filters the pinned ids itself, and sorts the whole list by attempts', async () => {
+  const f = await fixture();
+  const listings = [];
+  const tagged = [{ id: 'challenge-9313ad0a', title: 'Tagged one', origin: 'community', attempts: 50 },
+    { id: 'product-arena-01-5a9928c1', title: 'Tagged two', origin: 'community', attempts: 900 }];
+  f.client.listChallenges = async (params) => { listings.push(params); return { total: 2, page: 1, perPage: 50, pages: 1, hasMore: false, items: tagged }; };
+  fixedCards(f, { 'skill-13890f6a': { origin: 'community', attempts: 1494 }, 'ai-github-98fdb6f0': { origin: 'arena', attempts: 7 },
+    'ai-635bc8b5': { origin: 'community', discipline: 'ai', attempts: 0 } });
+  const read = async (args) => (await f.workflow.catalog({ competition: 'bohr-product', ...args }, f.exec)).challenges;
+  // Newest (the default): pinned ids first in table order, then the tag.
+  assert.deepEqual((await read({})).items.map((item) => item.id),
+    ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
+  // Attempts: one list, most attempts first.
+  assert.deepEqual((await read({ sort: 'attempts' })).items.map((item) => item.id),
+    ['skill-13890f6a', 'product-arena-01-5a9928c1', 'challenge-9313ad0a', 'ai-github-98fdb6f0', 'ai-635bc8b5']);
+  // Origin and discipline reach the tag read through the API and the pinned cards on the Host.
+  const community = await read({ origin: 'community', sort: 'attempts', per_page: 2, page: 2 });
+  assert.ok(listings.slice(2).every((item) => item.origin === 'community' && item.sort === 'attempts' && item.tag === 'product-arena' && item.perPage === 50 && item.page === 1));
+  assert.deepEqual([community.items.map((item) => item.id), community.total, community.hasMore], [['challenge-9313ad0a', 'ai-635bc8b5'], 4, false]);
+  assert.deepEqual((await read({ discipline: 'ai' })).items.map((item) => item.id).slice(0, 1), ['ai-635bc8b5']);
+  assert.equal(listings.at(-1).discipline, 'ai');
+});
+
+test('disciplineFacets keeps the ten largest disciplines and merges the rest into 其他', () => {
+  const disciplines = Object.fromEntries(Array.from({ length: 14 }, (_, index) => [`d${String(index).padStart(2, '0')}`, 100 - index]));
+  Object.assign(disciplines, { tie: 99, ['x'.repeat(101)]: 500, '  ': 400, zero: 0, half: 1.5, text: '7' });
+  const facets = disciplineFacets({ total: 6985, unclassified: 2354, disciplines });
+  assert.deepEqual(facets.top.map((entry) => entry.key), ['d00', 'd01', 'tie', 'd02', 'd03', 'd04', 'd05', 'd06', 'd07', 'd08']);
+  assert.deepEqual(facets.top[0], { key: 'd00', count: 100 });
+  assert.deepEqual(facets.otherKeys, ['d09', 'd10', 'd11', 'd12', 'd13']);
+  assert.equal(facets.otherCount, 91 + 90 + 89 + 88 + 87);
+  assert.deepEqual(disciplineFacets({ disciplines: { a: 1 } }), { top: [{ key: 'a', count: 1 }], otherCount: 0, otherKeys: [] });
+  assert.deepEqual(disciplineFacets(null), { top: [], otherCount: 0, otherKeys: [] });
+});
+
+test('the first catalog page carries the cached discipline facets; later pages and failures do not', async (t) => {
+  const f = await fixture();
+  let reads = 0;
+  let reply = () => ({ total: 10, disciplines: { materials: 1411, physics: 1307 } });
+  const options = [];
+  f.client.getChallengeFacets = async (...args) => { reads += 1; options.push(args); return reply(); };
+  const first = await f.workflow.catalog({}, f.exec);
+  assert.deepEqual(first.disciplineFacets, { top: [{ key: 'materials', count: 1411 }, { key: 'physics', count: 1307 }], otherCount: 0, otherKeys: [] });
+  assert.deepEqual(options, [[]], 'the shared read takes no caller signal');
+  // Cached: another first page (filters, a competition) reads nothing more; a later page carries no facets.
+  assert.ok((await f.workflow.catalog({ origin: 'community', page: 1 }, f.exec)).disciplineFacets);
+  assert.ok((await f.workflow.catalog({ competition: 'light-chasing' }, f.exec)).disciplineFacets);
+  assert.equal('disciplineFacets' in (await f.workflow.catalog({ page: 2 }, f.exec)), false);
+  assert.equal(reads, 1);
+  // After the time to live, the next first page reads again; a failed read leaves the field out and is not kept.
+  const now = Date.now();
+  t.mock.method(Date, 'now', () => now + 11 * 60 * 1000);
+  reply = () => { throw Object.assign(new Error('HTTP 503'), { code: 'http_error', status: 503 }); };
+  const failed = await f.workflow.catalog({}, f.exec);
+  assert.equal(failed.ok, true);
+  assert.equal('disciplineFacets' in failed, false);
+  assert.deepEqual(failed.challenges.items.map((item) => item.id), ['challenge-a']);
+  reply = () => ({ disciplines: { biology: 1163 } });
+  assert.deepEqual((await f.workflow.catalog({}, f.exec)).disciplineFacets.top, [{ key: 'biology', count: 1163 }]);
+  assert.equal(reads, 3);
+});
+
+test('a slow facets read does not hold the catalog, and its answer serves the next first page', async () => {
+  const f = await fixture();
+  let finish;
+  let reads = 0;
+  f.client.getChallengeFacets = () => { reads += 1; return new Promise((resolve) => { finish = resolve; }); };
+  const started = Date.now();
+  const result = await f.workflow.catalog({}, f.exec);
+  assert.ok(Date.now() - started < 5000);
+  assert.equal(result.ok, true);
+  assert.equal('disciplineFacets' in result, false);
+  // A second first page while the read is still running shares it.
+  const waiting = f.workflow.catalog({}, f.exec);
+  finish({ disciplines: { physics: 1307 } });
+  assert.deepEqual((await waiting).disciplineFacets.top, [{ key: 'physics', count: 1307 }]);
+  assert.equal(reads, 1);
 });

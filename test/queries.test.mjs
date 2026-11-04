@@ -147,3 +147,30 @@ test('the challenge detail query accepts only a challengeId, trims it and forwar
     assert.equal(schema.safeParse(invalid).success, false, JSON.stringify(invalid));
   }
 });
+
+test('the catalog query takes strict page, origin, discipline and sort filters, and no status filter', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
+  });
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  const input = { action: 'catalog', search: 'x', competition: 'bohr-product', page: 3, origin: 'benchmark', discipline: ' fluid-dynamics ', sort: 'attempts', per_page: 20 };
+  await services.get('playgroundQueries').query(schema.parse(input), new AbortController().signal);
+  assert.deepEqual(calls, [{ ...input, discipline: 'fluid-dynamics' }]);
+  for (const origin of ['community', 'benchmark', 'hackathon', 'arena']) assert.equal(schema.safeParse({ action: 'catalog', origin }).success, true, origin);
+  for (const sort of ['newest', 'attempts']) assert.equal(schema.safeParse({ action: 'catalog', sort }).success, true, sort);
+  assert.equal(schema.safeParse({ action: 'catalog', page: 1 }).success, true);
+  assert.equal(schema.safeParse({ action: 'catalog', discipline: 'x'.repeat(100) }).success, true);
+  for (const invalid of [{ page: 0 }, { page: -1 }, { page: 1.5 }, { page: '2' }, { page: null }, { page: 100001 },
+    { origin: '' }, { origin: 'all' }, { origin: 'Community' }, { origin: 'github' }, { origin: ['arena'] },
+    { discipline: '' }, { discipline: '   ' }, { discipline: 'x'.repeat(101) }, { discipline: 7 }, { discipline: ['physics'] },
+    { sort: '' }, { sort: 'score' }, { sort: 'Newest' }, { sort: 1 },
+    { status: 'open' }, { disc: 'physics' }, { perPage: 20 }, { tag: 'product-arena' }]) {
+    assert.equal(schema.safeParse({ action: 'catalog', ...invalid }).success, false, JSON.stringify(invalid));
+  }
+  // The filters belong to the catalog only.
+  assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', page: 2 }).success, false);
+  assert.equal(schema.safeParse({ action: 'auth', origin: 'arena' }).success, false);
+});

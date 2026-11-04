@@ -184,7 +184,7 @@ cannot be read, those three are still shown, the result carries
 `标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。`, also when no
 challenge is left to show. The Host reads at most four 50-item pages of a tag
 (200 challenges); a longer tag is cut, the result carries `truncated: true`,
-and the workbench shows the count as a lower bound (`共 203+ 项`).
+and the workbench shows the count as a lower bound (`共 203+ 道`).
 Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
 are still listed, so a season the platform adds later does not disappear; one
 whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. If that
@@ -199,10 +199,57 @@ converting time zones, as the website does (`科学骑士大师赛` reads
 API's `+00:00` season times and `Z`, show the date only. The workbench query
 accepts a competition only by one of the table's ids and rejects any other.
 
-The workbench shows the first 12 matching challenges and has no paging yet.
-When more match, a line reads `共 N 项，当前显示前 12 项`; search narrows the list.
 If the chosen competition is missing from a later list, the selector returns to
 **全部比赛** and reads the catalog again.
+
+### Catalog paging and filters
+
+The catalog shows `共 N 道` for the current competition, search and filters,
+followed by `已显示 M 道` while only part of the list is loaded. **加载更多**
+reads the next 20 challenges and appends them; a challenge id already shown
+is not added again, and the button is disabled while a page loads. Below the
+search box, a filter bar holds:
+
+- **来源**: 全部来源 / 社区 / 基准 / 黑客松 / 竞技场 (`origin` = `community`,
+  `benchmark`, `hackathon`, `arena`).
+- **学科**: 全部学科, the 10 disciplines with the most challenges, and
+  **其他（输入学科）**. The list API matches a discipline key exactly
+  (`disc=physics`) and cannot ask for "none of these", so 其他 opens a
+  free-text field for one exact English key (for example `combustion`), with
+  the next 200 keys by count as suggestions. Challenges without a discipline
+  appear only under 全部学科.
+- **排序**: 最新 (`newest`, default) / 提交最多 (`attempts`).
+- **只看开放** (off by default). The list API ignores a `status` parameter, so
+  this checkbox reads nothing: it hides the loaded challenges that are not
+  open, and the count line says it filters only what is loaded.
+
+Changing 来源, 学科, 排序, the competition or the search reads page 1 again, and
+the filters combine with each other, the competition and the search. Only the
+newest read can change the panel: a filter change aborts a running read,
+including a **加载更多** page. A failed read keeps the loaded challenges and
+shows fixed text with **重试**: `赛题目录读取失败。`,
+`赛题目录读取失败，下面仍是上一次读取的赛题。` when cards of the same competition
+stay shown, or `加载更多赛题失败，已加载的赛题仍保留。`. The platform's error text
+is not shown.
+
+The workbench query takes these as `page` (integer 1–100000), `origin`,
+`discipline` (1–100 characters, trimmed) and `sort`, each validated strictly;
+it has no `status` field. For plain lists, tags and seasons the Host forwards
+them to `GET /api/challenges` as `page`, `origin`, `disc` and `sort`. For a
+competition with fixed ids (and the fixed part of `玻尔产品周赛`) the Host
+applies search, origin and discipline itself, pages the merged list, and
+returns an empty page with `hasMore: false` past the end. 提交最多 sorts the
+whole merged list by attempts; 最新 keeps the fixed challenges first in table
+order, then the tag in the API's newest order, because a challenge read by id
+has no creation time. Each page of such a list reads the whole list again.
+
+The 学科 choices come from `GET /api/challenges/facets`. The Host reads it at
+most once per 10 minutes, shared by all callers, and adds the result as
+`disciplineFacets` (`{ top, otherCount, otherKeys }`) to first-page catalog
+answers only. A failed facets read is not kept and leaves the field out; a
+slow one holds a catalog answer for at most one second. Either way the catalog
+still answers, and 学科 then offers only 全部学科 and 其他. The workbench keeps
+the first choices it receives for as long as the panel is open.
 
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the
