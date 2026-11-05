@@ -201,6 +201,8 @@ window.__ModuleLoader__.load({
 
     // The workbench refreshes unscored submissions every two minutes while it is open.
     const attemptRefreshMs = 120000;
+    // How long after a successful 取消归档 in the archived list focus may still move to the restored task's row.
+    const unarchiveFocusMs = 2000;
     // No archive failure to show (the workbench keeps the failed conversation id with the message).
     const noArchiveError = Object.freeze({ id: '', message: '' });
 
@@ -644,7 +646,9 @@ window.__ModuleLoader__.load({
       const [status, setStatus] = React.useState('');
       const [notice, setNotice] = React.useState('');
       // Mutable holder (not render state): only the newest read, first page or appended, may update the panel.
-      const [latest] = React.useState(() => ({ controller: null, facets: null }));
+      // Its focus targets come from callback refs: the heading, the count line, 加载更多 and each card's 查看详情 by id.
+      // `refocus` holds the ids a last 加载更多 added while it had focus; the effect below moves focus once they render.
+      const [latest] = React.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: new Map(), refocus: null }));
       // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
       const [detail, setDetail] = React.useState(null);
       const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
@@ -703,11 +707,14 @@ window.__ModuleLoader__.load({
           if (latest.controller !== controller) return;
           const facts = pageFacts(result?.challenges);
           const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
-          // An empty page ends the list even if it claims more. Each page re-reads the fixed ids, so an id that
-          // page 1 could not read may still be absent: the larger unread count stays until the next page-1 read.
+          // An empty page ends the list even if it claims more.
+          const hasMore = facts.hasMore && Array.isArray(result?.challenges?.items) && result.challenges.items.length > 0;
+          // The last page removes 加载更多; if it still had focus, focus moves on instead of falling to the page.
+          if (!hasMore && latest.more && typeof document !== 'undefined' && document.activeElement === latest.more) latest.refocus = added.map((item) => String(item.id));
+          // Each page re-reads the fixed ids, so an id that page 1 could not read may still be absent: the larger
+          // unread count stays until the next page-1 read.
           setList({ ...shown, page, items: [...shown.items, ...added], ...facts, total: facts.total ?? shown.total,
-            missing: Math.max(shown.missing, facts.missing),
-            hasMore: facts.hasMore && Array.isArray(result?.challenges?.items) && result.challenges.items.length > 0 });
+            missing: Math.max(shown.missing, facts.missing), hasMore });
           setStatus(added.length ? `已加载 ${added.length} 道赛题。` : '没有更多赛题。');
         } catch {
           if (latest.controller !== controller) return;
@@ -727,6 +734,14 @@ window.__ModuleLoader__.load({
         load();
         return () => { latest.controller?.abort(); latest.controller = null; };
       }, [query]);
+      // After the last 加载更多: the first added card that is shown (只看开放 may hide it), else the count line, else
+      // the heading (the count line is absent when the list reports no total).
+      React.useEffect(() => {
+        const ids = latest.refocus;
+        if (!ids) return;
+        latest.refocus = null;
+        [...ids.map((id) => latest.details.get(id)), latest.count, latest.heading].find(Boolean)?.focus?.();
+      });
       const competitions = Array.isArray(catalog?.competitionTable) ? catalog.competitionTable.filter((item) => item && typeof item === 'object') : [];
       const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : undefined;
       const periods = competitionPeriods(selectedCompetition);
@@ -755,7 +770,7 @@ window.__ModuleLoader__.load({
         : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
       return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': Boolean(busy) },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
-        h('div', { className: 'pg-head' }, h('div', null, h('h2', { className: 'pg-brand' }, '选择比赛或赛题'),
+        h('div', { className: 'pg-head' }, h('div', null, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '选择比赛或赛题'),
           h('p', { className: 'pg-note' }, '先从目录选择题目，再创建独立任务对话；不需要记住赛题 ID。')),
           h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load() }, busy === 'load' ? '正在刷新…' : '刷新目录')),
         h('div', { className: 'pg-search' },
@@ -825,27 +840,99 @@ window.__ModuleLoader__.load({
         shownList && !loaded.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或筛选条件试试。') : null,
         shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${canLoadMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
         otherPending ? h('p', { className: 'pg-note pg-catalog-hint' }, '输入学科后按回车筛选') : null,
-        countLine ? h('p', { className: 'pg-note pg-catalog-count' }, countLine) : null,
+        countLine ? h('p', { className: 'pg-note pg-catalog-count', tabIndex: -1, ref: (node) => { latest.count = node; } }, countLine) : null,
         h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
           h('div', { className: 'pg-head' }, h('h3', null, item.titleZh || item.title || item.id), item.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
             h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }),
-            h('button', { type: 'button', className: 'pg-button', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item) }, '查看详情'),
+            h('button', { type: 'button', className: 'pg-button', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item),
+              ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, '查看详情'),
             openWebButton(item.webUrl, item.titleZh || item.title || item.id))
         ))),
-        canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', disabled: Boolean(busy), 'aria-busy': busy === 'more', onClick: loadMore },
-          busy === 'more' ? '正在加载…' : '加载更多') : null,
+        // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
+        // itself ignores a press while any read is running.
+        canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', 'aria-disabled': busy ? true : undefined, 'aria-busy': busy === 'more', onClick: loadMore,
+          ref: (node) => { latest.more = node; } }, busy === 'more' ? '正在加载…' : '加载更多') : null,
         // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
-        detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, sessionId, requestTask, startBlocked, close: () => setDetail(null) }) : null);
+        detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, sessionId, requestTask, startBlocked, close: () => setDetail(null),
+          focusFallback: () => latest.heading }) : null);
     }
 
     const challengeDetailCss = '.pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}';
 
+    // What Tab can reach inside a drawer; elements without a box (a closed <details>, display:none) are skipped.
+    const tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+    function tabbables(container) {
+      return [...(container.querySelectorAll?.(tabbableSelector) || [])].filter((node) => typeof node.getClientRects !== 'function' || node.getClientRects().length > 0);
+    }
+
+    // Node.compareDocumentPosition bits: the other node comes before, or after, the reference node.
+    const DOCUMENT_POSITION_PRECEDING = 2;
+    const DOCUMENT_POSITION_FOLLOWING = 4;
+
+    // Keyboard focus for a modal drawer. Mounting moves focus to the drawer's title (tabIndex -1), Tab and Shift+Tab
+    // cycle inside the drawer, and Escape calls the newest `focus.dismiss`. `focus.restore` gives focus back to the
+    // element that had it when the drawer first rendered (the button that opened it) if that is still in the page,
+    // else to the first connected node `fallback()` returns (one node or a list). Every close from inside the drawer
+    // restores first, so the workspace dialog or a navigation that follows takes focus from there. A drawer its
+    // parent removes restores only when focus was lost with it; when the whole panel is gone, no target is
+    // connected and nothing is focused.
+    // The keydown listener is on the document, so it acts only on keys that belong to this drawer: never on a key
+    // pressed inside another dialog (a host prompt above the drawer) or one a handler already took, and on Tab and
+    // Escape only while the drawer is displayed and focus is inside it or nowhere (body). A drawer left mounted in a
+    // hidden workbench, or focus the host moved elsewhere, leaves both keys to the browser and the host: no close
+    // and no focus move.
+    function useDrawerFocus(fallback) {
+      const [focus] = React.useState(() => ({ opener: typeof document === 'undefined' ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: () => {} }));
+      focus.fallback = fallback;
+      focus.restore = () => {
+        if (focus.restored) return;
+        focus.restored = true;
+        // `body` is not a place to return to: a drawer opened while nothing had focus uses the fallback.
+        const body = typeof document === 'undefined' ? undefined : document.body;
+        [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
+      };
+      React.useEffect(() => {
+        focus.restored = false;
+        focus.title?.focus?.();
+        // A dialog around `target` that is not this drawer and not inside it.
+        const inForeignDialog = (target) => {
+          const owner = target?.closest?.('[aria-modal="true"],[role="dialog"],[role="alertdialog"],dialog');
+          return Boolean(owner && owner !== focus.dialog && !focus.dialog?.contains?.(owner));
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape' && event.key !== 'Tab') return;
+          if (event.defaultPrevented || inForeignDialog(event.target)) return;
+          if (typeof focus.dialog?.getClientRects === 'function' && !focus.dialog.getClientRects().length) return;
+          const active = document.activeElement;
+          const inside = Boolean(active && focus.dialog?.contains?.(active));
+          if (!inside && active && active !== document.body) return;
+          if (event.key === 'Escape') { focus.dismiss(); return; }
+          if (!focus.dialog) return;
+          const items = tabbables(focus.dialog);
+          // Wrap by document position, so focus on an element Tab does not stop at (the title, the history list or
+          // heading at the end) wraps too: Tab when no item follows it, Shift+Tab when none precedes it.
+          const bit = event.shiftKey ? DOCUMENT_POSITION_PRECEDING : DOCUMENT_POSITION_FOLLOWING;
+          const wrap = !items.length || !inside || !items.some((node) => node !== active && (active.compareDocumentPosition?.(node) & bit));
+          if (!wrap) return;
+          event.preventDefault?.();
+          (items.length ? (event.shiftKey ? items.at(-1) : items[0]) : focus.title)?.focus?.();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+          document.removeEventListener('keydown', onKeyDown);
+          const active = document.activeElement;
+          if (!active || active === document.body) focus.restore();
+        };
+      }, []);
+      return focus;
+    }
+
     // Right-side drawer for one catalog challenge. It reads the detail once when it opens, through the
     // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
-    function ChallengeDetailDrawer({ challenge, query, sessionId, requestTask, startBlocked, close }) {
+    function ChallengeDetailDrawer({ challenge, query, sessionId, requestTask, startBlocked, close, focusFallback }) {
       const [detail, setDetail] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [failed, setFailed] = React.useState(false);
@@ -873,24 +960,21 @@ window.__ModuleLoader__.load({
           if (latest.controller === controller) { latest.controller = null; setBusy(false); }
         }
       };
+      const focus = useDrawerFocus(focusFallback);
       const dismiss = () => {
         latest.closed = true;
         latest.controller?.abort();
         latest.controller = null;
+        focus.restore();
         close();
       };
       // The Escape listener calls through the holder, so it subscribes once even though `close` changes per render.
-      latest.dismiss = dismiss;
+      focus.dismiss = dismiss;
       React.useEffect(() => {
         latest.closed = false;
         load();
         return () => { latest.closed = true; latest.controller?.abort(); latest.controller = null; };
       }, [query, challengeId]);
-      React.useEffect(() => {
-        const onKeyDown = (event) => { if (event.key === 'Escape') latest.dismiss(); };
-        document.addEventListener('keydown', onKeyDown);
-        return () => document.removeEventListener('keydown', onKeyDown);
-      }, []);
       const shown = detail || challenge;
       const title = shown.titleZh || shown.title || challengeId;
       const facts = [['方向', shown.discipline], ['来源', shown.origin], ['难度', shown.difficulty],
@@ -903,11 +987,11 @@ window.__ModuleLoader__.load({
       // Starting goes through the shared workspace dialog; the drawer closes so the dialog is the only modal.
       const startTask = (request) => { dismiss(); requestTask(request); };
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },
-        h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 赛题详情`, 'aria-busy': busy, onMouseDown: (event) => event.stopPropagation() },
+        h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 赛题详情`, 'aria-busy': busy, onMouseDown: (event) => event.stopPropagation(), ref: (node) => { focus.dialog = node; } },
           h('style', null, challengeDetailCss),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
           h('div', { className: 'pg-drawer-header' },
-            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '赛题详情'), h('h2', { className: 'pg-drawer-title' }, title)),
+            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '赛题详情'), h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
             h('div', { className: 'pg-drawer-actions' },
               h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: dismiss, 'aria-label': '关闭赛题详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, `题目编号：${challengeId}`),
@@ -945,7 +1029,7 @@ window.__ModuleLoader__.load({
 
     // Two sibling buttons, never nested: the main area selects the task and opens its drawer;
     // "打开对话" switches to the task's DSH conversation without opening the drawer.
-    function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen }) {
+    function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
       const state = session.projectionValues?.playgroundTask || {};
       const task = state.task;
       const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
@@ -956,7 +1040,7 @@ window.__ModuleLoader__.load({
       const updatedAt = session.updatedAt || session.lastActivityAt || session.createdAt;
       const updated = updatedAt ? new Date(updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '暂无时间';
       return h('div', { className: `pg-task-row${selected ? ' is-selected' : ''}`, role: 'listitem' },
-        h('button', { type: 'button', className: 'pg-task-row-select', onClick: onSelect, 'aria-pressed': selected },
+        h('button', { type: 'button', className: 'pg-task-row-select', onClick: onSelect, 'aria-pressed': selected, ref: selectRef },
           h('span', { className: 'pg-task-row-main' },
             h('strong', null, title),
             h('span', { className: 'pg-task-row-meta' }, challengeId, ' · ', stage)),
@@ -1093,20 +1177,21 @@ window.__ModuleLoader__.load({
         archive.error ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'alert' }, archive.error) : null);
     }
 
-    function ArchivedTaskRow({ session, archive }) {
+    function ArchivedTaskRow({ session, archive, buttonRef }) {
       const title = session.projectionValues?.playgroundTask?.task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
+      // aria-disabled while a change is in flight, as in the drawer: the pressed button keeps focus, and after a
+      // failure it is still there with focus. The workbench moves focus on after a success removes the row.
       return h('div', { className: 'pg-task-row pg-archived-row', role: 'listitem' },
         h('span', { className: 'pg-archived-title' }, title),
-        h('button', { type: 'button', className: 'pg-task-row-open pg-unarchive', disabled: Boolean(archive.busy), 'aria-label': `取消归档：${title}`,
-          onClick: () => archive.change(session.id, false) }, archive.busy === session.id ? '正在取消…' : '取消归档'));
+        h('button', { type: 'button', className: 'pg-task-row-open pg-unarchive', 'aria-disabled': archive.busy ? true : undefined, 'aria-label': `取消归档：${title}`, ref: buttonRef,
+          onClick: () => { if (!archive.busy) archive.change(session.id, false, { fromList: true }); } }, archive.busy === session.id ? '正在取消…' : '取消归档'));
     }
 
-    function TaskDetailDrawer({ session, projection, close, query, webBase, archive, ...props }) {
-      React.useEffect(() => {
-        const onKeyDown = (event) => { if (event.key === 'Escape') close(); };
-        document.addEventListener('keydown', onKeyDown);
-        return () => document.removeEventListener('keydown', onKeyDown);
-      }, [close]);
+    function TaskDetailDrawer({ session, projection, close, query, webBase, archive, focusFallback, ...props }) {
+      const focus = useDrawerFocus(focusFallback);
+      // Every way out of the drawer gives focus back first; Escape calls through the holder.
+      const dismiss = () => { focus.restore(); close(); };
+      focus.dismiss = dismiss;
       const state = session?.projectionValues?.playgroundTask || {};
       const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, '') || 'Playground 任务';
       // Prefer the freshly refreshed projection for attribution; the catalog value may lag behind.
@@ -1115,16 +1200,17 @@ window.__ModuleLoader__.load({
       const attemptIds = taskAttemptIds(current);
       const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
       const archived = Boolean(archive?.archived);
-      return h('div', { className: 'pg-drawer-backdrop', onMouseDown: close },
-        h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation() },
+      return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },
+        h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation(), ref: (node) => { focus.dialog = node; } },
           h('div', { className: 'pg-drawer-header' },
-            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title' }, title)),
+            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
             h('div', { className: 'pg-drawer-actions' },
               // Close after starting navigation so a workbench the host keeps mounted does not come back
-              // to an open modal drawer whose Escape listener is still attached.
+              // to an open modal drawer whose Escape listener is still attached. Navigation is deferred, so
+              // focus is back on the task row before the conversation opens.
               // DSH does not open an archived conversation, so its drawer offers no way there.
-              archived ? null : h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); close(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
-              h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: close, 'aria-label': '关闭任务详情' }, '关闭'))),
+              archived ? null : h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); dismiss(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
+              h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: dismiss, 'aria-label': '关闭任务详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           openWeb ? h('div', { className: 'pg-actions' }, openWeb) : null,
           h(TaskArchiveControl, { session, archive }),
@@ -1160,6 +1246,11 @@ window.__ModuleLoader__.load({
       const [split, setSplit] = React.useState(50);
       const [announcement, setAnnouncement] = React.useState('');
       const [drawerOpen, setDrawerOpen] = React.useState(false);
+      // Focus targets from callback refs: each task row's main button and each archived row's 取消归档 by id, the
+      // archived-list toggle and the 任务总览 heading. `restored` is a successful 取消归档 from the archived list whose
+      // focus move is still due: { id, next, previous } with the archived rows around it when it was pressed.
+      const [nav] = React.useState(() => ({ rows: new Map(), archived: new Map(), toggle: null, heading: null, restored: null }));
+      const refInto = (map, id) => (node) => { if (node) map.set(id, node); else map.delete(id); };
       // Web root reported by the latest catalog read; only tasks recorded without webUrl or baseUrl use it.
       const [webBase, setWebBase] = React.useState('');
       const [openError, setOpenError] = React.useState('');
@@ -1218,19 +1309,46 @@ window.__ModuleLoader__.load({
         if (selected && !allTaskSessions.some((session) => session.id === selected)) { setSelected(taskSessions[0]?.id || ''); setDrawerOpen(false); }
         else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || '');
       }, [selected, drawerOpen, allTaskSessions.map((session) => session.id).join(','), archivedTasks.map((session) => session.id).join(',')]);
+      // After 取消归档 in the archived list. While DSH's archive set still holds the task its row and button stay, with
+      // focus. Once it is gone: the restored task's row, else the archived row after it (or before it, for the last),
+      // else the archived-list toggle, else the 任务总览 heading (the toggle is gone with the last archived task).
+      // Focus the user moved elsewhere in the meantime is left alone. The move expires `unarchiveFocusMs` after the
+      // change succeeded: DSH normally publishes its archive set at once, and a move much later would pull focus away
+      // from whatever the user does by then (a click on empty space also leaves focus on body). After expiry focus
+      // stays where it is, as without the move. The window uses the monotonic `performance.now()`, so a system clock
+      // adjustment neither stretches nor cuts it.
+      React.useEffect(() => {
+        const pending = nav.restored;
+        if (!pending) return;
+        if (performance.now() - pending.at > unarchiveFocusMs) { nav.restored = null; return; }
+        if (archivedSet.has(pending.id)) return;
+        nav.restored = null;
+        const active = typeof document === 'undefined' ? undefined : document.activeElement;
+        if (active && active !== document.body && active.isConnected !== false) return;
+        [nav.rows.get(pending.id), nav.archived.get(pending.next), nav.archived.get(pending.previous), nav.toggle, nav.heading].find(Boolean)?.focus?.();
+      });
       const session = (archivedSet.has(selected) && !drawerOpen ? undefined : catalog.byId[selected]) || taskSessions[0];
       // "归档任务", "撤销" and "取消归档". No confirmation: the conversation can be restored. The actions report
       // failures as a short message and never throw; the catch only covers a host that throws anyway.
-      const toggleArchive = (id, archive) => {
+      // `fromList` marks 取消归档 in the archived list: a success removes that row and its button, so focus moves to
+      // the restored task's row (see the effect below). The drawer's single button stays and keeps focus itself.
+      const toggleArchive = (id, archive, { fromList = false } = {}) => {
         if (archiveBusy) return undefined;
         setArchiveBusy(id);
         setArchiveError(noArchiveError);
         setAnnouncement('');
+        nav.restored = null;
+        const order = archivedTasks.map((item) => item.id);
+        const index = order.indexOf(id);
+        const neighbours = { next: order[index + 1], previous: order[index - 1] };
         return Promise.resolve().then(() => (archive ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive ? '归档未完成，请重试。' : '取消归档未完成，请重试。' }))
           .then((result) => {
             setArchiveBusy('');
             if (result?.ok === false) { setArchiveError({ id, message: result.message }); setAnnouncement(result.message); }
-            else setAnnouncement(archive ? '任务已归档' : '任务已取消归档');
+            else {
+              setAnnouncement(archive ? '任务已归档' : '任务已取消归档');
+              if (fromList && !archive) nav.restored = { id, ...neighbours, at: performance.now() };
+            }
           });
       };
       const archive = archiveAvailable ? { busy: archiveBusy, change: toggleArchive } : undefined;
@@ -1269,7 +1387,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
               h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask, onWebBase: setWebBase })),
             h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
-              h('div', { className: 'pg-column-heading' }, h('h2', null, '任务总览'),
+              h('div', { className: 'pg-column-heading' }, h('h2', { tabIndex: -1, ref: (node) => { nav.heading = node; } }, '任务总览'),
                 h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
                   taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !taskIds.length,
                     onClick: () => refreshAttempts(store, store.taskIds) }, refreshing ? '正在刷新…' : '刷新') : null)),
@@ -1280,16 +1398,19 @@ window.__ModuleLoader__.load({
               // Visible copy of the navigation failure; the live region above already announces it.
               openError ? h('p', { className: 'pg-note pg-error pg-open-error', role: 'none' }, openError) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
-                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setArchiveError(noArchiveError); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id) })))
+                taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setArchiveError(noArchiveError); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id), selectRef: refInto(nav.rows, item.id) })))
                 : h('p', { className: 'pg-task-empty' }, archivedTasks.length ? '没有未归档的任务。' : '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'),
               // Visible copy of an archive failure while the drawer is closed; the drawer shows its own.
               archive && archiveError.message && !drawerOpen ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'none' }, archiveError.message) : null,
               archive && archivedTasks.length ? h('div', { className: 'pg-archived' },
                 h('button', { type: 'button', className: 'pg-archived-toggle', 'aria-expanded': showArchived, 'aria-controls': 'pg-archived-list',
-                  onClick: () => setShowArchived(!showArchived) }, `已归档 ${archivedTasks.length} 个`),
+                  onClick: () => setShowArchived(!showArchived), ref: (node) => { nav.toggle = node; } }, `已归档 ${archivedTasks.length} 个`),
                 showArchived ? h('div', { id: 'pg-archived-list', className: 'pg-task-list pg-archived-list', role: 'list', 'aria-label': '已归档的 Playground 任务' },
-                  archivedTasks.map((item) => h(ArchivedTaskRow, { key: item.id, session: item, archive }))) : null) : null)),
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
+                  archivedTasks.map((item) => h(ArchivedTaskRow, { key: item.id, session: item, archive, buttonRef: refInto(nav.archived, item.id) }))) : null) : null)),
+          // The drawer gives focus back to the row that opened it. When that node is gone it tries the task's current
+          // row (archive then 撤销 in the drawer remounts the row as a new node), then, for a task archived in the
+          // drawer, the 任务总览 heading.
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, focusFallback: () => [nav.rows.get(session.id), nav.heading], attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
             archive: archive && { ...archive, archived: archivedSet.has(session.id), error: archiveError.id === session.id ? archiveError.message : '' }, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
