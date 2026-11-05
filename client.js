@@ -306,12 +306,17 @@ window.__ModuleLoader__.load({
     // only when that result settles a row that was still unsettled. The refresh and the history read
     // happen at different times, so the store never moves a row backwards or between unsettled states.
     // A row updated after the stored result (a re-upload under the same id) keeps its own state.
-    function withSettledAttempt(item, entry) {
-      if (!entry?.attempt || receiptSettled(item)) return item;
-      if (Date.parse(item.updatedAt) > Date.parse(entry.attempt.updatedAt)) return item;
-      const merged = { ...item };
+    // `/me/attempts` rows carry no closure marker, so the platform's "bundle missing" closure of the same id,
+    // from the refreshed result or the task's merged receipt (`closed`), is laid over every row that shows no
+    // received bundle or final score, settled ones included: the row then agrees with the task row.
+    function withSettledAttempt(item, entry, { closed = false } = {}) {
+      const row = (closed || entry?.attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true
+        && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
+      if (!entry?.attempt || receiptSettled(row)) return row;
+      if (Date.parse(row.updatedAt) > Date.parse(entry.attempt.updatedAt)) return row;
+      const merged = { ...row };
       for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-      return receiptSettled(merged) ? merged : item;
+      return receiptSettled(merged) ? merged : row;
     }
 
     const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
@@ -401,7 +406,11 @@ window.__ModuleLoader__.load({
                   h('input', { className: 'pg-input', value: files[key], disabled: busy, placeholder: key.endsWith('_path') ? '留空时从当前工作区自动发现' : '', onChange: (event) => { setFiles({ ...files, [key]: event.target.value }); setEdited(true); } }))))),
             h('p', { className: 'pg-note' }, '默认从当前工作区根目录、playground-submission/、.playground/ 中自动发现材料；只有存在多个候选或需要覆盖默认方案时才展开高级选项。检查不上传文件。'),
             h('button', { className: 'pg-button pg-primary', disabled: disabled || !target.trim(), onClick: () => act({ action: 'check', challenge_id: target, ...files }) }, '检查并生成确认卡'),
-            receipt?.ok === false && receipt.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ ...receipt.args, action: 'check', ...files, challenge_id: target, attempt_id: receipt.attemptId }) }, `检查后重传原提交 #${receipt.attemptId}`) : null) : null) : null,
+            // The platform does not score an upload into a submission it closed as "bundle missing", so
+            // that receipt offers no re-upload; the check above creates a new submission.
+            receipt?.ok === false && receipt.attemptId && receipt.bundleNotReceived === true
+              ? h('p', { className: 'pg-note pg-closed-note' }, `平台已关闭提交 #${receipt.attemptId}（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。`)
+              : receipt?.ok === false && receipt.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ ...receipt.args, action: 'check', ...files, challenge_id: target, attempt_id: receipt.attemptId }) }, `检查后重传原提交 #${receipt.attemptId}`) : null) : null) : null,
         prepared && !edited ? h('div', { className: 'pg-confirm', 'aria-label': 'Playground 提交确认' },
           h('h4', { className: 'pg-confirm-title' }, '请确认本次提交'),
           h('p', { className: 'pg-confirm-impact' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '高影响操作'), '确认后会向 Playground 上传已检查的材料，并可能消耗一个提交名额；请先核对目标、工作区和文件摘要。'),
@@ -1118,7 +1127,8 @@ window.__ModuleLoader__.load({
     // Read through the session-free query service, so opening the drawer writes nothing into a conversation.
     // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
     // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
-    function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], attempts, query, t }) {
+    // `closedIds` are the submissions the task's merged receipt shows closed as "bundle missing".
+    function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], attempts, query, t }) {
       const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
@@ -1197,7 +1207,7 @@ window.__ModuleLoader__.load({
         } }, items.map((item) => {
           // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
           // the conversation, not this attempt, so it is not passed.
-          const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)]), t, { bundleMissing: missing.has(Number(item.id)) });
+          const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)], { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
           const created = Number.isFinite(Date.parse(item.createdAt))
             ? new Date(item.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '提交时间未知';
           const own = linked.has(Number(item.id));
@@ -1257,6 +1267,9 @@ window.__ModuleLoader__.load({
       const current = (projection?.state === 'ready' && projection.values?.playgroundTask) || state;
       const historyChallenge = current.task?.challengeId || state.task?.challengeId;
       const attemptIds = taskAttemptIds(current);
+      // The task's receipt with its refreshed platform state, as the task row and the drawer summary show it.
+      const latestReceipt = withLatestAttempt(current.receipt, props.attempts?.[receiptAttemptId(current.receipt)]);
+      const closedIds = latestReceipt?.bundleNotReceived === true && receiptAttemptId(latestReceipt) !== undefined ? [receiptAttemptId(latestReceipt)] : [];
       const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
       const archived = Boolean(archive?.archived);
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },
@@ -1280,7 +1293,7 @@ window.__ModuleLoader__.load({
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), attempts: props.attempts, query, t: props.t }) : null));
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {

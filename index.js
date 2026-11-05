@@ -19,7 +19,7 @@
 
 import * as fsp from 'node:fs/promises';
 import { basename, isAbsolute, resolve as resolvePath } from 'node:path';
-import { createWorkflow, taskBundleMissingIds, workflowProjection } from './lib/workflow.js';
+import { createWorkflow, taskBundleMissingIds, withoutReasonsList, workflowProjection } from './lib/workflow.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
 import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, displayCredentialsPath, readCliCredential } from './lib/cli.js';
 
@@ -582,9 +582,11 @@ function taskStatus(state) {
   const prepared = state?.prepared;
   const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
   if (receipt?.diagnosis !== undefined) receipt.diagnosis = diagnosisView(receipt.diagnosis);
-  // The reasons are listed once, labelled, under diagnosis; the error keeps its code and message.
-  if (receipt?.error && typeof receipt.error === 'object' && 'details' in receipt.error) {
+  // The reasons are listed once, labelled, under diagnosis; the error keeps its code and its message
+  // without the reasons list.
+  if (receipt?.error && typeof receipt.error === 'object' && !Array.isArray(receipt.error)) {
     const { details, ...error } = receipt.error;
+    if (typeof error.message === 'string') error.message = withoutReasonsList(error.message);
     receipt.error = error;
   }
   const bundleMissingIds = taskBundleMissingIds(state);
