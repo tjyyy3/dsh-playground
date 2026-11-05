@@ -219,9 +219,12 @@ the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list o
 challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
 `科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`, and each period of
 `玻尔产品周赛`), which the Host reads one by one. An id that cannot be read is
-skipped and counted: the page carries `missing: n`, and the competition row says
-`有 n 道赛题暂时读取失败，列表不完整。` with **重试**, which reads page 1 again. A read
-where every id fails is an error. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
+skipped and counted: the page carries `missing: n`, the screen-reader status says
+`赛题目录已更新，有 n 道赛题读取失败。`, and the competition row says
+`有 n 道赛题读取失败，列表不完整。` with **重试**, which reads page 1 of the
+shown list's own query again (search text typed but not submitted is not
+applied). After **加载更多** the row keeps the larger of the counts read so far;
+only a page-1 read resets it. A read where every id fails is an error. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
 `skill-13890f6a`, `ai-github-98fdb6f0` and `ai-635bc8b5` (the Skill, GitHub and
 小红书 tracks, in that order), 第二期 has the ten `product-arena-01` to
 `product-arena-10` challenges in the website's order, and 全部期 lists both

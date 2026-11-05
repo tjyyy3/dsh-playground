@@ -529,7 +529,9 @@ window.__ModuleLoader__.load({
           const result = await query(input, controller.signal);
           if (latest.controller !== controller) return;
           setCatalog(result);
-          setList({ season: next.season, period: next.period, input, page: 1, items: uniqueCards(result?.challenges?.items), ...pageFacts(result?.challenges) });
+          const facts = pageFacts(result?.challenges);
+          // `filters` keeps the controls this list was read with, so its own 重试 can read the same query again.
+          setList({ season: next.season, period: next.period, filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
           const received = latest.facets ? undefined : catalogFacets(result?.disciplineFacets);
           if (received) { latest.facets = received; setFacets(received); }
           if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
@@ -540,7 +542,7 @@ window.__ModuleLoader__.load({
             load({ ...next, season: '', period: '' }, '之前选择的比赛已不在列表中，已改为显示全部比赛。');
             return;
           }
-          setStatus('赛题目录已更新。');
+          setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : '赛题目录已更新。');
         } catch {
           if (latest.controller !== controller) return;
           setFailure({ kind: 'load', filters: next }); setStatus('赛题目录读取失败。');
@@ -569,8 +571,10 @@ window.__ModuleLoader__.load({
           if (latest.controller !== controller) return;
           const facts = pageFacts(result?.challenges);
           const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
-          // An empty page ends the list even if it claims more.
+          // An empty page ends the list even if it claims more. Each page re-reads the fixed ids, so an id that
+          // page 1 could not read may still be absent: the larger unread count stays until the next page-1 read.
           setList({ ...shown, page, items: [...shown.items, ...added], ...facts, total: facts.total ?? shown.total,
+            missing: Math.max(shown.missing, facts.missing),
             hasMore: facts.hasMore && Array.isArray(result?.challenges?.items) && result.challenges.items.length > 0 });
           setStatus(added.length ? `已加载 ${added.length} 道赛题。` : '没有更多赛题。');
         } catch {
@@ -675,10 +679,11 @@ window.__ModuleLoader__.load({
             ` ${infoTime}`,
             !selectedPeriod && selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
           openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
-          // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 again; while a
-          // failed read shows its own 重试, this one is left out.
-          missing ? h('p', { className: 'pg-note pg-catalog-missing' }, `有 ${missing} 道赛题暂时读取失败，列表不完整。`) : null,
-          missing && !failure ? h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: () => load() }, '重试') : null) : null,
+          // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
+          // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
+          // one is left out.
+          missing ? h('p', { className: 'pg-note pg-catalog-missing' }, `有 ${missing} 道赛题读取失败，列表不完整。`) : null,
+          missing && !failure ? h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: () => load(shownList.filters) }, '重试') : null) : null,
         notice ? h('p', { className: 'pg-note' }, notice) : null,
         failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
           h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,

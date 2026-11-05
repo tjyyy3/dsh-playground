@@ -2655,7 +2655,8 @@ test('a list with unread fixed ids says so in the info row and 重试 reads page
   pending[1].resolve(catalogPage(range(0, 9), { total: 9, missing: 1 }));
   await settle();
   let panel = view();
-  assert.deepEqual(note(panel), ['有 1 道赛题暂时读取失败，列表不完整。']);
+  assert.deepEqual(note(panel), ['有 1 道赛题读取失败，列表不完整。']);
+  assert.equal(liveStatus(panel), '赛题目录已更新，有 1 道赛题读取失败。', 'the incomplete list is announced with its count');
   assert.equal(count(), '共 9 道');
   assert.deepEqual(cardIds(panel), range(0, 9), 'the challenges that were read stay shown');
   assert.equal(infoRetry(panel).length, 1);
@@ -2666,19 +2667,20 @@ test('a list with unread fixed ids says so in the info row and 重试 reads page
   pending[2].resolve(catalogPage(range(0, 10), { total: 10 }));
   await settle();
   assert.deepEqual(note(view()), []);
+  assert.equal(liveStatus(view()), '赛题目录已更新。');
   assert.equal(infoRetry(view()).length, 0);
   // The count follows the newest answer, with the number the Host sent.
   control('选择分期').props.onChange({ target: { value: '' } });
   pending[3].resolve(catalogPage(range(0, 10), { total: 10, missing: 3 }));
   await settle();
-  assert.deepEqual(note(view()), ['有 3 道赛题暂时读取失败，列表不完整。']);
+  assert.deepEqual(note(view()), ['有 3 道赛题读取失败，列表不完整。']);
   // A failed read keeps the cards and the note; only the failure's own 重试 is offered.
   button('刷新目录').props.onClick();
   pending[4].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
   await settle();
   panel = view();
   assert.equal(text(f.find(panel, (node) => node.props?.role === 'alert')), '赛题目录读取失败，下面仍是上一次读取的赛题。');
-  assert.deepEqual(note(panel), ['有 3 道赛题暂时读取失败，列表不完整。']);
+  assert.deepEqual(note(panel), ['有 3 道赛题读取失败，列表不完整。']);
   assert.equal(infoRetry(panel).length, 0);
   assert.equal(findAll(panel, (node) => node.type === 'button' && text(node) === '重试').length, 1);
   // Values that are not a positive count show nothing.
@@ -2687,7 +2689,65 @@ test('a list with unread fixed ids says so in the info row and 重试 reads page
     pending.at(-1).resolve(catalogPage(['c1'], { total: 1, missing }));
     await settle();
     assert.deepEqual(note(view()), [], JSON.stringify(missing));
+    assert.equal(liveStatus(view()), '赛题目录已更新。', JSON.stringify(missing));
   }
+});
+
+test('the info-row 重试 reads the shown list\'s own query, not unsubmitted controls, and waits while 其他 has no key', async (t) => {
+  const { f, pending, view, control } = await pagedCatalog(t);
+  const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试')[0];
+  const searchBox = () => f.find(view(), (node) => node.props?.['aria-label'] === '搜索 Playground 赛题');
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  searchBox().props.onChange({ target: { value: 'skill' } });
+  searchBox().props.onKeyDown({ key: 'Enter' });
+  const shown = { action: 'catalog', search: 'skill', competition: 'bohr-product', period: '2', per_page: 20 };
+  assert.deepEqual(pending[2].input, shown);
+  pending[1].resolve(catalogPage(['stale'], { total: 1 }));
+  pending[2].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
+  await settle();
+  // Text typed but not submitted is not applied: 重试 replays the shown list's query and leaves the box as typed.
+  searchBox().props.onChange({ target: { value: 'unsent' } });
+  infoRetry(view()).props.onClick();
+  assert.deepEqual(pending[3].input, shown);
+  assert.equal(searchBox().props.value, 'unsent');
+  pending[3].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
+  await settle();
+  assert.equal(infoRetry(view()).props.disabled, false);
+  // 其他 without a key: the button is disabled and nothing is read.
+  control('按学科筛选').props.onChange({ target: { value: '__other__' } });
+  assert.equal(infoRetry(view()).props.disabled, true);
+  assert.equal(pending.length, 4, 'no read for an empty 其他');
+});
+
+test('加载更多 keeps the larger unread count; only a page-1 read resets it', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const note = () => findAll(infoRow(view()) ?? {}, (node) => node.props?.className === 'pg-note pg-catalog-missing').map((node) => text(node));
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 59, hasMore: true, missing: 1 }));
+  await settle();
+  assert.deepEqual(note(), ['有 1 道赛题读取失败，列表不完整。']);
+  // Page 2 reads every id, but page 1's unread card is still absent: the note stays.
+  button('加载更多').props.onClick();
+  pending[2].resolve(catalogPage(range(20, 40), { total: 59, hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), range(0, 40));
+  assert.deepEqual(note(), ['有 1 道赛题读取失败，列表不完整。']);
+  // A later page with more unread ids raises the count.
+  button('加载更多').props.onClick();
+  pending[3].resolve(catalogPage(range(40, 59), { total: 59, hasMore: false, missing: 2 }));
+  await settle();
+  assert.deepEqual(note(), ['有 2 道赛题读取失败，列表不完整。']);
+  // A complete page 1 resets it.
+  button('刷新目录').props.onClick();
+  assert.equal(pending[4].input.page, undefined);
+  pending[4].resolve(catalogPage(range(0, 20), { total: 60, hasMore: true }));
+  await settle();
+  assert.deepEqual(note(), []);
+  assert.equal(f.find(view(), (node) => node.props?.className === 'pg-note pg-catalog-missing'), undefined);
 });
 
 test('the info row omits rounds when a competition has none, and opens no unsafe address', async (t) => {

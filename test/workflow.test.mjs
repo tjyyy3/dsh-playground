@@ -1881,7 +1881,11 @@ test('a fixed id that fails is skipped; only a read where every id fails is an e
   // The unread id is counted, so the list can say it is incomplete; a search that matches nothing keeps the count.
   assert.equal(partial.challenges.missing, 1);
   assert.equal((await f.workflow.catalog({ competition: 'harness', search: 'nothing here' }, f.exec)).challenges.missing, 1);
-  // A null answer counts as unread too; a complete read carries no `missing`.
+  // A null answer counts as unread too, inside a longer list and as a single id; a complete read carries no `missing`.
+  f.client.getChallenge = async (id) => (id === 'harness-45c4688b' ? null : { id, title: id });
+  const withNull = await f.workflow.catalog({ competition: 'harness' }, f.exec);
+  assert.deepEqual(withNull.challenges.items.map((item) => item.id), ['biomaster-harness-optimization-4f6eec24']);
+  assert.equal(withNull.challenges.missing, 1);
   f.client.getChallenge = async (id) => (id === 'agent-optimization-v1' ? null : { id, title: id });
   await assert.rejects(() => f.workflow.catalog({ competition: 'agent' }, f.exec));
   f.client.getChallenge = async (id) => { if (failing.has(id)) throw notFound(); return { id, title: id }; };
