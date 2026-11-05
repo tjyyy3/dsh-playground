@@ -1878,6 +1878,18 @@ test('a fixed id that fails is skipped; only a read where every id fails is an e
   const partial = await f.workflow.catalog({ competition: 'harness' }, f.exec);
   assert.deepEqual(partial.challenges.items.map((item) => item.id), ['biomaster-harness-optimization-4f6eec24']);
   assert.equal(partial.challenges.total, 1);
+  // The unread id is counted, so the list can say it is incomplete; a search that matches nothing keeps the count.
+  assert.equal(partial.challenges.missing, 1);
+  assert.equal((await f.workflow.catalog({ competition: 'harness', search: 'nothing here' }, f.exec)).challenges.missing, 1);
+  // A null answer counts as unread too, inside a longer list and as a single id; a complete read carries no `missing`.
+  f.client.getChallenge = async (id) => (id === 'harness-45c4688b' ? null : { id, title: id });
+  const withNull = await f.workflow.catalog({ competition: 'harness' }, f.exec);
+  assert.deepEqual(withNull.challenges.items.map((item) => item.id), ['biomaster-harness-optimization-4f6eec24']);
+  assert.equal(withNull.challenges.missing, 1);
+  f.client.getChallenge = async (id) => (id === 'agent-optimization-v1' ? null : { id, title: id });
+  await assert.rejects(() => f.workflow.catalog({ competition: 'agent' }, f.exec));
+  f.client.getChallenge = async (id) => { if (failing.has(id)) throw notFound(); return { id, title: id }; };
+  assert.equal('missing' in (await f.workflow.catalog({ competition: 'pku' }, f.exec)).challenges, false);
   failing.add('biomaster-harness-optimization-4f6eec24');
   await assert.rejects(() => f.workflow.catalog({ competition: 'harness' }, f.exec), (error) => error.code === 'not_found');
 });
@@ -1904,43 +1916,6 @@ test('fixed-id lists honour search and paging on the Host', async () => {
   assert.deepEqual([second.challenges.page, second.challenges.pages, second.challenges.hasMore, second.challenges.total], [2, 2, false, 2]);
   const first = await f.workflow.catalog({ competition: 'harness', per_page: 1 }, f.exec);
   assert.deepEqual([first.challenges.page, first.challenges.hasMore], [1, true]);
-});
-
-test('a tag competition with extra ids merges both lists without duplicates', async () => {
-  const f = await fixture();
-  const listings = [];
-  f.client.listChallenges = async (params) => {
-    listings.push(params);
-    const page = params.page;
-    return { total: 3, page, perPage: params.perPage, pages: 2, hasMore: page === 1,
-      items: page === 1 ? [{ id: 'challenge-9313ad0a', title: 'Tagged one' }, { id: 'ai-635bc8b5', title: 'Also fixed' }] : [{ id: 'product-arena-01-5a9928c1', title: 'Tagged two' }] };
-  };
-  const read = [];
-  f.client.getChallenge = async (id) => { read.push(id); if (id === 'skill-13890f6a') throw notFound(); return { id, title: `Fixed ${id}` }; };
-  const result = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12 }, f.exec);
-  // The whole tag is read in pages of 50; the API's own paging is not forwarded for the merged list.
-  assert.deepEqual(listings.map((item) => [item.tag, item.page, item.perPage]), [['product-arena', 1, 50], ['product-arena', 2, 50]]);
-  assert.deepEqual(read, ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5']);
-  // Pinned ids first in table order, then the rest of the tag; a pinned id the tag also lists keeps the tag's card.
-  assert.deepEqual(result.challenges.items.map((item) => item.id), ['ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
-  assert.equal(result.challenges.items[1].title, 'Also fixed');
-  assert.equal(result.challenges.total, 4);
-  assert.equal('partial' in result.challenges, false);
-  assert.equal('truncated' in result.challenges, false);
-  // Search reaches the tag list through the API and the fixed ids on the Host.
-  await f.workflow.catalog({ competition: 'bohr-product', search: 'github' }, f.exec);
-  assert.ok(listings.slice(2).every((item) => item.search === 'github'));
-});
-
-test('a tag competition keeps its tagged challenges when every extra id fails', async () => {
-  const f = await fixture();
-  const listings = recordListings(f, { items: [{ id: 'challenge-9313ad0a', title: 'Tagged' }] });
-  const read = [];
-  f.client.getChallenge = async (id) => { read.push(id); throw notFound(); };
-  const result = await f.workflow.catalog({ competition: 'bohr-product' }, f.exec);
-  assert.deepEqual(listings.map((item) => item.tag), ['product-arena']);
-  assert.equal(read.length, 3);
-  assert.deepEqual(result.challenges.items.map((item) => item.id), ['challenge-9313ad0a']);
 });
 
 test('the catalog returns the competition table with status computed now, web addresses, and the API seasons it lacks', async () => {
@@ -1975,93 +1950,137 @@ test('the catalog returns the competition table with status computed now, web ad
   }
 });
 
-test('the product weekly contest returns challenge-9313ad0a and the untagged period-1 challenges from an API shaped like the real one', async () => {
-  const f = await fixture();
-  const card = (id, title, tags) => ({ id, title, title_zh: title, disc: 'ai', difficulty: 2, attempts: 3, origin: 'official', status: 'open', tags,
-    benchmarkId: null, datasets: [], figures: [], hackathon: null, hackathonSeasonId: null, hasContent: true, resources: [], reviewStatus: 'approved',
-    roundEndAt: null, roundId: null, roundSeq: null, roundStartAt: null, stars: 0, submittedBy: 'official', visibility: 'public' });
-  const arena = ['product-arena', 'skills', 'harbor', 'writing'];
-  const tagged = [card('challenge-9313ad0a', '写作19｜思维导图', [...arena, 'writing-19']), card('product-arena-01-5a9928c1', '阅读03｜文献翻译', arena)];
-  const details = { 'skill-13890f6a': '论文阅读Skill', 'ai-github-98fdb6f0': 'AI 文献阅读 GitHub 技术分享', 'ai-635bc8b5': '小红书图文分享：AI 文献阅读经验' };
-  const requested = [];
-  const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-  const real = createPlaygroundClient({ baseUrl: 'https://play.bohrium.com', fetchImpl: async (url) => {
-    requested.push(`${url.pathname}${url.search}`);
-    if (url.pathname === '/api/hackathon/seasons') return reply([{ id: 4, slug: 's4', nameEn: 'Agentic Science Challenge', nameZh: '科学骑士大师赛', status: 'active', startAt: '2026-07-27T00:00:00+00:00', endAt: '2027-01-31T23:59:59+00:00' }]);
-    if (url.pathname === '/api/challenges') {
-      return url.searchParams.get('tag') === 'product-arena'
-        ? reply({ items: tagged, total: 19, page: 1, per_page: 50, pages: 1, has_more: false }) : reply({ error: 'unexpected list' }, 500);
-    }
-    const id = decodeURIComponent(url.pathname.replace('/api/challenges/', ''));
-    return details[id] ? reply({ ...card(id, details[id], []), content: 'Statement' }) : reply({ detail: 'Not found' }, 404);
-  } });
-  Object.assign(f.client, real);
-  const result = await f.workflow.catalog({ competition: 'bohr-product', search: '', per_page: 12 }, f.exec);
-  assert.deepEqual(result.challenges.items.map((item) => item.id), ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
-  assert.equal(result.challenges.items[3].titleZh, undefined, 'a Chinese-only title stays the title');
-  assert.equal(result.challenges.items[3].title, '写作19｜思维导图');
-  assert.equal(result.challenges.items[1].title, 'AI 文献阅读 GitHub 技术分享');
-  assert.equal(result.challenges.items[3].webUrl, 'https://play.bohrium.com/challenge/challenge-9313ad0a');
-  assert.ok(requested.includes('/api/challenges?tag=product-arena&sort=newest&page=1&per_page=50'), requested.join('\n'));
-  // The same contest also answers when the platform has dropped one of the fixed challenges.
-  delete details['ai-635bc8b5'];
-  const without = await f.workflow.catalog({ competition: 'bohr-product' }, f.exec);
-  assert.deepEqual(without.challenges.items.map((item) => item.id), ['skill-13890f6a', 'ai-github-98fdb6f0', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
-  // With the real tag size (19 tagged plus 3 pinned), page one of 12 holds both acceptance challenges.
-  details['ai-635bc8b5'] = '小红书图文分享：AI 文献阅读经验';
-  tagged.push(...Array.from({ length: 17 }, (_, index) => card(`product-arena-${String(index + 2).padStart(2, '0')}-synthetic`, `赛题 ${index + 2}`, arena)));
-  assert.equal(tagged.length, 19);
-  const full = await f.workflow.catalog({ competition: 'bohr-product', search: '', per_page: 12 }, f.exec);
-  assert.equal(full.challenges.total, 22);
-  assert.equal(full.challenges.items.length, 12);
-  const firstPage = full.challenges.items.map((item) => item.id);
-  assert.ok(firstPage.includes('ai-github-98fdb6f0') && firstPage.includes('challenge-9313ad0a'), firstPage.join());
-  assert.deepEqual(firstPage.slice(0, 4), ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a']);
-  assert.equal(without.competitionTable.some((item) => item.id === 'season:s4'), false, 's4 is in the table already');
+// 玻尔产品周赛 as the website lists it (/challenges?contest=bohr-product&period=<slug>), in its order.
+const PERIOD_1 = ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5'];
+const PERIOD_2 = ['product-arena-08-3027d350', 'product-arena-01-5a9928c1', 'product-arena-06-6d8cf72b', 'product-arena-09-0e8befd4',
+  'product-arena-10-760d1a0b', 'product-arena-02-7051d92d', 'product-arena-03-429cc14d', 'product-arena-04-4b82ad21',
+  'product-arena-05-64faa4a2', 'product-arena-07-865de7e4'];
+
+test('the product weekly contest lists the website\'s periods by fixed id from an API shaped like the real one', async () => {
+  mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-05T00:00:00Z') });
+  try {
+    const f = await fixture();
+    const card = (id, title, tags) => ({ id, title, title_zh: title, disc: 'ai', difficulty: 2, attempts: 3, origin: 'official', status: 'open', tags,
+      benchmarkId: null, datasets: [], figures: [], hackathon: null, hackathonSeasonId: null, hasContent: true, resources: [], reviewStatus: 'approved',
+      roundEndAt: null, roundId: null, roundSeq: null, roundStartAt: null, stars: 0, submittedBy: 'official', visibility: 'public' });
+    const arena = ['product-arena', 'skills', 'harbor', 'writing'];
+    // challenge-9313ad0a (写作19) carries tag product-arena and reads by id, but the website puts it in no period.
+    const details = { 'skill-13890f6a': '论文阅读Skill', 'ai-github-98fdb6f0': 'AI 文献阅读 GitHub 技术分享', 'ai-635bc8b5': '小红书图文分享：AI 文献阅读经验',
+      ...Object.fromEntries(PERIOD_2.map((id, index) => [id, `第二期 ${index + 1}`])), 'challenge-9313ad0a': '写作19｜思维导图' };
+    const requested = [];
+    // Ids that answer 503 for now.
+    const down = new Set();
+    const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    const real = createPlaygroundClient({ baseUrl: 'https://play.bohrium.com', fetchImpl: async (url) => {
+      requested.push(`${url.pathname}${url.search}`);
+      if (down.has(decodeURIComponent(url.pathname.replace('/api/challenges/', '')))) return reply({ detail: 'Service unavailable' }, 503);
+      if (url.pathname === '/api/hackathon/seasons') return reply([{ id: 4, slug: 's4', nameEn: 'Agentic Science Challenge', nameZh: '科学骑士大师赛', status: 'active', startAt: '2026-07-27T00:00:00+00:00', endAt: '2027-01-31T23:59:59+00:00' }]);
+      if (url.pathname === '/api/challenges') return reply({ error: 'unexpected list' }, 500);
+      const id = decodeURIComponent(url.pathname.replace('/api/challenges/', ''));
+      return details[id] ? reply({ ...card(id, details[id], id.startsWith('product-arena') ? arena : []), content: 'Statement' }) : reply({ detail: 'Not found' }, 404);
+    } });
+    Object.assign(f.client, real);
+    const list = async (args) => (await f.workflow.catalog({ competition: 'bohr-product', search: '', per_page: 20, ...args }, f.exec)).challenges;
+    // All periods: 13 challenges, period 1 then period 2, each in the website's order; 写作19 is not among them.
+    const all = await list({});
+    assert.equal(all.total, 13);
+    assert.deepEqual(all.items.map((item) => item.id), [...PERIOD_1, ...PERIOD_2]);
+    assert.equal(all.items.some((item) => item.id === 'challenge-9313ad0a'), false);
+    const first = await list({ period: '1' });
+    assert.deepEqual([first.total, first.items.map((item) => item.id)], [3, PERIOD_1]);
+    assert.equal(first.items[1].title, 'AI 文献阅读 GitHub 技术分享');
+    assert.equal(first.items[1].titleZh, undefined, 'a Chinese-only title stays the title');
+    assert.equal(first.items[0].webUrl, 'https://play.bohrium.com/challenge/skill-13890f6a');
+    const second = await list({ period: '2' });
+    assert.deepEqual([second.total, second.items.map((item) => item.id)], [10, PERIOD_2]);
+    // Every challenge is read by id; nothing is listed by tag, and 写作19 is never read.
+    assert.equal(requested.some((path) => path.startsWith('/api/challenges?')), false, requested.join('\n'));
+    assert.equal(requested.includes('/api/challenges/challenge-9313ad0a'), false);
+    // The table carries each period's status, time and page; the competition's own page has no period.
+    const result = await f.workflow.catalog({ competition: 'bohr-product', period: '2' }, f.exec);
+    const bohr = result.competitionTable.find((item) => item.id === 'bohr-product');
+    assert.equal(bohr.webUrl, 'https://play.bohrium.com/competition/bohr-product');
+    assert.equal(bohr.defaultPeriod, '2');
+    assert.deepEqual(bohr.periods.map((period) => [period.slug, period.labelZh, period.status, period.timeText, period.webUrl]), [
+      ['1', '第一期', 'ended', '2026.10.21 16:00 — 2026.11.03 24:00', 'https://play.bohrium.com/competition/bohr-product?period=1'],
+      ['2', '第二期', 'live', '2026.11.04 16:00 — 2026.11.11 16:00', 'https://play.bohrium.com/competition/bohr-product?period=2']]);
+    assert.equal(JSON.stringify(result.competitionTable).includes('product-arena-08'), false, 'challenge ids stay on the Host');
+    assert.ok(result.competitionTable.filter((item) => item.id !== 'bohr-product').every((item) => !('periods' in item)));
+    assert.equal([all, first, second].some((page) => 'missing' in page), false, 'a complete read carries no missing count');
+    // A challenge the platform has dropped is skipped and counted; the rest of the period stays in order.
+    delete details['product-arena-06-6d8cf72b'];
+    const shorter = await list({ period: '2' });
+    assert.deepEqual(shorter.items.map((item) => item.id), PERIOD_2.filter((id) => id !== 'product-arena-06-6d8cf72b'));
+    assert.deepEqual([shorter.total, shorter.missing], [9, 1]);
+    assert.deepEqual([(await list({})).total, (await list({})).missing], [12, 1]);
+    assert.equal('missing' in await list({ period: '1' }), false, 'period 1 was read in full');
+    // A transient failure (503) counts the same as a dropped id; only every id failing is an error.
+    down.add('skill-13890f6a'); down.add('ai-635bc8b5');
+    const degraded = await list({ period: '1' });
+    assert.deepEqual([degraded.total, degraded.missing, degraded.items.map((item) => item.id)], [1, 2, ['ai-github-98fdb6f0']]);
+    down.add('ai-github-98fdb6f0');
+    await assert.rejects(() => list({ period: '1' }));
+  } finally {
+    mock.timers.reset();
+  }
 });
 
-test('a failing tag read keeps the pinned challenges and marks the list partial', async () => {
+test('a period is refused unless it is a slug of the chosen competition\'s periods', async () => {
+  const f = await fixture();
+  const listings = recordListings(f);
+  let seasons = 0;
+  f.client.listCompetitions = async () => { seasons += 1; return { items: [] }; };
+  f.client.getChallenge = async () => assert.fail('no challenge read');
+  const refused = async (args, message) => {
+    const result = await f.workflow.catalog(args, f.exec);
+    assert.equal(result.ok, false, JSON.stringify(args));
+    assert.equal(result.error.code, 'invalid_argument');
+    assert.equal(result.error.message, message, JSON.stringify(args));
+  };
+  for (const period of ['3', '', ' 1', '1 ', '01', 'all', 2, null]) await refused({ competition: 'bohr-product', period }, '未知的分期。请从分期选择器中选择。');
+  for (const args of [{ competition: 'agent', period: '1' }, { competition: 'light-chasing', period: '1' }, { competition: 'knight-s4', period: '2' }]) {
+    await refused(args, '所选比赛没有分期，不能指定 period。');
+  }
+  // Without a competition (no field, or only an API season) the refusal says a competition is needed.
+  for (const args of [{ period: '1' }, { season: 's5', period: '1' }, { period: '' }]) await refused(args, '指定 period 时必须选择比赛。');
+  await refused({ competition: 'nope', period: '1' }, '未知的比赛。请从比赛选择器中选择。');
+  assert.equal(listings.length, 0);
+  assert.equal(seasons, 0);
+});
+
+test('fixed-id reads share an internal signal that is released once the read is over', async () => {
   const f = await fixture();
   const signals = [];
-  f.client.listChallenges = async (_params, { signal }) => { signals.push(signal); throw Object.assign(new Error('HTTP 503'), { code: 'server_error', status: 503 }); };
+  f.client.listChallenges = async () => assert.fail('a period list does not use the list API');
   f.client.getChallenge = async (id, { signal }) => { signals.push(signal); if (id === 'skill-13890f6a') throw notFound(); return { id, title: `Fixed ${id}` }; };
-  const result = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12 }, f.exec);
+  const result = await f.workflow.catalog({ competition: 'bohr-product', period: '1', per_page: 12 }, f.exec);
   assert.equal(result.ok, true);
   assert.deepEqual(result.challenges.items.map((item) => item.id), ['ai-github-98fdb6f0', 'ai-635bc8b5']);
-  assert.equal(result.challenges.partial, true);
   assert.equal(result.challenges.total, 2);
-  // Every read used the internal signal, which is released once the read is over; the caller's is untouched.
-  assert.equal(signals.length, 4);
+  assert.equal(result.challenges.missing, 1);
+  assert.equal('partial' in result.challenges, false);
+  assert.equal('truncated' in result.challenges, false);
+  assert.equal(signals.length, 3);
   assert.ok(signals.every((signal) => signal !== f.exec.signal && signal === signals[0] && signal.aborted));
   assert.equal(f.exec.signal.aborted, false);
 });
 
-test('a failing tag read with every pinned id failing reports the tag failure', async () => {
-  const f = await fixture();
-  let tagSignal;
-  f.client.listChallenges = async (_params, { signal }) => { tagSignal = signal; throw Object.assign(new Error('HTTP 503'), { code: 'server_error', status: 503 }); };
-  f.client.getChallenge = async () => { throw notFound(); };
-  await assert.rejects(() => f.workflow.catalog({ competition: 'bohr-product' }, f.exec), (error) => error.code === 'server_error');
-  assert.equal(tagSignal.aborted, true, 'nothing keeps running after the failure');
-});
-
-test('a cancelled tag read stops the pinned reads and rejects with the cancellation', async () => {
+test('a cancelled period read stops the pending challenge reads and rejects with the cancellation', async () => {
   const f = await fixture();
   const controller = new AbortController();
   const fixedSignals = [];
-  // The tag read hangs until it is aborted; the pinned reads hang and ignore their signal.
-  f.client.listChallenges = (_params, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+  // The reads hang and ignore their signal.
   f.client.getChallenge = (_id, { signal }) => { fixedSignals.push(signal); return new Promise(() => {}); };
-  const pending = f.workflow.catalog({ competition: 'bohr-product' }, { ...f.exec, signal: controller.signal });
+  const pending = f.workflow.catalog({ competition: 'bohr-product', period: '2' }, { ...f.exec, signal: controller.signal });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fixedSignals.length, 3);
+  assert.equal(fixedSignals.length, 10);
   assert.ok(fixedSignals.every((signal) => !signal.aborted));
   controller.abort(new Error('user left'));
   await assert.rejects(() => pending, /user left/);
-  assert.ok(fixedSignals.every((signal) => signal.aborted), 'the pinned reads were told to stop');
+  assert.ok(fixedSignals.every((signal) => signal.aborted), 'the reads were told to stop');
 });
 
-test('an already-cancelled merged read starts no challenge read and rejects', async () => {
+test('an already-cancelled period read starts no challenge read and rejects', async () => {
   const f = await fixture();
   const controller = new AbortController();
   controller.abort(new Error('gone'));
@@ -2071,26 +2090,6 @@ test('an already-cancelled merged read starts no challenge read and rejects', as
   f.client.listCompetitions = async () => ({ items: [] });
   await assert.rejects(() => f.workflow.catalog({ competition: 'bohr-product' }, { ...f.exec, signal: controller.signal }), /gone/);
   assert.deepEqual(seen, []);
-});
-
-test('a tag longer than four pages is cut at 200 challenges and flagged truncated', async () => {
-  const f = await fixture();
-  const listings = [];
-  f.client.listChallenges = async (params) => {
-    listings.push(params.page);
-    return { total: 260, page: params.page, perPage: params.perPage, pages: 6, hasMore: true,
-      items: Array.from({ length: params.perPage }, (_, index) => ({ id: `tagged-${params.page}-${index}`, title: 'Tagged' })) };
-  };
-  f.client.getChallenge = async (id) => ({ id, title: id });
-  const result = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12 }, f.exec);
-  assert.deepEqual(listings, [1, 2, 3, 4]);
-  assert.equal(result.challenges.truncated, true);
-  assert.equal(result.challenges.total, 203, 'the total counts what was read');
-  // A tag that ends on the fourth page is complete.
-  f.client.listChallenges = async (params) => ({ page: params.page, hasMore: params.page < 4, items: [{ id: `tagged-${params.page}`, title: 'Tagged' }] });
-  const complete = await f.workflow.catalog({ competition: 'bohr-product' }, f.exec);
-  assert.equal('truncated' in complete.challenges, false);
-  assert.equal(complete.challenges.total, 7);
 });
 
 test('an API season with an unusual slug is listed without a web address', async () => {
@@ -2205,27 +2204,43 @@ test('a fixed-id competition is filtered, sorted and paged on the Host; a page p
   assert.deepEqual([past.items, past.page, past.hasMore, past.total], [[], 3, false, 3]);
 });
 
-test('a merged competition passes filters to its tag, filters the pinned ids itself, and sorts the whole list by attempts', async () => {
+test('a period list is filtered, sorted and paged on the Host like the other fixed-id lists', async () => {
   const f = await fixture();
-  const listings = [];
-  const tagged = [{ id: 'challenge-9313ad0a', title: 'Tagged one', origin: 'community', attempts: 50 },
-    { id: 'product-arena-01-5a9928c1', title: 'Tagged two', origin: 'community', attempts: 900 }];
-  f.client.listChallenges = async (params) => { listings.push(params); return { total: 2, page: 1, perPage: 50, pages: 1, hasMore: false, items: tagged }; };
-  fixedCards(f, { 'skill-13890f6a': { origin: 'community', attempts: 1494 }, 'ai-github-98fdb6f0': { origin: 'arena', attempts: 7 },
-    'ai-635bc8b5': { origin: 'community', discipline: 'ai', attempts: 0 } });
-  const read = async (args) => (await f.workflow.catalog({ competition: 'bohr-product', ...args }, f.exec)).challenges;
-  // Newest (the default): pinned ids first in table order, then the tag.
-  assert.deepEqual((await read({})).items.map((item) => item.id),
-    ['skill-13890f6a', 'ai-github-98fdb6f0', 'ai-635bc8b5', 'challenge-9313ad0a', 'product-arena-01-5a9928c1']);
-  // Attempts: one list, most attempts first.
-  assert.deepEqual((await read({ sort: 'attempts' })).items.map((item) => item.id),
-    ['skill-13890f6a', 'product-arena-01-5a9928c1', 'challenge-9313ad0a', 'ai-github-98fdb6f0', 'ai-635bc8b5']);
-  // Origin and discipline reach the tag read through the API and the pinned cards on the Host.
-  const community = await read({ origin: 'community', sort: 'attempts', per_page: 2, page: 2 });
-  assert.ok(listings.slice(2).every((item) => item.origin === 'community' && item.sort === 'attempts' && item.tag === 'product-arena' && item.perPage === 50 && item.page === 1));
-  assert.deepEqual([community.items.map((item) => item.id), community.total, community.hasMore], [['challenge-9313ad0a', 'ai-635bc8b5'], 4, false]);
-  assert.deepEqual((await read({ discipline: 'ai' })).items.map((item) => item.id).slice(0, 1), ['ai-635bc8b5']);
-  assert.equal(listings.at(-1).discipline, 'ai');
+  f.client.listChallenges = async () => assert.fail('a period list does not use the list API');
+  const attempts = [5, 90, 12, 0, 40, 7, 300, 1, 66, undefined];
+  fixedCards(f, {
+    ...Object.fromEntries(PERIOD_1.map((id) => [id, { origin: 'community', attempts: 2 }])),
+    ...Object.fromEntries(PERIOD_2.map((id, index) => [id, { title: `赛题 ${index}`, origin: index % 2 ? 'community' : 'arena',
+      discipline: index < 3 ? 'ai' : 'writing', ...(attempts[index] === undefined ? {} : { attempts: attempts[index] }) }])),
+  });
+  const read = async (args) => (await f.workflow.catalog({ competition: 'bohr-product', period: '2', ...args }, f.exec)).challenges;
+  const ids = (page) => page.items.map((item) => item.id);
+  const pick = (...indexes) => indexes.map((index) => PERIOD_2[index]);
+  // 最新 keeps the website's order; 提交最多 sorts by attempts, unknown last.
+  const newest = await read({ per_page: 20 });
+  assert.deepEqual([ids(newest), newest.total, newest.hasMore], [PERIOD_2, 10, false]);
+  assert.deepEqual(ids(await read({ sort: 'attempts', per_page: 20 })), pick(6, 1, 8, 4, 2, 5, 0, 7, 3, 9));
+  // 来源, 学科 and the search apply to the period's cards on the Host.
+  const community = await read({ origin: 'community', per_page: 20 });
+  assert.deepEqual([ids(community), community.total], [pick(1, 3, 5, 7, 9), 5]);
+  assert.deepEqual(ids(await read({ origin: 'community', discipline: 'ai' })), pick(1));
+  assert.deepEqual(ids(await read({ search: '赛题 7' })), pick(7));
+  assert.equal((await read({ discipline: 'AI' })).total, 0, 'a discipline matches exactly, like the API');
+  // Pages of 4: three pages; the last holds two; a page past the end is empty.
+  const firstPage = await read({ per_page: 4 });
+  assert.deepEqual([ids(firstPage), firstPage.page, firstPage.pages, firstPage.hasMore, firstPage.total], [pick(0, 1, 2, 3), 1, 3, true, 10]);
+  const last = await read({ per_page: 4, page: 3 });
+  assert.deepEqual([ids(last), last.page, last.pages, last.hasMore, last.total], [pick(8, 9), 3, 3, false, 10]);
+  const past = await read({ per_page: 4, page: 4 });
+  assert.deepEqual([past.items, past.hasMore, past.total], [[], false, 10]);
+  // Filters, sort and paging combine.
+  const combined = await read({ origin: 'community', sort: 'attempts', per_page: 2, page: 2 });
+  assert.deepEqual([ids(combined), combined.total, combined.pages, combined.hasMore], [pick(7, 3), 5, 3, true]);
+  // All periods: 13 challenges; the second page of 12 holds the last challenge of period 2.
+  const all = await f.workflow.catalog({ competition: 'bohr-product', per_page: 12, page: 2 }, f.exec);
+  assert.deepEqual([ids(all.challenges), all.challenges.total, all.challenges.hasMore], [pick(9), 13, false]);
+  const allCommunity = await f.workflow.catalog({ competition: 'bohr-product', origin: 'community', per_page: 20 }, f.exec);
+  assert.deepEqual(ids(allCommunity.challenges), [...PERIOD_1, ...pick(1, 3, 5, 7, 9)]);
 });
 
 test('disciplineFacets keeps the ten largest disciplines and merges the rest into 其他', () => {

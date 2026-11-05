@@ -2436,7 +2436,13 @@ test('#45: the login area shows the outdated-CLI warning from the auth query', a
 const competitionTable = [
   { id: 'bohr-product', kind: 'competition', nameZh: '玻尔产品周赛', name: 'Bohrium Product Weekly Contest', status: 'live', startAt: '2026-10-21T16:00:00+08:00',
     dateText: '2026.10.21 起', timeText: '2026.10.21 16:00 起', rounds: '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00',
-    webUrl: 'https://play.bohrium.com/competition/bohr-product' },
+    // As the Host sends it during period 2: each period's status, time and page, and the default period.
+    periods: [
+      { slug: '1', labelZh: '第一期', status: 'ended', startAt: '2026-10-21T16:00:00+08:00', endAt: '2026-11-03T24:00:00+08:00',
+        dateText: '2026.10.21 — 2026.11.03', timeText: '2026.10.21 16:00 — 2026.11.03 24:00', webUrl: 'https://play.bohrium.com/competition/bohr-product?period=1' },
+      { slug: '2', labelZh: '第二期', status: 'live', startAt: '2026-11-04T16:00:00+08:00', endAt: '2026-11-11T16:00:00+08:00',
+        dateText: '2026.11.04 — 2026.11.11', timeText: '2026.11.04 16:00 — 2026.11.11 16:00', webUrl: 'https://play.bohrium.com/competition/bohr-product?period=2' }],
+    defaultPeriod: '2', webUrl: 'https://play.bohrium.com/competition/bohr-product' },
   { id: 'knight-s4', kind: 'competition', season: 's4', nameZh: '科学骑士大师赛', status: 'live', dateText: '2026.07.27 — 2027.01.31',
     timeText: '2026.07.27 — 2027.01.31', webUrl: 'https://play.bohrium.com/hackathon-s4' },
   { id: 'season:s5', kind: 'season', season: 's5', nameZh: '春季赛 · 第五季', status: 'upcoming', dateText: '2026.12.01 — 2026.12.08',
@@ -2492,23 +2498,256 @@ test('an empty status group is not rendered', async (t) => {
 });
 
 test('choosing a competition sends its id, shows the info row and opens its page in the browser', async (t) => {
-  const { calls, choose } = await competitionPanel(t);
+  const harness = { id: 'harness', kind: 'competition', nameZh: 'Harness 优化赛', name: 'Harness Optimization', status: 'live', startAt: '2026-09-24T20:00:00+08:00',
+    dateText: '2026.09.24 起', timeText: '2026.09.24 20:00 起', rounds: '第一季 09.24 20:00 起 · 第二季 10.30 20:00 起', webUrl: 'https://play.bohrium.com/competition/harness' };
+  const { calls, choose } = await competitionPanel(t, [...competitionTable, harness]);
   const opened = [];
   globalThis.window.open = (...args) => { opened.push(args); return null; };
-  const panel = await choose('competition:bohr-product');
-  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'bohr-product', per_page: 20 });
+  const panel = await choose('competition:harness');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'harness', per_page: 20 });
   const [info] = findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息');
   assert.ok(info);
   assert.match(text(info), /进行中/);
-  assert.match(text(info), /时间：2026\.10\.21 16:00 起/);
-  assert.match(text(info), /轮次：第一期 10\.21 16:00 — 11\.03 24:00 · 第二期 11\.04 16:00 — 11\.11 16:00/);
+  assert.match(text(info), /时间：2026\.09\.24 20:00 起/);
+  assert.match(text(info), /轮次：第一季 09\.24 20:00 起 · 第二季 10\.30 20:00 起/);
+  assert.equal(findAll(info, (node) => node.props?.['aria-label'] === '选择分期').length, 0, 'no period choice without periods');
+  const [open] = findAll(info, isOpenWeb);
+  assert.equal(open.props['aria-label'], '在网页中打开：Harness 优化赛');
+  open.props.onClick();
+  assert.deepEqual(opened, [['https://play.bohrium.com/competition/harness', '_blank', 'noopener,noreferrer']]);
+  // The challenge card keeps its own start, detail and web buttons.
+  assert.equal(findAll(panel, (node) => node.type?.name === 'StartTaskButton').length, 1);
+  assert.equal(findAll(panel, (node) => node.type === 'button' && /^查看详情/.test(node.props['aria-label'] || '')).length, 1);
+});
+
+test('a competition with periods gets a period choice that starts on the default period and opens that period\'s page', async (t) => {
+  const { f, calls, choose } = await competitionPanel(t);
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  const panel = await choose('competition:bohr-product');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'bohr-product', period: '2', per_page: 20 });
+  const info = infoRow(panel);
+  const periodSelect = f.find(info, (node) => node.props?.['aria-label'] === '选择分期');
+  assert.equal(periodSelect.type, 'select');
+  assert.equal(periodSelect.props.value, '2', 'the live period');
+  assert.deepEqual(findAll(periodSelect, (node) => node.type === 'option').map((node) => [node.props.value, text(node)]), [
+    ['', '全部期'], ['1', '第一期 · 已结束 · 2026.10.21 16:00 — 2026.11.03 24:00'], ['2', '第二期 · 进行中 · 2026.11.04 16:00 — 2026.11.11 16:00']]);
+  // The row shows the period's status and time, not the whole competition's rounds.
+  const note = squash(text(f.find(info, (node) => node.type === 'p')));
+  assert.equal(note, '进行中 第二期 时间：2026.11.04 16:00 — 2026.11.11 16:00');
+  const [open] = findAll(info, isOpenWeb);
+  assert.equal(open.props['aria-label'], '在网页中打开：玻尔产品周赛 · 第二期');
+  open.props.onClick();
+  assert.deepEqual(opened, [['https://play.bohrium.com/competition/bohr-product?period=2', '_blank', 'noopener,noreferrer']]);
+  // Other competitions have no period choice and send no period.
+  const other = await choose('competition:knight-s4');
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '', competition: 'knight-s4', per_page: 20 });
+  assert.equal(f.find(other, (node) => node.props?.['aria-label'] === '选择分期'), undefined);
+  for (const value of ['season:s5', 'competition:light-chasing', '']) {
+    assert.equal(f.find(await choose(value), (node) => node.props?.['aria-label'] === '选择分期'), undefined, value);
+    assert.equal('period' in calls.at(-1), false, value);
+  }
+});
+
+test('the default period follows the Host; a missing or unknown default starts on 全部期', async (t) => {
+  const withDefault = (defaultPeriod) => competitionTable.map((item) => (item.id === 'bohr-product' ? { ...item, defaultPeriod } : item));
+  for (const [defaultPeriod, expected] of [['1', '1'], [undefined, ''], ['3', ''], ['', '']]) {
+    const { f, calls, choose } = await competitionPanel(t, withDefault(defaultPeriod));
+    const panel = await choose('competition:bohr-product');
+    assert.equal(f.find(panel, (node) => node.props?.['aria-label'] === '选择分期').props.value, expected, String(defaultPeriod));
+    assert.equal(calls.at(-1).period, expected || undefined, String(defaultPeriod));
+  }
+});
+
+test('changing the period reads page 1 again with the other controls, and 全部期 shows the competition\'s own time', async (t) => {
+  const { f, pending, view, control, button, count } = await pagedCatalog(t);
+  const opened = [];
+  globalThis.window.open = (...args) => { opened.push(args); return null; };
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 30, hasMore: true }));
+  await settle();
+  control('排序方式').props.onChange({ target: { value: 'attempts' } });
+  pending[2].resolve(catalogPage(range(0, 20), { total: 30, hasMore: true }));
+  await settle();
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2', sort: 'attempts', page: 2, per_page: 20 });
+  pending[3].resolve(catalogPage(range(20, 30), { total: 30, hasMore: false }));
+  await settle();
+  assert.deepEqual(cardIds(view()), range(0, 30));
+  // Period 1: page 1 of the same sort; the period 2 cards are hidden while it loads.
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  assert.deepEqual(pending[4].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '1', sort: 'attempts', per_page: 20 });
+  assert.deepEqual(cardIds(view()), []);
+  assert.match(text(view()), /正在读取所选比赛的赛题/);
+  assert.equal(squash(text(f.find(infoRow(view()), (node) => node.type === 'p'))), '已结束 第一期 时间：2026.10.21 16:00 — 2026.11.03 24:00');
+  pending[4].resolve(catalogPage(['p1', 'p2', 'p3'], { total: 3, hasMore: false }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['p1', 'p2', 'p3']);
+  assert.equal(count(), '共 3 道');
+  assert.equal(control('选择分期').props.value, '1');
+  // The search keeps the period.
+  f.find(view(), (node) => node.type === 'input').props.onChange({ target: { value: 'skill' } });
+  f.find(view(), (node) => node.type === 'input').props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[5].input, { action: 'catalog', search: 'skill', competition: 'bohr-product', period: '1', sort: 'attempts', per_page: 20 });
+  pending[5].resolve(catalogPage(['p1'], { total: 1 }));
+  await settle();
+  // 全部期: no period; the row shows the competition's status, time and rounds and opens its page.
+  control('选择分期').props.onChange({ target: { value: '' } });
+  assert.deepEqual(pending[6].input, { action: 'catalog', search: 'skill', competition: 'bohr-product', sort: 'attempts', per_page: 20 });
+  pending[6].resolve(catalogPage(['p1', 'q1'], { total: 2 }));
+  await settle();
+  const info = infoRow(view());
+  assert.equal(squash(text(f.find(info, (node) => node.type === 'p'))), '进行中 时间：2026.10.21 16:00 起 · 轮次：第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
   const [open] = findAll(info, isOpenWeb);
   assert.equal(open.props['aria-label'], '在网页中打开：玻尔产品周赛');
   open.props.onClick();
   assert.deepEqual(opened, [['https://play.bohrium.com/competition/bohr-product', '_blank', 'noopener,noreferrer']]);
-  // The challenge card keeps its own start, detail and web buttons.
-  assert.equal(findAll(panel, (node) => node.type?.name === 'StartTaskButton').length, 1);
-  assert.equal(findAll(panel, (node) => node.type === 'button' && /^查看详情/.test(node.props['aria-label'] || '')).length, 1);
+  assert.deepEqual(cardIds(view()), ['p1', 'q1']);
+  // Leaving the competition drops the period; coming back starts on the default period again.
+  control('选择比赛').props.onChange({ target: { value: 'competition:knight-s4' } });
+  assert.equal('period' in pending[7].input, false);
+  pending[7].resolve(catalogPage(['s4'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  assert.equal(pending[8].input.period, '2');
+  assert.equal(pending.some((item) => item.input.page !== undefined && item !== pending[3]), false, 'only 加载更多 reads a later page');
+});
+
+test('a period answer that arrives after another period was chosen is dropped', async (t) => {
+  const { f, pending, view, control } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(['p2a'], { total: 1 }));
+  await settle();
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  control('选择分期').props.onChange({ target: { value: '2' } });
+  assert.deepEqual([pending[2].input.period, pending[3].input.period], ['1', '2']);
+  assert.equal(pending[2].signal.aborted, true, 'choosing period 2 aborts the period 1 read');
+  // The period 1 answer comes first, while period 2 still loads: nothing of it shows; the earlier period 2
+  // list stays under the period 2 control.
+  pending[2].resolve(catalogPage(['p1-late'], { total: 1, missing: 2 }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['p2a']);
+  assert.doesNotMatch(text(view()), /读取失败，列表不完整/);
+  assert.equal(control('选择分期').props.value, '2');
+  pending[3].resolve(catalogPage(['p2a', 'p2b'], { total: 2 }));
+  await settle();
+  // And once more after period 2 has answered.
+  pending[2].resolve(catalogPage(['p1-later'], { total: 1, missing: 1 }));
+  await settle();
+  const panel = view();
+  assert.equal(control('选择分期').props.value, '2');
+  assert.deepEqual(cardIds(panel), ['p2a', 'p2b']);
+  assert.equal(squash(text(f.find(infoRow(panel), (node) => node.type === 'p'))), '进行中 第二期 时间：2026.11.04 16:00 — 2026.11.11 16:00');
+  assert.doesNotMatch(text(panel), /读取失败，列表不完整/);
+});
+
+test('a list with unread fixed ids says so in the info row and 重试 reads page 1 again', async (t) => {
+  const { f, pending, view, control, button, count } = await pagedCatalog(t);
+  const note = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.props?.className === 'pg-note pg-catalog-missing').map((node) => text(node));
+  const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试');
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 9), { total: 9, missing: 1 }));
+  await settle();
+  let panel = view();
+  assert.deepEqual(note(panel), ['有 1 道赛题读取失败，列表不完整。']);
+  assert.equal(liveStatus(panel), '赛题目录已更新，有 1 道赛题读取失败。', 'the incomplete list is announced with its count');
+  assert.equal(count(), '共 9 道');
+  assert.deepEqual(cardIds(panel), range(0, 9), 'the challenges that were read stay shown');
+  assert.equal(infoRetry(panel).length, 1);
+  // 重试 reads page 1 of the same controls; a complete answer removes the note.
+  button('重试').props.onClick();
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2', per_page: 20 });
+  assert.equal(infoRetry(view())[0].props.disabled, true, 'disabled while the read runs');
+  pending[2].resolve(catalogPage(range(0, 10), { total: 10 }));
+  await settle();
+  assert.deepEqual(note(view()), []);
+  assert.equal(liveStatus(view()), '赛题目录已更新。');
+  assert.equal(infoRetry(view()).length, 0);
+  // The count follows the newest answer, with the number the Host sent.
+  control('选择分期').props.onChange({ target: { value: '' } });
+  pending[3].resolve(catalogPage(range(0, 10), { total: 10, missing: 3 }));
+  await settle();
+  assert.deepEqual(note(view()), ['有 3 道赛题读取失败，列表不完整。']);
+  // A failed read keeps the cards and the note; only the failure's own 重试 is offered.
+  button('刷新目录').props.onClick();
+  pending[4].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
+  await settle();
+  panel = view();
+  assert.equal(text(f.find(panel, (node) => node.props?.role === 'alert')), '赛题目录读取失败，下面仍是上一次读取的赛题。');
+  assert.deepEqual(note(panel), ['有 3 道赛题读取失败，列表不完整。']);
+  assert.equal(infoRetry(panel).length, 0);
+  assert.equal(findAll(panel, (node) => node.type === 'button' && text(node) === '重试').length, 1);
+  // Values that are not a positive count show nothing.
+  for (const missing of [0, -1, 1.5, '2', null, true]) {
+    button('刷新目录').props.onClick();
+    pending.at(-1).resolve(catalogPage(['c1'], { total: 1, missing }));
+    await settle();
+    assert.deepEqual(note(view()), [], JSON.stringify(missing));
+    assert.equal(liveStatus(view()), '赛题目录已更新。', JSON.stringify(missing));
+  }
+});
+
+test('the info-row 重试 reads the shown list\'s own query, not unsubmitted controls, and waits while 其他 has no key', async (t) => {
+  const { f, pending, view, control } = await pagedCatalog(t);
+  const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试')[0];
+  const searchBox = () => f.find(view(), (node) => node.props?.['aria-label'] === '搜索 Playground 赛题');
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  searchBox().props.onChange({ target: { value: 'skill' } });
+  searchBox().props.onKeyDown({ key: 'Enter' });
+  const shown = { action: 'catalog', search: 'skill', competition: 'bohr-product', period: '2', per_page: 20 };
+  assert.deepEqual(pending[2].input, shown);
+  pending[1].resolve(catalogPage(['stale'], { total: 1 }));
+  pending[2].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
+  await settle();
+  // Text typed but not submitted is not applied: 重试 replays the shown list's query and leaves the box as typed.
+  searchBox().props.onChange({ target: { value: 'unsent' } });
+  infoRetry(view()).props.onClick();
+  assert.deepEqual(pending[3].input, shown);
+  assert.equal(searchBox().props.value, 'unsent');
+  pending[3].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
+  await settle();
+  assert.equal(infoRetry(view()).props.disabled, false);
+  // 其他 without a key: the button is disabled and nothing is read.
+  control('按学科筛选').props.onChange({ target: { value: '__other__' } });
+  assert.equal(infoRetry(view()).props.disabled, true);
+  assert.equal(pending.length, 4, 'no read for an empty 其他');
+});
+
+test('加载更多 keeps the larger unread count; only a page-1 read resets it', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const note = () => findAll(infoRow(view()) ?? {}, (node) => node.props?.className === 'pg-note pg-catalog-missing').map((node) => text(node));
+  pending[0].resolve(catalogPage(['c0'], { total: 1 }));
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(catalogPage(range(0, 20), { total: 59, hasMore: true, missing: 1 }));
+  await settle();
+  assert.deepEqual(note(), ['有 1 道赛题读取失败，列表不完整。']);
+  // Page 2 reads every id, but page 1's unread card is still absent: the note stays.
+  button('加载更多').props.onClick();
+  pending[2].resolve(catalogPage(range(20, 40), { total: 59, hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), range(0, 40));
+  assert.deepEqual(note(), ['有 1 道赛题读取失败，列表不完整。']);
+  // A later page with more unread ids raises the count.
+  button('加载更多').props.onClick();
+  pending[3].resolve(catalogPage(range(40, 59), { total: 59, hasMore: false, missing: 2 }));
+  await settle();
+  assert.deepEqual(note(), ['有 2 道赛题读取失败，列表不完整。']);
+  // A complete page 1 resets it.
+  button('刷新目录').props.onClick();
+  assert.equal(pending[4].input.page, undefined);
+  pending[4].resolve(catalogPage(range(0, 20), { total: 60, hasMore: true }));
+  await settle();
+  assert.deepEqual(note(), []);
+  assert.equal(f.find(view(), (node) => node.props?.className === 'pg-note pg-catalog-missing'), undefined);
 });
 
 test('the info row omits rounds when a competition has none, and opens no unsafe address', async (t) => {
@@ -2544,7 +2783,7 @@ test('search keeps the chosen competition', async (t) => {
   panel = f.render(catalog.type, catalog.props);
   f.find(panel, (node) => node.type === 'input').props.onKeyDown({ key: 'Enter' });
   await settle();
-  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '思维导图', competition: 'bohr-product', per_page: 20 });
+  assert.deepEqual(calls.at(-1), { action: 'catalog', search: '思维导图', competition: 'bohr-product', period: '2', per_page: 20 });
 });
 
 test('a catalog without a competition table still renders the plain selector', async (t) => {
@@ -2556,6 +2795,8 @@ test('a catalog without a competition table still renders the plain selector', a
 });
 
 const cardIds = (panel) => findAll(panel, (node) => node.type === 'article').map((node) => node.props.key);
+// The info row's note with the spaces text() puts between children squashed.
+const squash = (value) => value.replace(/\s+/g, ' ').trim();
 const infoRow = (panel) => findAll(panel, (node) => node.props?.['aria-label'] === '比赛信息')[0];
 
 test('while a newly chosen competition loads, or after its read fails, the previous challenges stay hidden', async (t) => {
@@ -2585,7 +2826,7 @@ test('while a newly chosen competition loads, or after its read fails, the previ
   pending[2].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
   await settle();
   panel = view();
-  assert.match(text(infoRow(panel)), /轮次：第一期/);
+  assert.match(text(infoRow(panel)), /第二期 时间：2026\.11\.04 16:00/);
   assert.equal(text(f.find(panel, (node) => node.props?.role === 'alert')), '赛题目录读取失败。');
   assert.doesNotMatch(text(panel), /upstream returned 503/);
   assert.deepEqual(cardIds(panel), []);
@@ -2625,6 +2866,43 @@ test('a chosen competition the new table no longer lists resets the selector to 
   assert.doesNotMatch(text(view()), /已不在列表中/);
 });
 
+test('a chosen competition with a period that the new table no longer lists resets the period too', async (t) => {
+  const calls = [];
+  let table = competitionTable;
+  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, _endpoint, payload) => {
+    calls.push(payload.args.input);
+    return { ok: true, value: { competitions: { items: [] }, competitionTable: table, challenges: { total: 1, items: [{ id: `c${calls.length}`, title: 'Challenge' }] } } };
+  } } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  const control = (label) => f.find(view(), (node) => node.props?.['aria-label'] === label);
+  const refresh = async () => { await f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick(); await settle(); };
+  await f.mount(catalog);
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await settle();
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  await settle();
+  assert.equal(calls.at(-1).period, '1');
+  table = competitionTable.filter((item) => item.id !== 'bohr-product');
+  await refresh();
+  // The read for the vanished competition, then 全部比赛 without any period.
+  assert.deepEqual(calls.slice(3), [{ action: 'catalog', search: '', competition: 'bohr-product', period: '1', per_page: 20 }, { action: 'catalog', search: '', per_page: 20 }]);
+  assert.equal(control('选择比赛').props.value, '');
+  assert.equal(control('选择分期'), undefined);
+  assert.deepEqual(cardIds(view()), ['c5']);
+  // Later reads carry no period, and the list is shown: the reset list's period matches the cleared control.
+  await refresh();
+  assert.equal('period' in calls.at(-1), false);
+  assert.deepEqual(cardIds(view()), ['c6']);
+  // When the competition comes back, choosing it starts on the default period, not the old choice.
+  table = competitionTable;
+  await refresh();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await settle();
+  assert.equal(calls.at(-1).period, '2');
+  assert.equal(control('选择分期').props.value, '2');
+});
+
 test('the list says how many challenges match, and how many are shown when that is fewer', async (t) => {
   let total = 30;
   const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { competitions: { items: [] }, competitionTable,
@@ -2639,49 +2917,6 @@ test('the competition info row has its own layout rule', async () => {
   const source = await readFile(new URL('../client.js', import.meta.url), 'utf8');
   assert.match(source, /\.pg-competition-info\{display:flex;flex-wrap:wrap;[^}]*gap:/);
   assert.match(source, /\.pg-competition-info \.pg-note\{[^}]*overflow-wrap:anywhere/);
-});
-
-test('a list cut by the Host shows its total as a lower bound', async (t) => {
-  let truncated = true;
-  const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { competitions: { items: [] }, competitionTable,
-    challenges: { total: 203, ...(truncated ? { truncated: true } : {}), items: Array.from({ length: 12 }, (_, index) => ({ id: `c${index}`, title: `Challenge ${index}` })) } } }) } } });
-  assert.match(text(await f.mount(f.workbench('A').catalog)), /共 203\+ 道 · 已显示 12 道/);
-  truncated = false;
-  const plain = text(await f.mount(f.workbench('A').catalog));
-  assert.match(plain, /共 203 道 · 已显示 12 道/);
-  assert.doesNotMatch(plain, /203\+/);
-});
-
-test('a partial list says the tagged challenges could not be read, also when nothing matched', async (t) => {
-  const note = /标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。/;
-  let items = [{ id: 'skill-13890f6a', title: 'Pinned' }];
-  let partial = true;
-  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, _endpoint, payload) => ({ ok: true, value: { competitions: { items: [] }, competitionTable,
-    challenges: payload.args.input.competition ? { total: items.length, items, ...(partial ? { partial: true } : {}) } : { total: 1, items: [{ id: 'c1', title: 'Challenge' }] } } }) } } });
-  const { catalog } = f.workbench('A');
-  const view = () => f.render(catalog.type, catalog.props);
-  assert.doesNotMatch(text(await f.mount(catalog)), note, 'a complete list has no note');
-  const choose = async (value) => { f.find(view(), (node) => node.type === 'select').props.onChange({ target: { value } }); await settle(); return view(); };
-  let panel = await choose('competition:bohr-product');
-  assert.match(text(panel), note);
-  assert.deepEqual(cardIds(panel), ['skill-13890f6a']);
-  // No pinned card matches (as after a search): the note stays next to the empty-list line.
-  items = [];
-  f.find(panel, (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
-  await settle();
-  panel = view();
-  assert.match(text(panel), note);
-  assert.match(text(panel), /没有找到匹配赛题/);
-  // The note belongs to the list it was read with: a complete read removes it, and so does another selection.
-  partial = false;
-  items = [{ id: 'skill-13890f6a', title: 'Pinned' }];
-  f.find(panel, (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
-  await settle();
-  assert.doesNotMatch(text(view()), note);
-  partial = true;
-  await choose('competition:light-chasing');
-  assert.match(text(view()), note);
-  assert.doesNotMatch(text(await choose('')), note);
 });
 
 test('an older competition answer that arrives after a newer selection is dropped', async (t) => {
@@ -2704,7 +2939,7 @@ test('an older competition answer that arrives after a newer selection is droppe
   await settle();
   let panel = view();
   assert.equal(f.find(panel, (node) => node.type === 'select').props.value, 'competition:bohr-product');
-  assert.match(text(infoRow(panel)), /轮次：第一期/);
+  assert.match(text(infoRow(panel)), /第二期 时间：2026\.11\.04 16:00/);
   assert.deepEqual(cardIds(panel), ['bohr-1']);
   // The late answer was never kept for knight-s4: choosing it again waits for its own read.
   choose('competition:knight-s4');
@@ -2785,10 +3020,10 @@ test('each catalog filter reads page 1 again, combined with the competition and 
   await change('按来源筛选', 'community');
   await change('按学科筛选', 'materials');
   await change('排序方式', 'attempts');
-  const base = { action: 'catalog', search: '思维导图', competition: 'bohr-product', per_page: 20 };
+  const base = { action: 'catalog', search: '思维导图', competition: 'bohr-product', period: '2', per_page: 20 };
   assert.deepEqual(pending.map((item) => item.input), [
     { action: 'catalog', search: '', per_page: 20 },
-    { action: 'catalog', search: '', competition: 'bohr-product', per_page: 20 },
+    { action: 'catalog', search: '', competition: 'bohr-product', period: '2', per_page: 20 },
     base,
     { ...base, origin: 'community' },
     { ...base, origin: 'community', discipline: 'materials' },
@@ -2927,42 +3162,6 @@ test('after a failed filter change 加载更多 is hidden, so the old query is n
   assert.deepEqual(pending[3].input, { action: 'catalog', search: '', page: 2, per_page: 20 });
 });
 
-test('an append whose answer is partial for a list that was not is a failed append and keeps the shown facts', async (t) => {
-  const { f, pending, view, control, button, count } = await pagedCatalog(t);
-  const alert = () => text(f.find(view(), (node) => node.props?.role === 'alert'));
-  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
-  pending[1].resolve(catalogPage(range(0, 20), { total: 22, hasMore: true }));
-  await settle();
-  assert.equal(count(), '共 22 道 · 已显示 20 道');
-  button('加载更多').props.onClick();
-  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
-  // The tag read failed on page 2: only the three pinned challenges are counted, and the slice is empty.
-  pending[2].resolve(catalogPage([], { total: 3, hasMore: false, partial: true }));
-  await settle();
-  assert.equal(alert(), '加载更多赛题失败，已加载的赛题仍保留。');
-  assert.deepEqual(cardIds(view()), range(0, 20));
-  assert.equal(count(), '共 22 道 · 已显示 20 道');
-  assert.doesNotMatch(text(view()), /当前只显示固定赛题/);
-  assert.equal(button('加载更多').props.disabled, false);
-  button('重试').props.onClick();
-  assert.deepEqual(pending[3].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
-  pending[3].resolve(catalogPage(['c20', 'c21'], { total: 22, hasMore: false }));
-  await settle();
-  assert.equal(f.find(view(), (node) => node.props?.role === 'alert'), undefined);
-  assert.deepEqual(cardIds(view()), range(0, 22));
-  assert.equal(count(), '共 22 道');
-  assert.equal(button('加载更多'), undefined);
-  // A list that was partial from page 1 keeps taking partial pages.
-  control('选择比赛').props.onChange({ target: { value: '' } });
-  pending[4].resolve(catalogPage(range(0, 20), { total: 30, hasMore: true, partial: true }));
-  await settle();
-  button('加载更多').props.onClick();
-  pending[5].resolve(catalogPage(range(20, 30), { total: 30, hasMore: false, partial: true }));
-  await settle();
-  assert.deepEqual(cardIds(view()), range(0, 30));
-  assert.equal(f.find(view(), (node) => node.props?.role === 'alert'), undefined);
-});
-
 test('只看开放 hides the loaded closed challenges without reading again and says it filters only what is loaded', async (t) => {
   const { f, pending, view, count } = await pagedCatalog(t);
   pending[0].resolve(catalogPage(['a1', 'x1', 'a2', 'x2'], { total: 30, hasMore: true }));
@@ -3047,16 +3246,17 @@ test('an appended page without competitionTable keeps the competition choices an
   const choices = () => findAll(control('选择比赛'), (node) => node.type === 'option').map((node) => node.props.value);
   const before = choices();
   assert.equal(before.length, competitionTable.length + 1);
-  assert.match(text(infoRow(view())), /2026\.10\.21 16:00 起/);
+  assert.match(text(infoRow(view())), /2026\.11\.04 16:00 — 2026\.11\.11 16:00/);
   button('加载更多').props.onClick();
-  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', page: 2, per_page: 20 });
+  assert.deepEqual(pending[2].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2', page: 2, per_page: 20 });
   // The Host answers a page after the first with the challenges only: no competitionTable, no competitions.
   pending[2].resolve({ ok: true, value: { challenges: { items: range(20, 30).map((id) => ({ id, title: id, status: 'open' })), total: 30, hasMore: false } } });
   await settle();
   assert.deepEqual(cardIds(view()), range(0, 30));
   assert.deepEqual(choices(), before);
   assert.equal(control('选择比赛').props.value, 'competition:bohr-product');
-  assert.match(text(infoRow(view())), /2026\.10\.21 16:00 起/);
+  assert.equal(control('选择分期').props.value, '2');
+  assert.match(text(infoRow(view())), /2026\.11\.04 16:00 — 2026\.11\.11 16:00/);
   assert.equal(pending.length, 3, 'the missing table does not reset the selector or read again');
   assert.doesNotMatch(text(view()), /已不在列表中/);
 });

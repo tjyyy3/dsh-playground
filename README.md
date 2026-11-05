@@ -195,25 +195,42 @@ Playground website's "赛事" menu in three groups, **进行中**, **即将开�
 Paper2Arm hackathons differ by season and date. It starts on **全部比赛**.
 Choosing a competition lists only its challenges, and a row above the list
 shows its status, its time range, its rounds when it has any, and **在网页中打开**
-for its page on the website (for example `<site root>/competition/bohr-product`).
+for its page on the website (for example `<site root>/competition/harness`).
 Search still applies inside the chosen competition.
+
+`玻尔产品周赛` is listed by period, as on the website. Choosing it adds a period
+choice to that row: **全部期**, **第一期** (`2026.10.21 16:00 — 2026.11.03 24:00`)
+and **第二期** (`2026.11.04 16:00 — 2026.11.11 16:00`), each option with its own
+status and time. It starts on the period that is live, else the one that
+started most recently, else the first. With a period chosen, the row shows that
+period's status and time, and **在网页中打开** goes to
+`<site root>/competition/bohr-product?period=<slug>`; **全部期** shows the
+competition's own time and rounds and opens `<site root>/competition/bohr-product`.
+As on the website, `玻尔产品周赛` itself has no end date and stays **进行中** after
+both periods have ended, while each period shows its own status (**已结束**).
+Changing the period reads page 1 again with the search and filters.
 
 The competition list is built into the plugin (`lib/competitions.js`). The
 website keeps its menu in front-end code, not behind an API, and the plugin does
 not read the site. **A competition the website adds appears here only in a new
 plugin release.** Status is computed from each entry's start and end time when
-the workbench loads. Challenges are selected by the tag (`玻尔产品周赛`, `追光者计划·招募赛`),
+the workbench loads. Challenges are selected by the tag (`追光者计划·招募赛`),
 the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list of
 challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
-`科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`), which the Host reads one by
-one; an id that cannot be read is skipped. `玻尔产品周赛` combines its tag with the
-first period's three untagged challenges, which are listed first. If its tag
-cannot be read, those three are still shown, the result carries
-`partial: true`, and the workbench says
-`标签赛题暂时读取失败，当前只显示固定赛题。请稍后点“刷新目录”重试。`, also when no
-challenge is left to show. The Host reads at most four 50-item pages of a tag
-(200 challenges); a longer tag is cut, the result carries `truncated: true`,
-and the workbench shows the count as a lower bound (`共 203+ 道`).
+`科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`, and each period of
+`玻尔产品周赛`), which the Host reads one by one. An id that cannot be read is
+skipped and counted: the page carries `missing: n`, the screen-reader status says
+`赛题目录已更新，有 n 道赛题读取失败。`, and the competition row says
+`有 n 道赛题读取失败，列表不完整。` with **重试**, which reads page 1 of the
+shown list's own query again (search text typed but not submitted is not
+applied). After **加载更多** the row keeps the larger of the counts read so far;
+only a page-1 read resets it. A read where every id fails is an error. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
+`skill-13890f6a`, `ai-github-98fdb6f0` and `ai-635bc8b5` (the Skill, GitHub and
+小红书 tracks, in that order), 第二期 has the ten `product-arena-01` to
+`product-arena-10` challenges in the website's order, and 全部期 lists both
+periods in order, 13 challenges. It is not read by the `product-arena` tag:
+that tag also holds community challenges in no period (for example
+`challenge-9313ad0a`, 写作19), which stay findable under **全部比赛**.
 Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
 are still listed, so a season the platform adds later does not disappear; one
 whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. If that
@@ -227,9 +244,13 @@ converting time zones, as the website does (`科学骑士大师赛` reads
 `2026.10.10 20:00 — 2026.10.11 20:00`); times in any other offset, including the
 API's `+00:00` season times and `Z`, show the date only. The workbench query
 accepts a competition only by one of the table's ids and rejects any other.
+It takes an optional `period` only as one of the chosen competition's period
+slugs (`1` or `2` for `玻尔产品周赛`) and rejects any other value, a `period`
+for a competition without periods, and a `period` without a competition;
+without `period`, a competition with periods lists all of them.
 
 If the chosen competition is missing from a later list, the selector returns to
-**全部比赛** and reads the catalog again.
+**全部比赛**, the period choice is cleared, and the catalog is read again.
 
 ### Catalog paging and filters
 
@@ -265,27 +286,26 @@ the search box, a filter bar holds:
   open, and the count line reads `共 N 道 · 已加载 M 道 · 其中开放 K 道` with a
   note that it filters only what is loaded.
 
-Changing 来源, 学科, 排序, the competition or the search reads page 1 again, and
-the filters combine with each other, the competition and the search. Only the
+Changing 来源, 学科, 排序, the competition, its period or the search reads page 1
+again, and the filters combine with each other, the competition, its period and
+the search. Only the
 newest read can change the panel: a filter change aborts a running read,
 including a **加载更多** page. A failed read keeps the loaded challenges and
 shows fixed text with **重试**: `赛题目录读取失败。`,
 `赛题目录读取失败，下面仍是上一次读取的赛题。` when cards of the same competition
 stay shown, or `加载更多赛题失败，已加载的赛题仍保留。`. The platform's error text
-is not shown. An appended page of `玻尔产品周赛` whose tag read failed
-(`partial: true` on a list that was complete) counts as a failed append: the
-loaded cards, the total and **加载更多** stay as they were.
+is not shown.
 
 The workbench query takes these as `page` (integer 1–100000), `origin`,
 `discipline` (1–100 characters, trimmed) and `sort`, each validated strictly;
 it has no `status` field. For plain lists, tags and seasons the Host forwards
 them to `GET /api/challenges` as `page`, `origin`, `disc` and `sort`. For a
-competition with fixed ids (and the fixed part of `玻尔产品周赛`) the Host
-applies search, origin and discipline itself, pages the merged list, and
-returns an empty page with `hasMore: false` past the end. 提交最多 sorts the
-whole merged list by attempts; 最新 keeps the fixed challenges first in table
-order, then the tag in the API's newest order, because a challenge read by id
-has no creation time. Each page of such a list reads the whole list again.
+competition with fixed ids (each period of `玻尔产品周赛` included) the Host
+applies search, origin and discipline itself, pages the list, and returns an
+empty page with `hasMore: false` past the end. 提交最多 sorts the list by
+attempts; 最新 keeps the table order (the website's order for the periods),
+because a challenge read by id has no creation time. Each page of such a list
+reads the whole list again.
 Pages after the first do not read `/api/hackathon/seasons` and carry only
 `webBase` and `challenges`; the competition selector keeps the first page's
 table.
