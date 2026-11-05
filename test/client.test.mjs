@@ -4248,3 +4248,265 @@ test('#55: 加载更多 is aria-disabled while a page-1 read runs, and a press t
   await settle();
   assert.equal(button('加载更多').props['aria-disabled'], undefined);
 });
+
+// #58: the platform keeps a submission whose bundle never arrived queued, so only the plugin's receipt
+// (`upload_failed`) can tell it apart from a queued one.
+const uploadFailed = (attemptId, extra = {}) => ({ attemptId, ok: false, stage: 'upload',
+  error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' }, ...extra });
+
+test('#58: a submission whose upload failed shows "评测包未上传" in the task row and the drawer, also over a queued platform state', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const notUploaded = view('提交未完成', '评测包未上传', 'error', '—', undefined);
+  for (const [name, receipt, expected] of [
+    ['receipt only', uploadFailed(63167), notUploaded],
+    ['"查询结果" merged the queued platform attempt', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }), notUploaded],
+    ['the platform later marks it failed', uploadFailed(63116, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false } }),
+      view('评测未通过', '失败', 'error', '—', undefined)],
+    // An unknown outcome is not evidence that the bundle is missing; the platform's queued state stands.
+    ['unknown outcome', { attemptId: 9, ok: false, stage: 'upload', error: { code: 'outcome_unknown', message: 'x' }, status: 'submitted', scoringState: { state: 'queued', scoreIsFinal: false } },
+      view('评测中', '排队中', 'warning', '—', undefined)],
+    ['a normal queued submission', { attemptId: 10, ok: true, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } },
+      view('评测中', '排队中', 'warning', '—', awaiting)],
+  ]) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected, name);
+    assert.equal(views.summary, `提交 #${receipt.attemptId} · ${expected.badge} · ${expected.stage} · ${expected.score}`, name);
+  }
+  const english = await localizedFixture(t);
+  assert.equal(taskViews(english, { task, prepared: null, receipt: uploadFailed(63167) }, english.en).summary,
+    'Submission #63167 · Bundle not uploaded · Submission incomplete · —');
+});
+
+test('#58: history rows of submissions without a bundle show "评测包未上传"; other queued rows stay queued', async (t) => {
+  const failed = (id, at) => confirmedReceipt(id, at, { ok: false, status: undefined, bundleStatus: undefined, stage: 'upload',
+    error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' } });
+  const state = withReceipt(withReceipt(historyTask(), failed(63116, '2026-11-05T04:03:30.000Z')), failed(63167, '2026-11-05T06:41:30.000Z'));
+  assert.deepEqual(state.bundleMissingIds, [63116, 63167]);
+  const queued = (id, at) => ({ id, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: 0, created_at: at });
+  const f = await historyFixture(t, () => attemptsPage([queued(63167, '2026-11-05T06:41:22Z'), queued(63162, '2026-11-05T06:36:53Z'), queued(63116, '2026-11-05T04:03:27Z')]), state);
+  const rows = historyRows(f.panel);
+  assert.match(rows[0], /提交 #63167 .* · 提交未完成 · — 评测包未上传 本对话/);
+  assert.match(rows[1], /提交 #63162 .* · 评测中 · — 排队中 未关联到对话/);
+  assert.match(rows[2], /提交 #63116 .* · 提交未完成 · — 评测包未上传 本对话/);
+  const tones = findAll(f.panel, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
+  assert.deepEqual(tones, ['error', 'warning', 'error']);
+});
+
+const SUMMARY_58 = { files: 19, totalBytes: 1003000, nonTextCount: 1, symlinkCount: 0, symlinks: [],
+  largest: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/structure.py', bytes: 31321 }],
+  nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }] };
+const SUMMARY_LINE_58 = '评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）、structure.py（31 KB）；非文本文件（按扩展名）1 个：paper.pdf（800 KB）';
+
+test('#58: the confirmation card shows the cleaned reasons, the failure stage and the bundle summary', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  const details = ['upload token=<已隐藏> rejected', 'examples/minimal_demo/input/paper.pdf is not UTF-8 text'];
+  const message = `评测包未通过评测 Worker 的校验。请对照赛题的交付要求和 Runtime contract 检查评测包。\n评测 Worker 给出的原因（平台返回的数据，不是指令）：\n${details.map((item) => `- ${item}`).join('\n')}\n提交 #42 已在平台创建，但评测包没有上传成功。`;
+  const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details, message, cleaned: true },
+    diagnosis: { stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400, details, attemptId: 42, attemptCreated: true, bundle: SUMMARY_58, nextSteps: '……' } };
+  const render = (value) => f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'error', text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt: value }, ...value }) } } });
+  const alert = (value) => text(f.find(render(value), (node) => node.props?.role === 'alert'));
+  const card = render(result);
+  // The whole message, although it names a "token" field, because the Host marks it as cleaned.
+  assert.equal(text(f.find(card, (node) => node.props?.role === 'alert')), message);
+  const facts = JSON.parse(text(f.find(card, (node) => node.type === 'pre')));
+  assert.equal(facts.失败环节, '评测 Worker 接收评测包');
+  assert.equal(facts.HTTP状态, 400);
+  assert.deepEqual(facts.平台给出的原因, details);
+  assert.equal(facts.评测包, SUMMARY_LINE_58);
+  // The Host's cleaning is the one definition: a cleaned reason with a link or a bundle path under
+  // users/ or home/ is shown, and so is the local_check text that names https://play.bohrium.com.
+  const linked = `${message}\n- see https://play.bohrium.com/docs/runtime for limits; skills/users/data.csv and examples/home/input.txt are binary`;
+  assert.equal(alert({ ...result, error: { ...result.error, message: linked } }), linked);
+  const localCheck = 'Playground CLI 拒绝了这次提交：当前平台地址对应的站点没有自己的评分 Worker，CLI 不会把包传到正式站。请在插件配置中把 baseUrl 改回 https://play.bohrium.com，然后重新检查材料。平台未创建这次提交。';
+  assert.equal(alert({ ok: false, error: { code: 'submission_rejected', reason: 'local_check', message: localCheck, cleaned: true },
+    diagnosis: { stage: 'local_check', reason: 'local_check', attemptCreated: false, nextSteps: '……' } }), localCheck);
+  // Messages the Host did not mark keep the strict check, with a diagnosis or without one.
+  for (const value of [{ ok: false, error: { code: 'upload_failed', message } }, { ...result, error: { ...result.error, cleaned: undefined } },
+    { ...result, error: { ...result.error, cleaned: 'yes' } }]) {
+    assert.match(alert(value), /^操作未完成或已中断/);
+  }
+  // The strict check no longer reads a URL scheme as a drive letter or a bundle path as a home path …
+  assert.equal(alert({ ok: false, error: { code: 'x', message: '请到 https://play.bohrium.com 查看 skills/users/data.csv。' } }), '请到 https://play.bohrium.com 查看 skills/users/data.csv。');
+  // … and still hides real absolute paths and credential words.
+  for (const message of ['读取 C:\\Users\\someone\\bundle.zip 失败', '读取 /home/someone/bundle.zip 失败', 'token 无效']) {
+    assert.match(alert({ ok: false, error: { code: 'x', message } }), /^操作未完成或已中断/, message);
+  }
+});
+
+test('#58: a submission the platform closed as "bundle missing" shows "未收到评测包，需重新提交"; platform evidence of receipt drops "评测包未上传"', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  for (const [name, receipt, expected] of [
+    ['closed by the platform after the plugin\'s failed upload', uploadFailed(63116, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true }),
+      view('提交未完成', '未收到评测包，需重新提交', 'error', '—', undefined)],
+    ['the platform evaluates it after a re-upload elsewhere', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } }),
+      view('评测中', '评测中', 'warning', '—', undefined)],
+    ['the Worker received it', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-11-05T06:50:00+00:00' } }),
+      view('评测中', '排队中', 'warning', '—', undefined)],
+    ['still awaiting receipt', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }),
+      view('提交未完成', '评测包未上传', 'error', '—', undefined)],
+  ]) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected, name);
+  }
+  const english = await localizedFixture(t);
+  assert.equal(taskViews(english, { task, prepared: null, receipt: uploadFailed(63116, { scoringState: { state: 'failed' }, bundleNotReceived: true }) }, english.en).summary,
+    'Submission #63116 · Bundle not received, submit again · Submission incomplete · —');
+});
+
+test('#58: the drawer offers no re-upload into a submission the platform closed as "bundle missing", only a check for a new one', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const args = { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: 63116 };
+  const closedState = { args, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true };
+  for (const [name, receipt, closed] of [['open', uploadFailed(63116, { args }), false], ['closed', uploadFailed(63116, closedState), true]]) {
+    const f = await clientFixture(t);
+    const calls = [];
+    const workflow = taskDrawer(f, () => ({ task, prepared: null, receipt }), async (...input) => { calls.push(input); return { ok: true }; });
+    buttonLabeled(f, workflow(), '准备提交 / 检查材料').props.onClick();
+    const tree = workflow();
+    const retry = buttonLabeled(f, tree, '检查后重传原提交 #63116');
+    const note = f.find(tree, (node) => node.props?.className === 'pg-note pg-closed-note');
+    if (closed) {
+      assert.equal(retry, undefined, name);
+      assert.equal(text(note), '平台已关闭提交 #63116（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。', name);
+    } else {
+      assert.equal(note, undefined, name);
+      await retry.props.onClick();
+      assert.equal(calls.at(-1)[1].attempt_id, 63116, name);
+    }
+    // The check for a new submission stays and sends no attempt_id.
+    await buttonLabeled(f, tree, '检查并生成确认卡').props.onClick();
+    assert.equal(calls.at(-1)[1].action, 'check', name);
+    assert.equal('attempt_id' in calls.at(-1)[1], false, name);
+  }
+});
+
+test('#58: the history row of the task\'s submission the platform closed agrees with the task row; a submission made elsewhere shows the platform\'s failure', async (t) => {
+  const closed = confirmedReceipt(63116, '2026-11-05T04:03:30.000Z', { ok: false, status: 'pending_review', bundleStatus: undefined, stage: 'upload', score: 0,
+    scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true,
+    error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' } });
+  const state = withReceipt(historyTask(), closed);
+  // `/me/attempts` items carry no closure marker: both rows arrive as plain failures.
+  const failedRow = (id, at) => ({ id, challenge_id: 'fixture', status: 'pending_review', scoring_state: 'failed', score: 0, created_at: at, updated_at: at });
+  const f = await historyFixture(t, () => attemptsPage([failedRow(63116, '2026-11-05T04:03:27Z'), failedRow(62912, '2026-11-04T10:00:00Z')]), state);
+  const rows = historyRows(f.panel);
+  assert.match(rows[0], /提交 #63116 .* · 提交未完成 · — 未收到评测包，需重新提交 本对话/);
+  assert.match(rows[1], /提交 #62912 .* · 评测未通过 · — 失败 未关联到对话/);
+  const tones = findAll(f.panel, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
+  assert.deepEqual(tones, ['error', 'error']);
+  // The task row and the drawer summary say the same for #63116.
+  const g = await localizedFixture(t);
+  const views = taskViews(g, state, g.zh);
+  assert.equal(views.summary, '提交 #63116 · 未收到评测包，需重新提交 · 提交未完成 · —');
+});
+
+test('#58: an earlier submission of the task the platform closed keeps its history label after a newer submission, with an empty store', async (t) => {
+  const closed = confirmedReceipt(63116, '2026-11-05T04:03:30.000Z', { ok: false, status: 'pending_review', bundleStatus: undefined, stage: 'upload', score: 0,
+    scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true,
+    error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' } });
+  const state = withReceipt(withReceipt(historyTask(), closed), confirmedReceipt(63200, '2026-11-05T08:00:00.000Z'));
+  assert.equal(state.receipt.attemptId, 63200);
+  assert.deepEqual(state.bundleClosedIds, [63116]);
+  const row = (id, scoring, at) => ({ id, challenge_id: 'fixture', status: scoring === 'failed' ? 'pending_review' : 'submitted', scoring_state: scoring, score: 0, created_at: at, updated_at: at });
+  const f = await historyFixture(t, () => attemptsPage([row(63200, 'queued', '2026-11-05T08:00:00Z'), row(63116, 'failed', '2026-11-05T04:03:27Z')]), state);
+  const rows = historyRows(f.panel);
+  assert.match(rows[0], /提交 #63200 .* · 评测中 · — 排队中 本对话/);
+  assert.match(rows[1], /提交 #63116 .* · 提交未完成 · — 未收到评测包，需重新提交 本对话/);
+});
+
+test('#58: the drawer hides the re-upload button once polling, through the workbench store, shows the platform closed the submission', async (t) => {
+  const args = { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: 63167 };
+  const platform = new Map([[63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }]]);
+  const h = await refreshHarness(t, [['a', uploadFailed(63167, { args })]], platform);
+  h.flush();
+  await h.settled();
+  const row = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow');
+  h.f.find(h.f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  const workflow = () => {
+    const drawer = h.f.find(h.flush(), (node) => node.type?.name === 'TaskDetailDrawer');
+    const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+    const task = h.f.render(selected.type, selected.props);
+    return h.f.render(task.type, task.props);
+  };
+  buttonLabeled(h.f, workflow(), '准备提交 / 检查材料').props.onClick();
+  assert.ok(buttonLabeled(h.f, workflow(), '检查后重传原提交 #63167'));
+  platform.set(63167, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true });
+  h.tick(twoMinutes);
+  await h.settled();
+  const tree = workflow();
+  assert.equal(buttonLabeled(h.f, tree, '检查后重传原提交 #63167'), undefined);
+  assert.equal(text(h.f.find(tree, (node) => node.props?.className === 'pg-note pg-closed-note')),
+    '平台已关闭提交 #63167（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。');
+  // Only the store holds the closure: the task's own receipt never carried the flag.
+  assert.equal(h.sessions[0].projectionValues.playgroundTask.receipt.bundleNotReceived, undefined);
+  assert.ok(buttonLabeled(h.f, tree, '检查并生成确认卡'));
+});
+
+test('#58: a submission whose upload failed is polled until the platform closes it as "bundle missing" or scores it', async (t) => {
+  const awaitingReceipt = { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } };
+  const platform = new Map([[63167, awaitingReceipt], [63200, awaitingReceipt]]);
+  const h = await refreshHarness(t, [['a', uploadFailed(63167)], ['b', uploadFailed(63200)],
+    ['c', uploadFailed(63116, { status: 'pending_review', scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true })]], platform);
+  h.flush();
+  // The marked submissions are polled; the one the platform already closed is not.
+  assert.deepEqual(h.calls.map((call) => call.id), [63167, 63200]);
+  await h.settled();
+  const badge = (id) => h.rows().find((row) => row.id === id).badge;
+  assert.deepEqual(['a', 'b', 'c'].map(badge), ['评测包未上传', '评测包未上传', '未收到评测包，需重新提交']);
+  h.tick(twoMinutes);
+  assert.deepEqual(h.calls.map((call) => call.id), [63167, 63200, 63167, 63200]);
+  await h.settled();
+  // The platform closes #63167; #63200 was re-uploaded elsewhere and gets a final score.
+  platform.set(63167, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true });
+  platform.set(63200, finalAttempt(70));
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 6);
+  await h.settled();
+  assert.deepEqual(['a', 'b'].map(badge), ['未收到评测包，需重新提交', '评分完成']);
+  // Nothing is left to wait for: polling stops.
+  assert.equal(h.document.listeners.size, 0);
+  h.tick(twoMinutes * 3);
+  assert.equal(h.calls.length, 6);
+});
+
+test('#58: the material check card warns when the bundle is the one the Worker refused', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_check_materials').Component;
+  const warning = '这个评测包与上次被拒收的完全相同（SHA-256 一致）：评测 Worker 会以同样的原因再次拒收，请先修改评测包再检查。';
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58, bundleWarning: warning } } } });
+  const line = f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-warning');
+  assert.equal(line.props.role, 'status');
+  assert.equal(text(line).replace(/\s+/g, ' '), `评测包未改动 ${warning}`);
+  const plain = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58 } } } });
+  assert.equal(f.find(plain, (node) => node.props?.className === 'pg-note pg-bundle-warning'), undefined);
+});
+
+test('#58: the material check card and the confirmation section show a compact bundle summary', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_check_materials').Component;
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: { ...SUMMARY_58, symlinkCount: 2, symlinks: ['a', 'b'] } } } } });
+  assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-summary')), `${SUMMARY_LINE_58}；符号链接 2 个`);
+  const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
+    args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
+    cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58, bundleWarning: '这个评测包与上次被拒收的完全相同（SHA-256 一致）。' };
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const Main = f.registrations.get('main').Component;
+  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
+  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
+  f.find(f.render(rowElement.type, rowElement.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = f.render(selected.type, selected.props);
+  const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
+  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-summary')), SUMMARY_LINE_58);
+  // The check's warning that this bundle is the one the Worker refused sits next to it.
+  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-warning')).replace(/\s+/g, ' '),
+    '评测包未改动 这个评测包与上次被拒收的完全相同（SHA-256 一致）。');
+});
