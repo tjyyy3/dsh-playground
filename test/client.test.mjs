@@ -3571,7 +3571,7 @@ test('#12: an email login while a DSH token is in use says, outside the collapse
   assert.match(panel.text(), /已登录.*Ada.*令牌来源：CLI 凭据文件/);
   // Other sources that outrank the CLI file get their own next step and no 清除令牌.
   for (const [auth, expected, clearable] of [
-    [{ ...refused, envToken: true }, /DSH 凭据中保存的令牌.*清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，仍不是刚登录的账号/, true],
+    [{ ...refused, envToken: true }, /DSH 凭据中保存的令牌.*清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号/, true],
     [{ ...refused, tokenSource: 'env' }, /环境变量 PLAYGROUND_TOKEN 中的令牌.*移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH/, false],
     [{ ...refused, tokenSource: 'config' }, /插件配置中的令牌.*请删除插件配置中的令牌/, false],
     [{ ...refused, tokenSource: 'dsh_other' }, /DSH 凭据存储提供的令牌（来源未确认）/, false],

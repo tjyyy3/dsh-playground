@@ -944,6 +944,49 @@ console.log(JSON.stringify({ status: 'dry_run' }));`;
   assert.ok(!call.argv.some((arg) => arg.includes('synthetic-')));
 });
 
+test('#12: a token the caller already resolved replaces the lookup for submit and the dry run', async () => {
+  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: 'synthetic-worker-token' }, async () => {
+    const command = await fakeCli(join(root, 'token preset', 'cli.mjs'), PRINT_TOKEN);
+    let lookups = 0;
+    const cli = createPlaygroundCli({ command, resolveToken: async () => { lookups += 1; return 'synthetic-later-token'; } });
+    const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
+    const submitted = await cli.submit({ ...options, token: ' synthetic-checked-token ' });
+    assert.equal(submitted.token, 'synthetic-checked-token');
+    assert.equal(submitted.worker, null);
+    assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')), 'the token is not an argument');
+    await cli.precheck({ ...options, token: 'synthetic-checked-token' });
+    assert.equal(lookups, 0, 'no second lookup');
+    // An empty resolved token means the plugin has none: the CLI keeps its own lookup.
+    const empty = await cli.submit({ ...options, token: '' });
+    assert.equal(empty.token, null);
+    assert.equal(empty.argv.includes('--token-env'), false);
+    assert.equal(lookups, 0);
+  });
+});
+
+// Windows names are case-insensitive, and a child given two spellings of one name sees whichever sorts first.
+test('#12: on Windows the child sees no case variant of the worker token and only the plugin token', { skip: process.platform !== 'win32' }, async () => {
+  const source = `const argv = process.argv.slice(2);
+const names = Object.keys(process.env).filter((name) => /^playground_(worker_)?token$/i.test(name));
+console.log(JSON.stringify({ argv, names, token: process.env.PLAYGROUND_TOKEN ?? null, worker: process.env.PLAYGROUND_WORKER_TOKEN ?? null }));`;
+  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: undefined }, async () => {
+    process.env.Playground_Worker_Token = 'synthetic-variant-worker';
+    process.env.Playground_Token = 'synthetic-variant-token';
+    try {
+      assert.ok(Object.keys(process.env).includes('Playground_Worker_Token'), 'the variant spelling is kept by the parent');
+      const command = await fakeCli(join(root, 'token case', 'cli.mjs'), source);
+      const cli = createPlaygroundCli({ command, resolveToken: async () => 'synthetic-dsh-token' });
+      const result = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' });
+      assert.equal(result.worker, null, 'no spelling of PLAYGROUND_WORKER_TOKEN reaches the child');
+      assert.equal(result.token, 'synthetic-dsh-token');
+      assert.deepEqual(result.names, ['PLAYGROUND_TOKEN'], 'one spelling of the token, none of the worker token');
+    } finally {
+      delete process.env.Playground_Worker_Token;
+      delete process.env.Playground_Token;
+    }
+  });
+});
+
 test('#12: the credentials file path is shown with ~ for the home directory', () => {
   const home = process.platform === 'win32' ? 'C:\\Users\\Someone' : '/home/someone';
   const sep = process.platform === 'win32' ? '\\' : '/';

@@ -411,8 +411,9 @@ window.__ModuleLoader__.load({
       return ['无权访问', `Playground 拒绝了当前账号的访问（HTTP 403）。请确认账号状态，或换用其他账号的令牌。${next}`];
     }
 
-    // What clearing the DSH copy leads to. DSH answers PLAYGROUND_TOKEN from its own environment when nothing
-    // is saved, before the plugin reads the CLI credentials file.
+    // What clearing the DSH copy leads to. DSH's credentials-local answers PLAYGROUND_TOKEN from its own
+    // environment when nothing is saved, before the plugin reads the CLI credentials file. A value DSH then
+    // takes from a `.env` file is not reported to the Client, so the note cannot mention it (see README).
     function clearNote(state) {
       if (state.tokenSource !== 'dsh') return '';
       if (state.envToken) return `DSH 的环境中还有 PLAYGROUND_TOKEN 变量。清除 DSH 中保存的令牌后，插件会改用该变量中的令牌（它优先于 CLI 凭据文件）；插件不会修改环境变量${state.cliFileToken ? '或 CLI 凭据文件' : ''}。`;
@@ -426,7 +427,7 @@ window.__ModuleLoader__.load({
       if (!what) return '';
       const next = state.tokenSource === 'dsh'
         ? (state.envToken
-          ? '清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，仍不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。'
+          ? '清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。'
           : '点击“清除令牌”后，插件改用刚登录的账号。')
         : state.tokenSource === 'config' ? '如需改用刚登录的账号，请删除插件配置中的令牌。'
           : state.tokenSource === 'env' ? '如需改用刚登录的账号，请移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH。'

@@ -638,3 +638,35 @@ test('getChallengeFacets reads the discipline counts and rejects a response with
     await assert.rejects(() => client.getChallengeFacets(), (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response', JSON.stringify(body));
   }
 });
+
+test('#12: a request given a token uses exactly it and skips the lookup', async () => {
+  let lookups = 0;
+  const headers = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'http://127.0.0.1:15000/api',
+    resolveToken: async () => { lookups += 1; return 'synthetic-later-token'; },
+    fetchImpl: async (url, init) => {
+      headers.push([new URL(url).pathname, init.headers.authorization ?? null]);
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/auth/me')) return jsonResponse({ id: 5, name: 'Test user' });
+      if (pathname.endsWith('/me/attempts')) return jsonResponse({ items: [], next_cursor: null });
+      if (pathname.endsWith('/bundle')) return jsonResponse({ bundleStatus: 'ready' });
+      return jsonResponse({ id: 7, challenge_id: 'challenge-a' });
+    },
+  });
+  assert.equal(await client.currentToken(), 'synthetic-later-token');
+  lookups = 0;
+  const token = 'synthetic-checked-token';
+  assert.equal((await client.getCurrentUser({ token })).user.id, 5);
+  await client.listMyAttempts({}, { token });
+  await client.createAttempt('challenge-a', { method: 'm' }, [], { token });
+  await client.uploadBundle(7, { filename: 'b.zip', data: new Blob(['zip']) }, { token });
+  assert.equal(lookups, 0, 'no request looked the token up again');
+  assert.ok(headers.every(([, value]) => value === 'Bearer synthetic-checked-token'), JSON.stringify(headers.map(([path]) => path)));
+  // An empty given token means none: an authenticated request is refused, not sent with the lookup's token.
+  assert.deepEqual(await client.getCurrentUser({ token: '' }), { authenticated: false, baseUrl: client.baseUrl, reason: 'no_token' });
+  assert.equal(lookups, 0);
+  // Without the option every request resolves as before.
+  await client.getCurrentUser();
+  assert.equal(lookups, 1);
+});

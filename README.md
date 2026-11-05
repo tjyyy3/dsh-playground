@@ -585,9 +585,10 @@ rules allow. Personal submissions and writes require authentication. The plugin
 resolves a Playground token per operation in this order:
 
 1. `token` in the row's `config` (discouraged: it is stored in the profile);
-2. the DSH credential store under the name `PLAYGROUND_TOKEN`. DSH also
-   answers this name from its own environment when nothing is stored, so an
-   inherited `PLAYGROUND_TOKEN` variable is found here, before the CLI file;
+2. the DSH credential store under the name `PLAYGROUND_TOKEN`. When nothing is
+   saved there, DSH answers this name from its own environment and then from
+   `.env` files, so an inherited `PLAYGROUND_TOKEN` variable is found here,
+   before the CLI file;
 3. the CLI credentials file (`PLAYGROUND_CREDENTIALS_PATH`, or the CLI default
    `~/.config/playground/credentials.env`);
 4. the `PLAYGROUND_TOKEN` environment variable.
@@ -610,12 +611,17 @@ credential store can complete a submission. When the plugin finds no token,
 none of this applies and the CLI uses its own credentials.
 
 The material check records who it ran for (the platform user id; when the
-platform returns no id, a short hash of the email and name). **确认目标并提交**
-refuses with `identity_changed` when the login identity differs at
-confirmation, for example after a token was saved or cleared in between, so a
-check never authorizes a submission under another account. A check made by an
-earlier plugin version recorded no identity and is refused the same way; one
-new material check fixes it.
+platform returns no id, an HMAC of the email and name under a key that is
+random per DSH process). **确认目标并提交** looks the token up once, checks
+`/api/auth/me` with it, and refuses with `identity_changed` when that identity
+differs from the check's, for example after a token was saved or cleared in
+between. The confirmed `playground submit` (or the API fallback when the CLI is
+missing) then runs with that same token, not a new lookup, so a token changed
+while the materials are re-read cannot submit under another account. The dry
+run of a material check likewise uses the token whose identity the check
+records. A check made by an earlier plugin version recorded no identity and is
+refused the same way. So is an email-and-name check made before DSH
+restarted, because the key changed. One new material check fixes either case.
 
 ### Log in with an API token
 
@@ -647,10 +653,14 @@ returns them. The Host reads `/api/auth/me` answers in camelCase or snake_case
 accepts a `{ "user": … }` wrapper, as the CLI does. These Agent fields follow
 the CLI 0.1.47 handling and still need checking against real platform answers.
 The card also shows **令牌来源**: DSH 凭据, CLI 凭据文件, 环境变量 or 插件配置.
-The Host reports only the source, never the value. DSH's `resolve()` reports
-a saved value as `file` and one from its own environment as `env`; any other
-answer is shown as **DSH 凭据（来源未确认）**, without **清除令牌**, because
-unsetting might not remove a value of unknown origin.
+The Host reports only the source, never the value. In the installed DSH
+bundle, the local credential provider (`credentials-local`) answers
+`resolve()` with a saved value first (`source: 'file'`), then with the variable
+DSH inherited (`'env'`), then with a `.env` file (`'project-env'` or
+`'user-env'`). The plugin shows `file` as DSH 凭据 and `env` as 环境变量. Any
+other answer is shown as **DSH 凭据（来源未确认）**, without **清除令牌**,
+because `unset()` removes only a saved value. This was read from the DSH
+bundle, not observed in a running DSH.
 
 **清除令牌** appears only when the token is saved in the DSH credential store.
 It only calls `remote.credentials.unset('PLAYGROUND_TOKEN')`; environment
@@ -660,6 +670,9 @@ clearing leads to. If DSH's own environment has a `PLAYGROUND_TOKEN` variable
 is saved, so the plugin uses that variable, ahead of the CLI file. Otherwise,
 if the CLI credentials file holds a token (presence only), the plugin uses the
 file's token, and the card names the file with `~` for the home directory.
+The note does not cover a `PLAYGROUND_TOKEN` in a `.env` file that DSH reads:
+after clearing, DSH answers with that value and the card shows it as
+**DSH 凭据（来源未确认）**.
 **更换令牌** replaces a saved token.
 
 A `token` in the plugin config wins over every other source, so a token saved
@@ -676,8 +689,8 @@ The auth query reports `reason` as `no_token`, `rejected` (401), `forbidden`
 `unavailable` (any other failure), so an unreachable platform is not reported
 as a bad token. When the login check answers `no_token`, `rejected` or
 `forbidden`, operations that need a login return `authentication_required`
-with that `reason`. For a refused token they, and a submission the CLI
-reports as `auth_failed`, point to the **Playground 连接状态** card, which
+with that `reason`. For a refused token or a `403` they, and a submission the
+CLI reports as `auth_failed`, point to the **Playground 连接状态** card, which
 gives the step for the token's source. An unreachable platform still fails
 those operations with `network_error`, as before.
 

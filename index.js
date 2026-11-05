@@ -345,10 +345,12 @@ export function normalizeSettings(config) {
  * `resolveToken.status()` reports where the token came from and whether the
  * CLI credentials file holds one, never the value itself.
  * Sources: `config`, `dsh` (saved in the DSH credential store), `dsh_other`,
- * `cli_file`, `env`, `none`. DSH's `resolve()` reports a saved value as `file`
- * and one it inherited from its own environment as `env`. Any other source
- * becomes `dsh_other`: the workbench then offers no 清除令牌, because unsetting
- * might not remove a value whose origin is unknown.
+ * `cli_file`, `env`, `none`. DSH's local credential provider (credentials-local,
+ * read in the installed DSH bundle) answers `resolve()` from its saved values
+ * first (`source: 'file'`), then from the variable DSH inherited (`'env'`),
+ * then from `.env` files (`'project-env'`, `'user-env'`). Any source other than
+ * `file` and `env` becomes `dsh_other`: the workbench then offers no 清除令牌,
+ * because `unset()` removes only a saved value.
  * `envToken` says whether this process inherited a PLAYGROUND_TOKEN variable,
  * which DSH answers when nothing is saved, so the workbench can say what a
  * clear leads to.
@@ -940,7 +942,9 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
       schema: SUBMIT_OUTPUT_SCHEMA,
       render: (_args, value) => renderText(formatSubmission(value)),
     },
-    async execute(args, exec, materials) {
+    // `write.token`, from a confirmation that already checked the identity, is the token both writes use.
+    async execute(args, exec, materials, write = {}) {
+      const token = typeof write?.token === 'string' ? write.token : undefined;
       let stage = 'bundle';
       let attemptId;
       try {
@@ -981,7 +985,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
             fields.manifest_json = materials?.manifest ?? await readManifest(args.manifest_path, exec, workingDirectory);
           }
           stage = 'create';
-          const createdResult = await client.createAttempt(challengeId, fields, trace.files, { signal: exec.signal });
+          const createdResult = await client.createAttempt(challengeId, fields, trace.files, { signal: exec.signal, ...(token === undefined ? {} : { token }) });
           attempt = createdResult.attempt;
           attemptId = attempt.id;
           if (attemptId === undefined) {
@@ -1009,7 +1013,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
         }
 
         stage = 'upload';
-        const uploaded = await client.uploadBundle(attemptId, bundle, { signal: exec.signal });
+        const uploaded = await client.uploadBundle(attemptId, bundle, { signal: exec.signal, ...(token === undefined ? {} : { token }) });
         const finalAttempt = uploaded.attempt ?? attempt;
         const value = {
           ok: true,
