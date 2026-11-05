@@ -259,7 +259,10 @@ If the chosen competition is missing from a later list, the selector returns to
 The catalog shows `共 N 道` for the current competition, search and filters,
 followed by `已显示 M 道` while only part of the list is loaded. **加载更多**
 reads the next 20 challenges and appends them; a challenge id already shown
-is not added again, and the button is disabled while a page loads. It is
+is not added again, and the button is unavailable while a page loads but
+keeps keyboard focus. When the last page removes the button while it has
+focus, focus moves to the first card that page added, or to the `共 N 道`
+line when the page added none that is shown. It is
 offered only while the shown list matches the controls: it is hidden after a
 failed page-1 read (the previous list stays under the new controls), while
 the search box or the 其他 field holds text that has not been read yet, and
@@ -325,7 +328,12 @@ then offers only 全部学科 and 其他. The workbench keeps the first choices 
 receives for as long as the panel is open.
 
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
-It closes with **关闭**, a click on the backdrop, or Escape. The drawer reads the
+It closes with **关闭**, a click on the backdrop, or Escape. Both drawers
+(this one and the task drawer below) move keyboard focus to their title when
+they open and keep Tab and Shift+Tab inside the drawer. Closing them, including
+through an action such as starting a task or opening the task conversation,
+returns focus to the button that opened the drawer, or to the catalog or task
+overview heading when that button is gone. The drawer reads the
 challenge once when it opens, through the session-free query
 (`{ action: 'challenge', challengeId }`, which accepts no other field), so it
 needs no conversation and writes nothing to one. Closing cancels the read, and
@@ -425,8 +433,9 @@ or schedules, the workbench says so; other refusals show a short reason.
 **N 个任务** counts only tasks that
 are not archived, and the workbench refresh does not read archived tasks'
 submissions. Below the list, **已归档 M 个** expands the archived tasks, each with
-**取消归档**. The plugin offers no delete: DSH has no interface for deleting a
-conversation. On a DSH version that does not report its archive set, nothing
+**取消归档**. After a successful **取消归档** focus moves to the restored task's
+row; after a failure it stays on the button. The plugin offers no delete: DSH
+has no interface for deleting a conversation. On a DSH version that does not report its archive set, nothing
 is treated as archived and the archive controls are hidden.
 
 Chat keeps its historical tool cards and workflow command cards. A pending

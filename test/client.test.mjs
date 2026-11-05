@@ -1887,12 +1887,14 @@ async function challengeDrawerHarness(t, { sessionId = 'source', access = true }
   const catalog = () => f.render(catalogElement.type, catalogElement.props);
   const drawerElement = () => f.find(catalog(), (node) => node.type?.name === 'ChallengeDetailDrawer');
   let current;
-  const open = () => {
+  // `attach(tree)` runs between the first render and the mount effects, where React attaches the refs.
+  const open = (attach) => {
     f.find(catalog(), buttonLabelled('查看详情')).props.onClick();
     const element = drawerElement();
     f.unmount(element.type);
     f.effects.length = 0;
-    f.render(element.type, element.props);
+    const tree = f.render(element.type, element.props);
+    attach?.(tree);
     const effects = f.effects.splice(0);
     current = { element, effects, cleanups: effects.map((effect) => effect()) };
     return current;
@@ -2162,7 +2164,9 @@ async function archiveFixture(t, { archived = ['b'], running, uiWorkspace, useWo
   const controlButton = () => findAll(control(), (n) => n.type === 'button')[0];
   const headerButton = () => f.find(tree(), (n) => n.type === 'button' && /^(返回所选任务对话|打开 DSH 对话)$/.test(text(n)));
   const selectedRows = () => rows().filter((row) => row.selected).map((row) => row.session.id);
-  return { ...f, calls, set, sessions, opened, tree, rows, count, toggle, archivedRows, announcement, openDrawer, drawer, closeDrawer, control, controlButton, headerButton, selectedRows };
+  // One render without running effects: a test attaches refs on it before `tree()` runs the effects.
+  const renderOnly = () => f.render(main.Component, props());
+  return { ...f, calls, set, sessions, opened, tree, renderOnly, rows, count, toggle, archivedRows, announcement, openDrawer, drawer, closeDrawer, control, controlButton, headerButton, selectedRows };
 }
 
 test('the task overview counts only tasks that are not archived and lists archived ones behind 已归档 M 个', async (t) => {
@@ -3061,7 +3065,7 @@ test('加载更多 appends the next 20 of the loaded query without repeating a c
   pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
   await settle();
   assert.equal(count(), '共 45 道 · 已显示 20 道');
-  assert.equal(button('加载更多').props.disabled, false);
+  assert.equal(button('加载更多').props['aria-disabled'], undefined);
   // Text typed but not applied hides 加载更多, so the old query is never paged under new controls.
   const searchBox = () => f.find(view(), (node) => node.type === 'input');
   searchBox().props.onChange({ target: { value: 'typed' } });
@@ -3070,7 +3074,9 @@ test('加载更多 appends the next 20 of the loaded query without repeating a c
   button('加载更多').props.onClick();
   assert.deepEqual(pending[1].input, { action: 'catalog', search: '', page: 2, per_page: 20 });
   const loading = f.find(view(), (node) => node.type === 'button' && text(node) === '正在加载…');
-  assert.equal(loading.props.disabled, true);
+  // aria-disabled, not disabled, so a focused button keeps focus while the page loads.
+  assert.equal(loading.props['aria-disabled'], true);
+  assert.equal(loading.props.disabled, undefined);
   loading.props.onClick();
   assert.equal(pending.length, 2, 'no second append while one is running');
   // The page overlaps the first one by five challenges: they are not shown twice.
@@ -3690,4 +3696,345 @@ test('#12: a re-check keeps the card mounted, and a stale answer never replaces 
   assert.match(text(panel.rerender()), /已登录.*Agent/);
   assert.doesNotMatch(panel.text(), /未登录|正在重新检测/);
   assert.equal(focused, 1);
+});
+
+// #55: keyboard focus. A fake document whose activeElement follows focus() on fake nodes; it extends the document a
+// harness already installed (keeping its keydown listeners) or installs one with its own.
+function focusDom(t) {
+  const listeners = new Set();
+  if (!globalThis.document) {
+    globalThis.document = { addEventListener: (type, listener) => { if (type === 'keydown') listeners.add(listener); },
+      removeEventListener: (type, listener) => { if (type === 'keydown') listeners.delete(listener); } };
+    t.after(() => { delete globalThis.document; });
+  }
+  const doc = globalThis.document;
+  const body = { name: 'body', isConnected: true };
+  Object.assign(doc, { body, activeElement: body });
+  const node = (name, extra = {}) => ({ name, isConnected: true, focus() { doc.activeElement = this; }, ...extra });
+  return { doc, body, node, listeners, active: () => doc.activeElement?.name, focus: (target) => { doc.activeElement = target; } };
+}
+// Dispatch a key to the document listeners; returns whether a listener prevented the default action.
+function press(listeners, key, { shiftKey = false } = {}) {
+  let prevented = false;
+  [...listeners].forEach((listener) => listener({ key, shiftKey, preventDefault: () => { prevented = true; } }));
+  return prevented;
+}
+// A drawer's DOM: the title and the tabbable items in document order. An item without a box (a hidden one) is skipped.
+function fakeDrawer(dom) {
+  const title = dom.node('title');
+  const items = [dom.node('first'), dom.node('middle'), dom.node('last'), dom.node('hidden', { getClientRects: () => [] })];
+  const dialog = { querySelectorAll: () => items, contains: (target) => target === title || items.includes(target) };
+  const attach = (tree) => {
+    findAll(tree, (node) => node.type === 'aside')[0].props.ref(dialog);
+    findAll(tree, (node) => node.type === 'h2' && node.props.className === 'pg-drawer-title')[0].props.ref(title);
+  };
+  return { title, items, attach };
+}
+
+test('#55: the challenge drawer moves focus to its title, keeps Tab inside and gives focus back to 查看详情', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const dom = focusDom(t);
+  const opener = dom.node('查看详情');
+  const drawer = fakeDrawer(dom);
+  dom.focus(opener);
+  h.open(drawer.attach);
+  assert.equal(dom.active(), 'title', 'opening moves focus into the drawer');
+  assert.equal(findAll(h.view(), (node) => node.props?.className === 'pg-drawer-title')[0].props.tabIndex, -1);
+  // Shift+Tab from the title and from the first item wraps to the last visible item; Tab from it wraps to the first.
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), true);
+  assert.equal(dom.active(), 'last', 'the hidden item is skipped');
+  assert.equal(press(h.listeners, 'Tab'), true);
+  assert.equal(dom.active(), 'first');
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), true);
+  assert.equal(dom.active(), 'last');
+  // Inside the drawer the browser moves focus as usual.
+  dom.focus(drawer.items[1]);
+  assert.equal(press(h.listeners, 'Tab'), false);
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false);
+  // Focus that got outside the drawer comes back in.
+  dom.focus(opener);
+  assert.equal(press(h.listeners, 'Tab'), true);
+  assert.equal(dom.active(), 'first');
+  // Other keys are left alone.
+  assert.equal(press(h.listeners, 'a'), false);
+  const closers = [
+    ['button', () => h.f.find(h.view(), (node) => node.type === 'button' && node.props['aria-label'] === '关闭赛题详情').props.onClick()],
+    ['backdrop', () => h.view().props.onMouseDown()],
+    ['escape', () => press(h.listeners, 'Escape')],
+  ];
+  for (const [label, closeIt] of closers) {
+    h.unmountDrawer();
+    dom.focus(opener);
+    h.open(drawer.attach);
+    assert.equal(dom.active(), 'title', label);
+    closeIt();
+    assert.equal(h.drawerElement(), undefined, label);
+    assert.equal(dom.active(), '查看详情', `${label} gives focus back to the button that opened the drawer`);
+    h.unmountDrawer();
+    assert.equal(dom.active(), '查看详情', `${label}: unmounting afterwards does not move focus again`);
+  }
+});
+
+test('#55: the challenge drawer falls back to the catalog heading, and starting a task gives focus back first', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const dom = focusDom(t);
+  const heading = dom.node('选择比赛或赛题');
+  const catalogHeading = h.f.find(h.catalog(), (node) => node.type === 'h2');
+  assert.equal(text(catalogHeading), '选择比赛或赛题');
+  assert.equal(catalogHeading.props.tabIndex, -1);
+  catalogHeading.props.ref(heading);
+  const drawer = fakeDrawer(dom);
+  // The opener is no longer in the page: the catalog heading takes focus.
+  const gone = dom.node('查看详情', { isConnected: false });
+  dom.focus(gone);
+  h.open(drawer.attach);
+  h.view().props.onMouseDown();
+  assert.equal(dom.active(), '选择比赛或赛题');
+  h.unmountDrawer();
+  // "开始参赛任务" gives focus back before the workspace dialog opens, so the dialog returns it there.
+  const opener = dom.node('查看详情');
+  dom.focus(opener);
+  h.open(drawer.attach);
+  await h.respond(1, challengeDetail());
+  const start = h.f.find(h.view(), (node) => node.type?.name === 'StartTaskButton');
+  h.f.render(start.type, start.props).props.onClick();
+  assert.equal(h.drawerElement(), undefined);
+  assert.equal(dom.active(), '查看详情');
+  const overlay = h.f.registrations.get('playground.task-start').definition.inject();
+  assert.deepEqual(overlay.hooks.taskRequest.getSnapshot(), { id: 'a b/c', title: '合成赛题', mode: 'participate', sessionId: 'source' });
+  h.unmountDrawer();
+  // A drawer its parent removes while focus was inside gives focus back when it unmounts.
+  dom.focus(opener);
+  h.open(drawer.attach);
+  dom.focus(dom.body);
+  h.unmountDrawer();
+  assert.equal(dom.active(), '查看详情');
+});
+
+test('#55: the task drawer moves focus in, gives it back to its row, and falls back to 任务总览 for an archived task', async (t) => {
+  const a = await archiveFixture(t);
+  const dom = focusDom(t);
+  const heading = dom.node('任务总览');
+  const overview = a.find(a.tree(), (node) => node.type === 'h2' && text(node) === '任务总览');
+  assert.equal(overview.props.tabIndex, -1);
+  overview.props.ref(heading);
+  const drawer = fakeDrawer(dom);
+  let cleanups = [];
+  // Open task `id` from its row button and mount the drawer: render, attach the refs, run the mount effects.
+  const openFrom = (id, rowButton) => {
+    cleanups.forEach((cleanup) => cleanup?.());
+    dom.focus(rowButton);
+    a.openDrawer(id);
+    const element = a.find(a.tree(), (node) => node.type?.name === 'TaskDetailDrawer');
+    a.unmount(element.type);
+    a.effects.length = 0;
+    drawer.attach(a.render(element.type, element.props));
+    cleanups = a.effects.splice(0).map((effect) => effect());
+  };
+  const headerButton = (label) => a.find(a.drawer(), (node) => node.type === 'button' && node.props['aria-label'] === label);
+  const rowA = dom.node('row a');
+  for (const [label, closeIt] of [
+    ['关闭', () => headerButton('关闭任务详情').props.onClick()],
+    ['backdrop', () => a.drawer().props.onMouseDown()],
+    ['Escape', () => press(dom.listeners, 'Escape')],
+    ['打开任务对话', () => headerButton('打开任务对话：Task a').props.onClick()],
+  ]) {
+    openFrom('a', rowA);
+    assert.equal(dom.active(), 'title', label);
+    assert.equal(press(dom.listeners, 'Tab', { shiftKey: true }), true, label);
+    assert.equal(dom.active(), 'last', `${label}: Tab stays inside the task drawer`);
+    closeIt();
+    assert.equal(a.drawer(), undefined, label);
+    assert.equal(dom.active(), 'row a', `${label} gives focus back to the task row`);
+  }
+  await settle();
+  assert.deepEqual(a.opened, ['a'], '打开任务对话 still opens the conversation');
+  // Archived from its own drawer, the task leaves the overview: its row button is gone, so focus goes to the heading.
+  openFrom('a', rowA);
+  a.controlButton().props.onClick();
+  await settle();
+  rowA.isConnected = false;
+  headerButton('关闭任务详情').props.onClick();
+  assert.equal(dom.active(), '任务总览');
+});
+
+// Archived rows with fake buttons attached; returns the row buttons by id.
+function attachArchivedButtons(a, dom) {
+  const buttons = {};
+  for (const row of a.archivedRows()) {
+    const button = findAll(row, (node) => node.type === 'button')[0];
+    const id = /取消归档：Task (\w)/.exec(button.props['aria-label'])[1];
+    buttons[id] = dom.node(`取消归档 ${id}`);
+    button.props.ref(buttons[id]);
+  }
+  return buttons;
+}
+const unarchiveButton = (a, id) => a.archivedRows().map((row) => findAll(row, (node) => node.type === 'button')[0])
+  .find((button) => button.props['aria-label'] === `取消归档：Task ${id}`);
+
+test('#55: after 取消归档 in the archived list focus moves to the restored task\'s row', async (t) => {
+  const a = await archiveFixture(t, { archived: ['b', 'c'] });
+  const dom = focusDom(t);
+  a.toggle().props.onClick();
+  const buttons = attachArchivedButtons(a, dom);
+  dom.focus(buttons.b);
+  unarchiveButton(a, 'b').props.onClick();
+  // While the change runs the pressed button is aria-disabled, not disabled, so it keeps focus; presses do nothing.
+  assert.equal(unarchiveButton(a, 'b').props['aria-disabled'], true);
+  assert.equal(unarchiveButton(a, 'b').props.disabled, undefined);
+  unarchiveButton(a, 'c').props.onClick();
+  await settle();
+  assert.deepEqual(a.calls, [['unarchive', 'b']]);
+  // DSH dropped b from its archive set: its archived row is gone and focus fell to the page.
+  buttons.b.isConnected = false;
+  dom.focus(dom.body);
+  // React attaches the restored row's ref, then runs the effects.
+  const rowB = dom.node('row b');
+  const restored = a.find(a.renderOnly(), (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === 'b');
+  a.find(a.render(restored.type, restored.props), (node) => node.props?.className === 'pg-task-row-select').props.ref(rowB);
+  a.tree();
+  assert.equal(dom.active(), 'row b');
+  assert.equal(a.announcement(), '任务已取消归档', 'the status still announces the change');
+  // The move happens once: later renders leave focus where the user puts it.
+  dom.focus(buttons.c);
+  a.tree();
+  assert.equal(dom.active(), '取消归档 c');
+});
+
+test('#55: without the restored row, focus goes to the next archived row, then the 任务总览 heading', async (t) => {
+  const a = await archiveFixture(t, { archived: ['a', 'b', 'c'] });
+  const dom = focusDom(t);
+  const heading = dom.node('任务总览');
+  a.find(a.tree(), (node) => node.type === 'h2' && text(node) === '任务总览').props.ref(heading);
+  a.toggle().props.onClick();
+  const toggle = dom.node('已归档');
+  a.toggle().props.ref(toggle);
+  const buttons = attachArchivedButtons(a, dom);
+  // No row ref is attached for the restored tasks, as if their rows were not rendered.
+  const restore = async (id) => {
+    dom.focus(buttons[id]);
+    unarchiveButton(a, id).props.onClick();
+    await settle();
+    buttons[id].isConnected = false;
+    dom.focus(dom.body);
+    a.tree();
+  };
+  await restore('a');
+  assert.equal(dom.active(), '取消归档 b', 'the archived row after it');
+  await restore('c');
+  assert.equal(dom.active(), '取消归档 b', 'the archived row before the last one');
+  // The last archived task: the toggle goes with the list (React detaches its ref), so the heading takes focus.
+  a.toggle().props.ref(null);
+  await restore('b');
+  assert.equal(a.toggle(), undefined);
+  assert.equal(dom.active(), '任务总览');
+});
+
+test('#55: a failed 取消归档 keeps focus on its button, and 撤销 in the drawer moves no focus', async (t) => {
+  const ui = { archiveSession: async () => {}, unarchiveSession: async () => { throw Error('workspace session unarchive failed: storage/failed: x'); } };
+  const a = await archiveFixture(t, { uiWorkspace: ui });
+  const dom = focusDom(t);
+  a.find(a.tree(), (node) => node.type === 'h2' && text(node) === '任务总览').props.ref(dom.node('任务总览'));
+  a.toggle().props.onClick();
+  const buttons = attachArchivedButtons(a, dom);
+  dom.focus(buttons.b);
+  unarchiveButton(a, 'b').props.onClick();
+  await settle();
+  a.tree();
+  assert.equal(dom.active(), '取消归档 b');
+  assert.ok(unarchiveButton(a, 'b'), 'the button is still there');
+  assert.equal(unarchiveButton(a, 'b').props['aria-disabled'], undefined);
+  assert.equal(a.announcement(), '取消归档未完成，请重试。');
+  // 撤销 in the drawer: the drawer's own button keeps focus, nothing moves it.
+  const restoring = await archiveFixture(t);
+  const control = dom.node('撤销');
+  restoring.find(restoring.tree(), (node) => node.type === 'h2' && text(node) === '任务总览').props.ref(dom.node('任务总览'));
+  restoring.openDrawer('a');
+  restoring.controlButton().props.onClick();
+  await settle();
+  dom.focus(control);
+  restoring.controlButton().props.onClick();
+  await settle();
+  dom.focus(dom.body);
+  restoring.tree();
+  assert.equal(dom.active(), 'body', 'no focus move after an unarchive from the drawer');
+});
+
+// Commit a catalog render as React does: attach refs on the new tree, then run the effects that run every render.
+function commitCatalog(f, view, attach) {
+  f.effects.length = 0;
+  const tree = view();
+  attach?.(tree);
+  f.effects.splice(0).filter((effect) => effect.deps === undefined).forEach((effect) => effect());
+  return tree;
+}
+const detailsButton = (tree, id) => findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === `查看详情：Title ${id}`)[0];
+
+test('#55: the last 加载更多 moves focus to the first added card, keeping it on the button while pages load', async (t) => {
+  const { f, pending, view, button } = await pagedCatalog(t);
+  const dom = focusDom(t);
+  pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
+  await settle();
+  const more = dom.node('加载更多');
+  button('加载更多').props.ref(more);
+  dom.focus(more);
+  button('加载更多').props.onClick();
+  pending[1].resolve(catalogPage(range(20, 40), { total: 45, hasMore: true }));
+  await settle();
+  commitCatalog(f, view);
+  assert.equal(dom.active(), '加载更多', 'a page that is not the last leaves focus on the button');
+  button('加载更多').props.onClick();
+  pending[2].resolve(catalogPage(range(35, 45), { total: 45, hasMore: false }));
+  await settle();
+  // The button is gone; focus fell to the page until the new cards render.
+  dom.focus(dom.body);
+  const cards = {};
+  commitCatalog(f, view, (tree) => {
+    for (const id of ['c0', 'c35', 'c40', 'c41']) { cards[id] = dom.node(id); detailsButton(tree, id).props.ref(cards[id]); }
+  });
+  assert.equal(button('加载更多'), undefined);
+  assert.equal(dom.active(), 'c40', 'the first card the last page added (c35 to c39 were already shown)');
+  // Once only.
+  dom.focus(cards.c0);
+  commitCatalog(f, view);
+  assert.equal(dom.active(), 'c0');
+});
+
+test('#55: a last 加载更多 that adds nothing shown focuses the count line, and one without focus moves nothing', async (t) => {
+  // An empty page ends the list even though it claims more.
+  for (const [label, lastPage, hasMore, openOnly] of [['empty page', [], true, false], ['only closed challenges under 只看开放', ['x1', 'x2'], false, true]]) {
+    const { f, pending, view, button } = await pagedCatalog(t);
+    const dom = focusDom(t);
+    pending[0].resolve(catalogPage(range(0, 20), { total: 22, hasMore: true }));
+    await settle();
+    if (openOnly) f.find(view(), (node) => node.type === 'input' && node.props.type === 'checkbox').props.onChange({ target: { checked: true } });
+    const more = dom.node('加载更多');
+    button('加载更多').props.ref(more);
+    dom.focus(more);
+    button('加载更多').props.onClick();
+    pending[1].resolve(catalogPage(lastPage, { total: 22, hasMore }));
+    await settle();
+    dom.focus(dom.body);
+    commitCatalog(f, view, (tree) => {
+      const count = findAll(tree, (node) => node.props?.className === 'pg-note pg-catalog-count')[0];
+      assert.equal(count.props.tabIndex, -1, label);
+      count.props.ref(dom.node('count'));
+      // 只看开放 hides the closed cards, so they render no button.
+      for (const id of lastPage) assert.equal(detailsButton(tree, id), undefined, label);
+    });
+    assert.equal(button('加载更多'), undefined, label);
+    assert.equal(dom.active(), 'count', label);
+  }
+  // Focus was elsewhere when the last page arrived: nothing moves.
+  const { f, pending, view, button } = await pagedCatalog(t);
+  const dom = focusDom(t);
+  pending[0].resolve(catalogPage(range(0, 20), { total: 25, hasMore: true }));
+  await settle();
+  button('加载更多').props.ref(dom.node('加载更多'));
+  dom.focus(dom.node('search'));
+  button('加载更多').props.onClick();
+  pending[1].resolve(catalogPage(range(20, 25), { total: 25, hasMore: false }));
+  await settle();
+  commitCatalog(f, view, (tree) => { detailsButton(tree, 'c20').props.ref(dom.node('c20')); });
+  assert.equal(dom.active(), 'search');
 });
