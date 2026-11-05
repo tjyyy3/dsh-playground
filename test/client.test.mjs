@@ -4510,3 +4510,40 @@ test('#58: the material check card and the confirmation section show a compact b
   assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-warning')).replace(/\s+/g, ' '),
     '评测包未改动 这个评测包与上次被拒收的完全相同（SHA-256 一致）。');
 });
+
+// #57: playground_submit gets its own tool card; an approved submission shows its receipt like the 确认提交 card.
+test('#57: the playground_submit card shows the receipt, a refused approval and the waiting state', async (t) => {
+  const opened = [];
+  const f = await localizedFixture(t);
+  const registration = f.registrations.get('playground_submit');
+  assert.ok(registration, 'the tool card is registered');
+  const Card = registration.Component;
+  assert.equal(f.zh('tools.playground_submit'), '确认提交（审批）');
+  assert.equal(f.en('tools.playground_submit'), 'Submit (approval)');
+  const openWorkbench = (sessionId) => opened.push(sessionId);
+  const receipt = { attemptId: 42, challengeId: 'challenge-a', scoringState: { state: 'queued', scoreIsFinal: false }, status: 'submitted' };
+  const approved = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [{ type: 'text', text: '## Submission 42 confirmed' }], meta: { playground: { ok: true, attemptId: 42, status: 'submitted',
+      scoringState: { state: 'queued', scoreIsFinal: false }, workflow: { kind: 'receipt', receipt } } } } });
+  assert.equal(text(f.find(approved, (node) => node.props?.className === 'pg-note pg-receipt')), '提交 #42 · 排队中');
+  assert.match(text(approved), /提交编号: 42/);
+  assert.equal(f.find(approved, (node) => node.props?.role === 'alert'), undefined);
+  assert.equal(f.find(approved, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'), undefined);
+  // A refused approval keeps the card: the message and a way to the workbench.
+  const message = '没有提交：审批面板中选择了拒绝（或本会话的审批策略为不询问、直接拒绝），没有写入平台。确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”。';
+  const refused = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'approval_rejected', message } } } } });
+  assert.equal(text(f.find(refused, (node) => node.props?.role === 'alert')), message);
+  assert.equal(f.find(refused, (node) => node.props?.className === 'pg-note pg-receipt'), undefined);
+  const button = f.find(refused, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
+  assert.ok(button);
+  button.props.onClick();
+  assert.deepEqual(opened, ['task-1']);
+  // A refusal that cleared the card (another login) offers no confirmation in the workbench.
+  const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });
+  assert.equal(f.find(cleared, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'), undefined);
+  // While the panel waits for the user.
+  const waiting = f.render(Card, { phase: 'start', toolName: 'playground_submit', t: f.zh, block: {} });
+  assert.match(text(waiting), /等待“允许一次”或正在提交…/);
+});

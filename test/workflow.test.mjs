@@ -468,13 +468,18 @@ test('material check is read-only; only an exact human confirmation uploads chec
   assert.equal(f.states.get('source').receipt.scoringState.scoreIsFinal, false);
 });
 
-test('D10a: the check result text and note send the user to the button and never expose the checkId', async () => {
+test('D10a/#57: the check result text and note send the user to the button; only the agent\'s check_id line names the checkId', async () => {
   const f = await fixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const checkId = checked.workflow.prepared.checkId;
   const rendered = formatSubmission(checked);
-  assert.equal(rendered.includes(checked.workflow.prepared.checkId), false);
-  assert.equal(JSON.stringify({ ...checked, workflow: undefined }).includes(checked.workflow.prepared.checkId), false);
-  for (const text of [checked.note, rendered]) {
+  // The agent's line is the last paragraph; everything before it is what the check said before #57.
+  const [shown, agentLine] = [rendered.slice(0, rendered.lastIndexOf('\n\n')), rendered.slice(rendered.lastIndexOf('\n\n') + 2)];
+  assert.equal(shown.includes(checkId), false);
+  assert.equal(agentLine, `check_id for playground_submit (call it only when the user explicitly asks you to submit; do not relay the id to the user or ask them to type anything): ${checkId}`);
+  assert.equal(JSON.stringify({ ...checked, workflow: undefined }).includes(checkId), false);
+  assert.match(checked.note, /明确要求 Agent 提交，DSH 会显示审批面板，点“允许一次”才会提交/);
+  for (const text of [checked.note, shown]) {
     assert.match(text, /确认目标并提交/);
     assert.match(text, /前往工作台确认提交/);
     assert.match(text, /无需输入任何命令/);
@@ -3980,4 +3985,297 @@ test('#58: the bundle summary reads exactly 65535 entries without ZIP64 and deco
     plain.writeUInt16LE(0, plain.readUInt32LE(plain.length - 6) + 8);
     assert.equal(summarizeZip(plain).largest[0].name, '论文.pdf');
   });
+});
+
+// #57: playground_submit asks DSH's approval service and runs confirm() only on 'allowed-once'.
+// The approval services below are fakes that record each request and answer with a fixed outcome.
+function fakeApproval(answer = 'allowed-once') {
+  const asked = [];
+  return { asked, async request(req) { asked.push(req); return typeof answer === 'function' ? answer(req) : answer; } };
+}
+// A conversation with one checked card and a fake CLI that records every real submission.
+async function approvalCase({ args = {}, setup, submit } = {}) {
+  const submits = [];
+  const f = await fixture({ submit: async (input) => {
+    submits.push(input);
+    if (submit) return submit(input);
+    return { attempt_id: input.attemptId ?? 42, attempt: { id: input.attemptId ?? 42, challenge_id: 'challenge-a', status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
+  } });
+  await setup?.(f);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', ...args }, f.exec);
+  assert.equal(checked.ok, true, checked.error?.message);
+  f.record(checked);
+  const exec = { ...f.exec, name: 'playground_submit', callId: 'call-57' };
+  return { f, exec, submits, checked, checkId: checked.workflow.prepared.checkId };
+}
+
+test('#57: only allowed-once submits; the approval names the agent, tool, call and signal of the tool call', async () => {
+  const { f, exec, submits, checkId } = await approvalCase();
+  const approval = fakeApproval('allowed-once');
+  const result = await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+  assert.equal(result.ok, true, result.error?.message);
+  assert.equal(result.attemptId, 42);
+  assert.equal(submits.length, 1);
+  assert.equal(approval.asked.length, 1);
+  const [request] = approval.asked;
+  assert.equal(request.agent, exec.agent);
+  assert.equal(request.toolName, 'playground_submit');
+  assert.equal(request.callId, 'call-57');
+  assert.equal(request.signal, exec.signal);
+  assert.equal(typeof request.reason, 'string');
+  assert.deepEqual(Object.keys(request).sort(), ['agent', 'callId', 'reason', 'signal', 'toolName']);
+  // The tool's own name is the fallback when the call carries none.
+  const again = await approvalCase();
+  const unnamed = fakeApproval();
+  await again.f.workflow.submitApproved({ check_id: again.checkId }, again.f.exec, { approval: unnamed });
+  assert.equal(unnamed.asked[0].toolName, 'playground_submit');
+  assert.equal('callId' in unnamed.asked[0], false);
+});
+
+test('#57: an approved submission\'s receipt reaches the projection exactly as a /playground-confirm result does', async () => {
+  const tool = await approvalCase();
+  const command = await approvalCase();
+  const approved = await tool.f.workflow.submitApproved({ check_id: tool.checkId }, tool.exec, { approval: fakeApproval() });
+  const confirmed = await command.f.workflow.confirm(command.checkId, command.f.exec);
+  assert.equal(approved.workflow.kind, 'receipt');
+  // The tool result travels as presentationMeta; the command as its command/done text (index.js).
+  const meta = presentationMeta({}, approved);
+  assert.deepEqual(meta.playgroundWorkflow, JSON.parse(JSON.stringify(approved.workflow)));
+  const before = tool.f.states.get('source');
+  const viaTool = workflowProjection.apply(before, { type: 'tool/result', data: { meta } });
+  const viaCommand = workflowProjection.apply(before, { type: 'command/done', data: { text: JSON.stringify({ playgroundWorkflow: approved.workflow, ...approved }) } });
+  assert.deepEqual(viaTool, viaCommand);
+  assert.equal(viaTool.prepared, null);
+  assert.equal(viaTool.receipt.attemptId, 42);
+  assert.equal(viaTool.receipt.challengeId, 'challenge-a');
+  assert.deepEqual(viaTool.attemptIds, [42]);
+  // The same receipt fields as a workbench confirmation of the same card (only the local stamp differs).
+  const strip = ({ confirmedAt, args, ...receipt }) => receipt;
+  assert.deepEqual(strip(approved.workflow.receipt), strip(confirmed.workflow.receipt));
+  assert.equal(tool.submits.length, 1);
+  assert.equal(command.submits.length, 1);
+});
+
+test('#57: rejected, cancelled, unavailable, an unknown answer, a failed ask and a missing service write nothing and keep the card', async () => {
+  const cases = [
+    ['rejected', fakeApproval('rejected'), 'approval_rejected', /拒绝/],
+    ['cancelled', fakeApproval('cancelled'), 'approval_cancelled', /审批已取消/],
+    ['unavailable', fakeApproval('unavailable'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['unknown answer', fakeApproval('allowed-always'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['prototype key', fakeApproval('toString'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['no answer', fakeApproval(() => undefined), 'approval_unavailable', /没有能应答的审批面板/],
+    ['failed ask', { asked: [], async request(req) { this.asked.push(req); throw new Error('approval.request() outside an open turn'); } }, 'approval_unavailable', /无法在这一轮对话中发起审批/],
+    ['no service', undefined, 'approval_unavailable', /当前 DSH 版本没有审批服务/],
+    ['service without request', {}, 'approval_unavailable', /当前 DSH 版本没有审批服务/],
+  ];
+  for (const [label, approval, code, message] of cases) {
+    const { f, exec, submits, checkId } = await approvalCase();
+    const result = await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+    assert.equal(result.ok, false, label);
+    assert.equal(result.error.code, code, label);
+    assert.match(result.error.message, message, label);
+    assert.match(result.error.message, /确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”/, label);
+    assert.match(result.note, /Do not call playground_submit again unless the user asks to submit again/, label);
+    assert.equal(result.workflow, undefined, label);
+    assert.equal(presentationMeta({}, result).playgroundWorkflow, undefined, label);
+    assert.equal(submits.length, 0, label);
+    assert.deepEqual(f.calls, [], label);
+    // The card stays: the projection keeps it, and the workbench confirms it afterwards.
+    f.record(result);
+    assert.equal(f.states.get('source').prepared.checkId, checkId, label);
+    const confirmed = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(confirmed.ok, true, label);
+    assert.equal(submits.length, 1, label);
+  }
+});
+
+test('#57: the approval reason states the target, platform host, identity and file hashes, without token, email or paths', async () => {
+  const token = 'synthetic-token-57';
+  const { f, exec, checked, checkId } = await approvalCase({ setup: (f) => {
+    f.client.baseUrl = 'https://user:synthetic-secret@play.example.test/api';
+    f.client.currentToken = async () => token;
+    f.client.getCurrentUser = async (options) => {
+      assert.equal(options.token, token);
+      return { authenticated: true, user: { id: 5, name: 'Test user', email: 'test@example.test' } };
+    };
+  } });
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+  const reason = approval.asked[0].reason;
+  const [bundle, trace] = ['bundle', 'trace'].map((kind) => checked.workflow.prepared.files.find((file) => file.kind === kind));
+  const traceBytes = (await readFile(join(f.cwd, 'trace.json'))).length;
+  assert.deepEqual(reason.split('\n'), [
+    'Playground 提交：新建提交。',
+    '赛题：「Synthetic challenge」（challenge-a）。',
+    '平台：play.example.test。',
+    '身份：本人 · Test user。',
+    `评测包：bundle.zip，159 字节，SHA-256 ${bundle.sha256.slice(0, 12)}…。`,
+    `轨迹：trace.json，${traceBytes} 字节，SHA-256 ${trace.sha256.slice(0, 12)}…。`,
+    '只有点“允许一次”才会提交；拒绝不会写入平台。',
+  ]);
+  assert.equal(bundle.sha256.length, 64);
+  for (const secret of [token, 'synthetic-secret', 'user:', 'test@example.test', f.cwd, bundle.sha256, '/api']) {
+    assert.equal(reason.includes(secret), false, secret);
+  }
+  assert.doesNotMatch(reason, /[A-Za-z]:[\\/]|\/tmp\/|\\/);
+  const { agent, signal, ...logged } = approval.asked[0];
+  assert.equal(JSON.stringify(logged).includes(token), false);
+});
+
+test('#57: an Agent account, a retry into an existing submission and a refused bundle are named in the reason', async () => {
+  const sha256 = createHash('sha256').update(await readFile(new URL('./fixtures/minimal.zip', import.meta.url))).digest('hex');
+  const { f, exec, checkId } = await approvalCase({ args: { attempt_id: 7 }, setup: (f) => {
+    f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Lab\nBot', userType: 'Agent', email: 'bot@example.test' } });
+    f.states.set('source', { ...f.states.get('source'), rejectedBundles: [{ challengeId: 'challenge-a', sha256 }] });
+  } });
+  const approval = fakeApproval('cancelled');
+  await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+  const lines = approval.asked[0].reason.split('\n');
+  assert.equal(lines[0], 'Playground 提交：重传原提交 #7（不新建提交）。');
+  assert.equal(lines[3], '身份：Agent 账号 · Lab Bot。');
+  assert.match(lines.find((line) => line.startsWith('注意：')), /^注意：这个评测包与上次被拒收的完全相同（SHA-256 一致）/);
+  assert.equal(approval.asked[0].reason.includes('bot@example.test'), false);
+});
+
+test('#57: a missing, stale or other card is refused before asking; so is a changed identity', async () => {
+  const { f, exec, submits, checkId } = await approvalCase();
+  for (const [args, code] of [[{}, 'invalid_argument'], [{ check_id: '  ' }, 'invalid_argument'], [{ check_id: 'other-card' }, 'confirmation_required']]) {
+    const approval = fakeApproval();
+    const result = await f.workflow.submitApproved(args, exec, { approval });
+    assert.equal(result.error.code, code, JSON.stringify(args));
+    assert.equal(approval.asked.length, 0);
+    assert.equal(result.workflow, undefined);
+  }
+  // A conversation without a card.
+  const empty = await fixture({ submit: async () => { throw new Error('must not submit'); } });
+  const none = fakeApproval();
+  assert.equal((await empty.workflow.submitApproved({ check_id: checkId }, empty.exec, { approval: none })).error.code, 'confirmation_required');
+  assert.equal(none.asked.length, 0);
+  // Another login since the check: refused like the workbench does, and the card is cleared.
+  f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Someone else' } });
+  const approval = fakeApproval();
+  const changed = await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+  assert.equal(changed.error.code, 'identity_changed');
+  assert.deepEqual(changed.workflow, { kind: 'clear' });
+  assert.equal(approval.asked.length, 0);
+  // Logged out: the login message, nothing asked.
+  f.client.getCurrentUser = async () => ({ authenticated: false, reason: 'no_token' });
+  const loggedOut = await f.workflow.submitApproved({ check_id: checkId }, exec, { approval });
+  assert.equal(loggedOut.error.code, 'authentication_required');
+  assert.equal(approval.asked.length, 0);
+  assert.equal(submits.length, 0);
+});
+
+test('#57: after allowed-once the workbench checks still apply: closed submission, changed materials, identity', async () => {
+  // The platform closes the submission while the panel is open.
+  const closed = await approvalCase({ args: { attempt_id: 7 } });
+  const closing = fakeApproval(() => {
+    closed.f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', bundleNotReceived: true });
+    return 'allowed-once';
+  });
+  const refused = await closed.f.workflow.submitApproved({ check_id: closed.checkId }, closed.exec, { approval: closing });
+  assert.equal(refused.error.code, 'attempt_closed');
+  assert.deepEqual(refused.workflow, { kind: 'clear' });
+  assert.equal(closed.submits.length, 0);
+  // The trace changes while the panel is open.
+  const changed = await approvalCase();
+  const editing = fakeApproval(async () => {
+    await writeFile(join(changed.f.cwd, 'trace.json'), JSON.stringify([{ content: 'changed' }]));
+    return 'allowed-once';
+  });
+  const stale = await changed.f.workflow.submitApproved({ check_id: changed.checkId }, changed.exec, { approval: editing });
+  assert.equal(stale.error.code, 'materials_changed');
+  assert.equal(changed.submits.length, 0);
+  // Another token is saved while the panel is open.
+  const switched = await approvalCase();
+  const saving = fakeApproval(() => {
+    switched.f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Someone else' } });
+    return 'allowed-once';
+  });
+  const other = await switched.f.workflow.submitApproved({ check_id: switched.checkId }, switched.exec, { approval: saving });
+  assert.equal(other.error.code, 'identity_changed');
+  assert.equal(switched.submits.length, 0);
+  // A new check replaced the card while the panel was open.
+  const replaced = await approvalCase();
+  const rechecking = fakeApproval(async () => {
+    replaced.f.record(await replaced.f.workflow.prepare({ challenge_id: 'challenge-a' }, replaced.f.exec));
+    return 'allowed-once';
+  });
+  const old = await replaced.f.workflow.submitApproved({ check_id: replaced.checkId }, replaced.exec, { approval: rechecking });
+  assert.equal(old.error.code, 'confirmation_required');
+  assert.equal(replaced.submits.length, 0);
+});
+
+test('#57: a workbench click and an approved playground_submit for the same card submit once', async () => {
+  // Both at once: the approval resolves while the workbench confirmation is in flight and joins it.
+  const both = await approvalCase();
+  const [approved, clicked] = await Promise.all([
+    both.f.workflow.submitApproved({ check_id: both.checkId }, both.exec, { approval: fakeApproval() }),
+    both.f.workflow.confirm(both.checkId, both.f.exec),
+  ]);
+  assert.equal(both.submits.length, 1);
+  assert.equal(approved.attemptId, 42);
+  assert.equal(clicked.attemptId, 42);
+  // The user confirms in the workbench while the panel is open; the later "允许一次" submits nothing.
+  const during = await approvalCase();
+  const waiting = fakeApproval(async () => {
+    assert.equal((await during.f.workflow.confirm(during.checkId, during.f.exec)).ok, true);
+    return 'allowed-once';
+  });
+  const late = await during.f.workflow.submitApproved({ check_id: during.checkId }, during.exec, { approval: waiting });
+  assert.equal(late.error.code, 'confirmation_required');
+  assert.equal(during.submits.length, 1);
+  // The workbench confirmation finished but its result is not logged yet: the card is refused anyway.
+  const after = await approvalCase();
+  assert.equal((await after.f.workflow.confirm(after.checkId, after.f.exec)).ok, true);
+  const unasked = fakeApproval();
+  const refused = await after.f.workflow.submitApproved({ check_id: after.checkId }, after.exec, { approval: unasked });
+  assert.equal(refused.error.code, 'confirmation_required');
+  assert.equal(unasked.asked.length, 0);
+  assert.equal((await after.f.workflow.confirm(after.checkId, after.f.exec)).error.code, 'confirmation_required');
+  assert.equal(after.submits.length, 1);
+  // A workbench confirmation is still running: the tool asks nothing and submits nothing.
+  let release;
+  const running = await approvalCase({ submit: () => new Promise((resolve) => { release = () => resolve({ attempt_id: 42, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }); }) });
+  const pending = running.f.workflow.confirm(running.checkId, running.f.exec);
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  const busy = fakeApproval();
+  const inProgress = await running.f.workflow.submitApproved({ check_id: running.checkId }, running.exec, { approval: busy });
+  assert.equal(inProgress.error.code, 'submission_in_progress');
+  assert.equal(inProgress.workflow, undefined);
+  assert.equal(busy.asked.length, 0);
+  release();
+  assert.equal((await pending).attemptId, 42);
+  assert.equal(running.submits.length, 1);
+});
+
+test('#57: two workbench confirmations started together submit once', async () => {
+  const { f, submits, checkId } = await approvalCase();
+  const results = await Promise.all([f.workflow.confirm(checkId, f.exec), f.workflow.confirm(checkId, f.exec)]);
+  assert.equal(submits.length, 1);
+  assert.deepEqual(results.map((result) => result.attemptId), [42, 42]);
+});
+
+test('#57: aborting the tool call cancels a pending approval, even when the answerer ignores the signal', async () => {
+  const { f, exec, submits, checkId } = await approvalCase();
+  const controller = new AbortController();
+  const asked = [];
+  // An answerer that never answers: only the abort ends the wait.
+  const approval = { request: (req) => { asked.push(req); return new Promise(() => {}); } };
+  const pending = f.workflow.submitApproved({ check_id: checkId }, { ...exec, signal: controller.signal }, { approval });
+  while (!asked.length) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(asked[0].signal, controller.signal);
+  controller.abort();
+  const result = await pending;
+  assert.equal(result.error.code, 'approval_cancelled');
+  assert.equal(result.workflow, undefined);
+  assert.equal(submits.length, 0);
+  // Already aborted: nothing is asked.
+  const before = fakeApproval();
+  const aborted = await f.workflow.submitApproved({ check_id: checkId }, { ...exec, signal: AbortSignal.abort() }, { approval: before });
+  assert.equal(aborted.error.code, 'approval_cancelled');
+  assert.equal(before.asked.length, 0);
+  // The card is still valid for the workbench.
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).ok, true);
+  assert.equal(submits.length, 1);
 });
