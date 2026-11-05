@@ -23,9 +23,13 @@ async function fakeCli(path, source = PRINT_ARGV) {
   return path;
 }
 
+// A value of undefined removes the variable while `run` runs; the previous values come back afterwards.
 async function withEnv(values, run) {
   const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
-  Object.assign(process.env, values);
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   try {
     return await run();
   } finally {
@@ -884,27 +888,42 @@ const PRINT_TOKEN = `const argv = process.argv.slice(2);
 if (argv[0] === '--version') { console.log('0.1.47'); process.exit(0); }
 if (argv.includes('--help')) { console.log('playground submit [--dry-run]'); process.exit(0); }
 const token = process.env.PLAYGROUND_TOKEN ?? null;
-console.log(JSON.stringify(argv.includes('--dry-run') ? { status: 'dry_run', argv, token } : { argv, token }));`;
+const worker = process.env.PLAYGROUND_WORKER_TOKEN ?? null;
+console.log(JSON.stringify(argv.includes('--dry-run') ? { status: 'dry_run', argv, token, worker } : { argv, token, worker }));`;
 
 test('#12: submit and the dry-run precheck hand the resolved token to the CLI as PLAYGROUND_TOKEN, never as an argument', async () => {
-  const command = await fakeCli(join(root, 'token env', 'cli.mjs'), PRINT_TOKEN);
-  let resolved = '  synthetic-dsh-token  ';
-  const cli = createPlaygroundCli({ command, resolveToken: async () => (resolved instanceof Error ? Promise.reject(resolved) : resolved) });
-  const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
-  const submitted = await cli.submit(options);
-  assert.equal(submitted.token, 'synthetic-dsh-token');
-  assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')));
-  // The precheck's dry run sees the same token; its result carries neither the token nor the CLI output.
-  const prechecked = await cli.precheck(options);
-  assert.deepEqual(prechecked, { status: 'dry_run', version: '0.1.47' });
-  // A token the resolver cannot give leaves the CLI's own lookup (environment, then its file) alone.
-  const ambient = process.env.PLAYGROUND_TOKEN ?? null;
-  for (const value of ['', '   ', new Error('store unavailable')]) {
-    resolved = value;
-    assert.equal((await cli.submit(options)).token, ambient, String(value));
-  }
-  // Without a resolver the CLI keeps the earlier behaviour.
-  assert.equal((await createPlaygroundCli({ command }).submit(options)).token, ambient);
+  // The developer's own PLAYGROUND_TOKEN is removed for this test, so a failing assertion can only ever
+  // print a synthetic value.
+  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: 'synthetic-worker-token' }, async () => {
+    const command = await fakeCli(join(root, 'token env', 'cli.mjs'), PRINT_TOKEN);
+    let resolved = '  synthetic-dsh-token  ';
+    const cli = createPlaygroundCli({ command, resolveToken: async () => (resolved instanceof Error ? Promise.reject(resolved) : resolved) });
+    const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
+    const submitted = await cli.submit(options);
+    assert.equal(submitted.token, 'synthetic-dsh-token');
+    assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')));
+    // The CLI is told to read both the platform and the worker token from PLAYGROUND_TOKEN, so a tokenEnv or
+    // workerTokenEnv in its own config cannot choose another; an inherited worker token is removed.
+    const flags = submitted.argv.indexOf('--token-env');
+    assert.deepEqual(submitted.argv.slice(flags, flags + 4), ['--token-env', 'PLAYGROUND_TOKEN', '--worker-token-env', 'PLAYGROUND_TOKEN']);
+    assert.equal(submitted.worker, null);
+    // The precheck's dry run sees the same token; its result carries neither the token nor the CLI output.
+    const prechecked = await cli.precheck(options);
+    assert.deepEqual(prechecked, { status: 'dry_run', version: '0.1.47' });
+    // A token the resolver cannot give leaves the CLI's own lookup (environment, then its file) alone:
+    // no flags, and the inherited worker token stays.
+    for (const value of ['', '   ', new Error('store unavailable')]) {
+      resolved = value;
+      const result = await cli.submit(options);
+      assert.equal(result.token, null, String(value));
+      assert.equal(result.argv.includes('--token-env'), false, String(value));
+      assert.equal(result.worker, 'synthetic-worker-token', String(value));
+    }
+    // Without a resolver the CLI keeps the earlier behaviour.
+    const plain = await createPlaygroundCli({ command }).submit(options);
+    assert.equal(plain.token, null);
+    assert.equal(plain.argv.includes('--token-env'), false);
+  });
 });
 
 test('#12: the dry run itself carries the resolved token', async () => {
@@ -921,6 +940,7 @@ console.log(JSON.stringify({ status: 'dry_run' }));`;
   const [call] = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
   assert.equal(call.token, 'synthetic-dsh-token');
   assert.ok(call.argv.includes('--dry-run'));
+  assert.ok(call.argv.includes('--token-env') && call.argv.includes('--worker-token-env'));
   assert.ok(!call.argv.some((arg) => arg.includes('synthetic-')));
 });
 

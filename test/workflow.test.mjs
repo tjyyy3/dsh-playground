@@ -924,7 +924,7 @@ test('D3: returned text and recorded results never contain raw CLI output, paths
 
 test('D3: CLI 0.1.43 failure texts map to plugin-written messages', async () => {
   for (const [reason, sample, expected] of [
-    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`, /认证失败.*重新登录/],
+    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`, /认证失败.*“Playground 连接状态”.*令牌来源/],
     ['submission_limit', `该题已达到 10 次提交上限；如需赛后回归或研究，请联系维护者开启赛后练习/测试通道。${CLI_TAIL}`, /提交次数已达到平台上限/],
     ['rate_limited', `服务端当前限流或提交过于频繁，请稍后再试。${CLI_TAIL}`, /限流/],
     ['too_large', `创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}`, /大小限制/],
@@ -2870,7 +2870,8 @@ test('#12: operations that need a login point to the API token login and explain
   for (const [reason, expected] of [
     ['no_token', /去网站生成令牌.*API 与 Agent.*其他登录方式/],
     [undefined, /去网站生成令牌/],
-    ['rejected', /令牌无效、已过期或已撤销.*清除令牌/],
+    // A refused token is handled by where it came from, which the workbench card knows.
+    ['rejected', /令牌无效、已过期或已撤销。请打开 Playground 工作台的“Playground 连接状态”，按其中针对令牌来源/],
     ['forbidden', /HTTP 403/],
   ]) {
     f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, ...(reason ? { reason } : {}) });
@@ -2882,5 +2883,75 @@ test('#12: operations that need a login point to the API token login and explain
       assert.doesNotMatch(result.error.message, /token/i);
     }
   }
-  assert.match(submissionFailure(Object.assign(new Error('认证失败，请先运行 playground auth login 后重试。'), { code: 'cli_error' })).message, /API 令牌/);
+  const authFailed = submissionFailure(Object.assign(new Error('认证失败，请先运行 playground auth login 后重试。'), { code: 'cli_error' })).message;
+  assert.match(authFailed, /API 令牌.*“Playground 连接状态”.*令牌来源/);
+  f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, reason: 'rejected' });
+  const refused = (await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)).error.message;
+  // Neither message assumes the token is saved in DSH: saving a new one does nothing under a config token.
+  for (const message of [authFailed, refused]) {
+    assert.doesNotMatch(message, /点击“清除令牌”|保存新的 API 令牌/);
+    assert.doesNotMatch(message, /token/i);
+  }
+});
+
+test('#12: confirmation refuses a submission under another identity than the material check', async () => {
+  const f = await fixture();
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.workflow.prepared.submitter, 'id:5');
+  f.record(checked);
+  // A token saved (or cleared) after the check now logs in as another account.
+  f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user: { id: 9, name: 'Agent account' } });
+  const changed = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(changed.ok, false);
+  assert.equal(changed.error.code, 'identity_changed');
+  assert.match(changed.error.message, /登录身份已变化.*重新检查材料/);
+  assert.deepEqual(changed.workflow, { kind: 'clear' });
+  assert.deepEqual(f.calls, [], 'nothing was created or uploaded');
+  f.record(changed);
+  assert.equal(f.states.get('source').prepared, null, 'the card is no longer valid');
+  // A new check under the current identity confirms normally.
+  const again = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(again.workflow.prepared.submitter, 'id:9');
+  f.record(again);
+  assert.equal((await f.workflow.confirm(again.workflow.prepared.checkId, f.exec)).attemptId, 7);
+});
+
+test('#12: a check recorded without an identity (an older plugin) is refused with a request to check again', async () => {
+  const f = await fixture();
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const { submitter, ...old } = checked.workflow.prepared;
+  assert.ok(submitter);
+  f.states.set('source', { ...f.states.get('source'), prepared: old });
+  const result = await f.workflow.confirm(old.checkId, f.exec);
+  assert.equal(result.error.code, 'identity_changed');
+  assert.match(result.error.message, /没有记录检查时的登录身份.*请重新检查材料后确认/);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(f.calls, []);
+});
+
+test('#12: without a platform user id the check records a hash, never the email or name', async () => {
+  const f = await fixture();
+  let user = { name: 'Ada', email: 'ada@example.test' };
+  f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.match(checked.workflow.prepared.submitter, /^sha256:[0-9a-f]{32}$/);
+  assert.doesNotMatch(JSON.stringify(checked.workflow.prepared), /ada@example|"Ada"/);
+  f.record(checked);
+  user = { name: 'Ada', email: 'other@example.test' };
+  assert.equal((await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec)).error.code, 'identity_changed');
+  user = { name: 'Ada', email: 'ada@example.test' };
+  const again = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(again);
+  assert.equal((await f.workflow.confirm(again.workflow.prepared.checkId, f.exec)).attemptId, 7);
+});
+
+test('#12: the login check reports an inherited PLAYGROUND_TOKEN variable by presence only', async () => {
+  let status = { tokenSource: 'dsh', cliFileToken: false, cliFilePath: '~/.config/playground/credentials.env', envToken: true };
+  const f = await fixture(undefined, { tokenStatus: async () => status });
+  const auth = await f.workflow.auth(f.exec);
+  assert.equal(auth.tokenSource, 'dsh');
+  assert.equal(auth.envToken, true);
+  assert.equal('cliFilePath' in auth, false);
+  status = { ...status, envToken: false };
+  assert.equal('envToken' in await f.workflow.auth(f.exec), false);
 });
