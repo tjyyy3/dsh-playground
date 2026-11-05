@@ -4098,6 +4098,10 @@ test('#57: rejected, cancelled, unavailable, an unknown answer, a failed ask and
 
 const DECLARED = { method: 'Synthetic method', model: 'synthetic-model-1', harness: 'Synthetic harness', outcome: 'partial',
   detail: 'Synthetic detail text', author_name: 'Synthetic author' };
+// An untrusted value as the reason shows it: inside ‹…›, within a first-strong isolate (U+2068 … U+2069).
+const marked = (text) => `‹\u2068${text}\u2069›`;
+// The untrusted values of a reason line, without markers and isolates.
+const markedValues = (text) => [...text.matchAll(/‹\u2068([^‹›\u2068\u2069]*)\u2069›/g)].map((match) => match[1]);
 
 test('#57: the approval reason has every decision field of the workbench card, plugin facts first, without token, email or paths', async () => {
   const token = 'synthetic-token-57';
@@ -4127,14 +4131,14 @@ test('#57: the approval reason has every decision field of the workbench card, p
     '轨迹：1 步',
     `评测包：159 字节，SHA-256 ${bundle.sha256.slice(0, 12)}…`,
     `轨迹文件：${traceBytes} 字节，SHA-256 ${trace.sha256.slice(0, 12)}…`,
-    '赛题：‹Synthetic challenge› ‹challenge-a›',
-    '账号名：‹Test user›',
-    `工作区：‹${folder}›`,
-    '文件名：评测包 ‹bundle.zip›，轨迹文件 ‹trace.json›',
-    '方案：‹Synthetic method›，模型 ‹synthetic-model-1›，Harness ‹Synthetic harness›',
-    '声明结果：‹partial›',
-    '说明：‹Synthetic detail text›',
-    '署名：‹Synthetic author›',
+    `赛题：${marked('Synthetic challenge')} ${marked('challenge-a')}`,
+    `账号名：${marked('Test user')}`,
+    `工作区：${marked(folder)}`,
+    `文件名：评测包 ${marked('bundle.zip')}，轨迹文件 ${marked('trace.json')}`,
+    `方案：${marked('Synthetic method')}，模型 ${marked('synthetic-model-1')}，Harness ${marked('Synthetic harness')}`,
+    `声明结果：${marked('partial')}`,
+    `说明：${marked('Synthetic detail text')}`,
+    `署名：${marked('Synthetic author')}`,
   ]);
   assert.deepEqual(displayReason.en.split(' ｜\n'), [
     'The agent requested this submission; if you did not ask to submit, choose Reject',
@@ -4142,18 +4146,18 @@ test('#57: the approval reason has every decision field of the workbench card, p
     'Action: new submission',
     'Platform: play.example.test',
     'Identity: your own account',
-    'CLI precheck: skipped, 未经 CLI 预检',
-    'Trace: 1 steps',
+    'CLI precheck: skipped, no CLI precheck is available',
+    'Trace: 1 step',
     `Bundle: 159 bytes, SHA-256 ${bundle.sha256.slice(0, 12)}…`,
     `Trace file: ${traceBytes} bytes, SHA-256 ${trace.sha256.slice(0, 12)}…`,
-    'Challenge: ‹Synthetic challenge› ‹challenge-a›',
-    'Account name: ‹Test user›',
-    `Workspace: ‹${folder}›`,
-    'File names: bundle ‹bundle.zip›, trace file ‹trace.json›',
-    'Method: ‹Synthetic method›, model ‹synthetic-model-1›, harness ‹Synthetic harness›',
-    'Declared outcome: ‹partial›',
-    'Detail: ‹Synthetic detail text›',
-    'Author name: ‹Synthetic author›',
+    `Challenge: ${marked('Synthetic challenge')} ${marked('challenge-a')}`,
+    `Account name: ${marked('Test user')}`,
+    `Workspace: ${marked(folder)}`,
+    `File names: bundle ${marked('bundle.zip')}, trace file ${marked('trace.json')}`,
+    `Method: ${marked('Synthetic method')}, model ${marked('synthetic-model-1')}, harness ${marked('Synthetic harness')}`,
+    `Declared outcome: ${marked('partial')}`,
+    `Detail: ${marked('Synthetic detail text')}`,
+    `Author name: ${marked('Synthetic author')}`,
   ]);
   assert.equal(displayReason.zh, reason);
   assert.equal(bundle.sha256.length, 64);
@@ -4177,14 +4181,80 @@ test('#57: the reason names a passed precheck, caps the detail at 200 characters
   const fields = approval.asked[0].reason.split(' ｜\n');
   assert.ok(fields.includes('CLI 预检：通过'));
   assert.ok(approval.asked[0].displayReason.en.split(' ｜\n').includes('CLI precheck: passed'));
-  assert.equal(fields.find((line) => line.startsWith('说明：')), `说明：‹${'d'.repeat(200)}…›`);
+  assert.equal(fields.find((line) => line.startsWith('说明：')), `说明：${marked(`${'d'.repeat(200)}…`)}`);
   // Nothing declared: the defaults the submission sends, and no declared-field lines.
   const plain = await approvalCase();
   const asked = fakeApproval('rejected');
   await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec, { approval: asked });
   const lines = asked.asked[0].reason.split(' ｜\n');
-  assert.ok(lines.includes('方案：‹DSH Playground plugin›，Harness ‹DeepSeek Harness›'));
+  assert.ok(lines.includes(`方案：${marked('DSH Playground plugin')}，Harness ${marked('DeepSeek Harness')}`));
   assert.equal(lines.some((line) => /^(声明结果|说明|署名)：/.test(line)), false);
+});
+
+test('#57: the English reason gives each skipped precheck an English note and counts trace steps as 1 step or N steps', async () => {
+  for (const [failure, en] of [
+    [Object.assign(new Error('Playground CLI was not found.'), { code: 'cli_not_found', started: false }), 'the Playground CLI was not found'],
+    [Object.assign(new Error('spawn playground ENOENT'), { code: 'ENOENT' }), 'the Playground CLI was not found'],
+    [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), 'Node.js, which the Playground CLI needs, is not on PATH'],
+    [Object.assign(new Error('spawn failed'), { code: 'EACCES', started: false }), 'the Playground CLI did not start'],
+    [Object.assign(new Error('old'), { code: 'cli_precheck_unsupported', reason: 'old_version', started: true, version: '0.1.40' }), 'the installed Playground CLI 0.1.40 is older than 0.1.43'],
+    [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), 'the installed Playground CLI version could not be read'],
+    [Object.assign(new Error('no flag'), { code: 'cli_precheck_unsupported', reason: 'no_dry_run', started: true, version: '0.1.45' }), 'the installed Playground CLI 0.1.45 has no submit --dry-run'],
+  ]) {
+    const { f } = await precheckFixture(async () => { throw failure; });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(checked.ok, true, failure.code);
+    assert.equal(checked.cliPrecheck.noteEn, en);
+    f.record(checked);
+    const approval = fakeApproval('rejected');
+    await f.workflow.submitApproved({ approval_id: checked.approvalId }, { ...f.exec, name: 'playground_submit' }, { approval });
+    const lines = approval.asked[0].displayReason.en.split(' ｜\n');
+    assert.ok(lines.includes(`CLI precheck: skipped, ${en}`), `${failure.code}: ${lines.join(' / ')}`);
+    assert.ok(lines.includes('Trace: 1 step'));
+    // Outside the untrusted values, the English panel text has no Chinese.
+    assert.doesNotMatch(approval.asked[0].displayReason.en.replace(/‹\u2068[^‹›]*\u2069›/g, ''), /\p{Script=Han}/u, failure.code);
+    // The Chinese reason keeps the Chinese note.
+    assert.ok(approval.asked[0].reason.split(' ｜\n').some((line) => line.startsWith('CLI 预检：已跳过，') && /未经 CLI 预检|Playground CLI/.test(line)));
+  }
+  // Three steps are plural; a card checked before English notes existed shows no Chinese in English.
+  const many = await approvalCase({ setup: (f) => writeFile(join(f.cwd, 'trace.json'), JSON.stringify([1, 2, 3].map((n) => ({ type: 'tool_result', content: `step ${n}` })))) });
+  const record = many.f.states.get('source');
+  const { noteEn, ...legacy } = record.prepared.cliPrecheck;
+  assert.equal(noteEn, 'no CLI precheck is available');
+  many.f.states.set('source', { ...record, prepared: { ...record.prepared, cliPrecheck: legacy } });
+  const approval = fakeApproval('rejected');
+  await many.f.workflow.submitApproved({ approval_id: many.approvalId }, many.exec, { approval });
+  const lines = approval.asked[0].displayReason.en.split(' ｜\n');
+  assert.ok(lines.includes('Trace: 3 steps'), lines.join(' / '));
+  assert.ok(lines.includes('CLI precheck: skipped'), lines.join(' / '));
+  assert.ok(approval.asked[0].reason.split(' ｜\n').includes('轨迹：3 步'));
+});
+
+test('#57: a network error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {
+  const { f, exec, submits, checkId, approvalId } = await approvalCase();
+  const online = f.client.getCurrentUser;
+  for (const code of ['network_error', 'timeout']) {
+    f.client.getCurrentUser = async () => { throw new PlaygroundApiError('could not reach 127.0.0.1: fetch failed', { code }); };
+    const approval = fakeApproval();
+    const result = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+    assert.equal(result.ok, false, code);
+    assert.equal(result.error.code, 'network_error', code);
+    assert.match(result.error.message, /^没有提交：检查登录状态时无法连接 Playground，没有写入平台。确认卡仍然有效/, code);
+    assert.match(result.note, /Do not call playground_submit again unless the user asks to submit again/);
+    assert.equal(result.workflow, undefined);
+    assert.equal(approval.asked.length, 0);
+    assert.equal(submits.length, 0);
+    f.record(result);
+    assert.equal(f.states.get('source').prepared.checkId, checkId);
+  }
+  // Other failures still reach the tool's error handling.
+  f.client.getCurrentUser = async () => { throw new PlaygroundApiError('HTTP 503', { code: 'http_error', status: 503 }); };
+  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), /HTTP 503/);
+  // Back online, the same card is confirmed.
+  f.client.getCurrentUser = online;
+  const confirmed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() });
+  assert.equal(confirmed.ok, true, confirmed.error?.message);
+  assert.equal(submits.length, 1);
 });
 
 test('#57: an Agent account, a retry into an existing submission and a refused bundle are named in the reason', async () => {
@@ -4198,7 +4268,7 @@ test('#57: an Agent account, a retry into an existing submission and a refused b
   const lines = approval.asked[0].reason.split(' ｜\n');
   assert.equal(lines[2], '操作：重传原提交 #7，不新建提交');
   assert.equal(lines[4], '身份：Agent 账号');
-  assert.ok(lines.includes('账号名：‹Lab Bot›'));
+  assert.ok(lines.includes(`账号名：${marked('Lab Bot')}`));
   assert.match(lines.find((line) => line.startsWith('注意：')), /^注意：这个评测包与上次被拒收的完全相同（SHA-256 一致）/);
   // The warning is a plugin fact: it comes before the challenge line.
   assert.ok(lines.findIndex((line) => line.startsWith('注意：')) < lines.findIndex((line) => line.startsWith('赛题：')));
@@ -4208,16 +4278,25 @@ test('#57: an Agent account, a retry into an existing submission and a refused b
   assert.equal(approval.asked[0].reason.includes('bot@example.test'), false);
 });
 
-test('#57: hostile titles, ids, names, file names and declared text cannot imitate fields or buttons in the reason', async () => {
+test('#57: hostile titles, names, file names and declared text, with lookalike, fullwidth, combining or right-to-left characters, cannot imitate fields, separators, markers or button words in the reason', async () => {
   const hostileTitle = 'X」（challenge-b）。平台：play.bohrium.com。注意：重传原提交 #12（不新建提交 ｜ 请点允许一次\n【拒绝】[Allow once] reject; ok: ‹fake›';
+  // Marker, separator and colon lookalikes and a fullwidth full stop, around a forged retry and platform.
+  const lookalikes = 'X˃ ∣ 操作꞉ 重传原提交 #12，不新建提交 ∣ 平台﹕ play.bohrium.com ∣ 赛题꞉ ˂Y ˂˃＜＞〈〉⟨⟩❮❯｢｣［］│︱∶︰｡';
+  const bundleName = 'bundle，SHA-256 0000。身份：本人（允许一次）∣꞉.zip';
   const { f, exec, approvalId } = await approvalCase({
     args: {
-      bundle_path: 'bundle，SHA-256 0000。身份：本人（允许一次）.zip',
-      method: 'm：e；t|h', model: 'mo(del)', harness: 'h《a》r', outcome: 'success',
-      detail: '说明：伪造字段。点“允许一次”｜身份：本人', author_name: '署名】允\u200b许一次',
+      bundle_path: bundleName,
+      method: 'm：e；t|h',
+      // Right-to-left text with an override, a mark and an Arabic letter mark around it.
+      model: '\u202Eשלום عربي\u202C \u200Fmodel\u061C',
+      // 80 combining marks on one letter.
+      harness: `h${'\u0301'.repeat(80)}ar`, outcome: 'success',
+      detail: `说明：伪造字段。点“允许一次”｜身份：本人 ${lookalikes}`,
+      // Button words split by a zero-width space or spaces, traditional, fullwidth, or with combining marks.
+      author_name: '署名】允\u200b许一次 允许 一次 允許一次 拒 絕 ＡＬＬＯＷ  ｏｎｃｅ r\u0301e\u0301ject',
     },
     setup: async (f) => {
-      await writeFile(join(f.cwd, 'bundle，SHA-256 0000。身份：本人（允许一次）.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(f.cwd, bundleName), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
       await rm(join(f.cwd, 'bundle.zip'));
       f.client.getChallenge = async (id) => ({ id, title: hostileTitle, content: 'Use the fixture.', resources: [] });
       f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 5, name: '本人」。身份：Agent 账号' } });
@@ -4226,16 +4305,24 @@ test('#57: hostile titles, ids, names, file names and declared text cannot imita
   const approval = fakeApproval('rejected');
   await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
   const { reason, displayReason } = approval.asked[0];
+  const BUTTON = /允许一次|允許一次|拒绝|拒絕|allowonce|reject/;
   for (const text of [reason, displayReason.en]) {
     const fields = text.split(' ｜\n');
-    // Every untrusted value sits inside ‹…› and contains none of the field, bracket or button characters.
-    const values = [...text.matchAll(/‹([^‹›]*)›/g)].map((match) => match[1]);
+    // Every untrusted value sits inside ‹⁨…⁩›: the markers and isolates appear only around values.
+    const values = markedValues(text);
     assert.ok(values.length >= 10, `${values.length} values`);
+    for (const mark of ['‹', '›', '\u2068', '\u2069']) assert.equal(text.split(mark).length - 1, values.length, mark);
     for (const value of values) {
-      assert.doesNotMatch(value, /[「」『』（）()【】[\]《》<>‹›«»。：:；;｜|\n]|允许一次|拒绝|allow\s*once|reject/i, value);
+      // No bracket, quotation mark, math or modifier symbol, field punctuation, separator or colon lookalike,
+      // no control or format character (bidi controls included) and no newline.
+      assert.doesNotMatch(value, /[\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Sm}\p{Sk}\p{Cc}\p{Cf}「」『』（）()【】[\]《》<>‹›«»。｡：:；;｜|∣│︱꞉∶︰﹕\n]/u, value);
+      // No button word, even ignoring whitespace, combining marks and case.
+      assert.doesNotMatch(value.normalize('NFD').replace(/[\s\p{M}]/gu, '').toLowerCase(), BUTTON, value);
+      // At most 2 combining marks on any character.
+      assert.doesNotMatch(value.normalize('NFD'), /\p{M}{3}/u, value);
     }
     // Outside the markers only plugin-written text remains: fields are exactly the plugin's labels.
-    const outside = text.replace(/‹[^‹›]*›/g, '‹›');
+    const outside = text.replace(/‹\u2068[^‹›]*\u2069›/g, '‹›');
     assert.equal(outside.includes('play.bohrium.com'), false);
     assert.equal(outside.includes('#12'), false);
     // No value adds a line: the only newlines are the plugin's field separators.
@@ -4245,15 +4332,24 @@ test('#57: hostile titles, ids, names, file names and declared text cannot imita
   assert.equal(fields[0], 'Agent 请求提交；如果你没有要求提交，请点拒绝');
   assert.equal(fields[2], '操作：新建提交');
   assert.equal(fields[4], '身份：本人');
-  assert.equal(fields.filter((line) => line.startsWith('身份：')).length, 1);
-  assert.equal(fields.filter((line) => line.startsWith('平台：')).length, 1);
-  assert.equal(fields.find((line) => line.startsWith('赛题：')), '赛题：‹X challenge-b 平台 play.bohrium.com 注意 重传原提交 #12 不新建提交 请点… … … … ok fake› ‹challenge-a›');
-  assert.equal(fields.find((line) => line.startsWith('账号名：')), '账号名：‹本人 身份 Agent 账号›');
-  assert.equal(fields.find((line) => line.startsWith('文件名：')), '文件名：评测包 ‹bundle，SHA-256 0000 身份 本人 … .zip›，轨迹文件 ‹trace.json›');
-  assert.equal(fields.find((line) => line.startsWith('方案：')), '方案：‹m e t h›，模型 ‹mo del›，Harness ‹h a r›');
-  assert.equal(fields.find((line) => line.startsWith('说明：')), '说明：‹说明 伪造字段 点“…” 身份 本人›');
-  // A zero-width space cannot split a button word.
-  assert.equal(fields.find((line) => line.startsWith('署名：')), '署名：‹署名 …›');
+  for (const label of ['操作：', '平台：', '身份：', '赛题：']) assert.equal(fields.filter((line) => line.startsWith(label)).length, 1, label);
+  assert.equal(fields.find((line) => line.startsWith('赛题：')),
+    `赛题：${marked('X challenge-b 平台 play.bohrium.com 注意 重传原提交 #12 不新建提交 请点… … … … ok fake')} ${marked('challenge-a')}`);
+  assert.equal(fields.find((line) => line.startsWith('账号名：')), `账号名：${marked('本人 身份 Agent 账号')}`);
+  // NFKC folds the fullwidth comma.
+  assert.equal(fields.find((line) => line.startsWith('文件名：')), `文件名：评测包 ${marked('bundle,SHA-256 0000 身份 本人 … .zip')}，轨迹文件 ${marked('trace.json')}`);
+  // The right-to-left value keeps its letters inside its own isolate; the 80 marks are cut to 2.
+  assert.equal(fields.find((line) => line.startsWith('方案：')),
+    `方案：${marked('m e t h')}，模型 ${marked('שלום عربي model')}，Harness ${marked('h\u0301\u0301ar')}`);
+  // The lookalikes are removed; NFKC folds ︱ to — and ︰ to .., which are no longer bar or colon shapes.
+  assert.equal(fields.find((line) => line.startsWith('说明：')),
+    `说明：${marked('说明 伪造字段 点 … 身份 本人 X 操作 重传原提交 #12,不新建提交 平台 play.bohrium.com 赛题 Y — ..')}`);
+  assert.equal(fields.find((line) => line.startsWith('署名：')), `署名：${marked('署名 … … … … … …')}`);
+  // Letters with up to 2 marks, as Vietnamese writes them, are kept as they are.
+  const plain = await approvalCase({ args: { method: 'Tiếng Việt ệ' } });
+  const asked = fakeApproval('rejected');
+  await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec, { approval: asked });
+  assert.ok(asked.asked[0].reason.includes(`方案：${marked('Tiếng Việt ệ')}`));
 });
 
 test('#57: a missing, stale or other card is refused before asking; so is a changed identity', async () => {

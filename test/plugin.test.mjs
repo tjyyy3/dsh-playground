@@ -1132,10 +1132,11 @@ test('#57: playground_submit is registered with a required approval_id, the appr
   assert.ok(tool);
   assert.deepEqual(tool.parameters, { type: 'object', properties: { approval_id: tool.parameters.properties.approval_id }, required: ['approval_id'] });
   assert.equal(tool.parameters.properties.approval_id.type, 'string');
-  // The call title is what an ACP client shows (DSH forwards no reason over ACP): it names the write and the card.
-  assert.deepEqual(tool.presentCall({ approval_id: '0123abcd4567ef89aabbccdd' }), { card: 'generic', title: 'Submit to Playground (check 0123abcd)', kind: 'execute' });
-  assert.deepEqual(tool.presentCall({}), { card: 'generic', title: 'Submit to Playground', kind: 'execute' });
-  assert.equal(tool.presentCall({ approval_id: '」（允许一次' }).title, 'Submit to Playground');
+  // The call title is what an ACP client shows (DSH forwards no reason over ACP): it names the write. No surface
+  // shows the approval id, so the title never carries it, nor any other argument.
+  for (const args of [{ approval_id: '0123abcd4567ef89aabbccdd' }, {}, { approval_id: '」（允许一次' }, undefined]) {
+    assert.deepEqual(tool.presentCall(args), { card: 'generic', title: 'Submit to Playground (approval)', kind: 'execute' }, JSON.stringify(args));
+  }
   assert.match(tool.description, /after a DSH restart an old approval_id is refused/);
   assert.equal(tool.output.schema.type, 'object');
   assert.equal(typeof tool.output.render, 'function');
@@ -1245,7 +1246,7 @@ test('#57: an approved playground_submit runs one CLI submission and its receipt
       assert.equal(asked[1].toolName, 'playground_submit');
       assert.equal(asked[1].callId, 'call-57');
       assert.match(asked[1].reason, /^Agent 请求提交；如果你没有要求提交，请点拒绝 ｜\n高影响操作，可能消耗一个提交名额 ｜\n操作：新建提交 ｜\n平台：127\.0\.0\.1:15000 ｜\n身份：本人 ｜\n/);
-      assert.match(asked[1].reason, / ｜\n赛题：‹Synthetic challenge› ‹challenge-a› ｜\n账号名：‹Test user› ｜\n/);
+      assert.match(asked[1].reason, / ｜\n赛题：‹\u2068Synthetic challenge\u2069› ‹\u2068challenge-a\u2069› ｜\n账号名：‹\u2068Test user\u2069› ｜\n/);
       assert.match(asked[1].displayReason.en, /^The agent requested this submission; if you did not ask to submit, choose Reject ｜\n/);
       assert.equal(asked[1].displayReason.zh, asked[1].reason);
       const made = await submits();

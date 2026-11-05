@@ -871,7 +871,8 @@ material check's text (the `approval_id for playground_submit` line) or as
    `submission_in_progress`), without asking;
 2. checks the login and refuses a changed identity (`identity_changed`, the
    card is cleared) or a missing login (`authentication_required`, the card
-   stays), as the workbench does;
+   stays), as the workbench does; a platform it cannot reach for this check
+   returns `network_error` without asking, and the card stays;
 3. asks DSH's approval service (`approval.request`) with a plugin-written
    `reason` (Chinese, kept in the session's `approval/asked` event) and a
    `displayReason` with `zh` and `en` text, which the panel shows in the UI
@@ -885,10 +886,17 @@ material check's text (the `approval_id for playground_submit` line) or as
    agent and file system text follows these facts: the challenge title and
    id, the account name, the workspace folder name, the file names, method,
    model and harness, and for a new submission the declared outcome, detail
-   (up to 200 characters) and author name. Each such value is shown inside
-   ‹…›, on one line, without brackets, field punctuation (。：:；;), the
-   separator or the words 允许一次, 拒绝, Allow once and Reject. The reason
-   contains no directories, no email and no token;
+   (up to 200 characters) and author name. Each such value is folded with
+   Unicode NFKC (so fullwidth forms become the characters they imitate) and
+   shown inside ‹…› on one line, wrapped in a directional isolate so
+   right-to-left text cannot move the markers. It loses control and format
+   characters, combining marks beyond two per character, every bracket and
+   quotation mark, math and modifier symbols (arrowheads, bars, ratio and
+   modifier colons), field punctuation (。：:；;), the separator and its
+   lookalikes (such as │ and ∣), and colon lookalikes (such as ꞉ and ﹕). The
+   button words 允许一次, 允許一次, 拒绝, 拒絕, Allow once and Reject are replaced
+   in any letter case and even with spaces or combining marks between their
+   letters. The reason contains no directories, no email and no token;
 4. submits only when the answer is `allowed-once` (**允许一次**, or Enter in
    the panel). It then runs exactly the workbench confirmation: the same
    identity check, re-hashed materials, closed-submission refusal, CLI
@@ -914,8 +922,7 @@ confirmation of a different card while one is running is refused with
 **Sessions driven over ACP.** When an ACP client owns the DSH session, DSH
 answers `approval.request` itself by sending the ACP client a
 `session/request_permission` request with only the tool call (title
-"Submit to Playground (check <first 8 digits of the approval_id>)") and the
-allow-once / reject options. The reason above is not forwarded, and the ACP
+"Submit to Playground (approval)") and the allow-once / reject options. The reason above is not forwarded, and the ACP
 client's permission policy decides: whatever it answers counts as the
 confirmation. The plugin cannot tell that a session is ACP-owned. Do not
 configure your ACP client to auto-approve `playground_submit`; review the

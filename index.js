@@ -221,7 +221,7 @@ const SUBMIT_OUTPUT_SCHEMA = {
     title: { type: 'string' },
     traceCount: { type: 'integer' },
     approvalId: { type: 'string' },
-    cliPrecheck: { type: 'object', properties: { status: { type: 'string' }, note: { type: 'string' } } },
+    cliPrecheck: { type: 'object', properties: { status: { type: 'string' }, note: { type: 'string' }, noteEn: { type: 'string' } } },
     cliUpdate: { type: 'object', properties: { current: { type: 'string' }, latest: { type: 'string' }, warning: { type: 'string' } } },
     bundleSummary: { type: 'object', additionalProperties: true },
     bundleWarning: { type: 'string' },
@@ -1215,11 +1215,8 @@ export function apply(ctx, config) {
       output: { schema: SUBMIT_OUTPUT_SCHEMA, render: (_args, value) => renderText(formatApprovedSubmission(value)), presentationMeta },
       execute: (args, exec) => workflow.submitApproved(args, exec, { approval: approvalService() }).then(toToolValue).catch(errorValue),
       // Over ACP, DSH forwards only the tool call to the client's permission request, so this title is
-      // what an ACP client shows: it names the write and the card's short approval id.
-      presentCall: (args) => {
-        const short = typeof args?.approval_id === 'string' ? /^[0-9a-f]{1,8}/i.exec(args.approval_id.trim())?.[0] : undefined;
-        return { card: 'generic', title: short ? `Submit to Playground (check ${short})` : 'Submit to Playground', kind: 'execute' };
-      } });
+      // what an ACP client shows: it names the write. No surface shows the approval id, so it is not named.
+      presentCall: () => ({ card: 'generic', title: 'Submit to Playground (approval)', kind: 'execute' }) });
     scope.tools.register({ name: 'playground_task', description: 'Read this Playground task context, switch participate/author working mode, or refresh its latest submission result. Mode is not an account role. No authority to confirm submissions.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results'] }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['action'] }, output,
       execute: async (args, exec) => {

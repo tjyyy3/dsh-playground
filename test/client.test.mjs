@@ -4546,6 +4546,15 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   assert.ok(loginButton);
   loginButton.props.onClick();
   assert.deepEqual(opened, ['task-1', 'task-1']);
+  // So does a platform the login check could not reach.
+  const offlineMessage = '没有提交：检查登录状态时无法连接 Playground，没有写入平台。确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”。';
+  const offline = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'network_error', message: offlineMessage } } } } });
+  assert.equal(text(f.find(offline, (node) => node.props?.role === 'alert')), offlineMessage);
+  const offlineButton = f.find(offline, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
+  assert.ok(offlineButton);
+  offlineButton.props.onClick();
+  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1']);
   // A refusal that cleared the card (another login) offers no confirmation in the workbench.
   const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
     block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });
