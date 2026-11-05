@@ -929,3 +929,63 @@ test('#12: a confirmed submission with a token only in DSH runs the CLI submit w
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('#12: a token saved in DSH while the confirmation re-reads the materials does not change who submits', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-token-switch-')));
+  const originalFetch = globalThis.fetch;
+  try {
+    await withoutAmbientToken(async () => {
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+      const credentialsPath = join(directory, 'missing-credentials.env');
+      const log = join(directory, 'calls.log');
+      const cliPath = join(directory, 'fake-cli.mjs');
+      await writeFile(cliPath, `#!/usr/bin/env node\n${TOKEN_CLI(log)}\n`);
+      await chmod(cliPath, 0o755);
+      let stored = 'synthetic-token-a';
+      let confirming = false;
+      const identities = [];
+      const users = { 'Bearer synthetic-token-a': { id: 5, name: 'Account A' }, 'Bearer synthetic-token-b': { id: 9, name: 'Account B' } };
+      const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+      globalThis.fetch = async (url, init) => {
+        const { pathname } = new URL(url);
+        const authorization = init?.headers?.authorization;
+        if (pathname.endsWith('/auth/me')) {
+          identities.push(authorization);
+          return users[authorization] ? json(users[authorization]) : new Response('{}', { status: 401 });
+        }
+        if (pathname.endsWith('/challenges/challenge-a')) {
+          // The confirmation re-reads the challenge inside inspect(): the user saves another token now.
+          if (confirming) stored = 'synthetic-token-b';
+          return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+        }
+        return new Response('not found', { status: 404 });
+      };
+      const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: stored, source: 'file' } : undefined) };
+      const state = workflowProjection.init();
+      const { tools, exec, commands } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
+      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      const tool = tools.find((item) => item.name === 'playground_check_materials');
+      const args = { challenge_id: 'challenge-a' };
+      const checked = await tool.execute(args, exec);
+      assert.equal(checked.ok, true);
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta: tool.output.presentationMeta(args, checked) } }));
+      assert.equal(state.prepared.submitter, 'id:5');
+      identities.length = 0;
+      confirming = true;
+      const confirm = commands.find((item) => item.name === 'playground-confirm');
+      const done = await confirm.handler({ rawInput: state.prepared.checkId, agent: exec.agent, signal: new AbortController().signal });
+      assert.equal(done.kind, 'success', done.text);
+      assert.equal(stored, 'synthetic-token-b', 'the stored token changed during the confirmation');
+      assert.deepEqual(identities, ['Bearer synthetic-token-a'], 'the identity check used the token looked up at the start');
+      const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+      const submitted = calls.filter((call) => call.argv[0] === 'submit' && !call.argv.includes('--dry-run') && !call.argv.includes('--help'));
+      assert.equal(submitted.length, 1);
+      assert.equal(submitted[0].token, 'synthetic-token-a', 'the CLI submitted under the checked identity');
+      assert.doesNotMatch(done.text, /synthetic-token/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
