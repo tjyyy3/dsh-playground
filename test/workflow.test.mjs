@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
+import { createHash } from 'node:crypto';
 import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
@@ -15,7 +16,7 @@ import { CHALLENGE_CONTENT_MAX, createWorkflow, disciplineFacets, submissionFail
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function fixture(cli) {
+async function fixture(cli, options = {}) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'playground-workflow-')));
   directories.push(cwd);
   // A real ZIP fixture, not a renamed text file.
@@ -68,7 +69,7 @@ async function fixture(cli) {
     async uploadBundle(id) { calls.push(['upload', id]); return { bundleStatus: 'ready', attempt: { id, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, violations: [] }; },
     async getAttempt(id) { return { id, challengeId: 'challenge-a', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }; },
   };
-  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta, ...options });
   return { cwd, workflow, states, exec, calls, record, client, ctx };
 }
 
@@ -924,7 +925,7 @@ test('D3: returned text and recorded results never contain raw CLI output, paths
 
 test('D3: CLI 0.1.43 failure texts map to plugin-written messages', async () => {
   for (const [reason, sample, expected] of [
-    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`, /认证失败.*重新登录/],
+    ['auth_failed', `认证失败，请先运行 playground auth login 后重试。${CLI_TAIL}`, /认证失败.*“Playground 连接状态”.*令牌来源/],
     ['submission_limit', `该题已达到 10 次提交上限；如需赛后回归或研究，请联系维护者开启赛后练习/测试通道。${CLI_TAIL}`, /提交次数已达到平台上限/],
     ['rate_limited', `服务端当前限流或提交过于频繁，请稍后再试。${CLI_TAIL}`, /限流/],
     ['too_large', `创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}`, /大小限制/],
@@ -2832,4 +2833,217 @@ test('#25: a workspace lookup that fails for another reason than a missing direc
   f.record(result);
   assert.equal(f.states.get('source').task, null);
   assert.equal(reads, 0);
+});
+
+test('#12: the login check tells no token, a refused token and an unreachable platform apart, and reports the token source', async () => {
+  let identity;
+  let status = { tokenSource: 'dsh', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' };
+  const f = await fixture(undefined, { tokenStatus: async () => status });
+  f.client.getCurrentUser = async () => { if (identity instanceof Error) throw identity; return identity; };
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'rejected' };
+  assert.deepEqual(await f.workflow.auth(f.exec), { ...identity, tokenSource: 'dsh', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' });
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'forbidden' };
+  assert.equal((await f.workflow.auth(f.exec)).reason, 'forbidden');
+  status = { tokenSource: 'none', cliFileToken: false, cliFilePath: '~/.config/playground/credentials.env' };
+  identity = { authenticated: false, baseUrl: f.client.baseUrl, reason: 'no_token' };
+  // The file path is only reported while the file holds a token.
+  assert.deepEqual(await f.workflow.auth(f.exec), { ...identity, tokenSource: 'none' });
+  for (const [error, reason] of [
+    [new PlaygroundApiError('could not reach 127.0.0.1: fetch failed', { code: 'network_error' }), 'network'],
+    [new PlaygroundApiError('request timed out after 20000 ms', { code: 'timeout' }), 'network'],
+    [new PlaygroundApiError('HTTP 503', { code: 'http_error', status: 503 }), 'unavailable'],
+  ]) {
+    identity = error;
+    const result = await f.workflow.auth(f.exec);
+    assert.deepEqual(result, { authenticated: false, baseUrl: f.client.baseUrl, reason, tokenSource: 'none' }, reason);
+    assert.doesNotMatch(JSON.stringify(result), /fetch failed|HTTP 503|timed out/);
+  }
+  // A cancelled check still rejects; there is nobody to show it to.
+  identity = new PlaygroundApiError('request was cancelled', { code: 'cancelled' });
+  await assert.rejects(() => f.workflow.auth(f.exec), { code: 'cancelled' });
+  // A broken status source never breaks the login check.
+  const broken = await fixture(undefined, { tokenStatus: async () => { throw new Error('unreadable'); } });
+  assert.equal((await broken.workflow.auth(broken.exec)).authenticated, true);
+});
+
+test('#12: operations that need a login point to the API token login and explain a refused token', async () => {
+  const f = await fixture();
+  for (const [reason, expected] of [
+    ['no_token', /去网站生成令牌.*API 与 Agent.*其他登录方式/],
+    [undefined, /去网站生成令牌/],
+    // A refused token is handled by where it came from, which the workbench card knows.
+    ['rejected', /令牌无效、已过期或已撤销。请打开 Playground 工作台的“Playground 连接状态”，按其中针对令牌来源/],
+    // Like `rejected`, a 403 sends the account switch to the card, which knows whether a save can take effect.
+    ['forbidden', /HTTP 403.*如需换用其他账号，请打开 Playground 工作台的“Playground 连接状态”，按其中针对令牌来源/],
+  ]) {
+    f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, ...(reason ? { reason } : {}) });
+    for (const result of [await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec), await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)]) {
+      assert.equal(result.error.code, 'authentication_required', String(reason));
+      assert.equal(result.error.reason, reason, String(reason));
+      assert.match(result.error.message, expected, String(reason));
+      // The Client hides messages that contain the English word, so the guidance must not use it.
+      assert.doesNotMatch(result.error.message, /token/i);
+    }
+  }
+  const authFailed = submissionFailure(Object.assign(new Error('认证失败，请先运行 playground auth login 后重试。'), { code: 'cli_error' })).message;
+  assert.match(authFailed, /API 令牌.*“Playground 连接状态”.*令牌来源/);
+  f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, reason: 'rejected' });
+  const refused = (await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)).error.message;
+  // Neither message assumes the token is saved in DSH: saving a new one does nothing under a config token.
+  f.client.getCurrentUser = async () => ({ authenticated: false, baseUrl: f.client.baseUrl, reason: 'forbidden' });
+  const forbidden = (await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec)).error.message;
+  for (const message of [authFailed, refused, forbidden]) {
+    assert.doesNotMatch(message, /点击“清除令牌”|保存新的 API 令牌/);
+    assert.doesNotMatch(message, /token/i);
+  }
+});
+
+test('#12: confirmation refuses a submission under another identity than the material check', async () => {
+  const f = await fixture();
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.workflow.prepared.submitter, 'id:5');
+  f.record(checked);
+  // A token saved (or cleared) after the check now logs in as another account.
+  f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user: { id: 9, name: 'Agent account' } });
+  const changed = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(changed.ok, false);
+  assert.equal(changed.error.code, 'identity_changed');
+  assert.match(changed.error.message, /登录身份已变化.*重新检查材料/);
+  assert.deepEqual(changed.workflow, { kind: 'clear' });
+  assert.deepEqual(f.calls, [], 'nothing was created or uploaded');
+  f.record(changed);
+  assert.equal(f.states.get('source').prepared, null, 'the card is no longer valid');
+  // A new check under the current identity confirms normally.
+  const again = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(again.workflow.prepared.submitter, 'id:9');
+  f.record(again);
+  assert.equal((await f.workflow.confirm(again.workflow.prepared.checkId, f.exec)).attemptId, 7);
+});
+
+test('#12: a check recorded without an identity (an older plugin) is refused with a request to check again', async () => {
+  const f = await fixture();
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const { submitter, ...old } = checked.workflow.prepared;
+  assert.ok(submitter);
+  f.states.set('source', { ...f.states.get('source'), prepared: old });
+  const result = await f.workflow.confirm(old.checkId, f.exec);
+  assert.equal(result.error.code, 'identity_changed');
+  assert.match(result.error.message, /没有记录检查时的登录身份.*请重新检查材料后确认/);
+  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(f.calls, []);
+});
+
+test('#12: without a platform user id the check records a keyed hash, never the email or name', async () => {
+  const f = await fixture();
+  let user = { name: 'Ada', email: 'ada@example.test' };
+  f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.match(checked.workflow.prepared.submitter, /^hmac:[0-9a-f]{32}$/);
+  assert.doesNotMatch(JSON.stringify(checked.workflow.prepared), /ada@example|"Ada"/);
+  // A guessed email and name cannot be confirmed by hashing them without the process key.
+  const unkeyed = createHash('sha256').update('ada@example.test\nAda').digest('hex').slice(0, 32);
+  assert.equal(checked.workflow.prepared.submitter.includes(unkeyed), false);
+  f.record(checked);
+  user = { name: 'Ada', email: 'other@example.test' };
+  assert.equal((await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec)).error.code, 'identity_changed');
+  user = { name: 'Ada', email: 'ada@example.test' };
+  const again = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(again);
+  assert.equal((await f.workflow.confirm(again.workflow.prepared.checkId, f.exec)).attemptId, 7);
+});
+
+test('#12: an email-and-name check from before a DSH restart is refused, because the fingerprint key changed', async () => {
+  const f = await fixture();
+  const user = { name: 'Ada', email: 'ada@example.test' };
+  f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  // A fresh module instance stands in for the restarted Host process: it draws a new key.
+  const restarted = await import(`../lib/workflow.js?restart=${Date.now()}`);
+  const workflow = restarted.createWorkflow({ ctx: f.ctx, client: f.client, cli: undefined,
+    submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+  const result = await workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.error.code, 'identity_changed');
+  assert.deepEqual(f.calls, [], 'nothing was created or uploaded');
+  // A check made after the restart confirms normally.
+  const again = await workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.notEqual(again.workflow.prepared.submitter, checked.workflow.prepared.submitter);
+  f.record(again);
+  assert.equal((await workflow.confirm(again.workflow.prepared.checkId, f.exec)).attemptId, 7);
+});
+
+// A client whose stored token can change at any time, like the DSH credential store: `/auth/me` answers
+// for whichever token the request carries, and readBundle switches the token while confirm() re-reads.
+async function switchingTokenFixture(cli) {
+  const users = { 'synthetic-a': { id: 5, name: 'Account A' }, 'synthetic-b': { id: 9, name: 'Account B' } };
+  const seen = { auth: [], writes: [] };
+  let stored = 'synthetic-a';
+  let switchOnRead = false;
+  const f = await fixture(cli, {
+    readBundle: async (...args) => {
+      if (switchOnRead) stored = 'synthetic-b';
+      return readBundle(...args);
+    },
+  });
+  f.client.currentToken = async () => stored;
+  f.client.getCurrentUser = async (options = {}) => {
+    const token = typeof options.token === 'string' ? options.token : stored;
+    seen.auth.push(token);
+    return { authenticated: true, baseUrl: f.client.baseUrl, user: users[token] };
+  };
+  f.client.createAttempt = async (id, fields, files, options = {}) => {
+    seen.writes.push(['create', options.token ?? stored]);
+    return { attempt: { id: 7, challengeId: id } };
+  };
+  f.client.uploadBundle = async (id, bundle, options = {}) => {
+    seen.writes.push(['upload', options.token ?? stored]);
+    return { bundleStatus: 'ready', attempt: { id, status: 'submitted' }, violations: [] };
+  };
+  return { f, seen, switchDuringInspect: () => { switchOnRead = true; } };
+}
+
+test('#12: a token changed while confirm() re-reads the materials cannot submit under another identity (CLI)', async () => {
+  const submits = [];
+  const prechecks = [];
+  const cli = {
+    precheck: async (input) => { prechecks.push(input.token); return { status: 'dry_run', version: '0.1.47' }; },
+    submit: async (input) => { submits.push(input.token); return { attempt_id: 7, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }; },
+  };
+  const { f, seen, switchDuringInspect } = await switchingTokenFixture(cli);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.workflow.prepared.submitter, 'id:5');
+  assert.deepEqual(prechecks, ['synthetic-a'], 'the dry run used the token whose identity the card records');
+  f.record(checked);
+  seen.auth.length = 0;
+  switchDuringInspect();
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 7);
+  assert.deepEqual(seen.auth, ['synthetic-a'], 'one identity check, with the token looked up at the start');
+  assert.deepEqual(submits, ['synthetic-a'], 'the CLI submitted with the token the identity check used');
+  assert.equal(await f.client.currentToken(), 'synthetic-b', 'the stored token did change during the confirmation');
+  // The next confirmation sees the new identity and is refused.
+  const next = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(next.workflow.prepared.submitter, 'id:9');
+});
+
+test('#12: a token changed while confirm() re-reads the materials cannot submit under another identity (API fallback)', async () => {
+  const cli = { submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT', started: false }); } };
+  const { f, seen, switchDuringInspect } = await switchingTokenFixture(cli);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  switchDuringInspect();
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  assert.equal(result.attemptId, 7);
+  assert.deepEqual(seen.writes, [['create', 'synthetic-a'], ['upload', 'synthetic-a']], 'both writes used the checked token');
+});
+
+test('#12: the login check reports an inherited PLAYGROUND_TOKEN variable by presence only', async () => {
+  let status = { tokenSource: 'dsh', cliFileToken: false, cliFilePath: '~/.config/playground/credentials.env', envToken: true };
+  const f = await fixture(undefined, { tokenStatus: async () => status });
+  const auth = await f.workflow.auth(f.exec);
+  assert.equal(auth.tokenSource, 'dsh');
+  assert.equal(auth.envToken, true);
+  assert.equal('cliFilePath' in auth, false);
+  status = { ...status, envToken: false };
+  assert.equal('envToken' in await f.workflow.auth(f.exec), false);
 });

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { apply, createSubmitTool, inject, name, normalizeSettings, presentationMeta } from '../index.js';
+import { apply, createSubmitTool, createTokenResolver, inject, name, normalizeSettings, presentationMeta } from '../index.js';
+import { displayCredentialsPath } from '../lib/cli.js';
 import { workflowProjection } from '../lib/workflow.js';
 
 function mount(config = {}) {
@@ -512,13 +513,14 @@ test('CLI timeouts: submission defaults to at least the login timeout and both a
 
 // `stateOf` is strict: the tools must read the projection of the calling agent's session under the
 // `playgroundTask` key, so reading another session or key fails the test.
-function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace' } = {}) {
+function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials } = {}) {
   const tools = [];
   const contexts = [];
   const session = { id: 'synthetic-session' };
+  const commands = [];
   const scope = {
     tools: { register: (tool) => tools.push(tool) },
-    commands: { register() {} },
+    commands: { register: (command) => commands.push(command) },
     sessionProjections: {
       register() {},
       stateOf(requestedSession, key) {
@@ -529,11 +531,14 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace' } = {}
     },
     workingDirectory: { get: (requestedSession) => { assert.equal(requestedSession, session); return cwd; } },
     systemPrompt: { context: (entry) => contexts.push(entry), getContextOrder: () => 0 },
-    inject: (services, callback) => { if (services.includes('systemPrompt')) callback(scope); },
+    inject: (services, callback) => { if (services.includes('systemPrompt') || services.includes('typert')) callback(scope); },
+    // The session-free workbench queries register here.
+    typert: { register() {} },
+    provide: (key, value) => { scope.provided = { ...scope.provided, [key]: value }; },
   };
-  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) }, config);
+  apply({ tools: scope.tools, get: (key) => (key === 'credentials' ? credentials : undefined), inject: (_services, callback) => callback(scope) }, config);
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
-  return { tools, contexts, scope, session, exec };
+  return { tools, contexts, scope, session, exec, commands };
 }
 
 const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
@@ -743,5 +748,244 @@ test('#45: the material-check description names the CLI precheck, the accepted t
     const text = tools.find((item) => item.name === name).description;
     assert.match(text, /creates and uploads nothing/, name);
     assert.doesNotMatch(text, /no platform request|before any platform request/, name);
+  }
+});
+
+// Token values below are synthetic; a test fails if any of them reaches a result.
+async function withoutAmbientToken(body) {
+  const previous = process.env.PLAYGROUND_TOKEN;
+  delete process.env.PLAYGROUND_TOKEN;
+  try { return await body(); } finally {
+    if (previous === undefined) delete process.env.PLAYGROUND_TOKEN;
+    else process.env.PLAYGROUND_TOKEN = previous;
+  }
+}
+
+test('#12: the token resolver reports where the token came from, never the value', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'playground-token-'));
+  const file = join(directory, 'credentials.env');
+  try {
+    await withoutAmbientToken(async () => {
+      let stored;
+      const store = { resolve: async (name) => { assert.equal(name, 'PLAYGROUND_TOKEN'); if (stored instanceof Error) throw stored; return stored; } };
+      const resolver = (config = {}) => createTokenResolver(normalizeSettings({ credentialsPath: file, ...config }), { get: (key) => (key === 'credentials' ? store : undefined) });
+      const expect = async (resolve, value, source, cliFileToken, envToken = false) => {
+        assert.equal(await resolve(), value, source);
+        const status = await resolve.status();
+        assert.deepEqual(status, { tokenSource: source, cliFileToken, cliFilePath: displayCredentialsPath(file), envToken }, source);
+        assert.doesNotMatch(JSON.stringify(status), /synthetic-/, source);
+      };
+      await expect(resolver(), '', 'none', false);
+      stored = { value: ' synthetic-dsh ', source: 'file' };
+      await expect(resolver(), 'synthetic-dsh', 'dsh', false);
+      // DSH reports a variable it inherited from its own environment as `env`.
+      stored = { value: 'synthetic-inherited', source: 'env' };
+      await expect(resolver(), 'synthetic-inherited', 'env', false);
+      await writeFile(file, "PLAYGROUND_TOKEN='synthetic-file'\n");
+      stored = { value: 'synthetic-dsh', source: 'file' };
+      await expect(resolver(), 'synthetic-dsh', 'dsh', true);
+      await expect(resolver({ token: 'synthetic-config' }), 'synthetic-config', 'config', true);
+      stored = undefined;
+      await expect(resolver(), 'synthetic-file', 'cli_file', true);
+      await writeFile(file, '');
+      stored = new Error('store unavailable');
+      process.env.PLAYGROUND_TOKEN = ' synthetic-env ';
+      await expect(resolver(), 'synthetic-env', 'env', false, true);
+      // A saved token while DSH also inherited the variable: the status says the variable exists (never
+      // its value), so the workbench can say that clearing the saved one falls back to it.
+      stored = { value: 'synthetic-dsh', source: 'file' };
+      await expect(resolver(), 'synthetic-dsh', 'dsh', false, true);
+      process.env.PLAYGROUND_TOKEN = '  ';
+      await expect(resolver(), 'synthetic-dsh', 'dsh', false, false);
+      delete process.env.PLAYGROUND_TOKEN;
+      // Only `file` is a confirmed saved value. Anything else is not offered for clearing.
+      for (const source of ['store', 'secret', undefined, 'ENV']) {
+        stored = { value: 'synthetic-unknown', source };
+        await expect(resolver(), 'synthetic-unknown', 'dsh_other', false);
+      }
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// Fake CLI for the wiring test: logs argv and the PLAYGROUND_TOKEN it received, answers the version,
+// help and update probes, and accepts every dry run.
+const TOKEN_CLI = (log) => `import { appendFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, token: process.env.PLAYGROUND_TOKEN ?? null, worker: process.env.PLAYGROUND_WORKER_TOKEN ?? null }) + '\\n');
+if (argv[0] === '--version') { console.log('0.1.47'); process.exit(0); }
+if (argv[0] === 'update-check') { console.log(JSON.stringify({ current: '0.1.47', latest: '0.1.47', update_available: false })); process.exit(0); }
+if (argv.includes('--help')) { console.log('playground submit [--dry-run]'); process.exit(0); }
+if (argv[0] === 'submit' && !argv.includes('--dry-run')) {
+  console.log(JSON.stringify({ attempt_id: 42, attempt: { id: 42, challenge_id: 'challenge-a', status: 'submitted' }, bundle_response: { bundleStatus: 'ready' } }));
+  process.exit(0);
+}
+console.log(JSON.stringify({ status: 'dry_run' }));`;
+
+test('#12: the auth query and the CLI precheck use the token stored in DSH; the CLI gets it as PLAYGROUND_TOKEN, not an argument', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-token-wiring-')));
+  const originalFetch = globalThis.fetch;
+  try {
+    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+    await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+    const credentialsPath = join(directory, 'credentials.env');
+    await writeFile(credentialsPath, 'PLAYGROUND_TOKEN=synthetic-file-token\n');
+    const log = join(directory, 'calls.log');
+    const cliPath = join(directory, 'fake-cli.mjs');
+    await writeFile(cliPath, `#!/usr/bin/env node\n${TOKEN_CLI(log)}\n`);
+    await chmod(cliPath, 0o755);
+    const authorizations = [];
+    const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+    globalThis.fetch = async (url, init) => {
+      const { pathname } = new URL(url);
+      authorizations.push(init?.headers?.authorization);
+      if (pathname.endsWith('/auth/me')) return json({ id: 5, name: 'Test user', user_type: 'human' });
+      if (pathname.endsWith('/challenges/challenge-a')) return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+      return new Response('not found', { status: 404 });
+    };
+    const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: 'synthetic-dsh-token', source: 'file' } : undefined) };
+    const { tools, exec, scope } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null },
+      { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
+    const auth = await scope.provided.playgroundQueries.query({ action: 'auth' }, new AbortController().signal);
+    assert.equal(auth.authenticated, true);
+    assert.equal(auth.tokenSource, 'dsh');
+    assert.equal(auth.cliFileToken, true);
+    assert.equal(auth.cliFilePath, displayCredentialsPath(credentialsPath));
+    const value = await tools.find((item) => item.name === 'playground_check_materials').execute({ challenge_id: 'challenge-a' }, exec);
+    assert.equal(value.ok, true);
+    assert.equal(value.cliPrecheck.status, 'passed');
+    for (const result of [auth, value]) assert.doesNotMatch(JSON.stringify(result), /synthetic-(dsh|file)-token/);
+    assert.ok(authorizations.length > 0);
+    assert.ok(authorizations.every((header) => header === 'Bearer synthetic-dsh-token'), 'the API client used the DSH token');
+    const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    const dryRun = calls.find((call) => call.argv.includes('--dry-run'));
+    assert.ok(dryRun, 'the precheck ran a dry run');
+    assert.equal(dryRun.token, 'synthetic-dsh-token');
+    assert.ok(calls.every((call) => !JSON.stringify(call.argv).includes('synthetic-')), 'no token in any CLI argument');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('#12: a confirmed submission with a token only in DSH runs the CLI submit with that token and the same identity', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-token-confirm-')));
+  const originalFetch = globalThis.fetch;
+  const previousWorker = process.env.PLAYGROUND_WORKER_TOKEN;
+  try {
+    await withoutAmbientToken(async () => {
+      // An inherited worker token must not authenticate the upload as someone else.
+      process.env.PLAYGROUND_WORKER_TOKEN = 'synthetic-worker-token';
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+      // No CLI credentials file: the token exists only in the DSH credential store.
+      const credentialsPath = join(directory, 'missing-credentials.env');
+      const log = join(directory, 'calls.log');
+      const cliPath = join(directory, 'fake-cli.mjs');
+      await writeFile(cliPath, `#!/usr/bin/env node\n${TOKEN_CLI(log)}\n`);
+      await chmod(cliPath, 0o755);
+      const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+      globalThis.fetch = async (url, init) => {
+        const { pathname } = new URL(url);
+        if (init?.headers?.authorization !== 'Bearer synthetic-dsh-token') return new Response('{}', { status: 401 });
+        if (pathname.endsWith('/auth/me')) return json({ id: 5, name: 'Test user' });
+        if (pathname.endsWith('/challenges/challenge-a')) return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+        return new Response('not found', { status: 404 });
+      };
+      const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: 'synthetic-dsh-token', source: 'file' } : undefined) };
+      const state = workflowProjection.init();
+      const { tools, exec, commands } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
+      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      const tool = tools.find((item) => item.name === 'playground_check_materials');
+      const args = { challenge_id: 'challenge-a' };
+      const checked = await tool.execute(args, exec);
+      assert.equal(checked.ok, true);
+      assert.equal(checked.cliPrecheck.status, 'passed');
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta: tool.output.presentationMeta(args, checked) } }));
+      assert.equal(state.prepared.submitter, 'id:5');
+      const confirm = commands.find((item) => item.name === 'playground-confirm');
+      const done = await confirm.handler({ rawInput: state.prepared.checkId, agent: exec.agent, signal: new AbortController().signal });
+      assert.equal(done.kind, 'success', done.text);
+      const result = JSON.parse(done.text);
+      assert.equal(result.attemptId, 42);
+      assert.doesNotMatch(done.text, /synthetic-(dsh|worker)-token/);
+      const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+      const submits = calls.filter((call) => call.argv[0] === 'submit' && !call.argv.includes('--help'));
+      assert.deepEqual(submits.map((call) => call.argv.includes('--dry-run')), [true, false], 'one dry run, then one submission');
+      for (const call of submits) {
+        assert.equal(call.token, 'synthetic-dsh-token');
+        assert.equal(call.worker, null, 'PLAYGROUND_WORKER_TOKEN is removed');
+        // The CLI is told which variable holds the token, so its own tokenEnv config cannot pick another.
+        const at = call.argv.indexOf('--token-env');
+        assert.deepEqual(call.argv.slice(at, at + 4), ['--token-env', 'PLAYGROUND_TOKEN', '--worker-token-env', 'PLAYGROUND_TOKEN']);
+      }
+      assert.ok(calls.every((call) => !JSON.stringify(call.argv).includes('synthetic-')), 'no token in any CLI argument');
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousWorker === undefined) delete process.env.PLAYGROUND_WORKER_TOKEN;
+    else process.env.PLAYGROUND_WORKER_TOKEN = previousWorker;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('#12: a token saved in DSH while the confirmation re-reads the materials does not change who submits', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-token-switch-')));
+  const originalFetch = globalThis.fetch;
+  try {
+    await withoutAmbientToken(async () => {
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+      const credentialsPath = join(directory, 'missing-credentials.env');
+      const log = join(directory, 'calls.log');
+      const cliPath = join(directory, 'fake-cli.mjs');
+      await writeFile(cliPath, `#!/usr/bin/env node\n${TOKEN_CLI(log)}\n`);
+      await chmod(cliPath, 0o755);
+      let stored = 'synthetic-token-a';
+      let confirming = false;
+      const identities = [];
+      const users = { 'Bearer synthetic-token-a': { id: 5, name: 'Account A' }, 'Bearer synthetic-token-b': { id: 9, name: 'Account B' } };
+      const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+      globalThis.fetch = async (url, init) => {
+        const { pathname } = new URL(url);
+        const authorization = init?.headers?.authorization;
+        if (pathname.endsWith('/auth/me')) {
+          identities.push(authorization);
+          return users[authorization] ? json(users[authorization]) : new Response('{}', { status: 401 });
+        }
+        if (pathname.endsWith('/challenges/challenge-a')) {
+          // The confirmation re-reads the challenge inside inspect(): the user saves another token now.
+          if (confirming) stored = 'synthetic-token-b';
+          return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+        }
+        return new Response('not found', { status: 404 });
+      };
+      const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: stored, source: 'file' } : undefined) };
+      const state = workflowProjection.init();
+      const { tools, exec, commands } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
+      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      const tool = tools.find((item) => item.name === 'playground_check_materials');
+      const args = { challenge_id: 'challenge-a' };
+      const checked = await tool.execute(args, exec);
+      assert.equal(checked.ok, true);
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta: tool.output.presentationMeta(args, checked) } }));
+      assert.equal(state.prepared.submitter, 'id:5');
+      identities.length = 0;
+      confirming = true;
+      const confirm = commands.find((item) => item.name === 'playground-confirm');
+      const done = await confirm.handler({ rawInput: state.prepared.checkId, agent: exec.agent, signal: new AbortController().signal });
+      assert.equal(done.kind, 'success', done.text);
+      assert.equal(stored, 'synthetic-token-b', 'the stored token changed during the confirmation');
+      assert.deepEqual(identities, ['Bearer synthetic-token-a'], 'the identity check used the token looked up at the start');
+      const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+      const submitted = calls.filter((call) => call.argv[0] === 'submit' && !call.argv.includes('--dry-run') && !call.argv.includes('--help'));
+      assert.equal(submitted.length, 1);
+      assert.equal(submitted[0].token, 'synthetic-token-a', 'the CLI submitted under the checked identity');
+      assert.doesNotMatch(done.text, /synthetic-token/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
   }
 });

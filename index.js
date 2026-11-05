@@ -21,7 +21,7 @@ import * as fsp from 'node:fs/promises';
 import { basename, isAbsolute, resolve as resolvePath } from 'node:path';
 import { createWorkflow, workflowProjection } from './lib/workflow.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
-import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, readCliCredential } from './lib/cli.js';
+import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, displayCredentialsPath, readCliCredential } from './lib/cli.js';
 
 import {
   ATTEMPT_SORTS,
@@ -338,27 +338,50 @@ export function normalizeSettings(config) {
 /**
  * Resolve the Playground token per operation: config override, then the
  * Harness credential store (which also reads the ambient environment), then
- * the process environment directly.
+ * the CLI credentials file, then the process environment directly.
+ *
+ * The returned function yields the token itself; the API client and the CLI
+ * child (as PLAYGROUND_TOKEN) both use it, so they act as the same identity.
+ * `resolveToken.status()` reports where the token came from and whether the
+ * CLI credentials file holds one, never the value itself.
+ * Sources: `config`, `dsh` (saved in the DSH credential store), `dsh_other`,
+ * `cli_file`, `env`, `none`. DSH's local credential provider (credentials-local,
+ * read in the installed DSH bundle) answers `resolve()` from its saved values
+ * first (`source: 'file'`), then from the variable DSH inherited (`'env'`),
+ * then from `.env` files (`'project-env'`, `'user-env'`). Any source other than
+ * `file` and `env` becomes `dsh_other`: the workbench then offers no 清除令牌,
+ * because `unset()` removes only a saved value.
+ * `envToken` says whether this process inherited a PLAYGROUND_TOKEN variable,
+ * which DSH answers when nothing is saved, so the workbench can say what a
+ * clear leads to.
  */
-function createTokenResolver(settings, ctx) {
+export function createTokenResolver(settings, ctx) {
   const credentialStore = typeof ctx?.get === 'function' ? ctx.get('credentials') : undefined;
-  return async () => {
-    if (settings.token.length > 0) return settings.token;
+  async function lookup() {
+    if (settings.token.length > 0) return { value: settings.token, source: 'config' };
     if (credentialStore !== null && typeof credentialStore === 'object' && typeof credentialStore.resolve === 'function') {
       try {
         const resolved = await credentialStore.resolve('PLAYGROUND_TOKEN');
         if (resolved !== null && typeof resolved === 'object' && typeof resolved.value === 'string' && resolved.value.trim().length > 0) {
-          return resolved.value.trim();
+          const source = resolved.source === 'file' ? 'dsh' : resolved.source === 'env' ? 'env' : 'dsh_other';
+          return { value: resolved.value.trim(), source };
         }
       } catch {
         // Fall through to the ambient environment.
       }
     }
     const cliToken = await readCliCredential('PLAYGROUND_TOKEN', settings.credentialsPath);
-    if (cliToken.length > 0) return cliToken;
-    const ambient = process.env.PLAYGROUND_TOKEN;
-    return typeof ambient === 'string' ? ambient.trim() : '';
+    if (cliToken.length > 0) return { value: cliToken, source: 'cli_file' };
+    const ambient = typeof process.env.PLAYGROUND_TOKEN === 'string' ? process.env.PLAYGROUND_TOKEN.trim() : '';
+    return ambient.length > 0 ? { value: ambient, source: 'env' } : { value: '', source: 'none' };
+  }
+  const resolveToken = async () => (await lookup()).value;
+  resolveToken.status = async () => {
+    const [{ source }, fileToken] = await Promise.all([lookup(), readCliCredential('PLAYGROUND_TOKEN', settings.credentialsPath)]);
+    const envToken = typeof process.env.PLAYGROUND_TOKEN === 'string' && process.env.PLAYGROUND_TOKEN.trim().length > 0;
+    return { tokenSource: source, cliFileToken: fileToken.length > 0, cliFilePath: displayCredentialsPath(settings.credentialsPath), envToken };
   };
+  return resolveToken;
 }
 
 function resolveToolPath(inputPath, exec, workingDirectory) {
@@ -919,7 +942,9 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
       schema: SUBMIT_OUTPUT_SCHEMA,
       render: (_args, value) => renderText(formatSubmission(value)),
     },
-    async execute(args, exec, materials) {
+    // `write.token`, from a confirmation that already checked the identity, is the token both writes use.
+    async execute(args, exec, materials, write = {}) {
+      const token = typeof write?.token === 'string' ? write.token : undefined;
       let stage = 'bundle';
       let attemptId;
       try {
@@ -960,7 +985,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
             fields.manifest_json = materials?.manifest ?? await readManifest(args.manifest_path, exec, workingDirectory);
           }
           stage = 'create';
-          const createdResult = await client.createAttempt(challengeId, fields, trace.files, { signal: exec.signal });
+          const createdResult = await client.createAttempt(challengeId, fields, trace.files, { signal: exec.signal, ...(token === undefined ? {} : { token }) });
           attempt = createdResult.attempt;
           attemptId = attempt.id;
           if (attemptId === undefined) {
@@ -988,7 +1013,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
         }
 
         stage = 'upload';
-        const uploaded = await client.uploadBundle(attemptId, bundle, { signal: exec.signal });
+        const uploaded = await client.uploadBundle(attemptId, bundle, { signal: exec.signal, ...(token === undefined ? {} : { token }) });
         const finalAttempt = uploaded.attempt ?? attempt;
         const value = {
           ok: true,
@@ -1051,6 +1076,7 @@ export function apply(ctx, config) {
     baseUrl: settings.baseUrl,
     timeoutMs: settings.cliTimeoutMs,
     submitTimeoutMs: settings.cliSubmitTimeoutMs,
+    resolveToken,
   });
   const workingDirectory = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : undefined;
   const submit = createSubmitTool(client, { workingDirectory });
@@ -1071,7 +1097,7 @@ export function apply(ctx, config) {
   });
   ctx.inject?.(['commands', 'sessionProjections', 'sessionController', 'agents', 'workingDirectory', 'workspaceRegistry', 'credentials'], (scope) => {
     scope.sessionProjections.register(workflowProjection);
-    workflow = createWorkflow({ ctx: scope, client, cli, submit, readBundle, readTrace, readManifest, presentationMeta });
+    workflow = createWorkflow({ ctx: scope, client, cli, submit, readBundle, readTrace, readManifest, presentationMeta, tokenStatus: resolveToken.status });
     scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow));
     scope.inject(['systemPrompt'], (promptScope) => {
       promptScope.systemPrompt.context({ name: 'playground-task:current',
