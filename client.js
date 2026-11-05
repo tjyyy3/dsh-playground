@@ -1519,9 +1519,10 @@ window.__ModuleLoader__.load({
       const receiptState = receipt?.scoringState?.state || data?.scoringState?.state || receipt?.status || data?.status;
       const receiptLine = approvedSubmit && receiptId !== undefined
         ? `${t('progress.attempt')} #${receiptId} · ${receiptState ? stateLabel(receiptState, t) : t('awaitingScore')}` : '';
-      // A refused approval, or a card that did not reach the CLI, leaves the confirmation card valid.
+      // A refused approval, a login refused before asking, or a card that did not reach the CLI, leaves the
+      // confirmation card valid.
       const cardKept = approvedSubmit && failed && !data?.workflow
-        && ['approval_rejected', 'approval_cancelled', 'approval_unavailable', 'cli_not_started'].includes(data?.error?.code);
+        && ['approval_rejected', 'approval_cancelled', 'approval_unavailable', 'authentication_required', 'cli_not_started'].includes(data?.error?.code);
       return h('section', { className: 'pg-card', 'aria-label': t(`tools.${toolName}`) },
         h('style', null, css),
         h('div', { className: 'pg-head' },

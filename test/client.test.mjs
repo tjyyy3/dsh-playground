@@ -4539,6 +4539,13 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   assert.ok(button);
   button.props.onClick();
   assert.deepEqual(opened, ['task-1']);
+  // A login refused before asking keeps the card too: the user logs in and confirms in the workbench.
+  const loggedOut = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'authentication_required', message: '请先登录 Playground' } } } } });
+  const loginButton = f.find(loggedOut, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
+  assert.ok(loginButton);
+  loginButton.props.onClick();
+  assert.deepEqual(opened, ['task-1', 'task-1']);
   // A refusal that cleared the card (another login) offers no confirmation in the workbench.
   const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
     block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });

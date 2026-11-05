@@ -675,13 +675,16 @@ first. Those are DSH settings, not a guarantee of this plugin, so review any
 terminal command the agent asks to run.
 
 The user can also confirm with the `/playground-confirm <code>` command. The
-code is a guard against confirming a stale card, not a credential and not an
-approval. It appears in the structured results of `playground_check_materials`
-and `playground_submit_attempt`, in the `/playground check` output, as
-`prepared.checkId` in the `playground_task` `status` result, and as the
-`check_id` line of the material check's text, because the workbench button and
-`playground_submit` need it. Knowing it submits nothing: a submission still
-needs the user's click or **允许一次**.
+code is a guard against clicking a stale card, not a credential. It is kept out
+of the material check's text and of the `playground_task` `status` result, but
+it still appears in the structured results of `playground_check_materials` and
+`playground_submit_attempt` and in the `/playground check` output, because the
+workbench needs it to enable the button. The agent gets a different id,
+`approval_id`: a keyed hash of the code (HMAC-SHA256 with a random key that is
+new in every DSH process, first 24 hex digits). Only `playground_submit`
+accepts it, and `/playground-confirm` does not, so the agent cannot hand you a
+working confirm command. After a DSH restart an old `approval_id` is refused
+with `confirmation_required`; a new material check gives a new one.
 
 ## Authentication
 
@@ -857,24 +860,35 @@ bundle can be retried with `attempt_id`.
 ### Submitting from the conversation
 
 When you ask the agent in a task conversation to submit (for example
-"帮我提交"), it calls `playground_submit` with `check_id`, the id of the
-conversation's latest confirmation card. The agent finds it in the material
-check's text (the `check_id for playground_submit` line) or as
-`prepared.checkId` in `playground_task` `status`. The tool:
+"帮我提交"), it calls `playground_submit` with `approval_id`, the agent-facing
+id of the conversation's latest confirmation card. The agent finds it in the
+material check's text (the `approval_id for playground_submit` line) or as
+`prepared.approvalId` in `playground_task` `status`. The tool:
 
-1. refuses a missing or stale `check_id`, one that is not this conversation's
-   current card, and a card that is already being submitted
-   (`confirmation_required` or `submission_in_progress`), without asking;
+1. refuses a missing or stale `approval_id`, one that is not this
+   conversation's current card (including an id from before a DSH restart),
+   and a card that is already being submitted (`confirmation_required` or
+   `submission_in_progress`), without asking;
 2. checks the login and refuses a changed identity (`identity_changed`, the
-   card is cleared), as the workbench does;
+   card is cleared) or a missing login (`authentication_required`, the card
+   stays), as the workbench does;
 3. asks DSH's approval service (`approval.request`) with a plugin-written
-   reason: a new submission or "重传原提交 #N（不新建提交）", the challenge title
-   and id, the platform host, the identity (本人 or Agent 账号, with the
-   account name), the bundle, trace and manifest file names with their size
-   and the first 12 hex digits of their SHA-256, and the warning when the
-   bundle is byte-identical to one the Worker refused. It contains no
-   directories, no email and no token. DSH shows it in the chat's approval
-   panel and logs it in the session's `approval/asked` event;
+   `reason` (Chinese, kept in the session's `approval/asked` event) and a
+   `displayReason` with `zh` and `en` text, which the panel shows in the UI
+   language. It lists, separated by " ｜ " because the panel puts everything
+   on one line: "Agent 请求提交；如果你没有要求提交，请点拒绝"; "高影响操作，可能消耗一个
+   提交名额"; a new submission or a re-upload into submission #N; the platform
+   host; the identity (本人 or Agent 账号); the CLI precheck (passed, or skipped
+   with its short note); the trace step count; the size and the first 12 hex
+   digits of the SHA-256 of the bundle, trace and manifest; and the warning
+   when the bundle is byte-identical to one the Worker refused. Platform,
+   agent and file system text follows these facts: the challenge title and
+   id, the account name, the workspace folder name, the file names, method,
+   model and harness, and for a new submission the declared outcome, detail
+   (up to 200 characters) and author name. Each such value is shown inside
+   ‹…›, on one line, without brackets, field punctuation (。：:；;), the
+   separator or the words 允许一次, 拒绝, Allow once and Reject. The reason
+   contains no directories, no email and no token;
 4. submits only when the answer is `allowed-once` (**允许一次**, or Enter in
    the panel). It then runs exactly the workbench confirmation: the same
    identity check, re-hashed materials, closed-submission refusal, CLI
@@ -891,9 +905,21 @@ in this turn) and a DSH without the approval service return
 ask to submit again. The agent cannot answer the panel for you.
 
 A workbench click and an approved `playground_submit` for the same card submit
-once: confirmations of one conversation share one in-flight operation, and a
-card whose confirmation ended in a receipt or a clear is refused from then on,
-even before the session log has dropped it.
+once: confirmations of the same card in one conversation share one in-flight
+operation, and a card whose confirmation ended in a receipt or a clear is
+refused from then on, even before the session log has dropped it. A
+confirmation of a different card while one is running is refused with
+`submission_in_progress`, so an approval never reports another card's receipt.
+
+**Sessions driven over ACP.** When an ACP client owns the DSH session, DSH
+answers `approval.request` itself by sending the ACP client a
+`session/request_permission` request with only the tool call (title
+"Submit to Playground (check <first 8 digits of the approval_id>)") and the
+allow-once / reject options. The reason above is not forwarded, and the ACP
+client's permission policy decides: whatever it answers counts as the
+confirmation. The plugin cannot tell that a session is ACP-owned. Do not
+configure your ACP client to auto-approve `playground_submit`; review the
+confirmation card in the workbench before allowing it.
 
 If the CLI could not start (not found, Node.js missing, arguments that cmd
 would interpret, invalid arguments), nothing was submitted: the result is

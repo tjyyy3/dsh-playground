@@ -220,6 +220,7 @@ const SUBMIT_OUTPUT_SCHEMA = {
     stage: { type: 'string' },
     title: { type: 'string' },
     traceCount: { type: 'integer' },
+    approvalId: { type: 'string' },
     cliPrecheck: { type: 'object', properties: { status: { type: 'string' }, note: { type: 'string' } } },
     cliUpdate: { type: 'object', properties: { current: { type: 'string' }, latest: { type: 'string' }, warning: { type: 'string' } } },
     bundleSummary: { type: 'object', additionalProperties: true },
@@ -556,11 +557,14 @@ function pickKeys(source, keys) {
  * Model-visible task status. An explicit whitelist at every level, so a field added to the projection
  * later stays out of the model's view unless it is listed here.
  *
- * `prepared.checkId` is the one-time code behind the workbench "确认目标并提交" button and the
- * `check_id` argument of `playground_submit`, which asks the user in DSH's approval panel before
- * the same confirmation runs. It is a stale-card guard, not a credential and not an approval: only
- * the user's click in the workbench or "允许一次" in the approval panel submits. The model must not
- * relay it to users as something to type.
+ * `prepared.checkId` is intentionally excluded. It is the one-time code behind the workbench
+ * "确认目标并提交" button, and the human `/playground-confirm` command accepts it, so a model that knew it
+ * could tell the user to type a working command that skips every summary. The model gets
+ * `prepared.approvalId` instead: a keyed hash of the checkId (lib/workflow.js APPROVAL_KEY) that only
+ * `playground_submit` accepts, and that tool asks the user in DSH's approval panel before the same
+ * confirmation runs. The workbench UI and the session projection read the checkId directly, not through
+ * this tool. It still appears in the structured results of `playground_check_materials` and
+ * `playground_submit_attempt` and in `/playground check` output, because the projection needs it.
  */
 // The listed diagnosis keys, with the cleaned platform reasons under a name and a note that say what they are.
 function diagnosisView(diagnosis) {
@@ -579,8 +583,9 @@ function diagnosisView(diagnosis) {
  * it. `bundleMissingIds` is derived the same way as for the workbench (taskBundleMissingIds), so a
  * state saved before the field existed answers the same here and in `results`.
  */
-function taskStatus(state) {
+function taskStatus(state, approvalIdOf) {
   const prepared = state?.prepared;
+  const approvalId = typeof approvalIdOf === 'function' ? approvalIdOf(prepared?.checkId) : undefined;
   const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
   if (receipt?.diagnosis !== undefined) receipt.diagnosis = diagnosisView(receipt.diagnosis);
   // The reasons are listed once, labelled, under diagnosis; the error keeps its code and its message
@@ -600,7 +605,7 @@ function taskStatus(state) {
     ...(state?.lastFailure ? { lastFailure: diagnosisView(state.lastFailure) } : {}),
     prepared: prepared ? {
       awaitingConfirmation: true,
-      ...(typeof prepared.checkId === 'string' ? { checkId: prepared.checkId } : {}),
+      ...(typeof approvalId === 'string' ? { approvalId } : {}),
       challenge: prepared.challenge,
       files: prepared.files,
       ...(prepared.bundleSummary ? { bundleSummary: pickKeys(prepared.bundleSummary, BUNDLE_SUMMARY_KEYS) } : {}),
@@ -1120,7 +1125,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
 export function apply(ctx, config) {
   // Shared agent guidance. The user confirms in the UI; the agent must never relay a confirmation code or command.
   // DSH's native approval panel is the other user confirmation: only the user's "允许一次" there lets playground_submit write.
-  const confirmGuidance = 'Tell the user to confirm by clicking "确认目标并提交" in the task details (or "前往工作台确认提交" on the card). Only if the user explicitly asks you here to submit, call playground_submit with the card\'s check_id: DSH then asks the user, and only their "允许一次" submits. Never ask the user to type a command, and never run `playground submit` in the terminal.';
+  const confirmGuidance = 'Tell the user to confirm by clicking "确认目标并提交" in the task details (or "前往工作台确认提交" on the card). Only if the user explicitly asks you here to submit, call playground_submit with the card\'s approval_id: DSH then asks the user, and only their "允许一次" submits. Never ask the user to type a command, and never run `playground submit` in the terminal.';
   const settings = normalizeSettings(config);
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
@@ -1190,7 +1195,7 @@ export function apply(ctx, config) {
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, mode: { type: 'string', enum: ['participate', 'author'], description: 'Working mode; defaults to participate.' } }, required: ['challenge_id'] }, output,
       execute: (args, exec) => workflow.bind(args, exec).then(toToolValue).catch(errorValue) });
     scope.tools.register({ ...requestSubmission, name: 'playground_check_materials',
-      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. After the local checks it runs the installed Playground CLI\'s `playground submit ... --dry-run` with the same arguments, which creates and uploads nothing; a confirmation card is generated only when the CLI accepts the materials. The trace must be in a format the CLI accepts: (1) a native session JSONL (Codex / Claude Code / OpenCode), (2) a conversation-record JSONL with one {"role": ..., "content": ...} object per line, or (3) a {"steps": [...]} JSON of normalized ARM trace steps. Never invent a trace format or fabricate a trajectory; self-check with `playground trace validate --trace <path>` first. Returns file sizes, hashes and a confirmation card with its check_id; makes no platform writes. ' + confirmGuidance,
+      description: 'Check the explicitly named challenge and local ARM ZIP, trace and optional manifest. Auto-discovers unambiguous files in the current workspace root, playground-submission/ or .playground/. After the local checks it runs the installed Playground CLI\'s `playground submit ... --dry-run` with the same arguments, which creates and uploads nothing; a confirmation card is generated only when the CLI accepts the materials. The trace must be in a format the CLI accepts: (1) a native session JSONL (Codex / Claude Code / OpenCode), (2) a conversation-record JSONL with one {"role": ..., "content": ...} object per line, or (3) a {"steps": [...]} JSON of normalized ARM trace steps. Never invent a trace format or fabricate a trajectory; self-check with `playground trace validate --trace <path>` first. Returns file sizes, hashes and a confirmation card with its approval_id; makes no platform writes. ' + confirmGuidance,
       execute: (args, exec) => workflow.prepare(args, exec).then(toToolValue) });
     // Optional service: an older DSH has no approval service, and the tool then says so instead of asking.
     const approvalService = () => {
@@ -1205,15 +1210,20 @@ export function apply(ctx, config) {
       }
       return undefined;
     };
-    scope.tools.register({ name: 'playground_submit', description: 'Submit this conversation\'s current Playground confirmation card. Call it ONLY when the user explicitly asked in this conversation to submit (for example "帮我提交"); checking materials, finishing a solution or a passed precheck is not such a request. Pass check_id: the check_id of the latest playground_check_materials result in this conversation (also prepared.checkId in playground_task status). The tool shows DSH\'s approval panel with the target, platform, identity and file hashes; only the user\'s "允许一次" submits, through exactly the same checks as the workbench button "确认目标并提交" (identity, re-hashed materials, closed submissions, no double submission). You cannot approve on the user\'s behalf. If the user rejects or cancels, or approval is unavailable, nothing is written and the card stays valid: tell the user they can confirm in the workbench, and never call this tool again unless the user asks to submit again. A retry into an existing submission (a card checked with attempt_id) re-uploads into that submission and creates no new one.',
-      parameters: { type: 'object', properties: { check_id: { type: 'string', description: 'check_id of the latest confirmation card in this conversation, from playground_check_materials (or prepared.checkId of playground_task status).' } }, required: ['check_id'] },
+    scope.tools.register({ name: 'playground_submit', description: 'Submit this conversation\'s current Playground confirmation card. Call it ONLY when the user explicitly asked in this conversation to submit (for example "帮我提交"); checking materials, finishing a solution or a passed precheck is not such a request. Pass approval_id: the approval_id of the latest playground_check_materials result in this conversation (also prepared.approvalId in playground_task status); after a DSH restart an old approval_id is refused, so read a new one. The tool shows DSH\'s approval panel with the request, the target, platform, identity, precheck, file hashes and the fields the submission declares; only the user\'s "允许一次" submits, through exactly the same checks as the workbench button "确认目标并提交" (identity, re-hashed materials, closed submissions, no double submission). You cannot approve on the user\'s behalf. If the user rejects or cancels, or approval is unavailable, nothing is written and the card stays valid: tell the user they can confirm in the workbench, and never call this tool again unless the user asks to submit again. A retry into an existing submission (a card checked with attempt_id) re-uploads into that submission and creates no new one.',
+      parameters: { type: 'object', properties: { approval_id: { type: 'string', description: 'approval_id of the latest confirmation card in this conversation, from playground_check_materials (or prepared.approvalId of playground_task status).' } }, required: ['approval_id'] },
       output: { schema: SUBMIT_OUTPUT_SCHEMA, render: (_args, value) => renderText(formatApprovedSubmission(value)), presentationMeta },
       execute: (args, exec) => workflow.submitApproved(args, exec, { approval: approvalService() }).then(toToolValue).catch(errorValue),
-      presentCall: () => ({ card: 'generic', title: 'Submit Playground confirmation card', kind: 'execute' }) });
+      // Over ACP, DSH forwards only the tool call to the client's permission request, so this title is
+      // what an ACP client shows: it names the write and the card's short approval id.
+      presentCall: (args) => {
+        const short = typeof args?.approval_id === 'string' ? /^[0-9a-f]{1,8}/i.exec(args.approval_id.trim())?.[0] : undefined;
+        return { card: 'generic', title: short ? `Submit to Playground (check ${short})` : 'Submit to Playground', kind: 'execute' };
+      } });
     scope.tools.register({ name: 'playground_task', description: 'Read this Playground task context, switch participate/author working mode, or refresh its latest submission result. Mode is not an account role. No authority to confirm submissions.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results'] }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['action'] }, output,
       execute: async (args, exec) => {
-        if (args.action === 'status') return toToolValue(taskStatus(scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask')));
+        if (args.action === 'status') return toToolValue(taskStatus(scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask'), workflow.approvalIdOf));
         if (args.action === 'results') return workflow.results({}, exec).then(toToolValue).catch(errorValue);
         const result = await workflow.command({ agent: exec.agent, signal: exec.signal, rawInput: JSON.stringify(args) });
         return JSON.parse(result.text);
