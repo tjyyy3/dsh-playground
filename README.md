@@ -259,10 +259,13 @@ If the chosen competition is missing from a later list, the selector returns to
 The catalog shows `共 N 道` for the current competition, search and filters,
 followed by `已显示 M 道` while only part of the list is loaded. **加载更多**
 reads the next 20 challenges and appends them; a challenge id already shown
-is not added again, and the button is unavailable while a page loads but
-keeps keyboard focus. When the last page removes the button while it has
-focus, focus moves to the first card that page added, or to the `共 N 道`
-line when the page added none that is shown. It is
+is not added again, and the button is unavailable (`aria-disabled`, presses do
+nothing) while any page loads, including a page-1 read, but keeps keyboard
+focus. A failed page keeps the button and its focus. Focus moves only when the
+last page removes the button while it still has focus: to the first card that
+page added and that is shown, else to the count line (`共 N 道 …`, or under 只看开放
+without a reported total `已加载 N 道 · 其中开放 M 道…`), else to the catalog heading
+when there is no count line. It is
 offered only while the shown list matches the controls: it is hidden after a
 failed page-1 read (the previous list stays under the new controls), while
 the search box or the 其他 field holds text that has not been read yet, and
@@ -330,10 +333,16 @@ receives for as long as the panel is open.
 **查看详情** on a challenge card opens a challenge detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. Both drawers
 (this one and the task drawer below) move keyboard focus to their title when
-they open and keep Tab and Shift+Tab inside the drawer. Closing them, including
-through an action such as starting a task or opening the task conversation,
-returns focus to the button that opened the drawer, or to the catalog or task
-overview heading when that button is gone. The drawer reads the
+they open and keep Tab and Shift+Tab inside the drawer, also from an element
+that Tab does not stop at, such as the submission history list. A key pressed
+inside another dialog, such as a DSH prompt above the drawer, is left to that
+dialog, and Tab is left to the browser while the drawer is not displayed or
+focus is outside it. Closing them, including through an action such as
+starting a task or opening the task conversation, returns focus to the button
+that opened the drawer. When that button is gone, or nothing had focus when the
+drawer opened, focus goes to the task's row in the task overview (task drawer
+only, for example after 归档任务 and 撤销 in the drawer), else to the catalog or
+任务总览 heading. The drawer reads the
 challenge once when it opens, through the session-free query
 (`{ action: 'challenge', challengeId }`, which accepts no other field), so it
 needs no conversation and writes nothing to one. Closing cancels the read, and
@@ -433,8 +442,15 @@ or schedules, the workbench says so; other refusals show a short reason.
 **N 个任务** counts only tasks that
 are not archived, and the workbench refresh does not read archived tasks'
 submissions. Below the list, **已归档 M 个** expands the archived tasks, each with
-**取消归档**. After a successful **取消归档** focus moves to the restored task's
-row; after a failure it stays on the button. The plugin offers no delete: DSH
+**取消归档**. The button keeps focus while the change runs (it is
+`aria-disabled`, not disabled), and after a failure focus stays on it. After a
+success the archived row and its button go away once DSH reports the task as
+no longer archived. Only if focus was lost with them, focus moves to the
+restored task's row; if that row is not shown, to the archived row that followed
+it (or the one before it, for the last row), else to the **已归档 M 个** toggle,
+else to the 任务总览 heading when no archived task is left. The move expires two
+seconds after the change succeeded, so a late DSH update does not pull focus
+away. The plugin offers no delete: DSH
 has no interface for deleting a conversation. On a DSH version that does not report its archive set, nothing
 is treated as archived and the archive controls are hidden.
 

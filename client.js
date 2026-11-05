@@ -201,6 +201,8 @@ window.__ModuleLoader__.load({
 
     // The workbench refreshes unscored submissions every two minutes while it is open.
     const attemptRefreshMs = 120000;
+    // How long after a successful 取消归档 in the archived list focus may still move to the restored task's row.
+    const unarchiveFocusMs = 2000;
     // No archive failure to show (the workbench keeps the failed conversation id with the message).
     const noArchiveError = Object.freeze({ id: '', message: '' });
 
@@ -866,31 +868,52 @@ window.__ModuleLoader__.load({
       return [...(container.querySelectorAll?.(tabbableSelector) || [])].filter((node) => typeof node.getClientRects !== 'function' || node.getClientRects().length > 0);
     }
 
+    // Node.compareDocumentPosition bits: the other node comes before, or after, the reference node.
+    const DOCUMENT_POSITION_PRECEDING = 2;
+    const DOCUMENT_POSITION_FOLLOWING = 4;
+
     // Keyboard focus for a modal drawer. Mounting moves focus to the drawer's title (tabIndex -1), Tab and Shift+Tab
     // cycle inside the drawer, and Escape calls the newest `focus.dismiss`. `focus.restore` gives focus back to the
     // element that had it when the drawer first rendered (the button that opened it) if that is still in the page,
-    // else to `fallback()`. Every close from inside the drawer restores first, so the workspace dialog or a navigation
-    // that follows takes focus from there. A drawer its parent removes restores only when focus was lost with it;
-    // when the whole panel is gone, neither target is connected and nothing is focused.
+    // else to the first connected node `fallback()` returns (one node or a list). Every close from inside the drawer
+    // restores first, so the workspace dialog or a navigation that follows takes focus from there. A drawer its
+    // parent removes restores only when focus was lost with it; when the whole panel is gone, no target is
+    // connected and nothing is focused.
+    // The keydown listener is on the document, so it acts only on keys that belong to this drawer: never on a key
+    // pressed inside another dialog (a host prompt above the drawer) or one a handler already took, and Tab only
+    // while the drawer is displayed and focus is inside it or nowhere (body). A drawer left mounted in a hidden
+    // workbench, or focus the host moved elsewhere, leaves Tab to the browser.
     function useDrawerFocus(fallback) {
       const [focus] = React.useState(() => ({ opener: typeof document === 'undefined' ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: () => {} }));
       focus.fallback = fallback;
       focus.restore = () => {
         if (focus.restored) return;
         focus.restored = true;
-        [focus.opener, focus.fallback?.()].find((node) => node?.isConnected)?.focus?.();
+        // `body` is not a place to return to: a drawer opened while nothing had focus uses the fallback.
+        const body = typeof document === 'undefined' ? undefined : document.body;
+        [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
       };
       React.useEffect(() => {
         focus.restored = false;
         focus.title?.focus?.();
+        // A dialog around `target` that is not this drawer and not inside it.
+        const inForeignDialog = (target) => {
+          const owner = target?.closest?.('[aria-modal="true"],[role="dialog"]');
+          return Boolean(owner && owner !== focus.dialog && !focus.dialog?.contains?.(owner));
+        };
         const onKeyDown = (event) => {
+          if (event.defaultPrevented || inForeignDialog(event.target)) return;
           if (event.key === 'Escape') { focus.dismiss(); return; }
           if (event.key !== 'Tab' || !focus.dialog) return;
-          const items = tabbables(focus.dialog);
+          if (typeof focus.dialog.getClientRects === 'function' && !focus.dialog.getClientRects().length) return;
           const active = document.activeElement;
           const inside = Boolean(active && focus.dialog.contains?.(active));
-          // Wrap at either end; from the title (before the first item) or from outside, Shift+Tab goes to the last.
-          const wrap = !items.length || !inside || (event.shiftKey ? active === items[0] || active === focus.title : active === items.at(-1));
+          if (!inside && active && active !== document.body) return;
+          const items = tabbables(focus.dialog);
+          // Wrap by document position, so focus on an element Tab does not stop at (the title, the history list or
+          // heading at the end) wraps too: Tab when no item follows it, Shift+Tab when none precedes it.
+          const bit = event.shiftKey ? DOCUMENT_POSITION_PRECEDING : DOCUMENT_POSITION_FOLLOWING;
+          const wrap = !items.length || !inside || !items.some((node) => node !== active && (active.compareDocumentPosition?.(node) & bit));
           if (!wrap) return;
           event.preventDefault?.();
           (items.length ? (event.shiftKey ? items.at(-1) : items[0]) : focus.title)?.focus?.();
@@ -1287,10 +1310,15 @@ window.__ModuleLoader__.load({
       // After 取消归档 in the archived list. While DSH's archive set still holds the task its row and button stay, with
       // focus. Once it is gone: the restored task's row, else the archived row after it (or before it, for the last),
       // else the archived-list toggle, else the 任务总览 heading (the toggle is gone with the last archived task).
-      // Focus the user moved elsewhere in the meantime is left alone.
+      // Focus the user moved elsewhere in the meantime is left alone. The move expires `unarchiveFocusMs` after the
+      // change succeeded: DSH normally publishes its archive set at once, and a move much later would pull focus away
+      // from whatever the user does by then (a click on empty space also leaves focus on body). After expiry focus
+      // stays where it is, as without the move.
       React.useEffect(() => {
         const pending = nav.restored;
-        if (!pending || archivedSet.has(pending.id)) return;
+        if (!pending) return;
+        if (Date.now() - pending.at > unarchiveFocusMs) { nav.restored = null; return; }
+        if (archivedSet.has(pending.id)) return;
         nav.restored = null;
         const active = typeof document === 'undefined' ? undefined : document.activeElement;
         if (active && active !== document.body && active.isConnected !== false) return;
@@ -1316,7 +1344,7 @@ window.__ModuleLoader__.load({
             if (result?.ok === false) { setArchiveError({ id, message: result.message }); setAnnouncement(result.message); }
             else {
               setAnnouncement(archive ? '任务已归档' : '任务已取消归档');
-              if (fromList && !archive) nav.restored = { id, ...neighbours };
+              if (fromList && !archive) nav.restored = { id, ...neighbours, at: Date.now() };
             }
           });
       };
@@ -1376,9 +1404,10 @@ window.__ModuleLoader__.load({
                   onClick: () => setShowArchived(!showArchived), ref: (node) => { nav.toggle = node; } }, `已归档 ${archivedTasks.length} 个`),
                 showArchived ? h('div', { id: 'pg-archived-list', className: 'pg-task-list pg-archived-list', role: 'list', 'aria-label': '已归档的 Playground 任务' },
                   archivedTasks.map((item) => h(ArchivedTaskRow, { key: item.id, session: item, archive, buttonRef: refInto(nav.archived, item.id) }))) : null) : null)),
-          // The drawer gives focus back to the row that opened it; when that row is gone (its task was archived
-          // in the drawer), to the 任务总览 heading.
-          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, focusFallback: () => nav.heading, attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
+          // The drawer gives focus back to the row that opened it. When that node is gone it tries the task's current
+          // row (archive then 撤销 in the drawer remounts the row as a new node), then, for a task archived in the
+          // drawer, the 任务总览 heading.
+          drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, focusFallback: () => [nav.rows.get(session.id), nav.heading], attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
             archive: archive && { ...archive, archived: archivedSet.has(session.id), error: archiveError.id === session.id ? archiveError.message : '' }, ...props }) : null,
           h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,

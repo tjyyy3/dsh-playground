@@ -3710,25 +3710,31 @@ function focusDom(t) {
   const doc = globalThis.document;
   const body = { name: 'body', isConnected: true };
   Object.assign(doc, { body, activeElement: body });
-  const node = (name, extra = {}) => ({ name, isConnected: true, focus() { doc.activeElement = this; }, ...extra });
+  // Document order is creation order, which is all compareDocumentPosition reports here (2: before, 4: after).
+  let created = 0;
+  const node = (name, extra = {}) => ({ name, isConnected: true, order: created += 1, focus() { doc.activeElement = this; },
+    compareDocumentPosition(other) { return other.order < this.order ? 2 : other.order > this.order ? 4 : 0; }, ...extra });
   return { doc, body, node, listeners, active: () => doc.activeElement?.name, focus: (target) => { doc.activeElement = target; } };
 }
-// Dispatch a key to the document listeners; returns whether a listener prevented the default action.
-function press(listeners, key, { shiftKey = false } = {}) {
+// Dispatch a key to the document listeners, from the focused element by default; returns whether a listener
+// prevented the default action.
+function press(listeners, key, { shiftKey = false, target = globalThis.document?.activeElement, defaultPrevented = false } = {}) {
   let prevented = false;
-  [...listeners].forEach((listener) => listener({ key, shiftKey, preventDefault: () => { prevented = true; } }));
+  [...listeners].forEach((listener) => listener({ key, shiftKey, target, defaultPrevented, preventDefault: () => { prevented = true; } }));
   return prevented;
 }
-// A drawer's DOM: the title and the tabbable items in document order. An item without a box (a hidden one) is skipped.
+// A drawer's DOM: the title, the tabbable items in document order (an item without a box, a hidden one, is skipped)
+// and, after them, a tabIndex -1 list that Tab does not stop at, like the submission history list.
 function fakeDrawer(dom) {
   const title = dom.node('title');
   const items = [dom.node('first'), dom.node('middle'), dom.node('last'), dom.node('hidden', { getClientRects: () => [] })];
-  const dialog = { querySelectorAll: () => items, contains: (target) => target === title || items.includes(target) };
+  const list = dom.node('history list');
+  const dialog = { querySelectorAll: () => items, contains: (target) => target === title || target === list || items.includes(target) };
   const attach = (tree) => {
     findAll(tree, (node) => node.type === 'aside')[0].props.ref(dialog);
     findAll(tree, (node) => node.type === 'h2' && node.props.className === 'pg-drawer-title')[0].props.ref(title);
   };
-  return { title, items, attach };
+  return { title, items, list, dialog, attach };
 }
 
 test('#55: the challenge drawer moves focus to its title, keeps Tab inside and gives focus back to 查看详情', async (t) => {
@@ -3751,10 +3757,22 @@ test('#55: the challenge drawer moves focus to its title, keeps Tab inside and g
   dom.focus(drawer.items[1]);
   assert.equal(press(h.listeners, 'Tab'), false);
   assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false);
-  // Focus that got outside the drawer comes back in.
-  dom.focus(opener);
+  // Focus that fell to the page comes back in; focus something else holds is left alone.
+  dom.focus(dom.body);
   assert.equal(press(h.listeners, 'Tab'), true);
   assert.equal(dom.active(), 'first');
+  dom.focus(dom.body);
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), true);
+  assert.equal(dom.active(), 'last');
+  dom.focus(opener);
+  assert.equal(press(h.listeners, 'Tab'), false);
+  assert.equal(dom.active(), '查看详情');
+  // From the tabIndex -1 list at the end, where no item follows, Tab wraps; Shift+Tab is left to the browser.
+  dom.focus(drawer.list);
+  assert.equal(press(h.listeners, 'Tab'), true);
+  assert.equal(dom.active(), 'first');
+  dom.focus(drawer.list);
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false);
   // Other keys are left alone.
   assert.equal(press(h.listeners, 'a'), false);
   const closers = [
@@ -3791,6 +3809,13 @@ test('#55: the challenge drawer falls back to the catalog heading, and starting 
   h.view().props.onMouseDown();
   assert.equal(dom.active(), '选择比赛或赛题');
   h.unmountDrawer();
+  // Nothing had focus when the drawer opened (a mouse click that does not focus, a programmatic open): body is
+  // always connected but is not a place to return to, so the heading takes focus.
+  dom.focus(dom.body);
+  h.open(drawer.attach);
+  press(h.listeners, 'Escape');
+  assert.equal(dom.active(), '选择比赛或赛题');
+  h.unmountDrawer();
   // "开始参赛任务" gives focus back before the workspace dialog opens, so the dialog returns it there.
   const opener = dom.node('查看详情');
   dom.focus(opener);
@@ -3808,6 +3833,53 @@ test('#55: the challenge drawer falls back to the catalog heading, and starting 
   h.open(drawer.attach);
   dom.focus(dom.body);
   h.unmountDrawer();
+  assert.equal(dom.active(), '查看详情');
+});
+
+test('#55: the drawer leaves keys to another dialog, to a handler that took them, and Tab alone while it is hidden', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const dom = focusDom(t);
+  const opener = dom.node('查看详情');
+  const drawer = fakeDrawer(dom);
+  dom.focus(opener);
+  h.open(drawer.attach);
+  // A host dialog above the drawer, outside it: its keys are its own.
+  const hostDialog = { name: 'host dialog' };
+  const hostButton = dom.node('host button', { closest: (selector) => (selector === '[aria-modal="true"],[role="dialog"]' ? hostDialog : null) });
+  dom.focus(hostButton);
+  assert.equal(press(h.listeners, 'Tab'), false, 'Tab inside another dialog is not intercepted');
+  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false);
+  assert.equal(dom.active(), 'host button');
+  press(h.listeners, 'Escape');
+  assert.ok(h.drawerElement(), 'Escape in another dialog does not close the drawer');
+  assert.equal(dom.active(), 'host button', 'nor gives focus back behind that dialog');
+  // An Escape a handler already took is left alone too, even from inside the drawer.
+  dom.focus(drawer.items[0]);
+  press(h.listeners, 'Escape', { defaultPrevented: true });
+  assert.ok(h.drawerElement());
+  assert.equal(dom.active(), 'first');
+  // A target whose nearest dialog is the drawer itself is the drawer's own.
+  const inner = dom.node('inner', { closest: () => drawer.dialog, order: drawer.items[0].order + 0.5 });
+  drawer.items.splice(1, 0, inner);
+  const contains = drawer.dialog.contains;
+  drawer.dialog.contains = (target) => target === inner || contains(target);
+  dom.focus(inner);
+  // Undisplayed (the workbench is hidden but still mounted): Tab is left to the browser, from anywhere.
+  drawer.dialog.getClientRects = () => [];
+  for (const target of [dom.body, drawer.title, drawer.items.at(-2)]) {
+    dom.focus(target);
+    assert.equal(press(h.listeners, 'Tab'), false, `hidden drawer, Tab from ${target.name}`);
+    assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false, `hidden drawer, Shift+Tab from ${target.name}`);
+    assert.equal(dom.active(), target.name);
+  }
+  // Displayed again, the trap works.
+  delete drawer.dialog.getClientRects;
+  dom.focus(drawer.items.at(-2));
+  assert.equal(press(h.listeners, 'Tab'), true);
+  assert.equal(dom.active(), 'first');
+  dom.focus(inner);
+  press(h.listeners, 'Escape');
+  assert.equal(h.drawerElement(), undefined, 'Escape from the drawer\'s own dialog closes it');
   assert.equal(dom.active(), '查看详情');
 });
 
@@ -3856,6 +3928,19 @@ test('#55: the task drawer moves focus in, gives it back to its row, and falls b
   rowA.isConnected = false;
   headerButton('关闭任务详情').props.onClick();
   assert.equal(dom.active(), '任务总览');
+  // Archived and restored with 撤销 in the drawer: the row is back as a new node, and focus goes to it.
+  const rowC = dom.node('row c');
+  openFrom('c', rowC);
+  a.controlButton().props.onClick();
+  await settle();
+  assert.equal(text(a.controlButton()), '撤销');
+  a.controlButton().props.onClick();
+  await settle();
+  rowC.isConnected = false;
+  const remounted = dom.node('row c, remounted');
+  a.find(a.renderOnly(), (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === 'c').props.selectRef(remounted);
+  headerButton('关闭任务详情').props.onClick();
+  assert.equal(dom.active(), 'row c, remounted');
 });
 
 // Archived rows with fake buttons attached; returns the row buttons by id.
@@ -3928,6 +4013,43 @@ test('#55: without the restored row, focus goes to the next archived row, then t
   await restore('b');
   assert.equal(a.toggle(), undefined);
   assert.equal(dom.active(), '任务总览');
+});
+
+test('#55: the focus move after 取消归档 waits for DSH\'s archive set for two seconds, then expires', async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  // The change succeeds, but DSH publishes its archive set only when the test says so.
+  const a = await archiveFixture(t, { archived: ['b', 'c'], uiWorkspace: { archiveSession: async () => {}, unarchiveSession: async () => {} } });
+  const dom = focusDom(t);
+  a.toggle().props.onClick();
+  const buttons = attachArchivedButtons(a, dom);
+  const rowRef = (id, node) => a.find(a.renderOnly(), (element) => element.type?.name === 'TaskSummaryRow' && element.props.session.id === id).props.selectRef(node);
+  // Within the window: the set drops c 1.9 s after the success, and focus still moves to c's row.
+  dom.focus(buttons.c);
+  unarchiveButton(a, 'c').props.onClick();
+  await settle();
+  a.tree();
+  assert.equal(dom.active(), '取消归档 c', 'while DSH still lists the task, its button keeps focus');
+  now += 1900;
+  a.set.ids = ['b'];
+  buttons.c.isConnected = false;
+  dom.focus(dom.body);
+  rowRef('c', dom.node('row c'));
+  a.tree();
+  assert.equal(dom.active(), 'row c');
+  // Too late: the set drops b 2.1 s after the success, and focus stays where it is.
+  dom.focus(buttons.b);
+  unarchiveButton(a, 'b').props.onClick();
+  await settle();
+  a.tree();
+  now += 2100;
+  a.set.ids = [];
+  buttons.b.isConnected = false;
+  dom.focus(dom.body);
+  rowRef('b', dom.node('row b'));
+  a.tree();
+  assert.equal(dom.active(), 'body', 'an expired move does nothing');
+  assert.equal(a.announcement(), '任务已取消归档');
 });
 
 test('#55: a failed 取消归档 keeps focus on its button, and 撤销 in the drawer moves no focus', async (t) => {
@@ -4037,4 +4159,39 @@ test('#55: a last 加载更多 that adds nothing shown focuses the count line, a
   await settle();
   commitCatalog(f, view, (tree) => { detailsButton(tree, 'c20').props.ref(dom.node('c20')); });
   assert.equal(dom.active(), 'search');
+});
+
+test('#55: a failed last 加载更多 keeps the button and its focus', async (t) => {
+  const { f, pending, view, button } = await pagedCatalog(t);
+  const dom = focusDom(t);
+  pending[0].resolve(catalogPage(range(0, 20), { total: 25, hasMore: true }));
+  await settle();
+  const more = dom.node('加载更多');
+  button('加载更多').props.ref(more);
+  dom.focus(more);
+  button('加载更多').props.onClick();
+  pending[1].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
+  await settle();
+  commitCatalog(f, view, (tree) => { findAll(tree, (node) => node.props?.className === 'pg-note pg-catalog-count')[0]?.props.ref(dom.node('count')); });
+  assert.ok(button('加载更多'), 'the button stays for another try');
+  assert.equal(button('加载更多').props['aria-disabled'], undefined);
+  assert.equal(dom.active(), '加载更多');
+});
+
+test('#55: 加载更多 is aria-disabled while a page-1 read runs, and a press then reads nothing', async (t) => {
+  const { pending, button } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(range(0, 20), { total: 25, hasMore: true }));
+  await settle();
+  assert.equal(button('加载更多').props['aria-disabled'], undefined);
+  button('刷新目录').props.onClick();
+  await settle();
+  assert.equal(pending.length, 2);
+  assert.equal(button('加载更多').props['aria-disabled'], true);
+  assert.equal(button('加载更多').props.disabled, undefined, 'not disabled, so a focused button keeps focus');
+  button('加载更多').props.onClick();
+  await settle();
+  assert.equal(pending.length, 2, 'the press is ignored');
+  pending[1].resolve(catalogPage(range(0, 20), { total: 25, hasMore: true }));
+  await settle();
+  assert.equal(button('加载更多').props['aria-disabled'], undefined);
 });
