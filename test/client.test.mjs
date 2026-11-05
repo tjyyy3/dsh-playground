@@ -3843,16 +3843,35 @@ test('#55: the drawer leaves keys to another dialog, to a handler that took them
   const drawer = fakeDrawer(dom);
   dom.focus(opener);
   h.open(drawer.attach);
-  // A host dialog above the drawer, outside it: its keys are its own.
-  const hostDialog = { name: 'host dialog' };
-  const hostButton = dom.node('host button', { closest: (selector) => (selector === '[aria-modal="true"],[role="dialog"]' ? hostDialog : null) });
-  dom.focus(hostButton);
-  assert.equal(press(h.listeners, 'Tab'), false, 'Tab inside another dialog is not intercepted');
-  assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false);
-  assert.equal(dom.active(), 'host button');
-  press(h.listeners, 'Escape');
-  assert.ok(h.drawerElement(), 'Escape in another dialog does not close the drawer');
-  assert.equal(dom.active(), 'host button', 'nor gives focus back behind that dialog');
+  // A host dialog above the drawer, outside it: its keys are its own. `closest` matches the selector's parts
+  // against the owner (`[attr="value"]` or a tag name), so each kind of host dialog is recognised only through
+  // the selector the drawer uses.
+  const matches = (owner, selector) => selector.split(',').some((part) => {
+    const attribute = /^\[([\w-]+)="([^"]*)"\]$/.exec(part.trim());
+    return attribute ? owner.attributes[attribute[1]] === attribute[2] : owner.tagName === part.trim().toUpperCase();
+  });
+  const owners = [
+    ['aria-modal dialog', { tagName: 'DIV', attributes: { role: 'dialog', 'aria-modal': 'true' } }],
+    ['role=dialog', { tagName: 'DIV', attributes: { role: 'dialog' } }],
+    ['role=alertdialog', { tagName: 'DIV', attributes: { role: 'alertdialog' } }],
+    ['native <dialog>', { tagName: 'DIALOG', attributes: {} }],
+  ];
+  for (const [label, owner] of owners) {
+    const hostButton = dom.node('host button', { closest: (selector) => (matches(owner, selector) ? owner : null) });
+    dom.focus(hostButton);
+    assert.equal(press(h.listeners, 'Tab'), false, `${label}: Tab inside another dialog is not intercepted`);
+    assert.equal(press(h.listeners, 'Tab', { shiftKey: true }), false, label);
+    assert.equal(dom.active(), 'host button', label);
+    press(h.listeners, 'Escape');
+    assert.ok(h.drawerElement(), `${label}: Escape in another dialog does not close the drawer`);
+    assert.equal(dom.active(), 'host button', `${label}: nor gives focus back behind that dialog`);
+    // With focus on body the focus rule alone would let both keys through, so only the dialog check decides here.
+    dom.focus(dom.body);
+    assert.equal(press(h.listeners, 'Tab', { target: hostButton }), false, `${label}: the dialog check alone leaves Tab`);
+    press(h.listeners, 'Escape', { target: hostButton });
+    assert.ok(h.drawerElement(), `${label}: the dialog check alone leaves Escape`);
+    assert.equal(dom.active(), 'body', label);
+  }
   // An Escape a handler already took is left alone too, even from inside the drawer.
   dom.focus(drawer.items[0]);
   press(h.listeners, 'Escape', { defaultPrevented: true });
@@ -3881,6 +3900,40 @@ test('#55: the drawer leaves keys to another dialog, to a handler that took them
   press(h.listeners, 'Escape');
   assert.equal(h.drawerElement(), undefined, 'Escape from the drawer\'s own dialog closes it');
   assert.equal(dom.active(), '查看详情');
+});
+
+test('#55: Escape closes the drawer only while it is displayed and focus is inside it or on body', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const dom = focusDom(t);
+  const opener = dom.node('查看详情');
+  const drawer = fakeDrawer(dom);
+  const reopen = () => { h.unmountDrawer(); dom.focus(opener); h.open(drawer.attach); };
+  dom.focus(opener);
+  h.open(drawer.attach);
+  // Focus on DSH chrome that is not a dialog (the sidebar, the chat composer): the Escape is not the drawer's.
+  const sidebar = dom.node('DSH sidebar');
+  dom.focus(sidebar);
+  assert.equal(press(h.listeners, 'Escape'), false);
+  assert.ok(h.drawerElement(), 'Escape from focus outside the drawer does not close it');
+  assert.equal(dom.active(), 'DSH sidebar', 'nor moves focus');
+  // Undisplayed (the workbench is hidden but still mounted): Escape is left alone even from inside or body.
+  drawer.dialog.getClientRects = () => [];
+  for (const target of [drawer.title, drawer.items[0], dom.body]) {
+    dom.focus(target);
+    press(h.listeners, 'Escape');
+    assert.ok(h.drawerElement(), `hidden drawer, Escape from ${target.name}`);
+    assert.equal(dom.active(), target.name, `hidden drawer, Escape from ${target.name} moves no focus`);
+  }
+  // Displayed (a box, or no layout information at all): Escape from inside the drawer or from body closes it and
+  // gives focus back to the opener.
+  for (const [label, rects, target] of [['inside', () => [{}], () => drawer.items[1]], ['body', undefined, () => dom.body]]) {
+    reopen();
+    if (rects) drawer.dialog.getClientRects = rects; else delete drawer.dialog.getClientRects;
+    dom.focus(target());
+    press(h.listeners, 'Escape');
+    assert.equal(h.drawerElement(), undefined, `Escape from ${label} closes the drawer`);
+    assert.equal(dom.active(), '查看详情', `Escape from ${label} gives focus back to 查看详情`);
+  }
 });
 
 test('#55: the task drawer moves focus in, gives it back to its row, and falls back to 任务总览 for an archived task', async (t) => {
@@ -4017,7 +4070,7 @@ test('#55: without the restored row, focus goes to the next archived row, then t
 
 test('#55: the focus move after 取消归档 waits for DSH\'s archive set for two seconds, then expires', async (t) => {
   let now = 1_000_000;
-  t.mock.method(Date, 'now', () => now);
+  t.mock.method(performance, 'now', () => now);
   // The change succeeds, but DSH publishes its archive set only when the test says so.
   const a = await archiveFixture(t, { archived: ['b', 'c'], uiWorkspace: { archiveSession: async () => {}, unarchiveSession: async () => {} } });
   const dom = focusDom(t);

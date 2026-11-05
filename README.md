@@ -335,9 +335,13 @@ It closes with **关闭**, a click on the backdrop, or Escape. Both drawers
 (this one and the task drawer below) move keyboard focus to their title when
 they open and keep Tab and Shift+Tab inside the drawer, also from an element
 that Tab does not stop at, such as the submission history list. A key pressed
-inside another dialog, such as a DSH prompt above the drawer, is left to that
-dialog, and Tab is left to the browser while the drawer is not displayed or
-focus is outside it. Closing them, including through an action such as
+inside another dialog (an element with `role="dialog"`, `role="alertdialog"`,
+`aria-modal="true"`, or a native `<dialog>`), such as a DSH prompt above the
+drawer, is left to that dialog, and a key another handler already took
+(`defaultPrevented`) is ignored. Tab and Escape act only while the drawer is
+displayed and focus is inside it or on the page body: with the drawer hidden
+or focus elsewhere in DSH, Tab is left to the browser, and Escape neither
+closes the drawer nor moves focus. Closing them, including through an action such as
 starting a task or opening the task conversation, returns focus to the button
 that opened the drawer. When that button is gone, or nothing had focus when the
 drawer opened, focus goes to the task's row in the task overview (task drawer

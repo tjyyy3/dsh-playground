@@ -880,9 +880,10 @@ window.__ModuleLoader__.load({
     // parent removes restores only when focus was lost with it; when the whole panel is gone, no target is
     // connected and nothing is focused.
     // The keydown listener is on the document, so it acts only on keys that belong to this drawer: never on a key
-    // pressed inside another dialog (a host prompt above the drawer) or one a handler already took, and Tab only
-    // while the drawer is displayed and focus is inside it or nowhere (body). A drawer left mounted in a hidden
-    // workbench, or focus the host moved elsewhere, leaves Tab to the browser.
+    // pressed inside another dialog (a host prompt above the drawer) or one a handler already took, and on Tab and
+    // Escape only while the drawer is displayed and focus is inside it or nowhere (body). A drawer left mounted in a
+    // hidden workbench, or focus the host moved elsewhere, leaves both keys to the browser and the host: no close
+    // and no focus move.
     function useDrawerFocus(fallback) {
       const [focus] = React.useState(() => ({ opener: typeof document === 'undefined' ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: () => {} }));
       focus.fallback = fallback;
@@ -898,17 +899,18 @@ window.__ModuleLoader__.load({
         focus.title?.focus?.();
         // A dialog around `target` that is not this drawer and not inside it.
         const inForeignDialog = (target) => {
-          const owner = target?.closest?.('[aria-modal="true"],[role="dialog"]');
+          const owner = target?.closest?.('[aria-modal="true"],[role="dialog"],[role="alertdialog"],dialog');
           return Boolean(owner && owner !== focus.dialog && !focus.dialog?.contains?.(owner));
         };
         const onKeyDown = (event) => {
+          if (event.key !== 'Escape' && event.key !== 'Tab') return;
           if (event.defaultPrevented || inForeignDialog(event.target)) return;
-          if (event.key === 'Escape') { focus.dismiss(); return; }
-          if (event.key !== 'Tab' || !focus.dialog) return;
-          if (typeof focus.dialog.getClientRects === 'function' && !focus.dialog.getClientRects().length) return;
+          if (typeof focus.dialog?.getClientRects === 'function' && !focus.dialog.getClientRects().length) return;
           const active = document.activeElement;
-          const inside = Boolean(active && focus.dialog.contains?.(active));
+          const inside = Boolean(active && focus.dialog?.contains?.(active));
           if (!inside && active && active !== document.body) return;
+          if (event.key === 'Escape') { focus.dismiss(); return; }
+          if (!focus.dialog) return;
           const items = tabbables(focus.dialog);
           // Wrap by document position, so focus on an element Tab does not stop at (the title, the history list or
           // heading at the end) wraps too: Tab when no item follows it, Shift+Tab when none precedes it.
@@ -1313,11 +1315,12 @@ window.__ModuleLoader__.load({
       // Focus the user moved elsewhere in the meantime is left alone. The move expires `unarchiveFocusMs` after the
       // change succeeded: DSH normally publishes its archive set at once, and a move much later would pull focus away
       // from whatever the user does by then (a click on empty space also leaves focus on body). After expiry focus
-      // stays where it is, as without the move.
+      // stays where it is, as without the move. The window uses the monotonic `performance.now()`, so a system clock
+      // adjustment neither stretches nor cuts it.
       React.useEffect(() => {
         const pending = nav.restored;
         if (!pending) return;
-        if (Date.now() - pending.at > unarchiveFocusMs) { nav.restored = null; return; }
+        if (performance.now() - pending.at > unarchiveFocusMs) { nav.restored = null; return; }
         if (archivedSet.has(pending.id)) return;
         nav.restored = null;
         const active = typeof document === 'undefined' ? undefined : document.activeElement;
@@ -1344,7 +1347,7 @@ window.__ModuleLoader__.load({
             if (result?.ok === false) { setArchiveError({ id, message: result.message }); setAnnouncement(result.message); }
             else {
               setAnnouncement(archive ? '任务已归档' : '任务已取消归档');
-              if (fromList && !archive) nav.restored = { id, ...neighbours, at: Date.now() };
+              if (fromList && !archive) nav.restored = { id, ...neighbours, at: performance.now() };
             }
           });
       };
