@@ -4555,6 +4555,13 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   assert.ok(offlineButton);
   offlineButton.props.onClick();
   assert.deepEqual(opened, ['task-1', 'task-1', 'task-1']);
+  // And a login check the platform answered with an error.
+  const checkFailed = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'login_check_failed', message: '没有提交：检查登录状态时 Playground 没有给出可用的回复，没有写入平台。' } } } } });
+  const checkFailedButton = f.find(checkFailed, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
+  assert.ok(checkFailedButton);
+  checkFailedButton.props.onClick();
+  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1', 'task-1']);
   // A refusal that cleared the card (another login) offers no confirmation in the workbench.
   const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
     block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });

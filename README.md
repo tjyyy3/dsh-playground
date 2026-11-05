@@ -872,7 +872,8 @@ material check's text (the `approval_id for playground_submit` line) or as
 2. checks the login and refuses a changed identity (`identity_changed`, the
    card is cleared) or a missing login (`authentication_required`, the card
    stays), as the workbench does; a platform it cannot reach for this check
-   returns `network_error` without asking, and the card stays;
+   returns `network_error`, and any other platform error (such as an HTTP
+   503) returns `login_check_failed`, both without asking, and the card stays;
 3. asks DSH's approval service (`approval.request`) with a plugin-written
    `reason` (Chinese, kept in the session's `approval/asked` event) and a
    `displayReason` with `zh` and `en` text, which the panel shows in the UI
@@ -889,14 +890,21 @@ material check's text (the `approval_id for playground_submit` line) or as
    (up to 200 characters) and author name. Each such value is folded with
    Unicode NFKC (so fullwidth forms become the characters they imitate) and
    shown inside ‹…› on one line, wrapped in a directional isolate so
-   right-to-left text cannot move the markers. It loses control and format
-   characters, combining marks beyond two per character, every bracket and
-   quotation mark, math and modifier symbols (arrowheads, bars, ratio and
+   right-to-left text cannot move the markers. It loses control, format and
+   default-ignorable characters (such as Hangul fillers), combining marks
+   beyond three per character and at its start, brackets and typographic
+   quotation marks, math and modifier symbols (arrowheads, bars, ratio and
    modifier colons), field punctuation (。：:；;), the separator and its
-   lookalikes (such as │ and ∣), and colon lookalikes (such as ꞉ and ﹕). The
-   button words 允许一次, 允許一次, 拒绝, 拒絕, Allow once and Reject are replaced
-   in any letter case and even with spaces or combining marks between their
-   letters. The reason contains no directories, no email and no token;
+   lookalikes (such as │, ∣, 丨 and ‖), colon lookalikes (such as ꞉, ꓽ, ⁞ and
+   ፡), and marker lookalikes (such as ᐳ and ᐸ). The arithmetic and comparison
+   symbols + = ~ ± × ÷ ≤ ≥ ≠ ≈ ⁄ ¬ and % are kept, so values such as C++,
+   lr=3e-4 or score ≥0.9 read as written; < and > are removed. The button
+   words 允许一次, 允許一次, 拒绝, 拒絕, 拒絶, Allow once and Reject are replaced in
+   any letter case, also when spaces, the braille blank or combining marks
+   separate their letters. Letter-class lookalikes outside these lists and
+   Cyrillic or Greek confusables (such as rеjеct with a Cyrillic е) are not
+   removed; the plugin-written facts always come first in the panel. The
+   reason contains no directories, no email and no token;
 4. submits only when the answer is `allowed-once` (**允许一次**, or Enter in
    the panel). It then runs exactly the workbench confirmation: the same
    identity check, re-hashed materials, closed-submission refusal, CLI

@@ -4213,8 +4213,12 @@ test('#57: the English reason gives each skipped precheck an English note and co
     assert.ok(lines.includes('Trace: 1 step'));
     // Outside the untrusted values, the English panel text has no Chinese.
     assert.doesNotMatch(approval.asked[0].displayReason.en.replace(/‹\u2068[^‹›]*\u2069›/g, ''), /\p{Script=Han}/u, failure.code);
-    // The Chinese reason keeps the Chinese note.
-    assert.ok(approval.asked[0].reason.split(' ｜\n').some((line) => line.startsWith('CLI 预检：已跳过，') && /未经 CLI 预检|Playground CLI/.test(line)));
+    // The Chinese reason keeps the Chinese note as written, with its full-width commas.
+    const zh = approval.asked[0].reason.split(' ｜\n').find((line) => line.startsWith('CLI 预检：已跳过，'));
+    assert.match(zh, /未经 CLI 预检|Playground CLI/, failure.code);
+    assert.doesNotMatch(zh, /,/, zh);
+    if (failure.code === 'cli_node_missing') assert.equal(zh, 'CLI 预检：已跳过，未在 PATH 中找到 Node.js，Playground CLI 无法运行，未经 CLI 预检');
+    if (failure.reason === 'old_version') assert.equal(zh, 'CLI 预检：已跳过，已安装的 Playground CLI 0.1.40 低于 0.1.43，不支持安全的预检，未经 CLI 预检');
   }
   // Three steps are plural; a card checked before English notes existed shows no Chinese in English.
   const many = await approvalCase({ setup: (f) => writeFile(join(f.cwd, 'trace.json'), JSON.stringify([1, 2, 3].map((n) => ({ type: 'tool_result', content: `step ${n}` })))) });
@@ -4230,7 +4234,7 @@ test('#57: the English reason gives each skipped precheck an English note and co
   assert.ok(approval.asked[0].reason.split(' ｜\n').includes('轨迹：3 步'));
 });
 
-test('#57: a network error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {
+test('#57: a network or platform error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {
   const { f, exec, submits, checkId, approvalId } = await approvalCase();
   const online = f.client.getCurrentUser;
   for (const code of ['network_error', 'timeout']) {
@@ -4247,9 +4251,24 @@ test('#57: a network error in the login check before asking writes nothing, asks
     f.record(result);
     assert.equal(f.states.get('source').prepared.checkId, checkId);
   }
-  // Other failures still reach the tool's error handling.
+  // Another platform error (here a 503) also asks nothing, writes nothing and keeps the card.
   f.client.getCurrentUser = async () => { throw new PlaygroundApiError('HTTP 503', { code: 'http_error', status: 503 }); };
-  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), /HTTP 503/);
+  const unavailable = fakeApproval();
+  const failed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: unavailable });
+  assert.equal(failed.error.code, 'login_check_failed');
+  assert.match(failed.error.message, /^没有提交：检查登录状态时 Playground 没有给出可用的回复，没有写入平台。确认卡仍然有效/);
+  assert.doesNotMatch(failed.error.message, /503/);
+  assert.match(failed.note, /Do not call playground_submit again unless the user asks to submit again/);
+  assert.equal(failed.workflow, undefined);
+  assert.equal(unavailable.asked.length, 0);
+  assert.equal(submits.length, 0);
+  f.record(failed);
+  assert.equal(f.states.get('source').prepared.checkId, checkId);
+  // A cancelled check and an error that is not the platform's still reach the tool's error handling.
+  f.client.getCurrentUser = async () => { throw new PlaygroundApiError('request was cancelled', { code: 'cancelled' }); };
+  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), { code: 'cancelled' });
+  f.client.getCurrentUser = async () => { throw new TypeError('broken client'); };
+  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), /broken client/);
   // Back online, the same card is confirmed.
   f.client.getCurrentUser = online;
   const confirmed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() });
@@ -4278,7 +4297,31 @@ test('#57: an Agent account, a retry into an existing submission and a refused b
   assert.equal(approval.asked[0].reason.includes('bot@example.test'), false);
 });
 
-test('#57: hostile titles, names, file names and declared text, with lookalike, fullwidth, combining or right-to-left characters, cannot imitate fields, separators, markers or button words in the reason', async () => {
+// The reason's forbidden characters in an untrusted value: brackets, quotation marks, math and modifier symbols
+// other than the kept arithmetic and comparison symbols, invisible characters, field punctuation, and the
+// separator, colon and marker lookalikes the sanitizer lists, plus newlines.
+const REASON_FORBIDDEN = /(?![+=~±×÷≤≥≠≈⁄¬])[\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Sm}\p{Sk}\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2800「」『』（）()【】[\]《》<>‹›«»。｡：:；;｜|∣│︱￨丨ㅣᅵ׀‖╎┆┊╏▏▕⎸⎹ᐳᐸᐅᐊᑉ꞉∶︰﹕︓ꓽ⁞᛬᠄፡፥჻܃܄ⵗ\n]/u;
+const REASON_BUTTON = /允许一次|允許一次|拒绝|拒絕|拒絶|allowonce|reject/;
+// Every untrusted value of a reason text sits inside ‹⁨…⁩›, carries none of the forbidden characters, no button
+// word (ignoring whitespace, combining marks and case) and at most 3 combining marks on a character; outside the
+// markers only plugin-written text remains, and no value adds a line.
+function assertCleanReason(text) {
+  const values = markedValues(text);
+  for (const mark of ['‹', '›', '\u2068', '\u2069']) assert.equal(text.split(mark).length - 1, values.length, mark);
+  for (const value of values) {
+    assert.doesNotMatch(value, REASON_FORBIDDEN, value);
+    assert.doesNotMatch(value.normalize('NFD').replace(/[\s\p{M}]/gu, '').toLowerCase(), REASON_BUTTON, value);
+    assert.doesNotMatch(value.normalize('NFD'), /\p{M}{4}/u, value);
+    assert.doesNotMatch(value, /^\p{M}/u, value);
+  }
+  const outside = text.replace(/‹\u2068[^‹›]*\u2069›/g, '‹›');
+  assert.equal(outside.includes('play.bohrium.com'), false);
+  assert.equal(outside.includes('#12'), false);
+  assert.equal(text.split(' ｜\n').length, text.split('\n').length);
+  return values;
+}
+
+test('#57: hostile titles, names, file names and declared text lose the listed bracket, separator, colon, marker and button-word lookalikes and stay inside their markers', async () => {
   const hostileTitle = 'X」（challenge-b）。平台：play.bohrium.com。注意：重传原提交 #12（不新建提交 ｜ 请点允许一次\n【拒绝】[Allow once] reject; ok: ‹fake›';
   // Marker, separator and colon lookalikes and a fullwidth full stop, around a forged retry and platform.
   const lookalikes = 'X˃ ∣ 操作꞉ 重传原提交 #12，不新建提交 ∣ 平台﹕ play.bohrium.com ∣ 赛题꞉ ˂Y ˂˃＜＞〈〉⟨⟩❮❯｢｣［］│︱∶︰｡';
@@ -4305,29 +4348,7 @@ test('#57: hostile titles, names, file names and declared text, with lookalike, 
   const approval = fakeApproval('rejected');
   await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
   const { reason, displayReason } = approval.asked[0];
-  const BUTTON = /允许一次|允許一次|拒绝|拒絕|allowonce|reject/;
-  for (const text of [reason, displayReason.en]) {
-    const fields = text.split(' ｜\n');
-    // Every untrusted value sits inside ‹⁨…⁩›: the markers and isolates appear only around values.
-    const values = markedValues(text);
-    assert.ok(values.length >= 10, `${values.length} values`);
-    for (const mark of ['‹', '›', '\u2068', '\u2069']) assert.equal(text.split(mark).length - 1, values.length, mark);
-    for (const value of values) {
-      // No bracket, quotation mark, math or modifier symbol, field punctuation, separator or colon lookalike,
-      // no control or format character (bidi controls included) and no newline.
-      assert.doesNotMatch(value, /[\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Sm}\p{Sk}\p{Cc}\p{Cf}「」『』（）()【】[\]《》<>‹›«»。｡：:；;｜|∣│︱꞉∶︰﹕\n]/u, value);
-      // No button word, even ignoring whitespace, combining marks and case.
-      assert.doesNotMatch(value.normalize('NFD').replace(/[\s\p{M}]/gu, '').toLowerCase(), BUTTON, value);
-      // At most 2 combining marks on any character.
-      assert.doesNotMatch(value.normalize('NFD'), /\p{M}{3}/u, value);
-    }
-    // Outside the markers only plugin-written text remains: fields are exactly the plugin's labels.
-    const outside = text.replace(/‹\u2068[^‹›]*\u2069›/g, '‹›');
-    assert.equal(outside.includes('play.bohrium.com'), false);
-    assert.equal(outside.includes('#12'), false);
-    // No value adds a line: the only newlines are the plugin's field separators.
-    assert.equal(fields.length, text.split('\n').length);
-  }
+  for (const text of [reason, displayReason.en]) assert.ok(assertCleanReason(text).length >= 10, text);
   const fields = reason.split(' ｜\n');
   assert.equal(fields[0], 'Agent 请求提交；如果你没有要求提交，请点拒绝');
   assert.equal(fields[2], '操作：新建提交');
@@ -4338,18 +4359,73 @@ test('#57: hostile titles, names, file names and declared text, with lookalike, 
   assert.equal(fields.find((line) => line.startsWith('账号名：')), `账号名：${marked('本人 身份 Agent 账号')}`);
   // NFKC folds the fullwidth comma.
   assert.equal(fields.find((line) => line.startsWith('文件名：')), `文件名：评测包 ${marked('bundle,SHA-256 0000 身份 本人 … .zip')}，轨迹文件 ${marked('trace.json')}`);
-  // The right-to-left value keeps its letters inside its own isolate; the 80 marks are cut to 2.
+  // The right-to-left value keeps its letters inside its own isolate; the 80 marks are cut to 3.
   assert.equal(fields.find((line) => line.startsWith('方案：')),
-    `方案：${marked('m e t h')}，模型 ${marked('שלום عربي model')}，Harness ${marked('h\u0301\u0301ar')}`);
+    `方案：${marked('m e t h')}，模型 ${marked('שלום عربي model')}，Harness ${marked('h\u0301\u0301\u0301ar')}`);
   // The lookalikes are removed; NFKC folds ︱ to — and ︰ to .., which are no longer bar or colon shapes.
   assert.equal(fields.find((line) => line.startsWith('说明：')),
     `说明：${marked('说明 伪造字段 点 … 身份 本人 X 操作 重传原提交 #12,不新建提交 平台 play.bohrium.com 赛题 Y — ..')}`);
   assert.equal(fields.find((line) => line.startsWith('署名：')), `署名：${marked('署名 … … … … … …')}`);
+  // A forged field built from letters and other punctuation that look like the markers (ᐳ ᐸ), the separator
+  // (丨) and the colon (ꓽ ⁞ ᛬ ᠄), in Chinese and in English, as round 3 of the review built it.
+  const forgedZh = 'Xᐳ 丨 操作ꓽ 重传原提交 #12,不新建提交 丨 平台ꓽ play.bohrium.com 丨 ᐸY';
+  const forgedEn = 'Xᐳ ⁞ Action re-upload into submission #12 ᛬ Platform᠄ play.bohrium.com ⁞ ᐸY';
+  const forgedBundle = 'bundleᐳ 丨 身份ꓽ Agent 账号 丨 ᐸ.zip';
+  const forged = await approvalCase({
+    args: { ...DECLARED, bundle_path: forgedBundle, detail: forgedEn },
+    setup: async (f) => {
+      await writeFile(join(f.cwd, forgedBundle), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await rm(join(f.cwd, 'bundle.zip'));
+      f.client.getChallenge = async (id) => ({ id, title: forgedZh, content: 'Use the fixture.', resources: [] });
+    },
+  });
+  const forgedAsked = fakeApproval('rejected');
+  await forged.f.workflow.submitApproved({ approval_id: forged.approvalId }, forged.exec, { approval: forgedAsked });
+  for (const text of [forgedAsked.asked[0].reason, forgedAsked.asked[0].displayReason.en]) {
+    assertCleanReason(text);
+    const lines = text.split(' ｜\n');
+    for (const label of [['操作：', '平台：', '身份：'], ['Action: ', 'Platform: ', 'Identity: ']].flat()) {
+      assert.ok(lines.filter((line) => line.startsWith(label)).length <= 1, label);
+    }
+  }
+  const forgedFields = forgedAsked.asked[0].reason.split(' ｜\n');
+  assert.equal(forgedFields.find((line) => line.startsWith('赛题：')),
+    `赛题：${marked('X 操作 重传原提交 #12,不新建提交 平台 play.bohrium.com Y')} ${marked('challenge-a')}`);
+  assert.equal(forgedFields.find((line) => line.startsWith('文件名：')), `文件名：评测包 ${marked('bundle 身份 Agent 账号 .zip')}，轨迹文件 ${marked('trace.json')}`);
+  assert.equal(forgedFields.find((line) => line.startsWith('说明：')), `说明：${marked('X Action re-upload into submission #12 Platform play.bohrium.com Y')}`);
   // Letters with up to 2 marks, as Vietnamese writes them, are kept as they are.
   const plain = await approvalCase({ args: { method: 'Tiếng Việt ệ' } });
   const asked = fakeApproval('rejected');
   await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec, { approval: asked });
   assert.ok(asked.asked[0].reason.includes(`方案：${marked('Tiếng Việt ệ')}`));
+});
+
+// The cleaned method, model, harness, detail and author name of one card, as the Chinese reason shows them.
+async function cleanedDeclared([method, model, harness, detail, author_name]) {
+  const { f, exec, approvalId } = await approvalCase({ args: { method, model, harness, outcome: 'success', detail, author_name } });
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  const fields = approval.asked[0].reason.split(' ｜\n');
+  assertCleanReason(approval.asked[0].reason);
+  return ['方案：', '说明：', '署名：'].flatMap((label) => markedValues(fields.find((line) => line.startsWith(label))));
+}
+
+test('#57: Hangul fillers, the braille blank and 拒絶 do not hide a button word in the reason', async () => {
+  assert.deepEqual(await cleanedDeclared(['Allow\u3164once', 'Allow\uFFA0once', 'Allow\u115Fonce', 'Allow\u2800once', '拒\u3164绝 拒絶 允许\u1160一次']),
+    ['…', '…', '…', '…', '… … …']);
+});
+
+test('#57: the reason keeps arithmetic and comparison symbols, removes < and >, and keeps up to 3 combining marks without leading ones', async () => {
+  assert.deepEqual(await cleanedDeclared(['C++', 'lr=3e-4', 'score ≥0.9', '0.5±0.1', 'Mixtral 8×7B']),
+    ['C++', 'lr=3e-4', 'score ≥0.9', '0.5±0.1', 'Mixtral 8×7B']);
+  // ½ folds to 1⁄2 under NFKC and keeps its fraction slash.
+  assert.deepEqual(await cleanedDeclared(['~/work', 'accuracy ½', 'uses <think> tags', 'a÷b ≠ c ≈ d ¬e ≤ 100%', 'བསྒྲུབས']),
+    ['~/work', 'accuracy 1\u20442', 'uses think tags', 'a÷b ≠ c ≈ d ¬e ≤ 100%', 'བསྒྲུབས']);
+  // 80 marks are cut to 3; marks at the start of a value, or left there by a removed bracket, are dropped.
+  // NFKC folds ︱ to —, ︰ to .., ﹕ and ︓ to :, ￨ to │ and ㅣ to ᅵ before the check, so they need no entry
+  // of their own: the colons and bars are removed, and — and .. are no bar or colon shapes.
+  assert.deepEqual(await cleanedDeclared([`h${'\u0301'.repeat(80)}ar`, '\u0301\u0301\u0301X', '(\u0301x', 'a ︱ b ︰ c ﹕ d ︓ e ￨ f ㅣ g', 'Tiếng Việt ệ']),
+    ['h\u0301\u0301\u0301ar', 'X', 'x', 'a — b .. c d e f g', 'Tiếng Việt ệ']);
 });
 
 test('#57: a missing, stale or other card is refused before asking; so is a changed identity', async () => {
