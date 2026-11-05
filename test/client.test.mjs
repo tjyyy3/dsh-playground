@@ -3199,7 +3199,8 @@ test('#12: an empty or malformed token is rejected in the Client and never store
   const panel = await tokenPanel(t, { authenticated: false, baseUrl: 'https://play.bohrium.com/api', reason: 'no_token' });
   panel.tokenInput().props.onChange({ target: { value: '   ' } });
   panel.rerender();
-  assert.equal(panel.f.find(panel.tokenForm(), (node) => node.type === 'button' && node.props.type === 'submit').props.disabled, true);
+  // The button stays enabled, so a click on an empty field explains what is missing.
+  assert.equal(panel.f.find(panel.tokenForm(), (node) => node.type === 'button' && node.props.type === 'submit').props.disabled, false);
   panel.tokenForm().props.onSubmit({ preventDefault() {} });
   await settle();
   assert.match(text(panel.rerender()), /请先粘贴 API 令牌/);
@@ -3243,6 +3244,8 @@ test('#12: a token the platform refuses is kept, explained, and offered for clea
   for (const [auth, expected, clearable] of [
     [{ authenticated: false, reason: 'rejected', tokenSource: 'cli_file', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' }, /令牌无效、已过期或已撤销。当前令牌来自CLI 凭据文件 ~\/\.config\/playground\/credentials\.env.*playground auth login/, false],
     [{ authenticated: false, reason: 'rejected', tokenSource: 'env' }, /环境变量 PLAYGROUND_TOKEN/, false],
+    // An unconfirmed DSH origin is not offered for clearing: unsetting might not remove it.
+    [{ authenticated: false, reason: 'rejected', tokenSource: 'dsh_other' }, /令牌来源：DSH 凭据（来源未确认）.*无法确认它保存在 DSH 中还是来自 DSH 的环境变量/, false],
     [{ authenticated: false, reason: 'forbidden', tokenSource: 'dsh' }, /无权访问.*HTTP 403/, true],
     [{ authenticated: false, reason: 'network', tokenSource: 'dsh' }, /检测失败.*无法连接 Playground 平台/, true],
     [{ authenticated: false, reason: 'unavailable' }, /检测失败.*暂时无法确认登录状态/, false],
@@ -3323,4 +3326,168 @@ test('#12: email login removes the password from the DSH credential store after 
   const g = await clientFixture(t, { remote: { credentials: { set: async () => {}, unset: async () => { throw new Error('denied'); } } },
     connection: { rpc: { call: async () => ({ ok: true, value: { ok: true, authenticated: true } }) } } });
   assert.deepEqual(await g.registrations.get('main').definition.inject().login('a@example.test', 'pw'), { ok: true, authenticated: true });
+});
+
+const BASE = 'https://play.bohrium.com/api';
+const FILE_FACTS = { cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' };
+const otherLogin = (panel) => panel.f.find(panel.tree, (node) => node.type === 'details' && text(node).trim().startsWith('其他登录方式'));
+const loginNote = (panel) => panel.f.find(panel.tree, (node) => String(node.props?.className || '').includes('pg-auth-login-note'));
+const statusLine = (panel) => panel.f.find(panel.tree, (node) => node.props?.role === 'status');
+// Fill in and send the email form under 其他登录方式; `after` is what the auth check answers afterwards.
+async function emailLogin(panel, after) {
+  const field = (type) => panel.f.find(otherLogin(panel), (node) => node.type === 'input' && node.props.type === type);
+  field('email').props.onChange({ target: { value: 'ada@example.test' } });
+  panel.rerender();
+  field('password').props.onChange({ target: { value: 'synthetic-password' } });
+  panel.rerender();
+  if (after) panel.setAuth(after);
+  panel.f.find(otherLogin(panel), (node) => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  for (let round = 0; round < 4; round += 1) await settle();
+  return panel.rerender();
+}
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('#12: an email login while a DSH token is in use says, outside the collapsed section, that the stored token still wins', async (t) => {
+  const refused = { authenticated: false, baseUrl: BASE, reason: 'rejected', tokenSource: 'dsh', ...FILE_FACTS };
+  const panel = await tokenPanel(t, refused);
+  assert.equal(loginNote(panel), undefined);
+  await emailLogin(panel);
+  assert.ok(panel.calls.some(([kind, , method]) => kind === 'rpc' && method === 'playgroundQueries/login'), 'the CLI login ran');
+  const note = loginNote(panel);
+  assert.ok(note, 'the result is shown');
+  assert.match(text(note), /CLI 登录成功，但插件仍在使用DSH 凭据中保存的令牌，它优先于 CLI 凭据文件。点击“清除令牌”后，插件改用刚登录的账号/);
+  assert.equal(panel.f.find(otherLogin(panel), (node) => node === note), undefined, 'not inside 其他登录方式');
+  assert.ok(panel.f.find(statusLine(panel), (node) => node === note), 'part of the announced status line');
+  assert.ok(panel.button('清除令牌'));
+  // Clearing lets the CLI file the login wrote take over; the notice goes away.
+  panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'cli_file', ...FILE_FACTS });
+  await panel.button('清除令牌').props.onClick();
+  panel.rerender();
+  assert.equal(loginNote(panel), undefined);
+  assert.match(panel.text(), /已登录.*Ada.*令牌来源：CLI 凭据文件/);
+  // Other sources that outrank the CLI file get their own next step and no 清除令牌.
+  for (const [auth, expected, clearable] of [
+    [{ ...refused, envToken: true }, /DSH 凭据中保存的令牌.*清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，仍不是刚登录的账号/, true],
+    [{ ...refused, tokenSource: 'env' }, /环境变量 PLAYGROUND_TOKEN 中的令牌.*移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH/, false],
+    [{ ...refused, tokenSource: 'config' }, /插件配置中的令牌.*请删除插件配置中的令牌/, false],
+    [{ ...refused, tokenSource: 'dsh_other' }, /DSH 凭据存储提供的令牌（来源未确认）/, false],
+  ]) {
+    panel.setAuth(auth);
+    panel.tree = await panel.f.mount(panel.element);
+    await emailLogin(panel);
+    assert.match(text(loginNote(panel)), expected, auth.tokenSource);
+    assert.equal(Boolean(panel.button('清除令牌')), clearable, auth.tokenSource);
+  }
+  // When the CLI file the login wrote is now the source, nothing is in the way.
+  panel.setAuth({ authenticated: false, baseUrl: BASE, reason: 'no_token', tokenSource: 'none' });
+  panel.tree = await panel.f.mount(panel.element);
+  await emailLogin(panel, { authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'cli_file', ...FILE_FACTS });
+  assert.equal(loginNote(panel), undefined);
+  assert.match(panel.text(), /已登录.*Ada/);
+  assert.doesNotMatch(JSON.stringify(rpcCalls(panel.calls)), /synthetic-password/);
+});
+
+test('#12: under a plugin-config token the card offers no token form and says the config must be changed', async (t) => {
+  const panel = await tokenPanel(t, { authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'config' });
+  assert.equal(panel.tokenForm(), undefined);
+  assert.equal(panel.f.find(panel.tree, (node) => node.type === 'summary' && text(node).trim() === '更换令牌'), undefined);
+  assert.match(panel.text(), /令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌/);
+  assert.equal(panel.button('清除令牌'), undefined);
+  // A refused config token is explained, but there is still no form for a token that would be ignored.
+  panel.setAuth({ authenticated: false, baseUrl: BASE, reason: 'rejected', tokenSource: 'config' });
+  panel.tree = await panel.f.mount(panel.element);
+  assert.match(panel.text(), /当前令牌来自插件配置，它优先于其他来源，在这里保存的令牌不会生效/);
+  assert.equal(panel.tokenForm(), undefined);
+  assert.equal(panel.button('清除令牌'), undefined);
+  assert.deepEqual(panel.calls.filter(([kind]) => kind === 'set'), []);
+  // Other sources keep the form.
+  for (const tokenSource of ['dsh', 'dsh_other', 'cli_file', 'env']) {
+    panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource });
+    panel.tree = await panel.f.mount(panel.element);
+    assert.ok(panel.tokenForm(), tokenSource);
+  }
+});
+
+test('#12: clearing while DSH also inherited PLAYGROUND_TOKEN says that variable takes over, not the CLI file', async (t) => {
+  const panel = await tokenPanel(t, { authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'dsh', envToken: true, ...FILE_FACTS });
+  assert.match(panel.text(), /DSH 的环境中还有 PLAYGROUND_TOKEN 变量。清除 DSH 中保存的令牌后，插件会改用该变量中的令牌（它优先于 CLI 凭据文件）；插件不会修改环境变量或 CLI 凭据文件/);
+  assert.doesNotMatch(panel.text(), /插件仍会使用该文件中的令牌/);
+  panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Env user' }, tokenSource: 'env', envToken: true, ...FILE_FACTS });
+  await panel.button('清除令牌').props.onClick();
+  assert.deepEqual(panel.calls.filter(([kind]) => kind === 'set' || kind === 'unset'), [['unset', 'PLAYGROUND_TOKEN']]);
+  panel.rerender();
+  assert.match(panel.text(), /已登录.*Env user.*令牌来源：环境变量/);
+  assert.equal(panel.button('清除令牌'), undefined);
+  assert.doesNotMatch(panel.text(), /清除 DSH 中保存的令牌后/);
+  // Without the variable or a file token there is nothing to warn about.
+  panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'dsh' });
+  panel.tree = await panel.f.mount(panel.element);
+  assert.doesNotMatch(panel.text(), /清除 DSH 中(保存)?的令牌后/);
+});
+
+test('#12: only the status line is a live region, and focus moves to it after a save or a clear', async (t) => {
+  const panel = await tokenPanel(t, { authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'dsh' });
+  assert.equal(panel.tree.type, 'section');
+  assert.equal(panel.tree.props['aria-live'], undefined);
+  const live = findAll(panel.tree, (node) => node.props?.['aria-live']);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].props.role, 'status');
+  assert.equal(live[0].props.tabIndex, -1);
+  assert.match(text(live[0]), /已登录.*Ada/);
+  assert.equal(findAll(live[0], (node) => node.props?.role === 'alert').length, 0, 'no alert nested in the live region');
+  let focused = 0;
+  live[0].props.ref({ focus: () => { focused += 1; } });
+  panel.setAuth({ authenticated: false, baseUrl: BASE, reason: 'no_token', tokenSource: 'none' });
+  await panel.button('清除令牌').props.onClick();
+  assert.equal(focused, 1, 'after 清除令牌 the removed button gives focus to the status line');
+  panel.rerender();
+  panel.tokenInput().props.onChange({ target: { value: 'asp_synthetic-token' } });
+  panel.rerender();
+  panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'dsh' });
+  panel.tokenForm().props.onSubmit({ preventDefault() {} });
+  for (let round = 0; round < 3; round += 1) await settle();
+  assert.equal(focused, 2, 'after 保存令牌 too');
+  // A failed save keeps focus where it is: the form and its error stay.
+  panel.rerender();
+  const failing = await tokenPanel(t, { authenticated: false, baseUrl: BASE, reason: 'no_token', tokenSource: 'none' });
+  failing.f.find(failing.tree, (node) => node.props?.role === 'status').props.ref({ focus: () => { focused += 1; } });
+  failing.tokenForm().props.onSubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(focused, 2);
+  assert.match(text(failing.rerender()), /请先粘贴 API 令牌/);
+});
+
+test('#12: a re-check keeps the card mounted, and a stale answer never replaces a newer one', async (t) => {
+  const panel = await tokenPanel(t, { authenticated: false, baseUrl: BASE, reason: 'no_token', tokenSource: 'none' });
+  let focused = 0;
+  statusLine(panel).props.ref({ focus: () => { focused += 1; } });
+  // An older check (重新检测) is still running when the token save starts its own.
+  const older = deferred();
+  panel.setAuth(older.promise);
+  panel.button('重新检测').props.onClick();
+  await settle();
+  panel.rerender();
+  assert.ok(panel.tokenForm(), 'the form stays mounted while checking');
+  assert.match(panel.text(), /未登录.*正在重新检测登录状态/);
+  assert.equal(panel.button('正在检测…').props.disabled, true);
+  panel.tokenInput().props.onChange({ target: { value: 'asp_synthetic-token' } });
+  panel.rerender();
+  const newer = deferred();
+  panel.setAuth(newer.promise);
+  panel.tokenForm().props.onSubmit({ preventDefault() {} });
+  await settle(); await settle();
+  newer.resolve({ authenticated: true, baseUrl: BASE, user: { name: 'Agent' }, userType: 'agent', tokenSource: 'dsh' });
+  await settle(); await settle();
+  assert.match(text(panel.rerender()), /已登录.*Agent/);
+  assert.equal(focused, 1);
+  // The older answer arrives last and is ignored.
+  older.resolve({ authenticated: false, baseUrl: BASE, reason: 'no_token', tokenSource: 'none' });
+  await settle(); await settle();
+  assert.match(text(panel.rerender()), /已登录.*Agent/);
+  assert.doesNotMatch(panel.text(), /未登录|正在重新检测/);
+  assert.equal(focused, 1);
 });

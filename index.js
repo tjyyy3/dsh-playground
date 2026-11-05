@@ -344,8 +344,14 @@ export function normalizeSettings(config) {
  * child (as PLAYGROUND_TOKEN) both use it, so they act as the same identity.
  * `resolveToken.status()` reports where the token came from and whether the
  * CLI credentials file holds one, never the value itself.
- * Sources: `config`, `dsh` (stored in the DSH credential store), `cli_file`,
- * `env`, `none`. DSH reports an inherited environment variable as `env`.
+ * Sources: `config`, `dsh` (saved in the DSH credential store), `dsh_other`,
+ * `cli_file`, `env`, `none`. DSH's `resolve()` reports a saved value as `file`
+ * and one it inherited from its own environment as `env`. Any other source
+ * becomes `dsh_other`: the workbench then offers no 清除令牌, because unsetting
+ * might not remove a value whose origin is unknown.
+ * `envToken` says whether this process inherited a PLAYGROUND_TOKEN variable,
+ * which DSH answers when nothing is saved, so the workbench can say what a
+ * clear leads to.
  */
 export function createTokenResolver(settings, ctx) {
   const credentialStore = typeof ctx?.get === 'function' ? ctx.get('credentials') : undefined;
@@ -355,7 +361,8 @@ export function createTokenResolver(settings, ctx) {
       try {
         const resolved = await credentialStore.resolve('PLAYGROUND_TOKEN');
         if (resolved !== null && typeof resolved === 'object' && typeof resolved.value === 'string' && resolved.value.trim().length > 0) {
-          return { value: resolved.value.trim(), source: resolved.source === 'env' ? 'env' : 'dsh' };
+          const source = resolved.source === 'file' ? 'dsh' : resolved.source === 'env' ? 'env' : 'dsh_other';
+          return { value: resolved.value.trim(), source };
         }
       } catch {
         // Fall through to the ambient environment.
@@ -369,7 +376,8 @@ export function createTokenResolver(settings, ctx) {
   const resolveToken = async () => (await lookup()).value;
   resolveToken.status = async () => {
     const [{ source }, fileToken] = await Promise.all([lookup(), readCliCredential('PLAYGROUND_TOKEN', settings.credentialsPath)]);
-    return { tokenSource: source, cliFileToken: fileToken.length > 0, cliFilePath: displayCredentialsPath(settings.credentialsPath) };
+    const envToken = typeof process.env.PLAYGROUND_TOKEN === 'string' && process.env.PLAYGROUND_TOKEN.trim().length > 0;
+    return { tokenSource: source, cliFileToken: fileToken.length > 0, cliFilePath: displayCredentialsPath(settings.credentialsPath), envToken };
   };
   return resolveToken;
 }

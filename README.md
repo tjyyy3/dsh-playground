@@ -575,10 +575,27 @@ resolves a Playground token per operation in this order:
 The same token is used for the plugin's own API requests and for the CLI. The
 material check's `playground submit … --dry-run` and the confirmed
 `playground submit` receive it as the `PLAYGROUND_TOKEN` environment variable
-of the CLI process. The CLI prefers that variable over its credentials file, so
-the identity the workbench shows is the identity that submits. The token is
-never a command-line argument, and the plugin never logs or returns it. A user
-whose token is only in the DSH credential store can complete a submission.
+of the CLI process, together with `--token-env PLAYGROUND_TOKEN` and
+`--worker-token-env PLAYGROUND_TOKEN`. These flags name the variable, not the
+secret. CLI 0.1.47 does not list them in `submit --help`, but `submit` parses
+them like its other options, and they take precedence over a `tokenEnv` or
+`workerTokenEnv` in the CLI's own config (`~/.playground/config.json` or
+`PLAYGROUND_CONFIG_PATH`). The plugin also removes `PLAYGROUND_WORKER_TOKEN`
+from the CLI's environment, so an inherited worker token cannot authenticate
+the bundle upload as someone else. The CLI prefers the environment variable
+over its credentials file. Together, these make the identity the workbench
+shows the identity that submits. The token is never a command-line argument,
+and the plugin never logs or returns it. A user whose token is only in the DSH
+credential store can complete a submission. When the plugin finds no token,
+none of this applies and the CLI uses its own credentials.
+
+The material check records who it ran for (the platform user id; when the
+platform returns no id, a short hash of the email and name). **确认目标并提交**
+refuses with `identity_changed` when the login identity differs at
+confirmation, for example after a token was saved or cleared in between, so a
+check never authorizes a submission under another account. A check made by an
+earlier plugin version recorded no identity and is refused the same way; one
+new material check fixes it.
 
 ### Log in with an API token
 
@@ -610,24 +627,39 @@ returns them. The Host reads `/api/auth/me` answers in camelCase or snake_case
 accepts a `{ "user": … }` wrapper, as the CLI does. These Agent fields follow
 the CLI 0.1.47 handling and still need checking against real platform answers.
 The card also shows **令牌来源**: DSH 凭据, CLI 凭据文件, 环境变量 or 插件配置.
-The Host reports only the source, never the value.
+The Host reports only the source, never the value. DSH's `resolve()` reports
+a saved value as `file` and one from its own environment as `env`; any other
+answer is shown as **DSH 凭据（来源未确认）**, without **清除令牌**, because
+unsetting might not remove a value of unknown origin.
 
-**清除令牌** appears when the token comes from the DSH credential store. It
-only calls `remote.credentials.unset('PLAYGROUND_TOKEN')`; the CLI credentials
-file is never modified. If that file also holds a token (the Host checks for
-its presence only), the card says that after clearing the plugin will still use
-the token from that file, and names the file with `~` for the home directory.
+**清除令牌** appears only when the token is saved in the DSH credential store.
+It only calls `remote.credentials.unset('PLAYGROUND_TOKEN')`; environment
+variables and the CLI credentials file are never modified. The card says what
+clearing leads to. If DSH's own environment has a `PLAYGROUND_TOKEN` variable
+(the Host reports only that it is present), DSH answers with it once nothing
+is saved, so the plugin uses that variable, ahead of the CLI file. Otherwise,
+if the CLI credentials file holds a token (presence only), the plugin uses the
+file's token, and the card names the file with `~` for the home directory.
 **更换令牌** replaces a saved token.
+
+A `token` in the plugin config wins over every other source, so a token saved
+in the workbench would never be used. With that source the card offers no
+token form and no **更换令牌**; it says to change or remove the token in the
+plugin config instead.
 
 The platform answers `401` for a token that is invalid, expired or revoked,
 and cannot tell these apart. A refused token is kept. The card shows
 **令牌无效、已过期或已撤销**, with the next step for where the token came from,
-and **清除令牌** when it is stored in DSH. A `403` shows **无权访问** instead.
+and **清除令牌** when it is saved in DSH. A `403` shows **无权访问** instead.
 The auth query reports `reason` as `no_token`, `rejected` (401), `forbidden`
 (403), `network` (the platform could not be reached or timed out) or
 `unavailable` (any other failure), so an unreachable platform is not reported
-as a bad token. Operations that need a login return
-`authentication_required` with the same `reason` and point to the token login.
+as a bad token. When the login check answers `no_token`, `rejected` or
+`forbidden`, operations that need a login return `authentication_required`
+with that `reason`. For a refused token they, and a submission the CLI
+reports as `auth_failed`, point to the **Playground 连接状态** card, which
+gives the step for the token's source. An unreachable platform still fails
+those operations with `network_error`, as before.
 
 ### Log in with email and password
 
@@ -640,7 +672,13 @@ it works without an open conversation and adds no record to any conversation.
 When the call returns, successfully or not, the Client removes
 `PLAYGROUND_PASSWORD` from the DSH credential store. The CLI writes its normal
 credentials file, and the plugin reads the token from that file for later API
-reads, unless a token stored in DSH takes precedence. The CLI executable is
+reads, unless a higher source in the order above (the plugin config, a token
+saved in DSH, or a `PLAYGROUND_TOKEN` variable in DSH's environment) still
+holds one. In that case the card says that the CLI login succeeded but the
+other token is still in use, and offers **清除令牌** when that token is saved
+in DSH. While a valid token is saved in DSH, the card shows the logged-in
+identity and no email form: to switch to an email login, click **清除令牌**
+first. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
 the `PLAYGROUND_CLI` environment variable. Prefer an absolute `cliPath`; on
 every platform, a relative path containing a slash is resolved against the
