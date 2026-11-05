@@ -513,7 +513,7 @@ test('CLI timeouts: submission defaults to at least the login timeout and both a
 
 // `stateOf` is strict: the tools must read the projection of the calling agent's session under the
 // `playgroundTask` key, so reading another session or key fails the test.
-function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials } = {}) {
+function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials, approval } = {}) {
   const tools = [];
   const contexts = [];
   const session = { id: 'synthetic-session' };
@@ -536,9 +536,11 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
     typert: { register() {} },
     provide: (key, value) => { scope.provided = { ...scope.provided, [key]: value }; },
   };
-  apply({ tools: scope.tools, get: (key) => (key === 'credentials' ? credentials : undefined), inject: (_services, callback) => callback(scope) }, config);
+  // DSH's optional approval service is read with ctx.get('approval') when playground_submit runs.
+  const services = { credentials, approval };
+  apply({ tools: scope.tools, get: (key) => (Object.hasOwn(services, key) ? services[key] : undefined), inject: (_services, callback) => callback(scope) }, config);
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
-  return { tools, contexts, scope, session, exec, commands };
+  return { tools, contexts, scope, session, exec, commands, services };
 }
 
 const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
@@ -579,7 +581,9 @@ const SYNTHETIC_CONFIG = { baseUrl: 'http://127.0.0.1:15000/api', token: 'synthe
 
 const forbiddenGuidance = /playground-confirm|slash command/i;
 
-test('D10a: playground_task status never returns the one-time checkId to the model', async () => {
+// The model never sees the real checkId: /playground-confirm accepts it. Status gives the agent the
+// card's approvalId (#57), a keyed hash that only playground_submit accepts.
+test('D10a/#57: playground_task status never returns the checkId to the model; it gives the approvalId and only whitelisted card fields', async () => {
   const state = pendingState({
     task: {
       challengeId: 'challenge-a', mode: 'participate', title: 'Synthetic challenge', cwd: '/synthetic/workspace',
@@ -599,6 +603,8 @@ test('D10a: playground_task status never returns the one-time checkId to the mod
   assert.equal(JSON.stringify(value).includes(CHECK_ID), false);
   assert.equal(rendered.includes(CHECK_ID), false);
   assert.equal('checkId' in value.prepared, false);
+  assert.match(value.prepared.approvalId, /^[0-9a-f]{24}$/);
+  assert.equal(CHECK_ID.includes(value.prepared.approvalId), false);
   assert.equal(value.ok, true);
   assert.equal(value.prepared.awaitingConfirmation, true);
   assert.deepEqual(value.prepared.challenge, state.prepared.challenge);
@@ -606,7 +612,7 @@ test('D10a: playground_task status never returns the one-time checkId to the mod
   assert.equal(value.prepared.checkedAt, state.prepared.checkedAt);
   assert.deepEqual(value.prepared.args, state.prepared.args);
   // Only whitelisted prepared members are exposed; baseUrl, cwd and traceCount stay out.
-  assert.deepEqual(Object.keys(value.prepared).sort(), ['args', 'awaitingConfirmation', 'challenge', 'checkedAt', 'files']);
+  assert.deepEqual(Object.keys(value.prepared).sort(), ['approvalId', 'args', 'awaitingConfirmation', 'challenge', 'checkedAt', 'files']);
   // task and receipt are whitelisted too: raw CLI/platform payloads and host-internal ids stay out.
   assert.deepEqual(value.task, { challengeId: 'challenge-a', title: 'Synthetic challenge', mode: 'participate', cwd: '/synthetic/workspace' });
   assert.deepEqual(Object.keys(value.receipt).sort(), [
@@ -661,7 +667,7 @@ test('D10a: playground_task mode and results actions never contain the checkId',
   });
 });
 
-test('D10a: playground_check_materials renders without the checkId; the structured value still carries it (known residual)', async () => {
+test('D10a/#57: playground_check_materials renders without the checkId and names the approvalId on the agent\'s line; the structured value still carries the checkId (known residual)', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'playground-check-'));
   try {
     await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
@@ -683,16 +689,21 @@ test('D10a: playground_check_materials renders without the checkId; the structur
       assert.match(checkId, /^[0-9a-f-]{36}$/);
       const rendered = renderedText(tool, args, value);
       assert.equal(rendered.includes(checkId), false);
+      // The approval id appears once, on the line that tells the agent what it is for.
+      assert.match(value.approvalId, /^[0-9a-f]{24}$/);
+      const lines = rendered.split('\n').filter((line) => line.includes(value.approvalId));
+      assert.equal(lines.length, 1);
+      assert.equal(lines[0], `approval_id for playground_submit (call it only when the user explicitly asks you to submit; do not relay the id to the user or ask them to type anything): ${value.approvalId}`);
+      assert.equal(value.note.includes(value.approvalId), false);
       assert.match(rendered, /确认目标并提交/);
       assert.match(rendered, /无需输入任何命令/);
       assert.equal(JSON.stringify({ ...value, workflow: undefined }).includes(checkId), false);
       // KNOWN RESIDUAL, pinned on purpose: the structured value still carries `workflow.prepared.checkId`.
       // The session projection (and so the workbench confirm button) is fed only through
       // `presentationMeta(args, value)`, which receives nothing but this value, so the code has to ride
-      // in it. It is a stale-click guard, not a credential: only the human `/playground-confirm`
-      // command can confirm and no tool runs commands. Removing it needs a host-side change, so any
-      // change here must be deliberate.
+      // in it. Removing it needs a host-side change, so any change here must be deliberate.
       assert.equal(presentationMeta(args, value).playgroundWorkflow.prepared.checkId, checkId);
+      assert.equal(presentationMeta(args, value).playground.approvalId, undefined);
       assert.deepEqual(JSON.parse(JSON.stringify(value)), value);
     });
   } finally {
@@ -1024,6 +1035,7 @@ test('#58: playground_task status gives the agent the latest failure, labels the
   assert.equal(value.prepared.bundleWarning, 'same bundle');
   assert.doesNotMatch(JSON.stringify(value), /raw CLI output|not listed|cli-output/);
   assert.equal(JSON.stringify(value).includes(CHECK_ID), false);
+  assert.match(value.prepared.approvalId, /^[0-9a-f]{24}$/);
 });
 
 test('#58: playground_task status lists the platform reasons once: receipt.error.message loses its reasons list, labelled or not', async () => {
@@ -1111,4 +1123,156 @@ test('#58: the "read the failure first" hint stops once the agent re-checked mat
   // A new failure asks again.
   const again = workflowProjection.apply(checked, change({ kind: 'receipt', receipt: { ...failed.receipt, diagnosis: { ...FAILURE_58, at: '2026-11-05T08:00:00.000Z' } } }));
   assert.match(taskContext(again), hint);
+});
+
+// #57: playground_submit asks DSH's approval panel; only "允许一次" runs the workbench confirmation.
+test('#57: playground_submit is registered with a required approval_id, the approval rules, a specific title and UI metadata', () => {
+  const { tools, contexts, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
+  const tool = tools.find((item) => item.name === 'playground_submit');
+  assert.ok(tool);
+  assert.deepEqual(tool.parameters, { type: 'object', properties: { approval_id: tool.parameters.properties.approval_id }, required: ['approval_id'] });
+  assert.equal(tool.parameters.properties.approval_id.type, 'string');
+  // The call title is what an ACP client shows (DSH forwards no reason over ACP): it names the write. No surface
+  // shows the approval id, so the title never carries it, nor any other argument.
+  for (const args of [{ approval_id: '0123abcd4567ef89aabbccdd' }, {}, { approval_id: '」（允许一次' }, undefined]) {
+    assert.deepEqual(tool.presentCall(args), { card: 'generic', title: 'Submit to Playground (approval)', kind: 'execute' }, JSON.stringify(args));
+  }
+  assert.match(tool.description, /after a DSH restart an old approval_id is refused/);
+  assert.equal(tool.output.schema.type, 'object');
+  assert.equal(typeof tool.output.render, 'function');
+  assert.equal(typeof tool.output.presentationMeta, 'function');
+  assert.match(tool.description, /Call it ONLY when the user explicitly asked in this conversation to submit/);
+  assert.match(tool.description, /only the user's "允许一次" submits/);
+  assert.match(tool.description, /You cannot approve on the user's behalf/);
+  assert.match(tool.description, /never call this tool again unless the user asks to submit again/);
+  assert.match(tool.description, /exactly the same checks as the workbench button "确认目标并提交"/);
+  assert.doesNotMatch(tool.description, forbiddenGuidance);
+  // The shared guidance names the tool and its limits; the material check names the id it needs.
+  const context = contexts.find((entry) => entry.name === 'playground-task:current').text({ agent: exec.agent });
+  for (const text of [context, tools.find((item) => item.name === 'playground_check_materials').description]) {
+    assert.match(text, /Only if the user explicitly asks you here to submit, call playground_submit with the card's approval_id: DSH then asks the user, and only their "允许一次" submits/);
+    assert.match(text, /clicking "确认目标并提交"/);
+    assert.doesNotMatch(text, /check_id/);
+  }
+  assert.match(context, /no tool can confirm for them/);
+  assert.match(tools.find((item) => item.name === 'playground_check_materials').description, /a confirmation card with its approval_id/);
+});
+
+test('#57: without DSH\'s approval service playground_submit submits nothing and points to the workbench', async () => {
+  const state = pendingState();
+  const { tools, exec } = mountWorkflowScope(state);
+  const tool = tools.find((item) => item.name === 'playground_submit');
+  // The agent gets the card's approval id from playground_task status.
+  const { approvalId } = (await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec)).prepared;
+  const value = await tool.execute({ approval_id: approvalId }, exec);
+  assert.equal(value.ok, false);
+  assert.equal(value.error.code, 'approval_unavailable');
+  assert.match(value.error.message, /当前 DSH 版本没有审批服务/);
+  assert.match(value.error.message, /在 Playground 工作台的任务详情里点“确认目标并提交”/);
+  const meta = tool.output.presentationMeta({ approval_id: approvalId }, value);
+  assert.equal(meta.playgroundWorkflow, undefined);
+  assert.equal(meta.playground.error.code, 'approval_unavailable');
+  assert.deepEqual(workflowProjection.apply(state, { type: 'tool/result', data: { meta } }), state);
+  const rendered = renderedText(tool, { approval_id: approvalId }, value);
+  assert.match(rendered, /^## Not submitted \(approval: unavailable\)/);
+  assert.match(rendered, /Do not call playground_submit again unless the user asks to submit again/);
+  // A stale id, and the real checkId, are refused before anything else.
+  for (const id of ['other-card', CHECK_ID]) {
+    assert.equal((await tool.execute({ approval_id: id }, exec)).error.code, 'confirmation_required', id);
+  }
+});
+
+test('#57: playground_submit called without a conversation agent returns a clean error', async () => {
+  const { tools } = mountWorkflowScope(pendingState());
+  const tool = tools.find((item) => item.name === 'playground_submit');
+  const value = await tool.execute({ approval_id: '0'.repeat(24) }, { signal: new AbortController().signal });
+  assert.equal(value.ok, false);
+  assert.equal(value.error.code, 'conversation_required');
+  assert.doesNotMatch(value.error.message, /Cannot read|undefined/);
+});
+
+test('#57: an approved playground_submit runs one CLI submission and its receipt reaches the projection', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-approval-')));
+  const originalFetch = globalThis.fetch;
+  try {
+    await withoutAmbientToken(async () => {
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
+      const credentialsPath = join(directory, 'missing-credentials.env');
+      const log = join(directory, 'calls.log');
+      const cliPath = join(directory, 'fake-cli.mjs');
+      await writeFile(cliPath, `#!/usr/bin/env node\n${TOKEN_CLI(log)}\n`);
+      await chmod(cliPath, 0o755);
+      const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+      globalThis.fetch = async (url, init) => {
+        const { pathname } = new URL(url);
+        if (init?.headers?.authorization !== 'Bearer synthetic-approval-token') return new Response('{}', { status: 401 });
+        if (pathname.endsWith('/auth/me')) return json({ id: 5, name: 'Test user', email: 'test@example.test' });
+        if (pathname.endsWith('/challenges/challenge-a')) return json({ id: 'challenge-a', title: 'Synthetic challenge', content: 'Use the fixture.' });
+        return new Response('not found', { status: 404 });
+      };
+      const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: 'synthetic-approval-token', source: 'file' } : undefined) };
+      const answers = ['rejected', 'allowed-once'];
+      const asked = [];
+      const approval = { async request(req) { asked.push(req); return answers.shift(); } };
+      const state = workflowProjection.init();
+      const { tools, exec } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials, approval });
+      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      const check = tools.find((item) => item.name === 'playground_check_materials');
+      const checked = await check.execute({ challenge_id: 'challenge-a' }, exec);
+      assert.equal(checked.ok, true, checked.error?.message);
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta: check.output.presentationMeta({}, checked) } }));
+      // The agent reads the approval id from the check's text; the text never names the checkId.
+      const checkText = renderedText(check, {}, checked);
+      const approvalId = /approval_id for playground_submit .*: (\S+)$/m.exec(checkText)[1];
+      assert.equal(checkText.includes(state.prepared.checkId), false);
+      assert.match(approvalId, /^[0-9a-f]{24}$/);
+      const checkId = state.prepared.checkId;
+      const tool = tools.find((item) => item.name === 'playground_submit');
+      const call = { ...exec, name: 'playground_submit', callId: 'call-57' };
+      const submits = async () => (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
+        .filter((entry) => entry.argv[0] === 'submit' && !entry.argv.includes('--dry-run') && !entry.argv.includes('--help'));
+      // Rejected first: nothing submitted, the card stays.
+      const rejected = await tool.execute({ approval_id: approvalId }, call);
+      assert.equal(rejected.error.code, 'approval_rejected');
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta: tool.output.presentationMeta({}, rejected) } }));
+      assert.equal(state.prepared.checkId, checkId);
+      assert.deepEqual(await submits(), []);
+      // Then allowed once.
+      const value = await tool.execute({ approval_id: approvalId }, call);
+      assert.equal(value.ok, true, value.error?.message);
+      assert.equal(value.attemptId, 42);
+      assert.equal(asked.length, 2);
+      assert.equal(asked[1].toolName, 'playground_submit');
+      assert.equal(asked[1].callId, 'call-57');
+      assert.match(asked[1].reason, /^Agent 请求提交；如果你没有要求提交，请点拒绝 ｜\n高影响操作，可能消耗一个提交名额 ｜\n操作：新建提交 ｜\n平台：127\.0\.0\.1:15000 ｜\n身份：本人 ｜\n/);
+      assert.match(asked[1].reason, / ｜\n赛题：‹\u2068Synthetic challenge\u2069› ‹\u2068challenge-a\u2069› ｜\n账号名：‹\u2068Test user\u2069› ｜\n/);
+      assert.match(asked[1].displayReason.en, /^The agent requested this submission; if you did not ask to submit, choose Reject ｜\n/);
+      assert.equal(asked[1].displayReason.zh, asked[1].reason);
+      const made = await submits();
+      assert.equal(made.length, 1);
+      assert.equal(made[0].token, 'synthetic-approval-token');
+      const meta = tool.output.presentationMeta({ approval_id: approvalId }, value);
+      assert.equal(meta.playgroundWorkflow.kind, 'receipt');
+      Object.assign(state, workflowProjection.apply(state, { type: 'tool/result', data: { meta } }));
+      assert.equal(state.prepared, null);
+      assert.equal(state.receipt.attemptId, 42);
+      assert.deepEqual(state.attemptIds, [42]);
+      const status = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+      assert.equal(status.receipt.attemptId, 42);
+      assert.match(renderedText(tool, {}, value), /^## Submission 42 confirmed by the user in DSH's approval panel/);
+      for (const text of [JSON.stringify(value), JSON.stringify(meta), JSON.stringify(asked.map(({ reason, displayReason }) => [reason, displayReason]))]) {
+        assert.doesNotMatch(text, /synthetic-approval-token|test@example\.test/);
+      }
+      // What the model reads of the submission never names the checkId either.
+      assert.equal(renderedText(tool, {}, value).includes(checkId), false);
+      // The same card cannot be submitted again.
+      const again = await tool.execute({ approval_id: approvalId }, call);
+      assert.equal(again.error.code, 'confirmation_required');
+      assert.equal((await submits()).length, 1);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(directory, { recursive: true, force: true });
+  }
 });

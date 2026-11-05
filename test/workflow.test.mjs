@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
+import { basename, isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
 import { createHash } from 'node:crypto';
 import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
@@ -11,7 +11,7 @@ import { buildSubmitArgs } from '../lib/cli.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
-import { CHALLENGE_CONTENT_MAX, cleanDetail, createWorkflow, disciplineFacets, PARTIAL_REPLY_NOTE, platformReceivedBundle, serverReply, submissionFailure,
+import { CHALLENGE_CONTENT_MAX, cleanDetail, createWorkflow, disciplineFacets, PARTIAL_REPLY_NOTE, platformReceivedBundle, serverReply, SETTLED_CONVERSATIONS_MAX, submissionFailure,
   taskAttemptIds, taskBundleClosedIds, taskBundleMissingIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
@@ -468,13 +468,21 @@ test('material check is read-only; only an exact human confirmation uploads chec
   assert.equal(f.states.get('source').receipt.scoringState.scoreIsFinal, false);
 });
 
-test('D10a: the check result text and note send the user to the button and never expose the checkId', async () => {
+test('D10a/#57: the check result text never contains the checkId; only the agent\'s approval_id line names the approval id', async () => {
   const f = await fixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const checkId = checked.workflow.prepared.checkId;
   const rendered = formatSubmission(checked);
-  assert.equal(rendered.includes(checked.workflow.prepared.checkId), false);
-  assert.equal(JSON.stringify({ ...checked, workflow: undefined }).includes(checked.workflow.prepared.checkId), false);
-  for (const text of [checked.note, rendered]) {
+  // The model never sees the real checkId in the text.
+  assert.equal(rendered.includes(checkId), false);
+  // The agent's line is the last paragraph; everything before it is what the check said before #57.
+  const [shown, agentLine] = [rendered.slice(0, rendered.lastIndexOf('\n\n')), rendered.slice(rendered.lastIndexOf('\n\n') + 2)];
+  assert.equal(shown.includes(checked.approvalId), false);
+  assert.equal(agentLine, `approval_id for playground_submit (call it only when the user explicitly asks you to submit; do not relay the id to the user or ask them to type anything): ${checked.approvalId}`);
+  assert.equal(checked.approvalId, f.workflow.approvalIdOf(checkId));
+  assert.equal(JSON.stringify({ ...checked, workflow: undefined }).includes(checkId), false);
+  assert.match(checked.note, /明确要求 Agent 提交，DSH 会显示审批面板，点“允许一次”才会提交/);
+  for (const text of [checked.note, shown]) {
     assert.match(text, /确认目标并提交/);
     assert.match(text, /前往工作台确认提交/);
     assert.match(text, /无需输入任何命令/);
@@ -3980,4 +3988,679 @@ test('#58: the bundle summary reads exactly 65535 entries without ZIP64 and deco
     plain.writeUInt16LE(0, plain.readUInt32LE(plain.length - 6) + 8);
     assert.equal(summarizeZip(plain).largest[0].name, '论文.pdf');
   });
+});
+
+// #57: playground_submit asks DSH's approval service and runs confirm() only on 'allowed-once'.
+// The approval services below are fakes that record each request and answer with a fixed outcome.
+function fakeApproval(answer = 'allowed-once') {
+  const asked = [];
+  return { asked, async request(req) { asked.push(req); return typeof answer === 'function' ? answer(req) : answer; } };
+}
+// A conversation with one checked card and a fake CLI that records every real submission.
+async function approvalCase({ args = {}, setup, submit } = {}) {
+  const submits = [];
+  const f = await fixture({ submit: async (input) => {
+    submits.push(input);
+    if (submit) return submit(input);
+    return { attempt_id: input.attemptId ?? 42, attempt: { id: input.attemptId ?? 42, challenge_id: 'challenge-a', status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
+  } });
+  await setup?.(f);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', ...args }, f.exec);
+  assert.equal(checked.ok, true, checked.error?.message);
+  f.record(checked);
+  const exec = { ...f.exec, name: 'playground_submit', callId: 'call-57' };
+  // The agent knows only approvalId; checkId is what the workbench and /playground-confirm use.
+  return { f, exec, submits, checked, checkId: checked.workflow.prepared.checkId, approvalId: checked.approvalId };
+}
+
+test('#57: only allowed-once submits; the approval names the agent, tool, call and signal of the tool call', async () => {
+  const { f, exec, submits, approvalId } = await approvalCase();
+  const approval = fakeApproval('allowed-once');
+  const result = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  assert.equal(result.ok, true, result.error?.message);
+  assert.equal(result.attemptId, 42);
+  assert.equal(submits.length, 1);
+  assert.equal(approval.asked.length, 1);
+  const [request] = approval.asked;
+  assert.equal(request.agent, exec.agent);
+  assert.equal(request.toolName, 'playground_submit');
+  assert.equal(request.callId, 'call-57');
+  assert.equal(request.signal, exec.signal);
+  assert.equal(typeof request.reason, 'string');
+  // DSH's ApprovalRequestEvent.displayReason shape: { en, [locale]: string }; the panel shows it, the log keeps reason.
+  assert.deepEqual(Object.keys(request.displayReason).sort(), ['en', 'zh']);
+  assert.equal(request.displayReason.zh, request.reason);
+  assert.deepEqual(Object.keys(request).sort(), ['agent', 'callId', 'displayReason', 'reason', 'signal', 'toolName']);
+  // The tool's own name is the fallback when the call carries none.
+  const again = await approvalCase();
+  const unnamed = fakeApproval();
+  await again.f.workflow.submitApproved({ approval_id: again.approvalId }, again.f.exec, { approval: unnamed });
+  assert.equal(unnamed.asked[0].toolName, 'playground_submit');
+  assert.equal('callId' in unnamed.asked[0], false);
+});
+
+test('#57: an approved submission\'s receipt reaches the projection exactly as a /playground-confirm result does', async () => {
+  const tool = await approvalCase();
+  const command = await approvalCase();
+  const approved = await tool.f.workflow.submitApproved({ approval_id: tool.approvalId }, tool.exec, { approval: fakeApproval() });
+  const confirmed = await command.f.workflow.confirm(command.checkId, command.f.exec);
+  assert.equal(approved.workflow.kind, 'receipt');
+  // The tool result travels as presentationMeta; the command as its command/done text (index.js).
+  const meta = presentationMeta({}, approved);
+  assert.deepEqual(meta.playgroundWorkflow, JSON.parse(JSON.stringify(approved.workflow)));
+  const before = tool.f.states.get('source');
+  const viaTool = workflowProjection.apply(before, { type: 'tool/result', data: { meta } });
+  const viaCommand = workflowProjection.apply(before, { type: 'command/done', data: { text: JSON.stringify({ playgroundWorkflow: approved.workflow, ...approved }) } });
+  assert.deepEqual(viaTool, viaCommand);
+  assert.equal(viaTool.prepared, null);
+  assert.equal(viaTool.receipt.attemptId, 42);
+  assert.equal(viaTool.receipt.challengeId, 'challenge-a');
+  assert.deepEqual(viaTool.attemptIds, [42]);
+  // The same receipt fields as a workbench confirmation of the same card (only the local stamp differs).
+  const strip = ({ confirmedAt, args, ...receipt }) => receipt;
+  assert.deepEqual(strip(approved.workflow.receipt), strip(confirmed.workflow.receipt));
+  assert.equal(tool.submits.length, 1);
+  assert.equal(command.submits.length, 1);
+});
+
+test('#57: rejected, cancelled, unavailable, an unknown answer, a failed ask and a missing service write nothing and keep the card', async () => {
+  const cases = [
+    ['rejected', fakeApproval('rejected'), 'approval_rejected', /拒绝/],
+    ['cancelled', fakeApproval('cancelled'), 'approval_cancelled', /审批已取消/],
+    ['unavailable', fakeApproval('unavailable'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['unknown answer', fakeApproval('allowed-always'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['prototype key', fakeApproval('toString'), 'approval_unavailable', /没有能应答的审批面板/],
+    ['no answer', fakeApproval(() => undefined), 'approval_unavailable', /没有能应答的审批面板/],
+    ['failed ask', { asked: [], async request(req) { this.asked.push(req); throw new Error('approval.request() outside an open turn'); } }, 'approval_unavailable', /无法在这一轮对话中发起审批/],
+    ['no service', undefined, 'approval_unavailable', /当前 DSH 版本没有审批服务/],
+    ['service without request', {}, 'approval_unavailable', /当前 DSH 版本没有审批服务/],
+  ];
+  for (const [label, approval, code, message] of cases) {
+    const { f, exec, submits, checkId, approvalId } = await approvalCase();
+    const result = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+    assert.equal(result.ok, false, label);
+    assert.equal(result.error.code, code, label);
+    assert.match(result.error.message, message, label);
+    assert.match(result.error.message, /确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”/, label);
+    assert.match(result.note, /Do not call playground_submit again unless the user asks to submit again/, label);
+    assert.equal(result.workflow, undefined, label);
+    assert.equal(presentationMeta({}, result).playgroundWorkflow, undefined, label);
+    assert.equal(submits.length, 0, label);
+    assert.deepEqual(f.calls, [], label);
+    // The card stays: the projection keeps it, and the workbench confirms it afterwards.
+    f.record(result);
+    assert.equal(f.states.get('source').prepared.checkId, checkId, label);
+    const confirmed = await f.workflow.confirm(checkId, f.exec);
+    assert.equal(confirmed.ok, true, label);
+    assert.equal(submits.length, 1, label);
+  }
+});
+
+const DECLARED = { method: 'Synthetic method', model: 'synthetic-model-1', harness: 'Synthetic harness', outcome: 'partial',
+  detail: 'Synthetic detail text', author_name: 'Synthetic author' };
+// An untrusted value as the reason shows it: inside ‹…›, within a first-strong isolate (U+2068 … U+2069).
+const marked = (text) => `‹\u2068${text}\u2069›`;
+// The untrusted values of a reason line, without markers and isolates.
+const markedValues = (text) => [...text.matchAll(/‹\u2068([^‹›\u2068\u2069]*)\u2069›/g)].map((match) => match[1]);
+
+test('#57: the approval reason has every decision field of the workbench card, plugin facts first, without token, email or paths', async () => {
+  const token = 'synthetic-token-57';
+  const { f, exec, checked, approvalId } = await approvalCase({ args: DECLARED, setup: (f) => {
+    f.client.baseUrl = 'https://user:synthetic-secret@play.example.test/api';
+    f.client.currentToken = async () => token;
+    f.client.getCurrentUser = async (options) => {
+      assert.equal(options.token, token);
+      return { authenticated: true, user: { id: 5, name: 'Test user', email: 'test@example.test' } };
+    };
+  } });
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  const { reason, displayReason } = approval.asked[0];
+  const [bundle, trace] = ['bundle', 'trace'].map((kind) => checked.workflow.prepared.files.find((file) => file.kind === kind));
+  const traceBytes = (await readFile(join(f.cwd, 'trace.json'))).length;
+  const folder = basename(f.cwd);
+  // This fixture's CLI has no precheck, so the card says the precheck was skipped.
+  assert.equal(checked.cliPrecheck.status, 'skipped');
+  assert.deepEqual(reason.split(' ｜\n'), [
+    'Agent 请求提交；如果你没有要求提交，请点拒绝',
+    '高影响操作，可能消耗一个提交名额',
+    '操作：新建提交',
+    '平台：play.example.test',
+    '身份：本人',
+    'CLI 预检：已跳过，未经 CLI 预检',
+    '轨迹：1 步',
+    `评测包：159 字节，SHA-256 ${bundle.sha256.slice(0, 12)}…`,
+    `轨迹文件：${traceBytes} 字节，SHA-256 ${trace.sha256.slice(0, 12)}…`,
+    `赛题：${marked('Synthetic challenge')} ${marked('challenge-a')}`,
+    `账号名：${marked('Test user')}`,
+    `工作区：${marked(folder)}`,
+    `文件名：评测包 ${marked('bundle.zip')}，轨迹文件 ${marked('trace.json')}`,
+    `方案：${marked('Synthetic method')}，模型 ${marked('synthetic-model-1')}，Harness ${marked('Synthetic harness')}`,
+    `声明结果：${marked('partial')}`,
+    `说明：${marked('Synthetic detail text')}`,
+    `署名：${marked('Synthetic author')}`,
+  ]);
+  assert.deepEqual(displayReason.en.split(' ｜\n'), [
+    'The agent requested this submission; if you did not ask to submit, choose Reject',
+    'High-impact operation: uploads the checked materials and may use one submission slot',
+    'Action: new submission',
+    'Platform: play.example.test',
+    'Identity: your own account',
+    'CLI precheck: skipped, no CLI precheck is available',
+    'Trace: 1 step',
+    `Bundle: 159 bytes, SHA-256 ${bundle.sha256.slice(0, 12)}…`,
+    `Trace file: ${traceBytes} bytes, SHA-256 ${trace.sha256.slice(0, 12)}…`,
+    `Challenge: ${marked('Synthetic challenge')} ${marked('challenge-a')}`,
+    `Account name: ${marked('Test user')}`,
+    `Workspace: ${marked(folder)}`,
+    `File names: bundle ${marked('bundle.zip')}, trace file ${marked('trace.json')}`,
+    `Method: ${marked('Synthetic method')}, model ${marked('synthetic-model-1')}, harness ${marked('Synthetic harness')}`,
+    `Declared outcome: ${marked('partial')}`,
+    `Detail: ${marked('Synthetic detail text')}`,
+    `Author name: ${marked('Synthetic author')}`,
+  ]);
+  assert.equal(displayReason.zh, reason);
+  assert.equal(bundle.sha256.length, 64);
+  for (const text of [reason, displayReason.en]) {
+    for (const secret of [token, 'synthetic-secret', 'user:', 'test@example.test', f.cwd, bundle.sha256, '/api']) {
+      assert.equal(text.includes(secret), false, secret);
+    }
+    assert.doesNotMatch(text, /[A-Za-z]:[\\/]|\/tmp\/|\\/);
+  }
+  const { agent, signal, ...logged } = approval.asked[0];
+  assert.equal(JSON.stringify(logged).includes(token), false);
+});
+
+test('#57: the reason names a passed precheck, caps the detail at 200 characters and shows defaults when nothing is declared', async () => {
+  const passed = await approvalCase({ args: { detail: 'd'.repeat(500) }, setup: (f) => {
+    f.workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli: { precheck: async () => ({}), submit: async () => { throw new Error('must not submit'); } },
+      submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+  } });
+  const approval = fakeApproval('rejected');
+  await passed.f.workflow.submitApproved({ approval_id: passed.approvalId }, passed.exec, { approval });
+  const fields = approval.asked[0].reason.split(' ｜\n');
+  assert.ok(fields.includes('CLI 预检：通过'));
+  assert.ok(approval.asked[0].displayReason.en.split(' ｜\n').includes('CLI precheck: passed'));
+  assert.equal(fields.find((line) => line.startsWith('说明：')), `说明：${marked(`${'d'.repeat(200)}…`)}`);
+  // Nothing declared: the defaults the submission sends, and no declared-field lines.
+  const plain = await approvalCase();
+  const asked = fakeApproval('rejected');
+  await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec, { approval: asked });
+  const lines = asked.asked[0].reason.split(' ｜\n');
+  assert.ok(lines.includes(`方案：${marked('DSH Playground plugin')}，Harness ${marked('DeepSeek Harness')}`));
+  assert.equal(lines.some((line) => /^(声明结果|说明|署名)：/.test(line)), false);
+});
+
+test('#57: the English reason gives each skipped precheck an English note and counts trace steps as 1 step or N steps', async () => {
+  for (const [failure, en] of [
+    [Object.assign(new Error('Playground CLI was not found.'), { code: 'cli_not_found', started: false }), 'the Playground CLI was not found'],
+    [Object.assign(new Error('spawn playground ENOENT'), { code: 'ENOENT' }), 'the Playground CLI was not found'],
+    [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), 'Node.js, which the Playground CLI needs, is not on PATH'],
+    [Object.assign(new Error('spawn failed'), { code: 'EACCES', started: false }), 'the Playground CLI did not start'],
+    [Object.assign(new Error('old'), { code: 'cli_precheck_unsupported', reason: 'old_version', started: true, version: '0.1.40' }), 'the installed Playground CLI 0.1.40 is older than 0.1.43'],
+    [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), 'the installed Playground CLI version could not be read'],
+    [Object.assign(new Error('no flag'), { code: 'cli_precheck_unsupported', reason: 'no_dry_run', started: true, version: '0.1.45' }), 'the installed Playground CLI 0.1.45 has no submit --dry-run'],
+  ]) {
+    const { f } = await precheckFixture(async () => { throw failure; });
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(checked.ok, true, failure.code);
+    assert.equal(checked.cliPrecheck.noteEn, en);
+    f.record(checked);
+    const approval = fakeApproval('rejected');
+    await f.workflow.submitApproved({ approval_id: checked.approvalId }, { ...f.exec, name: 'playground_submit' }, { approval });
+    const lines = approval.asked[0].displayReason.en.split(' ｜\n');
+    assert.ok(lines.includes(`CLI precheck: skipped, ${en}`), `${failure.code}: ${lines.join(' / ')}`);
+    assert.ok(lines.includes('Trace: 1 step'));
+    // Outside the untrusted values, the English panel text has no Chinese.
+    assert.doesNotMatch(approval.asked[0].displayReason.en.replace(/‹\u2068[^‹›]*\u2069›/g, ''), /\p{Script=Han}/u, failure.code);
+    // The Chinese reason keeps the Chinese note as written, with its full-width commas.
+    const zh = approval.asked[0].reason.split(' ｜\n').find((line) => line.startsWith('CLI 预检：已跳过，'));
+    assert.match(zh, /未经 CLI 预检|Playground CLI/, failure.code);
+    assert.doesNotMatch(zh, /,/, zh);
+    if (failure.code === 'cli_node_missing') assert.equal(zh, 'CLI 预检：已跳过，未在 PATH 中找到 Node.js，Playground CLI 无法运行，未经 CLI 预检');
+    if (failure.reason === 'old_version') assert.equal(zh, 'CLI 预检：已跳过，已安装的 Playground CLI 0.1.40 低于 0.1.43，不支持安全的预检，未经 CLI 预检');
+  }
+  // Three steps are plural; a card checked before English notes existed shows no Chinese in English.
+  const many = await approvalCase({ setup: (f) => writeFile(join(f.cwd, 'trace.json'), JSON.stringify([1, 2, 3].map((n) => ({ type: 'tool_result', content: `step ${n}` })))) });
+  const record = many.f.states.get('source');
+  const { noteEn, ...legacy } = record.prepared.cliPrecheck;
+  assert.equal(noteEn, 'no CLI precheck is available');
+  many.f.states.set('source', { ...record, prepared: { ...record.prepared, cliPrecheck: legacy } });
+  const approval = fakeApproval('rejected');
+  await many.f.workflow.submitApproved({ approval_id: many.approvalId }, many.exec, { approval });
+  const lines = approval.asked[0].displayReason.en.split(' ｜\n');
+  assert.ok(lines.includes('Trace: 3 steps'), lines.join(' / '));
+  assert.ok(lines.includes('CLI precheck: skipped'), lines.join(' / '));
+  assert.ok(approval.asked[0].reason.split(' ｜\n').includes('轨迹：3 步'));
+});
+
+test('#57: a network or platform error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {
+  const { f, exec, submits, checkId, approvalId } = await approvalCase();
+  const online = f.client.getCurrentUser;
+  for (const code of ['network_error', 'timeout']) {
+    f.client.getCurrentUser = async () => { throw new PlaygroundApiError('could not reach 127.0.0.1: fetch failed', { code }); };
+    const approval = fakeApproval();
+    const result = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+    assert.equal(result.ok, false, code);
+    assert.equal(result.error.code, 'network_error', code);
+    assert.match(result.error.message, /^没有提交：检查登录状态时无法连接 Playground，没有写入平台。确认卡仍然有效/, code);
+    assert.match(result.note, /Do not call playground_submit again unless the user asks to submit again/);
+    assert.equal(result.workflow, undefined);
+    assert.equal(approval.asked.length, 0);
+    assert.equal(submits.length, 0);
+    f.record(result);
+    assert.equal(f.states.get('source').prepared.checkId, checkId);
+  }
+  // Another platform error (here a 503) also asks nothing, writes nothing and keeps the card.
+  f.client.getCurrentUser = async () => { throw new PlaygroundApiError('HTTP 503', { code: 'http_error', status: 503 }); };
+  const unavailable = fakeApproval();
+  const failed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: unavailable });
+  assert.equal(failed.error.code, 'login_check_failed');
+  assert.match(failed.error.message, /^没有提交：检查登录状态时 Playground 没有给出可用的回复，没有写入平台。确认卡仍然有效/);
+  assert.doesNotMatch(failed.error.message, /503/);
+  assert.match(failed.note, /Do not call playground_submit again unless the user asks to submit again/);
+  assert.equal(failed.workflow, undefined);
+  assert.equal(unavailable.asked.length, 0);
+  assert.equal(submits.length, 0);
+  f.record(failed);
+  assert.equal(f.states.get('source').prepared.checkId, checkId);
+  // A cancelled check and an error that is not the platform's still reach the tool's error handling.
+  f.client.getCurrentUser = async () => { throw new PlaygroundApiError('request was cancelled', { code: 'cancelled' }); };
+  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), { code: 'cancelled' });
+  f.client.getCurrentUser = async () => { throw new TypeError('broken client'); };
+  await assert.rejects(f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() }), /broken client/);
+  // Back online, the same card is confirmed.
+  f.client.getCurrentUser = online;
+  const confirmed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval: fakeApproval() });
+  assert.equal(confirmed.ok, true, confirmed.error?.message);
+  assert.equal(submits.length, 1);
+});
+
+test('#57: an Agent account, a retry into an existing submission and a refused bundle are named in the reason', async () => {
+  const sha256 = createHash('sha256').update(await readFile(new URL('./fixtures/minimal.zip', import.meta.url))).digest('hex');
+  const { f, exec, approvalId } = await approvalCase({ args: { attempt_id: 7, ...DECLARED }, setup: (f) => {
+    f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Lab\nBot', userType: 'Agent', email: 'bot@example.test' } });
+    f.states.set('source', { ...f.states.get('source'), rejectedBundles: [{ challengeId: 'challenge-a', sha256 }] });
+  } });
+  const approval = fakeApproval('cancelled');
+  await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  const lines = approval.asked[0].reason.split(' ｜\n');
+  assert.equal(lines[2], '操作：重传原提交 #7，不新建提交');
+  assert.equal(lines[4], '身份：Agent 账号');
+  assert.ok(lines.includes(`账号名：${marked('Lab Bot')}`));
+  assert.match(lines.find((line) => line.startsWith('注意：')), /^注意：这个评测包与上次被拒收的完全相同（SHA-256 一致）/);
+  // The warning is a plugin fact: it comes before the challenge line.
+  assert.ok(lines.findIndex((line) => line.startsWith('注意：')) < lines.findIndex((line) => line.startsWith('赛题：')));
+  assert.equal(approval.asked[0].displayReason.en.split(' ｜\n')[2], 'Action: re-upload into submission #7, no new submission');
+  // A retry uploads only the bundle: the declared fields are not sent, so they are not shown.
+  assert.equal(lines.some((line) => /^(声明结果|说明|署名)：/.test(line)), false);
+  assert.equal(approval.asked[0].reason.includes('bot@example.test'), false);
+});
+
+// The reason's forbidden characters in an untrusted value: brackets, quotation marks, math and modifier symbols
+// other than the kept arithmetic and comparison symbols, invisible characters, field punctuation, and the
+// separator, colon and marker lookalikes the sanitizer lists, plus newlines.
+const REASON_FORBIDDEN = /(?![+=~±×÷≤≥≠≈⁄¬])[\p{Ps}\p{Pe}\p{Pi}\p{Pf}\p{Sm}\p{Sk}\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2800「」『』（）()【】[\]《》<>‹›«»。｡：:；;｜|∣│︱￨丨ㅣᅵ׀‖╎┆┊╏▏▕⎸⎹ᐳᐸᐅᐊᑉ꞉∶︰﹕︓ꓽ⁞᛬᠄፡፥჻܃܄ⵗ\n]/u;
+const REASON_BUTTON = /允许一次|允許一次|拒绝|拒絕|拒絶|allowonce|reject/;
+// Every untrusted value of a reason text sits inside ‹⁨…⁩›, carries none of the forbidden characters, no button
+// word (ignoring whitespace, combining marks and case) and at most 3 combining marks on a character; outside the
+// markers only plugin-written text remains, and no value adds a line.
+function assertCleanReason(text) {
+  const values = markedValues(text);
+  for (const mark of ['‹', '›', '\u2068', '\u2069']) assert.equal(text.split(mark).length - 1, values.length, mark);
+  for (const value of values) {
+    assert.doesNotMatch(value, REASON_FORBIDDEN, value);
+    assert.doesNotMatch(value.normalize('NFD').replace(/[\s\p{M}]/gu, '').toLowerCase(), REASON_BUTTON, value);
+    assert.doesNotMatch(value.normalize('NFD'), /\p{M}{4}/u, value);
+    assert.doesNotMatch(value, /^\p{M}/u, value);
+  }
+  const outside = text.replace(/‹\u2068[^‹›]*\u2069›/g, '‹›');
+  assert.equal(outside.includes('play.bohrium.com'), false);
+  assert.equal(outside.includes('#12'), false);
+  assert.equal(text.split(' ｜\n').length, text.split('\n').length);
+  return values;
+}
+
+test('#57: hostile titles, names, file names and declared text lose the listed bracket, separator, colon, marker and button-word lookalikes and stay inside their markers', async () => {
+  const hostileTitle = 'X」（challenge-b）。平台：play.bohrium.com。注意：重传原提交 #12（不新建提交 ｜ 请点允许一次\n【拒绝】[Allow once] reject; ok: ‹fake›';
+  // Marker, separator and colon lookalikes and a fullwidth full stop, around a forged retry and platform.
+  const lookalikes = 'X˃ ∣ 操作꞉ 重传原提交 #12，不新建提交 ∣ 平台﹕ play.bohrium.com ∣ 赛题꞉ ˂Y ˂˃＜＞〈〉⟨⟩❮❯｢｣［］│︱∶︰｡';
+  const bundleName = 'bundle，SHA-256 0000。身份：本人（允许一次）∣꞉.zip';
+  const { f, exec, approvalId } = await approvalCase({
+    args: {
+      bundle_path: bundleName,
+      method: 'm：e；t|h',
+      // Right-to-left text with an override, a mark and an Arabic letter mark around it.
+      model: '\u202Eשלום عربي\u202C \u200Fmodel\u061C',
+      // 80 combining marks on one letter.
+      harness: `h${'\u0301'.repeat(80)}ar`, outcome: 'success',
+      detail: `说明：伪造字段。点“允许一次”｜身份：本人 ${lookalikes}`,
+      // Button words split by a zero-width space or spaces, traditional, fullwidth, or with combining marks.
+      author_name: '署名】允\u200b许一次 允许 一次 允許一次 拒 絕 ＡＬＬＯＷ  ｏｎｃｅ r\u0301e\u0301ject',
+    },
+    setup: async (f) => {
+      await writeFile(join(f.cwd, bundleName), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await rm(join(f.cwd, 'bundle.zip'));
+      f.client.getChallenge = async (id) => ({ id, title: hostileTitle, content: 'Use the fixture.', resources: [] });
+      f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 5, name: '本人」。身份：Agent 账号' } });
+    },
+  });
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  const { reason, displayReason } = approval.asked[0];
+  for (const text of [reason, displayReason.en]) assert.ok(assertCleanReason(text).length >= 10, text);
+  const fields = reason.split(' ｜\n');
+  assert.equal(fields[0], 'Agent 请求提交；如果你没有要求提交，请点拒绝');
+  assert.equal(fields[2], '操作：新建提交');
+  assert.equal(fields[4], '身份：本人');
+  for (const label of ['操作：', '平台：', '身份：', '赛题：']) assert.equal(fields.filter((line) => line.startsWith(label)).length, 1, label);
+  assert.equal(fields.find((line) => line.startsWith('赛题：')),
+    `赛题：${marked('X challenge-b 平台 play.bohrium.com 注意 重传原提交 #12 不新建提交 请点… … … … ok fake')} ${marked('challenge-a')}`);
+  assert.equal(fields.find((line) => line.startsWith('账号名：')), `账号名：${marked('本人 身份 Agent 账号')}`);
+  // NFKC folds the fullwidth comma.
+  assert.equal(fields.find((line) => line.startsWith('文件名：')), `文件名：评测包 ${marked('bundle,SHA-256 0000 身份 本人 … .zip')}，轨迹文件 ${marked('trace.json')}`);
+  // The right-to-left value keeps its letters inside its own isolate; the 80 marks are cut to 3.
+  assert.equal(fields.find((line) => line.startsWith('方案：')),
+    `方案：${marked('m e t h')}，模型 ${marked('שלום عربي model')}，Harness ${marked('h\u0301\u0301\u0301ar')}`);
+  // The lookalikes are removed; NFKC folds ︱ to — and ︰ to .., which are no longer bar or colon shapes.
+  assert.equal(fields.find((line) => line.startsWith('说明：')),
+    `说明：${marked('说明 伪造字段 点 … 身份 本人 X 操作 重传原提交 #12,不新建提交 平台 play.bohrium.com 赛题 Y — ..')}`);
+  assert.equal(fields.find((line) => line.startsWith('署名：')), `署名：${marked('署名 … … … … … …')}`);
+  // A forged field built from letters and other punctuation that look like the markers (ᐳ ᐸ), the separator
+  // (丨) and the colon (ꓽ ⁞ ᛬ ᠄), in Chinese and in English, as round 3 of the review built it.
+  const forgedZh = 'Xᐳ 丨 操作ꓽ 重传原提交 #12,不新建提交 丨 平台ꓽ play.bohrium.com 丨 ᐸY';
+  const forgedEn = 'Xᐳ ⁞ Action re-upload into submission #12 ᛬ Platform᠄ play.bohrium.com ⁞ ᐸY';
+  const forgedBundle = 'bundleᐳ 丨 身份ꓽ Agent 账号 丨 ᐸ.zip';
+  const forged = await approvalCase({
+    args: { ...DECLARED, bundle_path: forgedBundle, detail: forgedEn },
+    setup: async (f) => {
+      await writeFile(join(f.cwd, forgedBundle), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await rm(join(f.cwd, 'bundle.zip'));
+      f.client.getChallenge = async (id) => ({ id, title: forgedZh, content: 'Use the fixture.', resources: [] });
+    },
+  });
+  const forgedAsked = fakeApproval('rejected');
+  await forged.f.workflow.submitApproved({ approval_id: forged.approvalId }, forged.exec, { approval: forgedAsked });
+  for (const text of [forgedAsked.asked[0].reason, forgedAsked.asked[0].displayReason.en]) {
+    assertCleanReason(text);
+    const lines = text.split(' ｜\n');
+    for (const label of [['操作：', '平台：', '身份：'], ['Action: ', 'Platform: ', 'Identity: ']].flat()) {
+      assert.ok(lines.filter((line) => line.startsWith(label)).length <= 1, label);
+    }
+  }
+  const forgedFields = forgedAsked.asked[0].reason.split(' ｜\n');
+  assert.equal(forgedFields.find((line) => line.startsWith('赛题：')),
+    `赛题：${marked('X 操作 重传原提交 #12,不新建提交 平台 play.bohrium.com Y')} ${marked('challenge-a')}`);
+  assert.equal(forgedFields.find((line) => line.startsWith('文件名：')), `文件名：评测包 ${marked('bundle 身份 Agent 账号 .zip')}，轨迹文件 ${marked('trace.json')}`);
+  assert.equal(forgedFields.find((line) => line.startsWith('说明：')), `说明：${marked('X Action re-upload into submission #12 Platform play.bohrium.com Y')}`);
+  // Letters with up to 2 marks, as Vietnamese writes them, are kept as they are.
+  const plain = await approvalCase({ args: { method: 'Tiếng Việt ệ' } });
+  const asked = fakeApproval('rejected');
+  await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec, { approval: asked });
+  assert.ok(asked.asked[0].reason.includes(`方案：${marked('Tiếng Việt ệ')}`));
+});
+
+// The cleaned method, model, harness, detail and author name of one card, as the Chinese reason shows them.
+async function cleanedDeclared([method, model, harness, detail, author_name]) {
+  const { f, exec, approvalId } = await approvalCase({ args: { method, model, harness, outcome: 'success', detail, author_name } });
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  const fields = approval.asked[0].reason.split(' ｜\n');
+  assertCleanReason(approval.asked[0].reason);
+  return ['方案：', '说明：', '署名：'].flatMap((label) => markedValues(fields.find((line) => line.startsWith(label))));
+}
+
+test('#57: Hangul fillers, the braille blank and 拒絶 do not hide a button word in the reason', async () => {
+  assert.deepEqual(await cleanedDeclared(['Allow\u3164once', 'Allow\uFFA0once', 'Allow\u115Fonce', 'Allow\u2800once', '拒\u3164绝 拒絶 允许\u1160一次']),
+    ['…', '…', '…', '…', '… … …']);
+});
+
+test('#57: the reason keeps arithmetic and comparison symbols, removes < and >, and keeps up to 3 combining marks without leading ones', async () => {
+  assert.deepEqual(await cleanedDeclared(['C++', 'lr=3e-4', 'score ≥0.9', '0.5±0.1', 'Mixtral 8×7B']),
+    ['C++', 'lr=3e-4', 'score ≥0.9', '0.5±0.1', 'Mixtral 8×7B']);
+  // ½ folds to 1⁄2 under NFKC and keeps its fraction slash.
+  assert.deepEqual(await cleanedDeclared(['~/work', 'accuracy ½', 'uses <think> tags', 'a÷b ≠ c ≈ d ¬e ≤ 100%', 'བསྒྲུབས']),
+    ['~/work', 'accuracy 1\u20442', 'uses think tags', 'a÷b ≠ c ≈ d ¬e ≤ 100%', 'བསྒྲུབས']);
+  // 80 marks are cut to 3; marks at the start of a value, or left there by a removed bracket, are dropped.
+  // NFKC folds ︱ to —, ︰ to .., ﹕ and ︓ to :, ￨ to │ and ㅣ to ᅵ before the check, so they need no entry
+  // of their own: the colons and bars are removed, and — and .. are no bar or colon shapes.
+  assert.deepEqual(await cleanedDeclared([`h${'\u0301'.repeat(80)}ar`, '\u0301\u0301\u0301X', '(\u0301x', 'a ︱ b ︰ c ﹕ d ︓ e ￨ f ㅣ g', 'Tiếng Việt ệ']),
+    ['h\u0301\u0301\u0301ar', 'X', 'x', 'a — b .. c d e f g', 'Tiếng Việt ệ']);
+});
+
+test('#57: a missing, stale or other card is refused before asking; so is a changed identity', async () => {
+  const { f, exec, submits, checkId, approvalId } = await approvalCase();
+  for (const [args, code] of [[{}, 'invalid_argument'], [{ approval_id: '  ' }, 'invalid_argument'], [{ check_id: approvalId }, 'invalid_argument'],
+    [{ approval_id: 'other-card' }, 'confirmation_required'], [{ approval_id: checkId }, 'confirmation_required']]) {
+    const approval = fakeApproval();
+    const result = await f.workflow.submitApproved(args, exec, { approval });
+    assert.equal(result.error.code, code, JSON.stringify(args));
+    assert.equal(approval.asked.length, 0);
+    assert.equal(result.workflow, undefined);
+  }
+  // A conversation without a card.
+  const empty = await fixture({ submit: async () => { throw new Error('must not submit'); } });
+  const none = fakeApproval();
+  assert.equal((await empty.workflow.submitApproved({ approval_id: approvalId }, empty.exec, { approval: none })).error.code, 'confirmation_required');
+  assert.equal(none.asked.length, 0);
+  // Another login since the check: refused like the workbench does, and the card is cleared.
+  f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Someone else' } });
+  const approval = fakeApproval();
+  const changed = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  assert.equal(changed.error.code, 'identity_changed');
+  assert.deepEqual(changed.workflow, { kind: 'clear' });
+  assert.equal(approval.asked.length, 0);
+  // Logged out: the login message, nothing asked.
+  f.client.getCurrentUser = async () => ({ authenticated: false, reason: 'no_token' });
+  const loggedOut = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval });
+  assert.equal(loggedOut.error.code, 'authentication_required');
+  assert.equal(approval.asked.length, 0);
+  assert.equal(submits.length, 0);
+});
+
+test('#57: after allowed-once the workbench checks still apply: closed submission, changed materials, identity', async () => {
+  // The platform closes the submission while the panel is open.
+  const closed = await approvalCase({ args: { attempt_id: 7 } });
+  const closing = fakeApproval(() => {
+    closed.f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', bundleNotReceived: true });
+    return 'allowed-once';
+  });
+  const refused = await closed.f.workflow.submitApproved({ approval_id: closed.approvalId }, closed.exec, { approval: closing });
+  assert.equal(refused.error.code, 'attempt_closed');
+  assert.deepEqual(refused.workflow, { kind: 'clear' });
+  assert.equal(closed.submits.length, 0);
+  // The trace changes while the panel is open.
+  const changed = await approvalCase();
+  const editing = fakeApproval(async () => {
+    await writeFile(join(changed.f.cwd, 'trace.json'), JSON.stringify([{ content: 'changed' }]));
+    return 'allowed-once';
+  });
+  const stale = await changed.f.workflow.submitApproved({ approval_id: changed.approvalId }, changed.exec, { approval: editing });
+  assert.equal(stale.error.code, 'materials_changed');
+  assert.equal(changed.submits.length, 0);
+  // Another token is saved while the panel is open.
+  const switched = await approvalCase();
+  const saving = fakeApproval(() => {
+    switched.f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Someone else' } });
+    return 'allowed-once';
+  });
+  const other = await switched.f.workflow.submitApproved({ approval_id: switched.approvalId }, switched.exec, { approval: saving });
+  assert.equal(other.error.code, 'identity_changed');
+  assert.equal(switched.submits.length, 0);
+  // A new check replaced the card while the panel was open.
+  const replaced = await approvalCase();
+  const rechecking = fakeApproval(async () => {
+    replaced.f.record(await replaced.f.workflow.prepare({ challenge_id: 'challenge-a' }, replaced.f.exec));
+    return 'allowed-once';
+  });
+  const old = await replaced.f.workflow.submitApproved({ approval_id: replaced.approvalId }, replaced.exec, { approval: rechecking });
+  assert.equal(old.error.code, 'confirmation_required');
+  assert.equal(replaced.submits.length, 0);
+});
+
+test('#57: a workbench click and an approved playground_submit for the same card submit once', async () => {
+  // Both at once: the approval resolves while the workbench confirmation is in flight and joins it.
+  const both = await approvalCase();
+  const [approved, clicked] = await Promise.all([
+    both.f.workflow.submitApproved({ approval_id: both.approvalId }, both.exec, { approval: fakeApproval() }),
+    both.f.workflow.confirm(both.checkId, both.f.exec),
+  ]);
+  assert.equal(both.submits.length, 1);
+  assert.equal(approved.attemptId, 42);
+  assert.equal(clicked.attemptId, 42);
+  // The user confirms in the workbench while the panel is open; the later "允许一次" submits nothing.
+  const during = await approvalCase();
+  const waiting = fakeApproval(async () => {
+    assert.equal((await during.f.workflow.confirm(during.checkId, during.f.exec)).ok, true);
+    return 'allowed-once';
+  });
+  const late = await during.f.workflow.submitApproved({ approval_id: during.approvalId }, during.exec, { approval: waiting });
+  assert.equal(late.error.code, 'confirmation_required');
+  assert.equal(during.submits.length, 1);
+  // The workbench confirmation finished but its result is not logged yet: the card is refused anyway.
+  const after = await approvalCase();
+  assert.equal((await after.f.workflow.confirm(after.checkId, after.f.exec)).ok, true);
+  const unasked = fakeApproval();
+  const refused = await after.f.workflow.submitApproved({ approval_id: after.approvalId }, after.exec, { approval: unasked });
+  assert.equal(refused.error.code, 'confirmation_required');
+  assert.equal(unasked.asked.length, 0);
+  assert.equal((await after.f.workflow.confirm(after.checkId, after.f.exec)).error.code, 'confirmation_required');
+  assert.equal(after.submits.length, 1);
+  // A workbench confirmation is still running: the tool asks nothing and submits nothing.
+  let release;
+  const running = await approvalCase({ submit: () => new Promise((resolve) => { release = () => resolve({ attempt_id: 42, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }); }) });
+  const pending = running.f.workflow.confirm(running.checkId, running.f.exec);
+  while (!release) await new Promise((resolve) => setImmediate(resolve));
+  const busy = fakeApproval();
+  const inProgress = await running.f.workflow.submitApproved({ approval_id: running.approvalId }, running.exec, { approval: busy });
+  assert.equal(inProgress.error.code, 'submission_in_progress');
+  assert.equal(inProgress.workflow, undefined);
+  assert.equal(busy.asked.length, 0);
+  release();
+  assert.equal((await pending).attemptId, 42);
+  assert.equal(running.submits.length, 1);
+});
+
+test('#57: two workbench confirmations started together submit once', async () => {
+  const { f, submits, checkId } = await approvalCase();
+  const results = await Promise.all([f.workflow.confirm(checkId, f.exec), f.workflow.confirm(checkId, f.exec)]);
+  assert.equal(submits.length, 1);
+  assert.deepEqual(results.map((result) => result.attemptId), [42, 42]);
+});
+
+test('#57: aborting the tool call cancels a pending approval, even when the answerer ignores the signal', async () => {
+  const { f, exec, submits, checkId, approvalId } = await approvalCase();
+  const controller = new AbortController();
+  const asked = [];
+  // An answerer that never answers: only the abort ends the wait.
+  const approval = { request: (req) => { asked.push(req); return new Promise(() => {}); } };
+  const pending = f.workflow.submitApproved({ approval_id: approvalId }, { ...exec, signal: controller.signal }, { approval });
+  while (!asked.length) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(asked[0].signal, controller.signal);
+  controller.abort();
+  const result = await pending;
+  assert.equal(result.error.code, 'approval_cancelled');
+  assert.equal(result.workflow, undefined);
+  assert.equal(submits.length, 0);
+  // Already aborted: nothing is asked.
+  const before = fakeApproval();
+  const aborted = await f.workflow.submitApproved({ approval_id: approvalId }, { ...exec, signal: AbortSignal.abort() }, { approval: before });
+  assert.equal(aborted.error.code, 'approval_cancelled');
+  assert.equal(before.asked.length, 0);
+  // The card is still valid for the workbench.
+  assert.equal((await f.workflow.confirm(checkId, f.exec)).ok, true);
+  assert.equal(submits.length, 1);
+});
+
+test('#57: an approval of card A while card B\'s workbench confirmation runs is refused and never reports B\'s receipt', async () => {
+  let release;
+  const { f, exec, submits, checkId: cardA, approvalId: approvalA } = await approvalCase({
+    submit: (input) => new Promise((resolve) => { release = () => resolve({ attempt_id: 43, attempt: { id: 43, status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }); }),
+  });
+  let workbench;
+  // The panel for card A is open; meanwhile the user re-checks (card B) and confirms B in the workbench.
+  const approval = fakeApproval(async () => {
+    const recheck = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    f.record(recheck);
+    assert.notEqual(recheck.workflow.prepared.checkId, cardA);
+    workbench = f.workflow.confirm(recheck.workflow.prepared.checkId, f.exec);
+    // B has reached the CLI and is still running when the user clicks "允许一次" on A's panel.
+    while (!release) await new Promise((resolve) => setImmediate(resolve));
+    return 'allowed-once';
+  });
+  const approved = await f.workflow.submitApproved({ approval_id: approvalA }, exec, { approval });
+  assert.equal(approved.ok, false);
+  assert.equal(approved.error.code, 'submission_in_progress');
+  assert.equal(approved.attemptId, undefined);
+  assert.equal(approved.workflow, undefined);
+  // A workbench confirmation of A at the same time is refused the same way.
+  const clickA = await f.workflow.confirm(cardA, f.exec);
+  assert.equal(clickA.error.code, 'submission_in_progress');
+  release();
+  assert.equal((await workbench).attemptId, 43);
+  assert.equal(submits.length, 1);
+});
+
+test('#57: the model-facing approval id is a keyed hash: /playground-confirm refuses it, and a new key (restart) refuses the old one', async () => {
+  const { f, exec, submits, checkId, approvalId } = await approvalCase();
+  assert.match(approvalId, /^[0-9a-f]{24}$/);
+  assert.notEqual(approvalId, checkId);
+  assert.equal(checkId.includes(approvalId), false);
+  assert.equal(f.workflow.approvalIdOf(checkId), approvalId);
+  assert.equal(f.workflow.approvalIdOf(undefined), undefined);
+  // /playground-confirm (confirm) accepts only the real checkId.
+  assert.equal((await f.workflow.confirm(approvalId, f.exec)).error.code, 'confirmation_required');
+  assert.equal(submits.length, 0);
+  // A DSH restart: another process key. The old approval id is refused before asking.
+  const restarted = createWorkflow({ ctx: f.ctx, client: f.client, cli: { submit: async () => { throw new Error('must not submit'); } },
+    submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta,
+    approvalKey: Buffer.alloc(32, 7) });
+  const asked = fakeApproval();
+  const refused = await restarted.submitApproved({ approval_id: approvalId }, exec, { approval: asked });
+  assert.equal(refused.error.code, 'confirmation_required');
+  assert.match(refused.error.message, /DSH 重启后旧的 approval_id 也会失效/);
+  assert.match(refused.error.message, /重新检查材料/);
+  assert.equal(asked.asked.length, 0);
+  assert.notEqual(restarted.approvalIdOf(checkId), approvalId);
+  // The text the agent reads names the approval id, never the checkId.
+  const rendered = formatSubmission((await approvalCase()).checked);
+  assert.match(rendered, /\n\napproval_id for playground_submit \(call it only when the user explicitly asks you to submit; do not relay the id to the user or ask them to type anything\): [0-9a-f]{24}$/);
+});
+
+test('#57: the settled-card memory keeps at most the configured number of conversations, dropping the oldest', async () => {
+  const f = await fixture({ submit: async () => ({ attempt_id: 42, attempt: { id: 42, status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }) },
+    { settledConversations: 2 });
+  const conversations = ['c1', 'c2', 'c3'].map((id) => {
+    const agent = { id, session: { id } };
+    f.states.set(id, workflowProjection.init());
+    return { ...f.exec, agent };
+  });
+  const cards = [];
+  for (const exec of conversations) {
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, exec);
+    f.record(checked, exec.agent);
+    cards.push(checked.workflow.prepared.checkId);
+  }
+  // Confirm c1 and c2 without logging their receipts: the projection still shows both cards.
+  for (const [index, exec] of conversations.slice(0, 2).entries()) assert.equal((await f.workflow.confirm(cards[index], exec)).ok, true);
+  assert.equal((await f.workflow.confirm(cards[0], conversations[0])).error.code, 'confirmation_required');
+  assert.equal((await f.workflow.confirm(cards[1], conversations[1])).error.code, 'confirmation_required');
+  // A third conversation settles: c1, the oldest, is dropped (the real session log has dropped its card by then).
+  assert.equal((await f.workflow.confirm(cards[2], conversations[2])).ok, true);
+  assert.equal((await f.workflow.confirm(cards[0], conversations[0])).ok, true, 'c1 forgotten');
+  assert.equal((await f.workflow.confirm(cards[2], conversations[2])).error.code, 'confirmation_required', 'c3 remembered');
+  // The default bound.
+  assert.equal(SETTLED_CONVERSATIONS_MAX, 200);
+});
+
+test('#57: playground_submit without a conversation agent fails cleanly and asks nothing', async () => {
+  const f = await fixture({ submit: async () => { throw new Error('must not submit'); } });
+  for (const exec of [{}, { agent: undefined }, { agent: { id: 'x' } }, undefined]) {
+    const approval = fakeApproval();
+    const result = await f.workflow.submitApproved({ approval_id: '0'.repeat(24) }, exec, { approval });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'conversation_required');
+    assert.match(result.error.message, /只能在 DSH 任务对话中调用，没有提交/);
+    assert.equal(approval.asked.length, 0);
+  }
 });

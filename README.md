@@ -23,12 +23,17 @@ from npm.
 | `playground_bind_task` | Make the current conversation the task conversation of one challenge | DSH projections and `GET /api/challenges/{id}` |
 | `playground_check_materials` | Check explicit target, ZIP, trace, manifest and file hashes | Local reads and challenge metadata |
 | `playground_task` | Read task/receipt, switch working mode or refresh latest result | DSH projections and `GET /api/attempts/{id}` |
+| `playground_submit` | Submit this conversation's confirmation card after the user chooses **允许一次** in DSH's approval panel | `playground submit` (CLI) after approval |
 
 The tools return structured JSON plus a Markdown rendering for the
-conversation. In the current v0.4.4 MVP, agent tools still cannot confirm a
-submission: the user-only confirmation command invokes the installed
-Playground CLI to create the submission and upload its checked materials. It
-requires authentication and can consume a platform submission slot.
+conversation. Agent tools cannot confirm a submission on their own. The user
+confirms either in the workbench (**确认目标并提交**) or, when they ask the
+agent in the conversation to submit, with **允许一次** in the DSH approval
+panel that `playground_submit` opens (see
+[Submitting from the conversation](#submitting-from-the-conversation)). Both
+run the same confirmation, which invokes the installed Playground CLI to create
+the submission and upload its checked materials. It requires authentication
+and can consume a platform submission slot.
 
 ## MVP: from task to evaluation
 
@@ -62,7 +67,8 @@ requires authentication and can consume a platform submission slot.
    the challenge and explains the plan; checking materials waits until you
    confirm the plan. The prompt does not authorize any action. It tells the
    agent not to run `playground submit` in the terminal; real submission
-   happens only when you click **确认目标并提交**.
+   happens only when you click **确认目标并提交**, or when you ask the agent
+   to submit and choose **允许一次** in DSH's approval panel.
 3. Prepare an ARM ZIP and a real execution trace. In the global workbench, select
    the task and click **准备提交 / 检查材料**,
    or ask `playground_check_materials` with an explicit target. Unambiguous
@@ -70,8 +76,10 @@ requires authentication and can consume a platform submission slot.
    `.playground/`; multiple matches require an explicit path.
 4. Review the confirmation card: challenge title/id, destination API, workspace,
    method, new submission versus retry, paths, sizes and hashes. Click
-   **确认目标并提交** to upload. Cancel makes no platform write. Changed
-   materials invalidate the previous check and require another confirmation.
+   **确认目标并提交** to upload, or tell the agent in the task conversation to
+   submit and choose **允许一次** in the approval panel. Cancel makes no
+   platform write. Changed materials invalidate the previous check and require
+   another confirmation.
 5. Read the receipt and click **查询结果 #…**, or ask `playground_task` for
    `results`. The task supplies its receipt id. Result details are collapsible;
    task, pending card and receipt restore from the native session log.
@@ -658,7 +666,8 @@ If the installation succeeds, other users can use the plugin immediately from
 their own DSH profile. They still need a Playground login (an API token, or
 email and password) for personal submissions and write operations. The submission path the plugin
 provides requires the user's confirmation in the Playground workbench (the
-**确认目标并提交** button). The plugin cannot stop an agent from running the
+**确认目标并提交** button) or **允许一次** in DSH's approval panel for
+`playground_submit`. The plugin cannot stop an agent from running the
 Playground CLI directly in a terminal, because that does not go through the
 plugin. Depending on your DSH sandbox and approval settings, such a command may
 be blocked (for example by network restrictions) or may need your approval
@@ -667,10 +676,15 @@ terminal command the agent asks to run.
 
 The user can also confirm with the `/playground-confirm <code>` command. The
 code is a guard against clicking a stale card, not a credential. It is kept out
-of the `playground_task` `status` result, but it still appears in the structured
-results of `playground_check_materials` and `playground_submit_attempt` and in
-the `/playground check` output, because the workbench needs it to enable the
-button.
+of the material check's text and of the `playground_task` `status` result, but
+it still appears in the structured results of `playground_check_materials` and
+`playground_submit_attempt` and in the `/playground check` output, because the
+workbench needs it to enable the button. The agent gets a different id,
+`approval_id`: a keyed hash of the code (HMAC-SHA256 with a random key that is
+new in every DSH process, first 24 hex digits). Only `playground_submit`
+accepts it, and `/playground-confirm` does not, so the agent cannot hand you a
+working confirm command. After a DSH restart an old `approval_id` is refused
+with `confirmation_required`; a new material check gives a new one.
 
 ## Authentication
 
@@ -842,6 +856,85 @@ User confirmation uploads those bytes and stores the submission id, status
 and validation violations in the task receipt. A rejected bundle returns
 `bundle_invalid` with the violations and the submission id, so a corrected
 bundle can be retried with `attempt_id`.
+
+### Submitting from the conversation
+
+When you ask the agent in a task conversation to submit (for example
+"帮我提交"), it calls `playground_submit` with `approval_id`, the agent-facing
+id of the conversation's latest confirmation card. The agent finds it in the
+material check's text (the `approval_id for playground_submit` line) or as
+`prepared.approvalId` in `playground_task` `status`. The tool:
+
+1. refuses a missing or stale `approval_id`, one that is not this
+   conversation's current card (including an id from before a DSH restart),
+   and a card that is already being submitted (`confirmation_required` or
+   `submission_in_progress`), without asking;
+2. checks the login and refuses a changed identity (`identity_changed`, the
+   card is cleared) or a missing login (`authentication_required`, the card
+   stays), as the workbench does; a platform it cannot reach for this check
+   returns `network_error`, and any other platform error (such as an HTTP
+   503) returns `login_check_failed`, both without asking, and the card stays;
+3. asks DSH's approval service (`approval.request`) with a plugin-written
+   `reason` (Chinese, kept in the session's `approval/asked` event) and a
+   `displayReason` with `zh` and `en` text, which the panel shows in the UI
+   language. It lists, separated by " ｜ " because the panel puts everything
+   on one line: "Agent 请求提交；如果你没有要求提交，请点拒绝"; "高影响操作，可能消耗一个
+   提交名额"; a new submission or a re-upload into submission #N; the platform
+   host; the identity (本人 or Agent 账号); the CLI precheck (passed, or skipped
+   with its short note); the trace step count; the size and the first 12 hex
+   digits of the SHA-256 of the bundle, trace and manifest; and the warning
+   when the bundle is byte-identical to one the Worker refused. Platform,
+   agent and file system text follows these facts: the challenge title and
+   id, the account name, the workspace folder name, the file names, method,
+   model and harness, and for a new submission the declared outcome, detail
+   (up to 200 characters) and author name. Each such value is folded with
+   Unicode NFKC (so fullwidth forms become the characters they imitate) and
+   shown inside ‹…› on one line, wrapped in a directional isolate so
+   right-to-left text cannot move the markers. It loses control, format and
+   default-ignorable characters (such as Hangul fillers), combining marks
+   beyond three per character and at its start, brackets and typographic
+   quotation marks, math and modifier symbols (arrowheads, bars, ratio and
+   modifier colons), field punctuation (。：:；;), the separator and its
+   lookalikes (such as │, ∣, 丨 and ‖), colon lookalikes (such as ꞉, ꓽ, ⁞ and
+   ፡), and marker lookalikes (such as ᐳ and ᐸ). The arithmetic and comparison
+   symbols + = ~ ± × ÷ ≤ ≥ ≠ ≈ ⁄ ¬ and % are kept, so values such as C++,
+   lr=3e-4 or score ≥0.9 read as written; < and > are removed. The button
+   words 允许一次, 允許一次, 拒绝, 拒絕, 拒絶, Allow once and Reject are replaced in
+   any letter case, also when spaces, the braille blank or combining marks
+   separate their letters. Letter-class lookalikes outside these lists and
+   Cyrillic or Greek confusables (such as rеjеct with a Cyrillic е) are not
+   removed; the plugin-written facts always come first in the panel. The
+   reason contains no directories, no email and no token;
+4. submits only when the answer is `allowed-once` (**允许一次**, or Enter in
+   the panel). It then runs exactly the workbench confirmation: the same
+   identity check, re-hashed materials, closed-submission refusal, CLI
+   submission and receipt. The receipt reaches the task like a workbench
+   confirmation, and the chat shows it on the **确认提交（审批）** card.
+
+Every other outcome writes nothing and keeps the confirmation card, so you can
+still confirm it in the workbench: `rejected` (**拒绝**, or a session approval
+policy `never`) returns `approval_rejected`; `cancelled` (the turn was
+interrupted; the request is cancelled when the tool call's signal aborts)
+returns `approval_cancelled`; `unavailable` (no answerer, or DSH could not ask
+in this turn) and a DSH without the approval service return
+`approval_unavailable`. The result tells the agent not to ask again unless you
+ask to submit again. The agent cannot answer the panel for you.
+
+A workbench click and an approved `playground_submit` for the same card submit
+once: confirmations of the same card in one conversation share one in-flight
+operation, and a card whose confirmation ended in a receipt or a clear is
+refused from then on, even before the session log has dropped it. A
+confirmation of a different card while one is running is refused with
+`submission_in_progress`, so an approval never reports another card's receipt.
+
+**Sessions driven over ACP.** When an ACP client owns the DSH session, DSH
+answers `approval.request` itself by sending the ACP client a
+`session/request_permission` request with only the tool call (title
+"Submit to Playground (approval)") and the allow-once / reject options. The reason above is not forwarded, and the ACP
+client's permission policy decides: whatever it answers counts as the
+confirmation. The plugin cannot tell that a session is ACP-owned. Do not
+configure your ACP client to auto-approve `playground_submit`; review the
+confirmation card in the workbench before allowing it.
 
 If the CLI could not start (not found, Node.js missing, arguments that cmd
 would interpret, invalid arguments), nothing was submitted: the result is

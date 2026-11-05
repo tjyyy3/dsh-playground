@@ -37,6 +37,17 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   into tracked files.
 - Keep UI-only changes in `client.js`; do not modify DSH host code from this repo.
 - Preserve the explicit user confirmation gate before any Playground write.
+  The user confirms with the workbench button (`/playground-confirm`), or with
+  "允许一次" in DSH's native approval panel that `playground_submit` opens; that
+  answer counts as the user's explicit confirmation. Nothing else the agent
+  does counts: no tool argument, model text, or other approval outcome
+  (`rejected`, `cancelled`, `unavailable`) may lead to a write. Both paths run
+  the same `confirm()` checks. Keep the card's `checkId` (what
+  `/playground-confirm` accepts) out of model-visible text; the agent gets only
+  the keyed `approvalId`. Exception: in an ACP-owned session DSH forwards only
+  the tool call (no reason) to the ACP client, whose permission policy then
+  decides; the plugin cannot detect that case, so the README tells users not
+  to auto-approve `playground_submit` in ACP clients.
 - Task creation must explicitly name a registered DSH workspace and never
   create sessions in unregistered directories. UI starts (workbench and chat
   cards) must show the workspace selection and confirmation dialog and send the
