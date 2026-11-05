@@ -135,15 +135,22 @@ test('errors say whether the CLI process started', async () => {
   await assert.rejects(() => failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started('cli_error'));
   const text = createPlaygroundCli({ command: await fakeCli(join(bin, 'text.mjs'), "console.log('not json');") });
   await assert.rejects(() => text.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started(undefined));
-  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes. The CLI takes
-  // much longer than the login timeout because ending a process tree on Windows (taskkill) can take
-  // over a second on a slow runner, and a CLI that finishes meanwhile is a success, not a termination.
-  const slow = createPlaygroundCli({
-    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 4000);"),
-    timeoutMs: 300,
-    submitTimeoutMs: 30000,
-  });
-  await assert.rejects(() => slow.authLogin('name@example.test', 'synthetic-password'), started('cli_terminated'));
+  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes. A CLI that
+  // finishes while it is being ended is a success, not a termination, and ending a process tree on
+  // Windows (taskkill) can take seconds on a slow runner. So the login CLI never exits on its own:
+  // only the kill ends it, however long that takes. The submit CLI exits on its own after a second,
+  // well after timeoutMs and long before submitTimeoutMs, so it finishes only under submitTimeoutMs.
+  const options = { timeoutMs: 300, submitTimeoutMs: 30000 };
+  const pidFile = join(markers, 'started-login.pid');
+  const hanging = createPlaygroundCli({ ...options,
+    command: await fakeCli(join(bin, 'hang.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`) });
+  try {
+    await assert.rejects(() => hanging.authLogin('name@example.test', 'synthetic-password'), started('cli_terminated'));
+  } finally {
+    await killRecorded(pidFile);
+  }
+  const slow = createPlaygroundCli({ ...options,
+    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 1000);") });
   assert.deepEqual(await slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), ['done']);
 });
 
