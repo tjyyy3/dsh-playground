@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createPlaygroundClient,
   normalizeApiBase,
+  normalizeAttempt,
   PlaygroundApiError,
 } from '../lib/api.js';
 import {
@@ -669,4 +670,37 @@ test('#12: a request given a token uses exactly it and skips the lookup', async 
   // Without the option every request resolves as before.
   await client.getCurrentUser();
   assert.equal(lookups, 1);
+});
+
+// #58: the shapes GET /attempts/<id> returned on 2026-11-05 for #63167 (queued, owner view, bundle never
+// arrived), #63116 (closed by the platform as bundle missing) and #63179 (failed for another reason).
+test('#58: normalizeAttempt keeps execStatus, the owner-only scoringQueue facts and the platform\'s "bundle missing" closure, never its text', () => {
+  const marker = '[未评测 · 未收到提交包] 我们没有收到你的提交包（上传未完成），本次没有评分，也不会自动重评。请重新提交。 / [Not evaluated - bundle missing] Your submission bundle never reached the evaluation worker, so nothing was scored. Please re-submit.';
+  const queued = normalizeAttempt({ id: 63167, status: 'submitted', execStatus: null, changelog: null,
+    scoringState: { state: 'queued', scoreIsFinal: false },
+    scoringQueue: { notReceivedAfterMinutes: 30, queuePosition: null, stage: 'awaiting_receipt', submittedAt: '2026-11-05T06:41:22+00:00', waitingSeconds: 310, workerReceivedAt: null, extra: 'dropped' } });
+  assert.deepEqual(queued.scoringQueue, { stage: 'awaiting_receipt', submittedAt: '2026-11-05T06:41:22+00:00', notReceivedAfterMinutes: 30, waitingSeconds: 310 });
+  assert.equal(queued.execStatus, undefined);
+  assert.equal(queued.bundleNotReceived, undefined);
+  for (const [label, raw] of [
+    ['detail', { id: 63116, status: 'pending_review', execStatus: 'failed', changelog: marker, execLog: `${marker} (attempt 63116, 20261105T051511Z)`, scoringQueue: null, scoringState: { state: 'failed', scoreIsFinal: false } }],
+    ['list item, English marker only', { id: 63116, status: 'pending_review', execStatus: 'failed', changelog: '[Not evaluated - bundle missing] gone', scoringQueue: null }],
+    ['snake_case list item, Chinese marker only', { id: 62912, status: 'pending_review', scoring_state: 'failed', exec_status: 'failed', exec_log: '[未评测 · 未收到提交包] …' }],
+  ]) {
+    const closed = normalizeAttempt(raw, { detailed: false });
+    assert.equal(closed.bundleNotReceived, true, label);
+    assert.equal(closed.execStatus, 'failed', label);
+    assert.equal(closed.scoringQueue, undefined, label);
+    assert.doesNotMatch(JSON.stringify(closed), /未收到提交包|bundle missing|re-submit/, label);
+  }
+  // A failure for another reason, or the marker on an attempt that did not fail, is not this closure.
+  assert.equal(normalizeAttempt({ id: 63179, status: 'pending_review', execStatus: 'failed', changelog: null, scoringState: { state: 'failed' } }).bundleNotReceived, undefined);
+  assert.equal(normalizeAttempt({ id: 1, status: 'scored', execStatus: 'completed', changelog: marker, scoringState: { state: 'final', scoreIsFinal: true } }).bundleNotReceived, undefined);
+  // The Worker's receipt time is kept: it is the platform's evidence that the bundle arrived.
+  assert.equal(normalizeAttempt({ id: 2, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-11-05T06:50:00+00:00' } }).scoringQueue.workerReceivedAt, '2026-11-05T06:50:00+00:00');
+  // The agent's text view of one submission says both.
+  const closedText = formatAttempt(normalizeAttempt({ id: 63116, status: 'pending_review', execStatus: 'failed', changelog: marker, scoringState: { state: 'failed' } }));
+  assert.match(closedText, /closed by the platform: bundle not received（未收到评测包）.*only a new submission, confirmed by the user, helps/);
+  assert.doesNotMatch(closedText, /re-submit|我们没有收到/);
+  assert.match(formatAttempt(queued), /- queue stage: awaiting_receipt · Worker receipt: not yet/);
 });

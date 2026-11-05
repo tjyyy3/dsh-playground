@@ -4303,21 +4303,73 @@ test('#58: the confirmation card shows the cleaned reasons, the failure stage an
   const Card = f.registrations.get('playground').Component;
   const details = ['upload token=<已隐藏> rejected', 'examples/minimal_demo/input/paper.pdf is not UTF-8 text'];
   const message = `评测包未通过评测 Worker 的校验。请对照赛题的交付要求和 Runtime contract 检查评测包。\n评测 Worker 给出的原因：\n${details.map((item) => `- ${item}`).join('\n')}\n提交 #42 已在平台创建，但评测包没有上传成功。`;
-  const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details, message },
+  const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details, message, cleaned: true },
     diagnosis: { stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400, details, attemptId: 42, attemptCreated: true, bundle: SUMMARY_58, nextSteps: '……' } };
   const render = (value) => f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'error', text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt: value }, ...value }) } } });
+  const alert = (value) => text(f.find(render(value), (node) => node.props?.role === 'alert'));
   const card = render(result);
-  // The whole message, although it names a "token" field, because the Host cleaned its reasons.
+  // The whole message, although it names a "token" field, because the Host marks it as cleaned.
   assert.equal(text(f.find(card, (node) => node.props?.role === 'alert')), message);
   const facts = JSON.parse(text(f.find(card, (node) => node.type === 'pre')));
   assert.equal(facts.失败环节, '评测 Worker 接收评测包');
   assert.equal(facts.HTTP状态, 400);
   assert.deepEqual(facts.平台给出的原因, details);
   assert.equal(facts.评测包, SUMMARY_LINE_58);
-  // Without a diagnosis (an older plugin) or with a path left in it, the strict check still applies.
-  for (const value of [{ ok: false, error: { code: 'upload_failed', message } }, { ...result, error: { ...result.error, message: `${message} C:\\Users\\someone\\bundle.zip` } }]) {
-    assert.match(text(f.find(render(value), (node) => node.props?.role === 'alert')), /^操作未完成或已中断/);
+  // The Host's cleaning is the one definition: a cleaned reason with a link or a bundle path under
+  // users/ or home/ is shown, and so is the local_check text that names https://play.bohrium.com.
+  const linked = `${message}\n- see https://play.bohrium.com/docs/runtime for limits; skills/users/data.csv and examples/home/input.txt are binary`;
+  assert.equal(alert({ ...result, error: { ...result.error, message: linked } }), linked);
+  const localCheck = 'Playground CLI 拒绝了这次提交：当前平台地址对应的站点没有自己的评分 Worker，CLI 不会把包传到正式站。请在插件配置中把 baseUrl 改回 https://play.bohrium.com，然后重新检查材料。平台未创建这次提交。';
+  assert.equal(alert({ ok: false, error: { code: 'submission_rejected', reason: 'local_check', message: localCheck, cleaned: true },
+    diagnosis: { stage: 'local_check', reason: 'local_check', attemptCreated: false, nextSteps: '……' } }), localCheck);
+  // Messages the Host did not mark keep the strict check, with a diagnosis or without one.
+  for (const value of [{ ok: false, error: { code: 'upload_failed', message } }, { ...result, error: { ...result.error, cleaned: undefined } },
+    { ...result, error: { ...result.error, cleaned: 'yes' } }]) {
+    assert.match(alert(value), /^操作未完成或已中断/);
   }
+  // The strict check no longer reads a URL scheme as a drive letter or a bundle path as a home path …
+  assert.equal(alert({ ok: false, error: { code: 'x', message: '请到 https://play.bohrium.com 查看 skills/users/data.csv。' } }), '请到 https://play.bohrium.com 查看 skills/users/data.csv。');
+  // … and still hides real absolute paths and credential words.
+  for (const message of ['读取 C:\\Users\\someone\\bundle.zip 失败', '读取 /home/someone/bundle.zip 失败', 'token 无效']) {
+    assert.match(alert({ ok: false, error: { code: 'x', message } }), /^操作未完成或已中断/, message);
+  }
+});
+
+test('#58: a submission the platform closed as "bundle missing" shows "未收到评测包，需重新提交"; platform evidence of receipt drops "评测包未上传"', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  for (const [name, receipt, expected] of [
+    ['closed by the platform after the plugin\'s failed upload', uploadFailed(63116, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true }),
+      view('提交未完成', '未收到评测包，需重新提交', 'error', '—', undefined)],
+    ['closed for a submission made elsewhere', { attemptId: 62912, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true },
+      view('提交未完成', '未收到评测包，需重新提交', 'error', '—', undefined)],
+    ['the platform evaluates it after a re-upload elsewhere', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } }),
+      view('评测中', '评测中', 'warning', '—', undefined)],
+    ['the Worker received it', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-11-05T06:50:00+00:00' } }),
+      view('评测中', '排队中', 'warning', '—', undefined)],
+    ['still awaiting receipt', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }),
+      view('提交未完成', '评测包未上传', 'error', '—', undefined)],
+  ]) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected, name);
+  }
+  const english = await localizedFixture(t);
+  assert.equal(taskViews(english, { task, prepared: null, receipt: uploadFailed(63116, { scoringState: { state: 'failed' }, bundleNotReceived: true }) }, english.en).summary,
+    'Submission #63116 · Bundle not received, submit again · Submission incomplete · —');
+});
+
+test('#58: the material check card warns when the bundle is the one the Worker refused', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_check_materials').Component;
+  const warning = '这个评测包与上次被拒收的完全相同（SHA-256 一致）：评测 Worker 会以同样的原因再次拒收，请先修改评测包再检查。';
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58, bundleWarning: warning } } } });
+  const line = f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-warning');
+  assert.equal(line.props.role, 'status');
+  assert.equal(text(line).replace(/\s+/g, ' '), `评测包未改动 ${warning}`);
+  const plain = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58 } } } });
+  assert.equal(f.find(plain, (node) => node.props?.className === 'pg-note pg-bundle-warning'), undefined);
 });
 
 test('#58: the material check card and the confirmation section show a compact bundle summary', async (t) => {
@@ -4328,7 +4380,7 @@ test('#58: the material check card and the confirmation section show a compact b
   assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-summary')), `${SUMMARY_LINE_58}；符号链接 2 个`);
   const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
     args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
-    cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58 };
+    cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58, bundleWarning: '这个评测包与上次被拒收的完全相同（SHA-256 一致）。' };
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
   const Main = f.registrations.get('main').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
@@ -4341,4 +4393,7 @@ test('#58: the material check card and the confirmation section show a compact b
   const workflow = f.render(selected.type, selected.props);
   const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
   assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-summary')), SUMMARY_LINE_58);
+  // The check's warning that this bundle is the one the Worker refused sits next to it.
+  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-warning')).replace(/\s+/g, ' '),
+    '评测包未改动 这个评测包与上次被拒收的完全相同（SHA-256 一致）。');
 });

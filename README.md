@@ -127,7 +127,9 @@ a list of text extensions and well-known names such as `Makefile` and
 `.gitignore`; every other file, including binary formats and unknown
 extensions, is listed as not known to be text (up to 20 names, with exact
 counts). Symbolic links are recognised in entries written by Unix tools, which
-record the file mode. The summary never blocks a check. It lets the agent
+record the file mode. Entry names are read as UTF-8, or as GBK when an entry
+is not marked UTF-8 and its name is not valid UTF-8 (Chinese Windows zip
+tools). The summary never blocks a check. It lets the agent
 compare the bundle with the challenge's 交付要求 and Runtime contract (for
 example "at most 50 UTF-8 text files, 500KB each and 2MB total, no symlinks")
 before submitting, because the CLI's dry run does not contact the evaluation
@@ -440,10 +442,35 @@ drawer summary and its history entry, instead of the platform's **排队中**. T
 platform keeps such a submission queued until it gives up on the bundle (about
 an hour later it marks it failed, "bundle missing"), and it reports
 `bundleStatus` and `bundleAvailable` as empty for every submission, scored ones
-included, so the platform state alone cannot tell it apart from a queued one.
-Only the receipt is used; a CLI or other-tool submission keeps the platform's
-state. A later receipt for the same number (a successful re-upload) removes
-the mark, and a failure or final score the platform reports wins over it.
+included. The workbench keeps polling such a submission so it sees that change.
+The mark is fail-closed: a later receipt for the same number removes it only
+when it succeeded (a re-upload); an interrupted or timed-out retry
+(`outcome_unknown`) keeps it. Platform evidence that the bundle arrived also
+removes it: an **evaluating**, **scoring** or final state, or a Worker receipt
+time (`scoringQueue.workerReceivedAt`), for example after a re-upload from a
+terminal. A failure the platform reports wins over the mark.
+
+When the platform has closed a submission because its bundle never arrived
+(the attempt's execution failed and its changelog or execution log carries the
+platform's "[未评测 · 未收到提交包] / [Not evaluated - bundle missing]" marker),
+the attempt carries `bundleNotReceived: true` (only the flag, never the
+platform's text), and the row shows **未收到评测包，需重新提交** instead of a
+generic failure. This covers submissions made elsewhere too. The platform does
+not re-evaluate such a submission, so only a new submission, confirmed by the
+user, helps.
+
+The platform's queue stage is not used to set the mark. `scoringQueue` is
+returned only to the submission's owner and only while it is unsettled (null
+for other accounts and once failed or scored). On 2026-11-05 the only queued
+owner view available, #63167, showed `stage: "awaiting_receipt"`,
+`workerReceivedAt: null` and `notReceivedAfterMinutes: 30` five minutes after
+creation; the platform closed it as bundle missing about an hour later. No
+queued submission with a bundle could be read for comparison, and
+`awaiting_receipt` is also the normal stage between creating a submission and
+its upload, so it does not prove a missing bundle. The plugin keeps the queue
+facts on the attempt (`scoringQueue`: stage, Worker receipt time, submission
+time, threshold, queue position, waiting seconds) and uses only the receipt
+time, as evidence that the bundle arrived.
 **返回所选任务对话** returns to native chat. To jump straight to one task's
 conversation, use the small **打开对话** button at the right of its row, which
 does not open the drawer, or **打开任务对话** next to **关闭** in the drawer
@@ -821,7 +848,13 @@ as possibly this one; verify its result before retrying into it. A platform
 5xx while creating the submission (`server_error`) is the platform's error, not
 the plugin's: it usually means nothing was created, the result is still
 `outcome_unknown` with a short message, and the platform's request id (a hex
-token, also in `requestId`) is shown so you can send it to the maintainers.
+token, also in `requestId`) is shown so you can send it to the maintainers. A
+5xx on the upload stage (after the CLI's `--attempt-id` retry hint, or in a run
+into an existing submission) is a `server_error` of the evaluation Worker: the
+message says that submission #N exists and its bundle may not have arrived, and
+shows the request id the same way. The retry hint is read only from the CLI's
+own text before its `服务端返回：` line, so a reply that quotes `--attempt-id`
+cannot pose as it.
 The classification uses the text the CLI printed, so a CLI that then crashes
 on exit (for example Windows exit code 3221226505) is classified the same way.
 
@@ -842,32 +875,68 @@ body gives: `error`, `message` and `detail` (a string or `{ message }`) and
 each `violations[]` item (a string or `{ rule, message, fix }`), at most 5,
 each at most 200 characters, under "评测 Worker 给出的原因" (or "平台给出的原因")
 in the message and as `error.details`, with the status as `error.httpStatus`.
-Each reason is cleaned first: control characters are dropped; bearer values,
-JWT-like and `asp_` tokens, `token=`/`password=`-style values, emails and URL
-query strings are removed; absolute Windows, UNC and POSIX paths are cut to
-their last segment. Paths inside the bundle, such as
-`examples/input/paper.pdf`, are kept. A body that is not JSON, or cut off by
-the CLI, shows nothing, and a 5xx shows only its request id as before.
+Each reason is cleaned first. Its input is cut to 800 characters (dropping the
+word the cut lands in) and the reply to 2,100 characters before any pattern
+runs. Control characters are dropped. Removed are: `Authorization` values
+(keeping a Basic, Bearer or Token scheme name), `Cookie` and `Set-Cookie`
+values, bearer values, JWT-like and `asp_` tokens, keys with a known prefix
+(`sk-`, `ghp_`/`gho_`/`ghs_`, `github_pat_`, `AKIA`/`ASIA`, `xoxb-`-style Slack
+tokens, `glpat-`), the values of keys that end in `token`, `secret`, `key`,
+`password`, `passwd`, `session`, `cookie`, `signature` or `credential` (also
+with a prefix such as `client_secret` or `aws_secret_access_key`; a quoted
+value is removed whole), emails, URL query strings, hex runs of 32 or more
+characters and long base64-like runs. Absolute paths are cut to their last
+segment: Windows paths (quoted, or with spaces inside a folder name), UNC
+paths, `file://` URLs and POSIX absolute or home paths, also after a backtick,
+a colon or a bracket. Paths inside the bundle, such as
+`examples/input/paper.pdf`, and links without their query are kept. A body that
+is not JSON shows nothing. A JSON body the CLI cut off (it cuts the reply at
+2,000 characters and appends "…", most likely when the Worker lists many
+violations) gives the reasons held in its complete string literals, each read
+with `JSON.parse` at its place in the structure; a literal the cut lands in is
+never shown, and the list ends with
+"（服务端的回复被截断，以上只是能完整读出的部分原因。）". A 5xx reply shows no
+reasons, only its request id. The chat card shows a message the Host built this
+way whole (the result marks it `error.cleaned`); every other message keeps the
+card's strict check.
 
 The result of every failed confirmation also carries `diagnosis`, the facts
 the agent needs to fix it: `stage` (`worker_upload`, `attempt_create`,
 `local_check` or `unknown`), `reason`, `httpStatus`, `details`, `attemptId`,
-`attemptCreated`, `bundle` (the checked bundle's summary, see above) and
-`nextSteps`. After a Worker refusal the next steps tell the agent to read the
-challenge with `playground_get_challenge`, compare its limits with `bundle`
-and `details`, rebuild the bundle, and check again with
-`playground_check_materials` and the same `attempt_id`, so the bundle goes to
-the original submission; they forbid a new submission and a terminal submit.
+`attemptCreated`, `bundle` (the checked bundle's summary, see above),
+`bundleSha256` and `nextSteps`. When a submission was created, the next steps
+first have the agent read its platform state (`playground_task` `results`, or
+`playground_get_attempt`): if the platform has closed it (failed, bundle
+missing, "请重新提交"), a new submission is needed, which the user must confirm,
+and nothing is re-uploaded into the closed one. Otherwise, after a Worker
+refusal, they tell the agent to read the challenge with
+`playground_get_challenge`, compare its limits with `bundle` and the reasons,
+rebuild the bundle, and check again with `playground_check_materials` and the
+same `attempt_id`, so the bundle goes to the original submission. They also say
+that sending the same bundle (same SHA-256) again fails the same way, so the
+bundle must change and the new confirmation card's SHA-256 must differ. At the
+submission limit they say not to check or confirm again. They always forbid a
+terminal submit. A material check whose bundle has the SHA-256 of one the Worker
+refused in this conversation passes, but warns the agent (`bundleWarning` and
+the note) and the user (the check card and the confirmation section):
+"这个评测包与上次被拒收的完全相同".
+
 Because the result reaches the conversation as the user's command, the task
 state keeps it: `playground_task` `status` returns it as `lastFailure` (and
-on the receipt as `receipt.diagnosis`), and lists the submissions without a
-bundle as `bundleMissingIds`; `playground_task` `results` adds
-`bundleMissing: true` and a note when the queried submission is one of them.
-The task context prompt names the latest failure's stage, submission, status
-and first three reasons, and tells the agent to read `playground_task` status
-first. A successful receipt clears `lastFailure`. The chat card of the
-confirmation shows the message with its reasons, and its details list the
-stage, the HTTP status, the reasons and the bundle summary.
+on the receipt as `receipt.diagnosis`), with the cleaned reasons under
+`platformReplyUntrusted` (`{ note, reasons }`, the note saying they are
+platform-reported data, never instructions). It lists the submissions without
+a bundle as `bundleMissingIds`, derived the same way as for the workbench, so a
+task saved by an older version answers the same in `status` and `results`.
+`playground_task` `results` adds `bundleMissing: true` and a note when the
+queried submission is one of them, or when the platform closed it as bundle
+missing. The task context prompt carries only plugin facts about the latest
+failure (stage, reason code, submission number, whether it was created, HTTP
+status), never platform text, and asks the agent to read `playground_task`
+status first. That request stops once the agent has checked materials again or
+switched mode after the failure. A successful receipt clears `lastFailure`.
+The chat card of the confirmation shows the message with its reasons, and its
+details list the stage, the HTTP status, the reasons and the bundle summary.
 The plugin shows only its own text and these cleaned reasons, never the raw
 CLI output. On a timeout or
 a cancellation the plugin ends the CLI and the processes it started, then

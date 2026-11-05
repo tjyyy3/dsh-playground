@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
           late_scored: '赛后已评分', pending_review: '等待审核', scoring: '评测中' },
         progress: { created: '任务已创建', running: 'Agent 执行中', submitted: '已提交，等待结果', evaluating: '评测中',
           final: '已出最终分', finalLate: '已出最终分（赛后）', failed: '评测未通过', incomplete: '提交未完成',
-          notSubmitted: '未提交', notUploaded: '评测包未上传', attempt: '提交', reference: '参考', points: '分' },
+          notSubmitted: '未提交', notUploaded: '评测包未上传', notReceived: '未收到评测包，需重新提交', attempt: '提交', reference: '参考', points: '分' },
         metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
           result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
       },
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
           late_scored: 'Scored after deadline', pending_review: 'Pending review', scoring: 'Scoring' },
         progress: { created: 'Task created', running: 'Agent running', submitted: 'Submitted, awaiting result', evaluating: 'Evaluating',
           final: 'Final score available', finalLate: 'Final score available (after deadline)', failed: 'Evaluation not passed', incomplete: 'Submission incomplete',
-          notSubmitted: 'Not submitted', notUploaded: 'Bundle not uploaded', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
+          notSubmitted: 'Not submitted', notUploaded: 'Bundle not uploaded', notReceived: 'Bundle not received, submit again', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
         metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
           result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
       },
@@ -159,9 +159,17 @@ window.__ModuleLoader__.load({
 
     const stageTones = { final: 'success', finalLate: 'success', failed: 'error', evaluating: 'warning', incomplete: 'error' };
 
-    // Mirrors receiptBundleMissing in lib/workflow.js: the plugin's receipt says the upload into this submission failed.
+    // Mirrors platformReceivedBundle in lib/workflow.js: an evaluating, scoring or final state, or the
+    // time the Worker received the bundle, proves it arrived.
+    function platformReceivedBundle(attempt) {
+      const state = typeof attempt?.scoringState === 'string' ? attempt.scoringState : attempt?.scoringState?.state;
+      return ['evaluating', 'scoring', 'final', 'late_scored'].includes(state)
+        || (typeof attempt?.scoringQueue?.workerReceivedAt === 'string' && attempt.scoringQueue.workerReceivedAt !== '');
+    }
+    // Mirrors receiptBundleMissing in lib/workflow.js: the plugin's receipt says the upload into this submission
+    // failed, and the platform shows no sign that the bundle arrived since.
     const receiptBundleMissing = (receipt) => receipt?.ok === false && receipt?.error?.code === 'upload_failed'
-      && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0;
+      && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt);
     // Mirrors taskBundleMissingIds in lib/workflow.js; states without the field derive it from the latest receipt.
     function taskBundleMissingIds(state) {
       const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
@@ -192,16 +200,22 @@ window.__ModuleLoader__.load({
     // The platform keeps a submission whose bundle never arrived queued until it gives up on it (it reports
     // no bundle state for any submission), so only the plugin's own receipt can tell it apart from a
     // queued one: the confirmation created it and the upload into it failed (`upload_failed`). Such a
-    // submission shows "评测包未上传" until the platform reports a failure or a final score. `bundleMissing`
-    // passes the same evidence for a history row, which carries no receipt of its own.
+    // submission shows "评测包未上传" until the platform reports a failure or a final score, or shows that the
+    // bundle arrived (an evaluating or scoring state, or the Worker's receipt time). `bundleMissing` passes the
+    // same evidence for a history row, which carries no receipt of its own. A submission the platform closed
+    // as "bundle missing" (`bundleNotReceived`, from lib/api.js) shows "未收到评测包，需重新提交" instead of a
+    // generic failure: only a new submission helps.
     function receiptProgress(receipt, t = zhText, { running = false, bundleMissing = false } = {}) {
       const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
       const states = [scoring.state, receipt?.status];
       const known = (value) => (value && value !== 'unknown' ? value : undefined);
       const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
       const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
-      const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && (bundleMissing || receiptBundleMissing(receipt));
+      const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
+      const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt)
+        && (bundleMissing || receiptBundleMissing(receipt));
       const receiptStage = !receipt ? 'created'
+        : notReceived ? 'incomplete'
         : failed ? 'failed'
           : scoreIsFinal ? (states.includes('late_scored') ? 'finalLate' : 'final')
             : notUploaded ? 'incomplete'
@@ -211,7 +225,8 @@ window.__ModuleLoader__.load({
       const stage = running ? 'running' : receiptStage;
       const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
         : referenceScore !== undefined ? `${t('progress.reference')} ${referenceScore}` : '—';
-      const badgeText = !receipt ? t('progress.notSubmitted') : notUploaded ? t('progress.notUploaded') : state ? stateLabel(state, t)
+      const badgeText = !receipt ? t('progress.notSubmitted') : notReceived ? t('progress.notReceived')
+        : notUploaded ? t('progress.notUploaded') : state ? stateLabel(state, t)
         : receipt.ok === false ? t('progress.notSubmitted') : t('unknown');
       const badgeTone = !receipt ? (running ? 'warning' : 'neutral')
         : receiptStage === 'submitted' && receipt.bundleStatus === 'incomplete' ? 'warning'
@@ -239,7 +254,9 @@ window.__ModuleLoader__.load({
     const noArchiveError = Object.freeze({ id: '', message: '' });
 
     // A receipt whose evaluation has ended: a final score, or a failed or rejected attempt.
-    const receiptSettled = (receipt) => ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
+    // A submission the platform closed as "bundle missing" is settled too.
+    const receiptSettled = (receipt) => receipt?.bundleNotReceived === true
+      || ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
 
     // The submission id of a receipt, or undefined when it is not a positive integer.
     const receiptAttemptId = (receipt) => {
@@ -255,13 +272,19 @@ window.__ModuleLoader__.load({
     // A submission still waiting for a platform result. A scored or incomplete bundle, a draft and a
     // failed upload never change on their own, so they are not polled. `awaiting_review` is polled like
     // `pending_review`, although the stage display still shows it as submitted.
+    // A submission whose upload failed by this task's receipt is polled too: the platform later closes it
+    // ("bundle missing") or, after a re-upload from elsewhere, starts evaluating it.
     function receiptPending(receipt) {
       if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
       const { stage } = receiptProgress(receipt, zhText);
       if (stage === 'evaluating') return true;
+      if (stage === 'incomplete' && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
       const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes('awaiting_review');
       return stage === 'submitted' && ([undefined, 'submitted'].includes(receipt.status) || awaitingReview);
     }
+
+    // The platform fields a refreshed submission lays over a receipt or a history row.
+    const ATTEMPT_STATE_FIELDS = ['status', 'bundleStatus', 'score', 'scoringState', 'scoringQueue', 'bundleNotReceived'];
 
     // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
     // resubmission under the same id or by "查询结果", no longer matches the stored result.
@@ -275,7 +298,7 @@ window.__ModuleLoader__.load({
     function withLatestAttempt(receipt, entry) {
       if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
       const merged = { ...receipt };
-      for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+      for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
       return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
     }
 
@@ -287,7 +310,7 @@ window.__ModuleLoader__.load({
       if (!entry?.attempt || receiptSettled(item)) return item;
       if (Date.parse(item.updatedAt) > Date.parse(entry.attempt.updatedAt)) return item;
       const merged = { ...item };
-      for (const field of ['status', 'bundleStatus', 'score', 'scoringState']) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+      for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
       return receiptSettled(merged) ? merged : item;
     }
 
@@ -387,6 +410,7 @@ window.__ModuleLoader__.load({
           declared ? h('p', { className: 'pg-note pg-path' }, declared) : null,
           h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
           bundleSummaryLine(prepared.bundleSummary) ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(prepared.bundleSummary)) : null,
+          typeof prepared.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', prepared.bundleWarning) : null,
           h('p', { className: 'pg-note' }, `${prepared.cliPrecheck?.status === 'passed' ? '本地文件检查和 Playground CLI 预检均已通过；'
             : prepared.cliPrecheck?.note ? `本地文件检查通过；${prepared.cliPrecheck.note}` : '本地文件检查通过；'}最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。`),
           prepared.cliUpdate?.warning ? h('p', { className: 'pg-note', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', prepared.cliUpdate.warning) : null,
@@ -1504,6 +1528,7 @@ window.__ModuleLoader__.load({
           // The checked bundle: a material check carries its summary, a failed confirmation the one it checked.
           bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)
             ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)) : null,
+          typeof data.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', data.bundleWarning) : null,
           isAttempt && (data.attemptId ?? data.id) ? h('p', { className: 'pg-note' }, `${t('nextAttempt')} ${data.attemptId ?? data.id}`) : null) : null,
         phase === 'result' && text ? h('details', { className: 'pg-raw', open: !data }, h('summary', null, t('raw')), h('pre', null, text)) : null,
         phase === 'result' ? h('footer', null, t('snapshot')) : h('p', { className: 'pg-note', role: 'status' }, t('snapshot')));
@@ -1611,17 +1636,18 @@ window.__ModuleLoader__.load({
     function safeMessage(value) {
       if (typeof value !== 'string' || !value.trim()) return undefined;
       const text = value.trim().slice(0, 300);
-      return /bearer|authorization|token|password|secret|api[_-]?key|cookie|[a-z]:[\\/]|\/(home|users|tmp)\//i.test(text) ? undefined : text;
+      // A drive letter is one letter on its own, so a URL scheme such as `https://` is not one.
+      return /bearer|authorization|token|password|secret|api[_-]?key|cookie|(?<![a-z])[a-z]:[\\/]|(?<![\w.-])\/(home|users|tmp)\//i.test(text) ? undefined : text;
     }
 
-    // A failed confirmation from this plugin version carries `diagnosis`, and its message is plugin text plus
-    // reasons the Host already cleaned (lib/workflow.js cleanDetail), which can be longer than safeMessage
-    // allows and may name a field such as "token". It is shown whole, up to 2000 characters, unless it still
-    // holds something credential- or path-like; older results without `diagnosis` keep the stricter check.
+    // A failed confirmation's message that the Host marks `error.cleaned` is plugin text plus reasons the Host
+    // already cleaned (lib/workflow.js cleanDetail, the one definition of clean). It can be longer than
+    // safeMessage allows, name a field such as "token", hold a link or a bundle path such as
+    // `skills/users/data.csv`, so it is shown whole, up to 2000 characters. Every other message keeps the
+    // strict safeMessage check.
     function diagnosedMessage(result) {
-      if (!result?.diagnosis || typeof result.error?.message !== 'string' || !result.error.message.trim()) return undefined;
-      const text = result.error.message.trim().slice(0, 2000);
-      return /bearer\s+(?!<)|\beyJ[\w-]{4,}\.|\basp_[\w-]{4,}|[a-z]:[\\/]|\/(home|users|tmp)\/|[\w.+-]+@[\w-]+\.[\w.-]+/i.test(text) ? undefined : text;
+      if (result?.error?.cleaned !== true || typeof result.error.message !== 'string' || !result.error.message.trim()) return undefined;
+      return result.error.message.trim().slice(0, 2000);
     }
 
     // uiWorkspace.archiveSession throws WorkspaceArchiveError carrying the host rpcError (read from the error, not
@@ -1687,7 +1713,7 @@ window.__ModuleLoader__.load({
         ...(result.diagnosis && typeof result.diagnosis === 'object' ? {
           失败环节: ({ worker_upload: '评测 Worker 接收评测包', attempt_create: '创建提交记录', local_check: 'CLI 本地检查' })[result.diagnosis.stage] || '未知',
           ...(commandFact(result.diagnosis.httpStatus) !== undefined ? { HTTP状态: commandFact(result.diagnosis.httpStatus) } : {}),
-          ...(Array.isArray(result.diagnosis.details) ? { 平台给出的原因: result.diagnosis.details.slice(0, 5).map(commandFact).filter((item) => item !== undefined) } : {}),
+          ...(Array.isArray(result.diagnosis.details) ? { 平台给出的原因: result.diagnosis.details.slice(0, 6).map(commandFact).filter((item) => item !== undefined) } : {}),
           ...(bundleSummaryLine(result.diagnosis.bundle) ? { 评测包: bundleSummaryLine(result.diagnosis.bundle) } : {}),
         } : {}),
       };
