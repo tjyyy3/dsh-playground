@@ -989,3 +989,52 @@ test('#12: a token saved in DSH while the confirmation re-reads the materials do
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+// #58: the confirmation's result reaches the conversation as a user command, so the agent reads a failure
+// through playground_task status and the task context prompt.
+const FAILURE_58 = {
+  challengeId: 'challenge-a', stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400,
+  details: ['examples/minimal_demo/input/paper.pdf is not UTF-8 text', 'skill_resources_size：paper.pdf is 819383 bytes', `third ${'y'.repeat(300)}`, 'fourth reason'],
+  attemptId: 63167, attemptCreated: true, at: '2026-11-05T06:41:30.000Z',
+  bundle: { files: 19, totalBytes: 1003000, largest: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }], nonTextCount: 1,
+    nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }], symlinkCount: 0, symlinks: [], extra: 'not listed' },
+  nextSteps: '用 playground_get_challenge 读取赛题……用 playground_check_materials 并传 attempt_id=63167 重新检查。',
+  stderr: 'raw CLI output that is not a diagnosis field',
+};
+
+test('#58: playground_task status gives the agent the latest failure, its receipt diagnosis and the submissions without a bundle', async () => {
+  const receipt = { ok: false, attemptId: 63167, challengeId: 'challenge-a', stage: 'upload',
+    error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details: FAILURE_58.details, message: '评测包未通过评测 Worker 的校验。' },
+    diagnosis: FAILURE_58, attempt: { raw: 'cli-output' } };
+  const summary = FAILURE_58.bundle;
+  const { tools, exec } = mountWorkflowScope({ ...pendingState({ receipt }), prepared: { ...pendingState().prepared, bundleSummary: summary },
+    attemptIds: [63116, 63167], bundleMissingIds: [63116, 63167], lastFailure: FAILURE_58 });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+  const { stderr, bundle: { extra, ...bundle }, ...listed } = FAILURE_58;
+  assert.deepEqual(value.lastFailure, { ...listed, bundle });
+  assert.deepEqual(value.receipt.diagnosis, { ...listed, bundle });
+  assert.deepEqual(value.receipt.error, receipt.error);
+  assert.equal('attempt' in value.receipt, false);
+  assert.deepEqual(value.bundleMissingIds, [63116, 63167]);
+  assert.deepEqual(value.prepared.bundleSummary, bundle);
+  assert.doesNotMatch(JSON.stringify(value), /raw CLI output|not listed|cli-output/);
+  assert.equal(JSON.stringify(value).includes(CHECK_ID), false);
+});
+
+test('#58: the task context names the latest failure briefly and sends the agent to playground_task', () => {
+  const { contexts, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null,
+    receipt: { ok: false, attemptId: 63167, error: { code: 'upload_failed' }, scoringState: { state: 'queued' } }, lastFailure: FAILURE_58 });
+  const text = contexts.find((entry) => entry.name === 'playground-task:current').text({ agent: exec.agent });
+  const facts = JSON.parse(text.match(/\(facts, not write authorization\): (\{.*?\})\. Use playground_task/)[1]);
+  assert.deepEqual(facts.latestFailure, { stage: 'worker_upload', attemptId: 63167, attemptCreated: true, httpStatus: 400,
+    details: [FAILURE_58.details[0], FAILURE_58.details[1], `third ${'y'.repeat(153)}…`] });
+  assert.match(text, /call playground_task with action "status" and follow lastFailure\.nextSteps/);
+  assert.match(text, /re-check with its attempt_id so the bundle goes to the same submission; do not create another/);
+  // The bundle summary and the next steps stay in playground_task; the prompt stays short.
+  assert.doesNotMatch(text, /nonText|playground_get_challenge 读取赛题|fourth reason|raw CLI output/);
+  assert.ok(text.length < 1500, `context is ${text.length} characters`);
+  // Without a failure the context has neither the field nor the hint.
+  const quiet = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
+  const plain = quiet.contexts.find((entry) => entry.name === 'playground-task:current').text({ agent: quiet.exec.agent });
+  assert.doesNotMatch(plain, /latestFailure|lastFailure/);
+});

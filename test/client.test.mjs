@@ -4248,3 +4248,97 @@ test('#55: 加载更多 is aria-disabled while a page-1 read runs, and a press t
   await settle();
   assert.equal(button('加载更多').props['aria-disabled'], undefined);
 });
+
+// #58: the platform keeps a submission whose bundle never arrived queued, so only the plugin's receipt
+// (`upload_failed`) can tell it apart from a queued one.
+const uploadFailed = (attemptId, extra = {}) => ({ attemptId, ok: false, stage: 'upload',
+  error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' }, ...extra });
+
+test('#58: a submission whose upload failed shows "评测包未上传" in the task row and the drawer, also over a queued platform state', async (t) => {
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const notUploaded = view('提交未完成', '评测包未上传', 'error', '—', undefined);
+  for (const [name, receipt, expected] of [
+    ['receipt only', uploadFailed(63167), notUploaded],
+    ['"查询结果" merged the queued platform attempt', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }), notUploaded],
+    ['the platform later marks it failed', uploadFailed(63116, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false } }),
+      view('评测未通过', '失败', 'error', '—', undefined)],
+    // An unknown outcome is not evidence that the bundle is missing; the platform's queued state stands.
+    ['unknown outcome', { attemptId: 9, ok: false, stage: 'upload', error: { code: 'outcome_unknown', message: 'x' }, status: 'submitted', scoringState: { state: 'queued', scoreIsFinal: false } },
+      view('评测中', '排队中', 'warning', '—', undefined)],
+    ['a normal queued submission', { attemptId: 10, ok: true, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } },
+      view('评测中', '排队中', 'warning', '—', awaiting)],
+  ]) {
+    const f = await localizedFixture(t);
+    const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
+    assert.deepEqual({ stage: views.stage, badge: views.badge, tone: views.tone, score: views.score, card: views.card }, expected, name);
+    assert.equal(views.summary, `提交 #${receipt.attemptId} · ${expected.badge} · ${expected.stage} · ${expected.score}`, name);
+  }
+  const english = await localizedFixture(t);
+  assert.equal(taskViews(english, { task, prepared: null, receipt: uploadFailed(63167) }, english.en).summary,
+    'Submission #63167 · Bundle not uploaded · Submission incomplete · —');
+});
+
+test('#58: history rows of submissions without a bundle show "评测包未上传"; other queued rows stay queued', async (t) => {
+  const failed = (id, at) => confirmedReceipt(id, at, { ok: false, status: undefined, bundleStatus: undefined, stage: 'upload',
+    error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' } });
+  const state = withReceipt(withReceipt(historyTask(), failed(63116, '2026-11-05T04:03:30.000Z')), failed(63167, '2026-11-05T06:41:30.000Z'));
+  assert.deepEqual(state.bundleMissingIds, [63116, 63167]);
+  const queued = (id, at) => ({ id, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: 0, created_at: at });
+  const f = await historyFixture(t, () => attemptsPage([queued(63167, '2026-11-05T06:41:22Z'), queued(63162, '2026-11-05T06:36:53Z'), queued(63116, '2026-11-05T04:03:27Z')]), state);
+  const rows = historyRows(f.panel);
+  assert.match(rows[0], /提交 #63167 .* · 提交未完成 · — 评测包未上传 本对话/);
+  assert.match(rows[1], /提交 #63162 .* · 评测中 · — 排队中 未关联到对话/);
+  assert.match(rows[2], /提交 #63116 .* · 提交未完成 · — 评测包未上传 本对话/);
+  const tones = findAll(f.panel, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
+  assert.deepEqual(tones, ['error', 'warning', 'error']);
+});
+
+const SUMMARY_58 = { files: 19, totalBytes: 1003000, nonTextCount: 1, symlinkCount: 0, symlinks: [],
+  largest: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/structure.py', bytes: 31321 }],
+  nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }] };
+const SUMMARY_LINE_58 = '评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）、structure.py（31 KB）；非文本文件（按扩展名）1 个：paper.pdf（800 KB）';
+
+test('#58: the confirmation card shows the cleaned reasons, the failure stage and the bundle summary', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  const details = ['upload token=<已隐藏> rejected', 'examples/minimal_demo/input/paper.pdf is not UTF-8 text'];
+  const message = `评测包未通过评测 Worker 的校验。请对照赛题的交付要求和 Runtime contract 检查评测包。\n评测 Worker 给出的原因：\n${details.map((item) => `- ${item}`).join('\n')}\n提交 #42 已在平台创建，但评测包没有上传成功。`;
+  const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details, message },
+    diagnosis: { stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400, details, attemptId: 42, attemptCreated: true, bundle: SUMMARY_58, nextSteps: '……' } };
+  const render = (value) => f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'error', text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt: value }, ...value }) } } });
+  const card = render(result);
+  // The whole message, although it names a "token" field, because the Host cleaned its reasons.
+  assert.equal(text(f.find(card, (node) => node.props?.role === 'alert')), message);
+  const facts = JSON.parse(text(f.find(card, (node) => node.type === 'pre')));
+  assert.equal(facts.失败环节, '评测 Worker 接收评测包');
+  assert.equal(facts.HTTP状态, 400);
+  assert.deepEqual(facts.平台给出的原因, details);
+  assert.equal(facts.评测包, SUMMARY_LINE_58);
+  // Without a diagnosis (an older plugin) or with a path left in it, the strict check still applies.
+  for (const value of [{ ok: false, error: { code: 'upload_failed', message } }, { ...result, error: { ...result.error, message: `${message} C:\\Users\\someone\\bundle.zip` } }]) {
+    assert.match(text(f.find(render(value), (node) => node.props?.role === 'alert')), /^操作未完成或已中断/);
+  }
+});
+
+test('#58: the material check card and the confirmation section show a compact bundle summary', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground_check_materials').Component;
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: { ...SUMMARY_58, symlinkCount: 2, symlinks: ['a', 'b'] } } } } });
+  assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-summary')), `${SUMMARY_LINE_58}；符号链接 2 个`);
+  const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
+    args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
+    cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58 };
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const Main = f.registrations.get('main').Component;
+  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
+  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
+  f.find(f.render(rowElement.type, rowElement.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = f.render(selected.type, selected.props);
+  const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
+  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-summary')), SUMMARY_LINE_58);
+});

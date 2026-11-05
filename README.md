@@ -119,6 +119,21 @@ records, nonempty execution steps, manifest JSON and exact SHA-256 snapshots.
 They do not execute bundles, validate every ARM rule, or establish scientific
 correctness. The platform still owns final validation and grading.
 
+The check also returns `bundleSummary`, read from the ZIP's central directory
+only (nothing is decompressed or extracted): the file count (directories
+excluded), the total uncompressed size, the 5 largest files, the files not
+known to be UTF-8 text, and symbolic links. Text is decided by the file name:
+a list of text extensions and well-known names such as `Makefile` and
+`.gitignore`; every other file, including binary formats and unknown
+extensions, is listed as not known to be text (up to 20 names, with exact
+counts). Symbolic links are recognised in entries written by Unix tools, which
+record the file mode. The summary never blocks a check. It lets the agent
+compare the bundle with the challenge's 交付要求 and Runtime contract (for
+example "at most 50 UTF-8 text files, 500KB each and 2MB total, no symlinks")
+before submitting, because the CLI's dry run does not contact the evaluation
+Worker. The confirmation section and the check card show it as one line, such
+as `评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）…；非文本文件（按扩展名）1 个：paper.pdf（800 KB）`.
+
 After the local checks pass, the material check runs the installed CLI once with
 the same arguments the confirmed submission will use plus `--dry-run`
 (`playground submit … --dry-run`). The CLI returns before the platform creates
@@ -418,6 +433,17 @@ entry takes that result; other entries, including CLI submissions, update when
 the drawer is reopened. In task
 conversations created before this version, only the latest submission is marked
 **本对话**.
+A submission whose bundle upload failed, by this task's own receipt
+(`upload_failed`: the confirmation created the submission and the upload into
+it failed), shows **评测包未上传** with stage **提交未完成** in the task row, the
+drawer summary and its history entry, instead of the platform's **排队中**. The
+platform keeps such a submission queued until it gives up on the bundle (about
+an hour later it marks it failed, "bundle missing"), and it reports
+`bundleStatus` and `bundleAvailable` as empty for every submission, scored ones
+included, so the platform state alone cannot tell it apart from a queued one.
+Only the receipt is used; a CLI or other-tool submission keeps the platform's
+state. A later receipt for the same number (a successful re-upload) removes
+the mark, and a failure or final score the platform reports wins over it.
 **返回所选任务对话** returns to native chat. To jump straight to one task's
 conversation, use the small **打开对话** button at the right of its row, which
 does not open the drawer, or **打开任务对话** next to **关闭** in the drawer
@@ -798,7 +824,52 @@ the plugin's: it usually means nothing was created, the result is still
 token, also in `requestId`) is shown so you can send it to the maintainers.
 The classification uses the text the CLI printed, so a CLI that then crashes
 on exit (for example Windows exit code 3221226505) is classified the same way.
-The plugin shows only its own classified message, never the CLI output. On a timeout or
+
+Failures name their stage. When the evaluation Worker refuses the bundle
+(`bundle_rejected`, the submission exists without a bundle) the message says
+"评测包未通过评测 Worker 的校验" and asks you to compare the bundle with the
+challenge's 交付要求 and Runtime contract; it does not mention the trace, which
+the Worker never sees. When the platform refuses to create the submission
+record (`create_rejected`) the message names the submission details and the
+trace. Size limits and connection failures also say whether the Worker or the
+platform was involved. A creation refusal with an HTTP 4xx reply is
+`submission_rejected` ("平台未创建这次提交"); without the reply status the
+outcome stays unknown.
+
+The CLI ends a failed submission with `服务端返回：HTTP <status> <statusText>:
+<body>`. From a 4xx reply whose body is JSON, the plugin shows the reasons the
+body gives: `error`, `message` and `detail` (a string or `{ message }`) and
+each `violations[]` item (a string or `{ rule, message, fix }`), at most 5,
+each at most 200 characters, under "评测 Worker 给出的原因" (or "平台给出的原因")
+in the message and as `error.details`, with the status as `error.httpStatus`.
+Each reason is cleaned first: control characters are dropped; bearer values,
+JWT-like and `asp_` tokens, `token=`/`password=`-style values, emails and URL
+query strings are removed; absolute Windows, UNC and POSIX paths are cut to
+their last segment. Paths inside the bundle, such as
+`examples/input/paper.pdf`, are kept. A body that is not JSON, or cut off by
+the CLI, shows nothing, and a 5xx shows only its request id as before.
+
+The result of every failed confirmation also carries `diagnosis`, the facts
+the agent needs to fix it: `stage` (`worker_upload`, `attempt_create`,
+`local_check` or `unknown`), `reason`, `httpStatus`, `details`, `attemptId`,
+`attemptCreated`, `bundle` (the checked bundle's summary, see above) and
+`nextSteps`. After a Worker refusal the next steps tell the agent to read the
+challenge with `playground_get_challenge`, compare its limits with `bundle`
+and `details`, rebuild the bundle, and check again with
+`playground_check_materials` and the same `attempt_id`, so the bundle goes to
+the original submission; they forbid a new submission and a terminal submit.
+Because the result reaches the conversation as the user's command, the task
+state keeps it: `playground_task` `status` returns it as `lastFailure` (and
+on the receipt as `receipt.diagnosis`), and lists the submissions without a
+bundle as `bundleMissingIds`; `playground_task` `results` adds
+`bundleMissing: true` and a note when the queried submission is one of them.
+The task context prompt names the latest failure's stage, submission, status
+and first three reasons, and tells the agent to read `playground_task` status
+first. A successful receipt clears `lastFailure`. The chat card of the
+confirmation shows the message with its reasons, and its details list the
+stage, the HTTP status, the reasons and the bundle summary.
+The plugin shows only its own text and these cleaned reasons, never the raw
+CLI output. On a timeout or
 a cancellation the plugin ends the CLI and the processes it started, then
 waits up to 5 seconds for them to stop, so the result arrives at most 5 seconds
 after the limit. If a CLI exits cleanly but a process it started keeps its

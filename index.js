@@ -219,6 +219,8 @@ const SUBMIT_OUTPUT_SCHEMA = {
     traceCount: { type: 'integer' },
     cliPrecheck: { type: 'object', properties: { status: { type: 'string' }, note: { type: 'string' } } },
     cliUpdate: { type: 'object', properties: { current: { type: 'string' }, latest: { type: 'string' }, warning: { type: 'string' } } },
+    bundleSummary: { type: 'object', additionalProperties: true },
+    diagnosis: { type: 'object', additionalProperties: true },
     workflow: { type: 'object', additionalProperties: true },
     error: ERROR_SCHEMA,
   },
@@ -294,6 +296,7 @@ export function presentationMeta(_args, value) {
     })),
     metrics,
     violations: value.violations,
+    bundleSummary: value.bundleSummary,
   } });
 }
 
@@ -531,7 +534,11 @@ function errorValue(error, extra = {}) {
 
 const TASK_STATUS_TASK_KEYS = ['challengeId', 'title', 'mode', 'cwd'];
 const TASK_STATUS_RECEIPT_KEYS = ['ok', 'attemptId', 'challengeId', 'challengeTitle', 'status', 'bundleStatus', 'score',
-  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args', 'note'];
+  'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args', 'note', 'diagnosis'];
+// The facts a failed confirmation records for the agent (lib/workflow.js cliFailure); all plugin-written or cleaned.
+const DIAGNOSIS_KEYS = ['challengeId', 'stage', 'reason', 'httpStatus', 'details', 'requestId', 'attemptId', 'attemptCreated',
+  'possibleMatch', 'outcomeUnknown', 'bundle', 'nextSteps', 'at'];
+const BUNDLE_SUMMARY_KEYS = ['files', 'totalBytes', 'largest', 'nonTextCount', 'nonText', 'symlinkCount', 'symlinks', 'complete'];
 
 function pickKeys(source, keys) {
   if (source === null || typeof source !== 'object') return null;
@@ -550,21 +557,49 @@ function pickKeys(source, keys) {
  * not a credential. It still appears in the structured results of `playground_check_materials` and
  * `playground_submit_attempt` and in `/playground check` output, because the projection needs it.
  */
+function diagnosisView(diagnosis) {
+  const picked = pickKeys(diagnosis, DIAGNOSIS_KEYS);
+  if (picked?.bundle !== undefined) picked.bundle = pickKeys(picked.bundle, BUNDLE_SUMMARY_KEYS);
+  return picked;
+}
+
+/**
+ * `lastFailure` is the diagnosis of the latest failed confirmation: its stage, HTTP status, cleaned
+ * reasons, submission id, whether the submission exists, the checked bundle's summary and the next
+ * steps. The confirmation's result reaches the conversation as a user command, so this is where the
+ * agent reads it.
+ */
 function taskStatus(state) {
   const prepared = state?.prepared;
+  const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
+  if (receipt?.diagnosis !== undefined) receipt.diagnosis = diagnosisView(receipt.diagnosis);
   return {
     ok: true,
     task: pickKeys(state?.task, TASK_STATUS_TASK_KEYS),
-    receipt: pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS),
+    receipt,
     ...(state?.attemptIds !== undefined ? { attemptIds: state.attemptIds } : {}),
+    ...(state?.bundleMissingIds?.length ? { bundleMissingIds: state.bundleMissingIds } : {}),
+    ...(state?.lastFailure ? { lastFailure: diagnosisView(state.lastFailure) } : {}),
     prepared: prepared ? {
       awaitingConfirmation: true,
       challenge: prepared.challenge,
       files: prepared.files,
+      ...(prepared.bundleSummary ? { bundleSummary: pickKeys(prepared.bundleSummary, BUNDLE_SUMMARY_KEYS) } : {}),
       checkedAt: prepared.checkedAt,
       args: prepared.args,
     } : null,
   };
+}
+
+// The prompt names the latest failure in a few words and sends the agent to playground_task for the rest.
+function promptFailure(failure) {
+  if (!failure || typeof failure !== 'object') return undefined;
+  const line = (value) => {
+    const chars = Array.from(String(value).replace(/\s+/g, ' ').trim());
+    return chars.length > 160 ? `${chars.slice(0, 159).join('')}…` : chars.join('');
+  };
+  return { stage: failure.stage, attemptId: failure.attemptId, attemptCreated: failure.attemptCreated, httpStatus: failure.httpStatus,
+    details: Array.isArray(failure.details) && failure.details.length ? failure.details.slice(0, 3).map(line) : undefined };
 }
 
 function renderText(text) {
@@ -1107,10 +1142,11 @@ export function apply(ctx, config) {
           if (!agent) return '';
           const state = scope.sessionProjections.stateOf(agent.session, 'playgroundTask');
           if (!state?.task) return '';
+          const latestFailure = promptFailure(state.lastFailure);
           return `Playground task context (facts, not write authorization): ${JSON.stringify({
             challengeId: state.task.challengeId, mode: state.task.mode, cwd: scope.workingDirectory.get(agent.session),
-            latestAttemptId: state.receipt?.attemptId, scoringState: state.receipt?.scoringState,
-          })}. Use playground_task for current receipts. Real submission requires the user's exact-target confirmation card; tools cannot confirm it. ${confirmGuidance} Author mode currently supports local preparation only.`;
+            latestAttemptId: state.receipt?.attemptId, scoringState: state.receipt?.scoringState, latestFailure,
+          })}. Use playground_task for current receipts.${latestFailure ? ' The latest confirmed submission failed: before changing anything, call playground_task with action "status" and follow lastFailure.nextSteps (it carries the bundle summary and the cleaned reasons). When a submission was created, re-check with its attempt_id so the bundle goes to the same submission; do not create another.' : ''} Real submission requires the user's exact-target confirmation card; tools cannot confirm it. ${confirmGuidance} Author mode currently supports local preparation only.`;
         } });
     });
     scope.commands.register({ name: 'playground', description: 'Playground task: start, check materials, switch mode or read results.',

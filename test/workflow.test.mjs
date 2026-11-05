@@ -837,6 +837,13 @@ function cliError(reason, code = 'cli_error') {
 // Receipts keep the checked workspace paths for retry; these patterns only come from CLI output.
 const RAW_CLI = /outdated|install\.sh|playground submit|error: |若持续失败|someone|paper2arm|synthetic-secret|test@example\.test/;
 const commandText = (result) => JSON.stringify({ playgroundWorkflow: result.workflow, ...result });
+// A failed confirmation without a receipt clears the card; the clear also carries the result's diagnosis.
+function clearOf(result) {
+  const { failure, ...workflow } = result.workflow || {};
+  assert.ok(result.diagnosis, 'a failed confirmation carries a diagnosis');
+  assert.deepEqual(failure, result.diagnosis);
+  return workflow;
+}
 
 async function failedConfirm(failure, setup) {
   const calls = [];
@@ -853,7 +860,7 @@ test('D3: a CLI failure after start clears the confirmation so the same card can
   const { f, calls, checkId, result } = await failedConfirm(cliError(`未能发送成功，请稍后再试。${CLI_TAIL}`));
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'outcome_unknown');
-  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(clearOf(result), { kind: 'clear' });
   f.record(result);
   assert.equal(f.states.get('source').prepared, null);
   assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
@@ -894,7 +901,7 @@ test('D3: a terminated CLI reports an unknown outcome instead of a failure', asy
   assert.match(result.error.message, /结果未知/);
   assert.match(result.error.message, /提交记录/);
   assert.doesNotMatch(commandText(result), /提交失败|Submission failed/);
-  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(clearOf(result), { kind: 'clear' });
 });
 
 test('D3: a terminated retry keeps the known submission id', async () => {
@@ -929,8 +936,9 @@ test('D3: CLI 0.1.43 failure texts map to plugin-written messages', async () => 
     ['submission_limit', `该题已达到 10 次提交上限；如需赛后回归或研究，请联系维护者开启赛后练习/测试通道。${CLI_TAIL}`, /提交次数已达到平台上限/],
     ['rate_limited', `服务端当前限流或提交过于频繁，请稍后再试。${CLI_TAIL}`, /限流/],
     ['too_large', `创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制，请联系维护者确认该接口限制。${CLI_TAIL}`, /大小限制/],
-    ['bundle_rejected', `创建提交记录未通过校验，请检查提交元数据和轨迹文件。${CLI_TAIL}`, /未通过这次提交的校验/],
-    ['bundle_rejected', `创建提交记录失败：服务端未收到有效轨迹，请检查 --trace 或 --raw-messages。${CLI_TAIL}`, /未通过这次提交的校验/],
+    // Without the reply status the CLI's create reason alone does not prove the platform refused.
+    ['create_rejected', `创建提交记录未通过校验，请检查提交元数据和轨迹文件。${CLI_TAIL}`, /平台拒绝创建提交记录：提交信息或执行轨迹未通过平台的校验/],
+    ['create_rejected', `创建提交记录失败：服务端未收到有效轨迹，请检查 --trace 或 --raw-messages。${CLI_TAIL}`, /平台拒绝创建提交记录：服务端没有收到有效的执行轨迹/],
     ['local_check', '创建提交记录需要非空、可解析的轨迹。\n请使用 --trace 提供执行轨迹。', /CLI 的本地检查：执行轨迹/],
     ['local_check', '提交包为 600.0 MiB，超过 worker 当前支持的 512 MiB。请精简后重试，或在群里联系维护者。', /CLI 的本地检查：评测包/],
     ['network', `未能连接创建接口，请稍后再试。${CLI_TAIL}`, /未能连接 Playground 平台/],
@@ -956,7 +964,7 @@ test('D3: CLI 0.1.43 failure texts map to plugin-written messages', async () => 
     // CLI local checks are not blamed on the platform.
     if (reason === 'local_check') assert.doesNotMatch(result.error.message, /Playground 未通过|平台的大小限制/, reason);
     assert.equal(queries.length, ['network', 'other'].includes(reason) ? 1 : 0, reason);
-    assert.deepEqual(result.workflow, { kind: 'clear' }, reason);
+    assert.deepEqual(clearOf(result), { kind: 'clear' }, reason);
     assert.doesNotMatch(commandText(result), RAW_CLI, reason);
   }
 });
@@ -1005,7 +1013,7 @@ test('#45: a platform 5xx at creation is a server_error with the request id, and
   assert.doesNotMatch(commandText(result), LEAKS);
   assert.doesNotMatch(commandText(result), RAW_CLI);
   // The card stays cleared and the confirmation cannot be replayed.
-  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(clearOf(result), { kind: 'clear' });
   f.record(result);
   assert.equal(f.states.get('source').prepared, null);
   assert.equal((await f.workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
@@ -1181,7 +1189,7 @@ test('D3: a receipt that cannot be built still clears the confirmation', async (
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'upload_failed');
   assert.equal(result.attemptId, 42);
-  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(clearOf(result), { kind: 'clear' });
   replay(f, result);
   assert.equal(f.states.get('source').prepared, null);
   assert.equal((await workflow.confirm(checkId, f.exec)).error.code, 'confirmation_required');
@@ -1213,7 +1221,7 @@ test('D3: an abort before the lookup skips it and leaves the outcome unknown', a
   assert.equal(queried, false);
   assert.equal(result.attemptId, undefined);
   assert.equal(result.error.code, 'outcome_unknown');
-  assert.deepEqual(result.workflow, { kind: 'clear' });
+  assert.deepEqual(clearOf(result), { kind: 'clear' });
 });
 
 test('D3: a terminated CLI that already printed its success JSON yields the normal receipt', async () => {
@@ -1254,7 +1262,7 @@ test('D3: an unknown outcome never adopts submissions that cannot belong to this
     });
     assert.equal(result.attemptId, undefined, label);
     assert.equal(result.error.code, 'outcome_unknown', label);
-    assert.deepEqual(result.workflow, { kind: 'clear' }, label);
+    assert.deepEqual(clearOf(result), { kind: 'clear' }, label);
   }
   const { f, result } = await failedConfirm(cliError('', 'cli_terminated'), (f) => {
     f.client.listMyAttempts = async () => ({ items: [{ ...own, id: 68, createdAt: recent() }], nextCursor: null });
@@ -1288,7 +1296,7 @@ test('D3: an unknown outcome adopts the single submission created after confirma
       assert.equal(result.workflow.kind, 'receipt');
       assert.equal(result.workflow.receipt.args.attempt_id, expected);
       assert.match(result.error.message, new RegExp(`检查后重传原提交 #${expected}`));
-    } else assert.deepEqual(result.workflow, { kind: 'clear' });
+    } else assert.deepEqual(clearOf(result), { kind: 'clear' });
   }
   // Definite rejections never adopt another submission.
   let queried = false;
@@ -1645,7 +1653,7 @@ test('#45: a CLI local rejection at confirmation says the platform created nothi
     assert.doesNotMatch(result.error.message, /结果未知/);
     for (const pattern of TRACE_HELP) assert.match(result.error.message, pattern);
     assert.deepEqual(queries, []);
-    assert.deepEqual(result.workflow, { kind: 'clear' });
+    assert.deepEqual(clearOf(result), { kind: 'clear' });
     assert.doesNotMatch(commandText(result), RAW_CLI);
     f.record(result);
     assert.equal(f.states.get('source').prepared, null);
@@ -1677,7 +1685,7 @@ test('#45: the CLI refusal to submit from a site without its own scoring Worker 
     assert.match(result.error.message, /没有自己的评分 Worker.*baseUrl.*平台未创建这次提交/);
     assert.doesNotMatch(result.error.message, /结果未知/);
     assert.deepEqual(queries, []);
-    assert.deepEqual(result.workflow, { kind: 'clear' });
+    assert.deepEqual(clearOf(result), { kind: 'clear' });
     assert.doesNotMatch(commandText(result), RAW_CLI);
     assert.doesNotMatch(commandText(result), /hire|127\.0\.0\.1/);
     f.record(result);
@@ -3046,4 +3054,294 @@ test('#12: the login check reports an inherited PLAYGROUND_TOKEN variable by pre
   assert.equal('cliFilePath' in auth, false);
   status = { ...status, envToken: false };
   assert.equal('envToken' in await f.workflow.auth(f.exec), false);
+});
+// #58: a stored-entry ZIP built in memory, so a test can name every file, size and Unix mode. Only the
+// central directory matters to the summary; `mode` makes an entry written by a Unix tool.
+function zipOf(entries) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const { name, data = Buffer.alloc(0), mode } of entries) {
+    const nameBytes = Buffer.from(name, 'utf8');
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6);
+    local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBytes.length, 26);
+    parts.push(local, nameBytes, data);
+    const record = Buffer.alloc(46);
+    record.writeUInt32LE(0x02014b50, 0); record.writeUInt16LE(mode === undefined ? 20 : (3 << 8) | 20, 4); record.writeUInt16LE(20, 6);
+    record.writeUInt16LE(0x800, 8); record.writeUInt32LE(data.length, 20); record.writeUInt32LE(data.length, 24);
+    record.writeUInt16LE(nameBytes.length, 28); record.writeUInt32LE(mode === undefined ? 0 : (mode * 65536) >>> 0, 38); record.writeUInt32LE(offset, 42);
+    central.push(record, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, directory, end]);
+}
+// The layout of the bundle the Worker refused in issue #58, with a symlink and an extensionless script added.
+const ISSUE_58_BUNDLE = [
+  { name: 'README.md', data: Buffer.alloc(1911, 0x61) },
+  { name: 'SKILL.md', data: Buffer.alloc(7601, 0x61) },
+  { name: 'examples/', mode: 0o40755 },
+  { name: 'examples/minimal_demo/input/case.json', data: Buffer.from('{"case":1}') },
+  { name: 'examples/minimal_demo/input/paper.pdf', data: Buffer.alloc(819383, 0x25) },
+  { name: 'scripts/structure.py', data: Buffer.alloc(31321, 0x61) },
+  { name: 'scripts/tables.py', data: Buffer.alloc(31265, 0x61) },
+  { name: 'scripts/qa.py', data: Buffer.alloc(23912, 0x61) },
+  { name: 'scripts/run', data: Buffer.alloc(120, 0x61), mode: 0o100755 },
+  { name: 'Makefile', data: Buffer.from('all:\n') },
+  { name: '.gitignore', data: Buffer.from('*.pyc\n') },
+  { name: 'data/link', data: Buffer.from('../examples'), mode: 0o120777 },
+];
+const ISSUE_58_FILES = ISSUE_58_BUNDLE.filter((entry) => !entry.name.endsWith('/') && entry.mode !== 0o120777);
+
+test('#58: the material check returns a ZIP directory summary that names binary, large and linked files', async () => {
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_BUNDLE));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.bundleSummary, {
+    files: ISSUE_58_FILES.length,
+    totalBytes: ISSUE_58_FILES.reduce((sum, entry) => sum + entry.data.length, 0),
+    largest: [
+      { name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/structure.py', bytes: 31321 },
+      { name: 'scripts/tables.py', bytes: 31265 }, { name: 'scripts/qa.py', bytes: 23912 }, { name: 'SKILL.md', bytes: 7601 },
+    ],
+    // By name: the PDF is binary and an extensionless script is not known to be text; Makefile and .gitignore are.
+    nonTextCount: 2,
+    nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/run', bytes: 120 }],
+    symlinkCount: 1,
+    symlinks: ['data/link'],
+  });
+  assert.deepEqual(checked.workflow.prepared.bundleSummary, checked.bundleSummary);
+  assert.match(checked.note, /bundleSummary.*Runtime contract/);
+  // The rendered result the agent reads carries the summary too.
+  const rendered = formatSubmission(checked);
+  assert.match(rendered, /评测包摘要（只读 ZIP 目录）：10 个文件，共 \d+ bytes/);
+  assert.match(rendered, /- 最大的文件：examples\/minimal_demo\/input\/paper\.pdf \(819383 bytes\), scripts\/structure\.py/);
+  assert.match(rendered, /- 按扩展名不是已知 UTF-8 文本的文件（2 个）：examples\/minimal_demo\/input\/paper\.pdf \(819383 bytes\), scripts\/run \(120 bytes\)/);
+  assert.match(rendered, /- 符号链接（1 个）：data\/link/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('#58: the bundle summary reads only the directory, cuts its lists and never blocks the check', async () => {
+  const { summarizeZip, BUNDLE_SUMMARY_LIMITS } = await import('../lib/bundle.js');
+  // Thirty binary files: the counts stay exact and the lists stop at their limits.
+  const many = Array.from({ length: 30 }, (_, index) => ({ name: `data/${String(index).padStart(2, '0')}.npy`, data: Buffer.alloc(index + 1) }));
+  const summary = summarizeZip(zipOf(many));
+  assert.equal(summary.files, 30);
+  assert.equal(summary.nonTextCount, 30);
+  assert.equal(summary.largest.length, BUNDLE_SUMMARY_LIMITS.largest);
+  assert.deepEqual(summary.largest[0], { name: 'data/29.npy', bytes: 30 });
+  assert.equal(summary.nonText.length, BUNDLE_SUMMARY_LIMITS.listed);
+  // A name with control characters is shown without them, and a long one keeps its end.
+  const odd = summarizeZip(zipOf([{ name: `a\u0007b/${'x'.repeat(300)}.bin`, data: Buffer.alloc(1) }]));
+  assert.equal(odd.largest[0].name.length, BUNDLE_SUMMARY_LIMITS.nameChars);
+  assert.match(odd.largest[0].name, /^…x+\.bin$/);
+  // A directory whose records do not parse is marked incomplete; one that is missing gives no summary.
+  const zip = zipOf(ISSUE_58_BUNDLE);
+  const directoryStart = zip.readUInt32LE(zip.length - 6);
+  const broken = Buffer.from(zip);
+  broken.writeUInt32LE(0, directoryStart + 46 + 'README.md'.length);
+  assert.deepEqual(summarizeZip(broken), { files: 1, totalBytes: 1911, largest: [{ name: 'README.md', bytes: 1911 }],
+    nonTextCount: 0, nonText: [], symlinkCount: 0, symlinks: [], complete: false });
+  assert.equal(summarizeZip(Buffer.from('PK\u0003\u0004 not a zip')), undefined);
+  // The check still passes with an unreadable directory: the summary is a hint, not a gate.
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), Buffer.concat([zip.subarray(0, directoryStart), Buffer.from('garbage-directory'), zip.subarray(zip.length - 22)]));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.equal(checked.bundleSummary.complete, false);
+});
+
+// CLI 0.1.48 stderr when the Worker answers 400: its own reason, the retry hint, then the reply line.
+const WORKER_REPLY = JSON.stringify({
+  error: 'bundle validation failed for user dev@example.test',
+  violations: [
+    { rule: 'skill_resources_text', message: 'examples/minimal_demo/input/paper.pdf is not UTF-8 text (C:\\Users\\someone\\work\\paper.pdf)', fix: 'remove binary files, see https://play.bohrium.com/docs?token=synthetic-secret' },
+    { rule: 'skill_resources_size', message: 'examples/minimal_demo/input/paper.pdf is 819383 bytes; at most 512000 bytes per file' },
+    'symlinks are not allowed: /home/someone/work/data/link',
+    { message: `upload token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMifQ.c2lnbmF0dXJl expired\u0007\u001b[31m ${'x'.repeat(300)}` },
+    { message: 'a sixth reason is not shown' },
+    { message: 'Authorization: Bearer asp_synthetic1234567890 was rejected' },
+  ],
+});
+const WORKER_400 = `${CLI_NOTICE}\nerror: Worker 上传的提交包未通过校验，请检查 bundle 内容后重试。若持续失败，请在群里联系维护者。\n`
+  + '提交记录 42 已建好，但提交包没有传上去。用下面这条命令把包补传到同一条记录（不会新建提交记录）：\n'
+  + '  playground submit --challenge-id challenge-a --attempt-id 42 --bundle "C:\\Users\\someone\\work\\bundle.zip"\n'
+  + `服务端返回：HTTP 400 Bad Request: ${WORKER_REPLY}`;
+const workerError = (stderr = WORKER_400) => Object.assign(new Error(stderr.trim()), { code: 'cli_error', stderr, stdout: '' });
+const REPLY_LEAKS = /服务端返回|Bad Request|"violations"|someone|dev@example|synthetic-secret|asp_synthetic|eyJhbGci|c2lnbmF0dXJl|sixth|\u0007|\u001b/;
+
+test('#58: a Worker 400 with JSON violations shows the cleaned reasons, at most five, and nothing raw', async () => {
+  const { f, result } = await failedConfirm(workerError());
+  assert.equal(result.error.code, 'upload_failed');
+  assert.equal(result.error.reason, 'bundle_rejected');
+  assert.equal(result.error.httpStatus, 400);
+  assert.deepEqual(result.error.details.slice(0, 4), [
+    'bundle validation failed for user <邮箱>',
+    'skill_resources_text：examples/minimal_demo/input/paper.pdf is not UTF-8 text (paper.pdf)（建议：remove binary files, see https://play.bohrium.com/docs）',
+    'skill_resources_size：examples/minimal_demo/input/paper.pdf is 819383 bytes; at most 512000 bytes per file',
+    'symlinks are not allowed: link',
+  ]);
+  assert.equal(result.error.details.length, 5);
+  // Control characters become spaces, the JWT is hidden and the item is cut at 200 characters.
+  assert.match(result.error.details[4], /^upload token <已隐藏> expired x+…$/);
+  assert.equal(Array.from(result.error.details[4]).length, 200);
+  for (const detail of result.error.details) assert.ok(Array.from(detail).length <= 200, detail);
+  // The message carries the same reasons as a short list under the plugin's own text.
+  assert.match(result.error.message, /^评测包未通过评测 Worker 的校验。.*\n评测 Worker 给出的原因：\n- bundle validation failed for user <邮箱>\n- skill_resources_text：/s);
+  assert.match(result.error.message, /提交 #42 已在平台创建，但评测包没有上传成功。处理上述问题后，请展开“准备提交 \/ 检查材料”，点击“检查后重传原提交 #42”/);
+  assert.doesNotMatch(commandText(result), REPLY_LEAKS);
+  assert.doesNotMatch(commandText(result), RAW_CLI);
+  replay(f, result);
+  assert.doesNotMatch(JSON.stringify(f.states.get('source')), REPLY_LEAKS);
+  // The cleaner also covers what the sample does not: UNC and home paths, query strings and key=value secrets.
+  const reasons = (body) => submissionFailure(workerError(`error: Worker 上传的提交包未通过校验。\n服务端返回：HTTP 422 Unprocessable Entity: ${JSON.stringify(body)}`)).details;
+  assert.deepEqual(reasons({ message: 'see \\\\server\\share\\secret\\bundle.zip and ~/work/private/run.sh', detail: { message: 'retry at wss://worker.example/up?sig=abc#frag with api_key=synthetic-key' } }),
+    ['see bundle.zip and run.sh', 'retry at wss://worker.example/up with api_key=<已隐藏>']);
+  assert.deepEqual(reasons({ detail: 'C:\\ is the drive root; /tmp/cache/ is POSIX' }), ['<路径> is the drive root; cache is POSIX']);
+  assert.deepEqual(reasons({ error: { message: 'Authorization: Bearer asp_synthetic1234567890 was rejected; password=hunter2' } }),
+    ['Authorization: Bearer <已隐藏> was rejected; password=<已隐藏>']);
+});
+
+test('#58: a reply that is not JSON, or a 5xx, shows nothing from its body', async () => {
+  for (const reply of [
+    'HTTP 400 Bad Request: <html><body>bundle rejected for dev@example.test</body></html>',
+    'HTTP 400 Bad Request: plain words from the worker',
+    `HTTP 400 Bad Request: ${WORKER_REPLY.slice(0, 120)}…`,
+    'HTTP 503 Service Unavailable: {"error":"worker overloaded","violations":["queue full"]}',
+    'HTTP 400 Bad Request: {"request_id":"65cdfd8f59104150a212d37b22d4a2b1"}',
+  ]) {
+    const stderr = `error: Worker 上传的提交包未通过校验，请检查 bundle 内容后重试。${CLI_RETRY}${CLI_TAIL}\n服务端返回：${reply}`;
+    const { result } = await failedConfirm(workerError(stderr));
+    assert.equal(result.error.code, 'upload_failed', reply);
+    assert.equal(result.error.details, undefined, reply);
+    assert.equal(result.error.httpStatus, Number(reply.slice(5, 8)), reply);
+    assert.doesNotMatch(result.error.message, /给出的原因/, reply);
+    assert.doesNotMatch(commandText(result), /html|plain words|overloaded|queue full|dev@example|服务端返回/, reply);
+  }
+  // A crash line printed after the reply does not hide a JSON body.
+  const crashed = `error: Worker 上传的提交包未通过校验。${CLI_RETRY}\n服务端返回：HTTP 400 Bad Request: {"error":"too many files"}\nAssertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\\win\\async.c, line 76`;
+  assert.deepEqual(submissionFailure(workerError(crashed)).details, ['too many files']);
+});
+
+test('#58: creating the record and uploading the bundle fail with different texts; only the create text names the trace', async () => {
+  const createStderr = `${CLI_NOTICE}\nerror: 创建提交记录未通过校验，请检查提交元数据和轨迹文件。若持续失败，请在群里联系维护者。\n服务端返回：HTTP 400 BAD REQUEST: {"error":"model is required for benchmark challenges"}`;
+  const created = await failedConfirm(workerError(createStderr));
+  assert.equal(created.result.error.code, 'submission_rejected');
+  assert.equal(created.result.error.reason, 'create_rejected');
+  assert.equal(created.result.error.httpStatus, 400);
+  assert.equal(created.result.error.message, '平台拒绝创建提交记录：提交信息或执行轨迹未通过平台的校验。请检查方案名称、模型、声明结果等提交信息和执行轨迹。'
+    + '\n平台给出的原因：\n- model is required for benchmark challenges\n平台未创建这次提交。');
+  assert.equal(created.result.diagnosis.stage, 'attempt_create');
+  assert.equal(created.result.diagnosis.attemptCreated, false);
+  assert.equal(created.result.workflow.kind, 'clear');
+  const uploaded = await failedConfirm(workerError());
+  const upload = uploaded.result.error.message;
+  assert.match(upload, /^评测包未通过评测 Worker 的校验。请对照赛题的交付要求和 Runtime contract 检查评测包/);
+  assert.doesNotMatch(upload, /轨迹|提交信息|Playground 未通过这次提交的校验/);
+  assert.equal(uploaded.result.diagnosis.stage, 'worker_upload');
+  // Other stage-specific texts: the Worker's size limit and connection name the Worker, not the platform.
+  for (const [reason, sample, expected] of [
+    ['too_large', `Worker 上传失败（HTTP 413）：提交包超过 worker 当前支持的 512 MiB，请精简后重试。${CLI_RETRY}${CLI_TAIL}`, /^评测包超过评测 Worker 的大小限制（512 MiB）/],
+    ['network', `未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`, /^未能连接评测 Worker/],
+    ['too_large', `创建提交记录失败（HTTP 413）：轨迹文件或创建请求超过创建接口的请求体限制。${CLI_TAIL}`, /^创建提交记录的请求超过平台的大小限制，请精简执行轨迹/],
+  ]) {
+    const { result } = await failedConfirm(cliError(sample));
+    assert.equal(result.error.reason, reason, sample);
+    assert.match(result.error.message, expected, sample);
+  }
+});
+
+test('#58: a failed upload gives the agent its stage, reasons, submission, bundle summary and next steps, and the task state keeps them', async () => {
+  const f = await fixture({ submit: async (input) => {
+    if (!input.attemptId) throw workerError();
+    return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
+  } });
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_BUNDLE));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(checked);
+  const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  const { diagnosis } = result;
+  assert.deepEqual(Object.keys(diagnosis).sort(), ['at', 'attemptCreated', 'attemptId', 'bundle', 'challengeId', 'details', 'httpStatus', 'nextSteps', 'reason', 'stage']);
+  assert.equal(diagnosis.challengeId, 'challenge-a');
+  assert.equal(diagnosis.stage, 'worker_upload');
+  assert.equal(diagnosis.reason, 'bundle_rejected');
+  assert.equal(diagnosis.httpStatus, 400);
+  assert.deepEqual(diagnosis.details, result.error.details);
+  assert.equal(diagnosis.attemptId, 42);
+  assert.equal(diagnosis.attemptCreated, true);
+  assert.deepEqual(diagnosis.bundle, checked.bundleSummary);
+  assert.equal(diagnosis.bundle.nonText[0].name, 'examples/minimal_demo/input/paper.pdf');
+  for (const step of [/playground_get_challenge/, /交付要求/, /Runtime contract/, /bundle/, /details/, /playground_check_materials 并传 attempt_id=42/, /重传原提交 #42/, /不要新建提交/, /确认目标并提交/]) {
+    assert.match(diagnosis.nextSteps, step);
+  }
+  assert.doesNotMatch(commandText(result), RAW_CLI);
+  assert.doesNotMatch(commandText(result), REPLY_LEAKS);
+  // The receipt and the task state carry the same facts, and the submission counts as having no bundle.
+  assert.deepEqual(result.workflow.receipt.diagnosis, diagnosis);
+  replay(f, result);
+  const state = f.states.get('source');
+  assert.deepEqual(state.lastFailure, diagnosis);
+  assert.deepEqual(state.bundleMissingIds, [42]);
+  assert.deepEqual(workflowProjection.wire.view(state).bundleMissingIds, [42]);
+  // A results query states the receipt's evidence next to the platform's queued state.
+  const queried = await f.workflow.results({}, f.exec);
+  assert.equal(queried.bundleMissing, true);
+  assert.equal(queried.scoringState.state, 'queued');
+  assert.match(queried.note, /提交 #42 的评测包没有上传成功.*排队状态不代表正在评测.*lastFailure\.nextSteps/);
+  assert.deepEqual(queried.workflow.receipt.diagnosis, diagnosis);
+  f.record(queried);
+  assert.deepEqual(f.states.get('source').lastFailure, diagnosis);
+  // A successful re-upload into the same submission clears both.
+  const retry = await f.workflow.prepare({ ...state.receipt.args }, f.exec);
+  f.record(retry);
+  const retried = await f.workflow.confirm(retry.workflow.prepared.checkId, f.exec);
+  assert.equal(retried.ok, true);
+  replay(f, retried);
+  assert.equal(f.states.get('source').lastFailure, undefined);
+  assert.deepEqual(f.states.get('source').bundleMissingIds, []);
+});
+
+test('#58: failures without a receipt record their diagnosis in the task state, with next steps for their case', async () => {
+  for (const [label, failure, setup, expected] of [
+    ['refused at create', workerError(`error: 创建提交记录失败：服务端未收到有效轨迹，请检查 --trace 或 --raw-messages。\n服务端返回：HTTP 400 Bad Request: {"error":"no trajectory data"}`), undefined,
+      { stage: 'attempt_create', attemptCreated: false, steps: [/平台没有创建提交记录/, /playground trace validate --trace/, /playground_check_materials 重新检查/] }],
+    ['outcome unknown', cliError(`未能发送成功，请稍后再试。${CLI_TAIL}`), (f) => { f.client.listMyAttempts = async () => ({ items: [], nextCursor: null }); },
+      { stage: 'unknown', outcomeUnknown: true, steps: [/无法确认平台是否已创建提交/, /playground_list_my_attempts（challenge_id=challenge-a）/, /不要直接再次提交/] }],
+  ]) {
+    const { f, result } = await failedConfirm(failure, setup);
+    assert.equal(result.diagnosis.stage, expected.stage, label);
+    assert.equal(result.diagnosis.attemptCreated, expected.attemptCreated, label);
+    assert.equal(result.diagnosis.outcomeUnknown, expected.outcomeUnknown, label);
+    for (const step of expected.steps) assert.match(result.diagnosis.nextSteps, step, label);
+    assert.doesNotMatch(result.diagnosis.nextSteps, /playground submit/, label);
+    assert.deepEqual(result.workflow.failure, result.diagnosis, label);
+    replay(f, result);
+    assert.deepEqual(f.states.get('source').lastFailure, result.diagnosis, label);
+    assert.equal(f.states.get('source').prepared, null, label);
+    assert.equal(f.states.get('source').bundleMissingIds, undefined, label);
+  }
+});
+
+test('#58: only an upload_failed receipt marks a submission as having no bundle; a later receipt for it removes the mark', () => {
+  const receipt = (attemptId, extra) => ({ type: 'command/done', data: { text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt',
+    receipt: { attemptId, challengeId: 'challenge-a', ...extra } } }) } });
+  const missing = { ok: false, stage: 'upload', error: { code: 'upload_failed', message: 'x' } };
+  let state = workflowProjection.init();
+  state = workflowProjection.apply(state, receipt(63116, missing));
+  state = workflowProjection.apply(state, receipt(63167, missing));
+  assert.deepEqual(state.bundleMissingIds, [63116, 63167]);
+  // An unknown outcome and a bundle the platform rejected through the API are not this evidence.
+  assert.equal(workflowProjection.apply(workflowProjection.init(), receipt(5, { ok: false, error: { code: 'outcome_unknown', message: 'x' } })).bundleMissingIds, undefined);
+  assert.equal(workflowProjection.apply(workflowProjection.init(), receipt(5, { ok: false, bundleStatus: 'failed', error: { code: 'bundle_invalid', message: 'x' } })).bundleMissingIds, undefined);
+  state = workflowProjection.apply(state, receipt(63116, { ok: true, status: 'submitted' }));
+  assert.deepEqual(state.bundleMissingIds, [63167]);
+  // A state persisted before the field derives it from its latest receipt.
+  const old = { task: null, prepared: null, receipt: { attemptId: 9, ...missing } };
+  assert.deepEqual(workflowProjection.wire.view(old).bundleMissingIds, [9]);
+  assert.equal(workflowProjection.stateSchema.safeParse(old).success, true);
 });

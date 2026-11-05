@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
           late_scored: '赛后已评分', pending_review: '等待审核', scoring: '评测中' },
         progress: { created: '任务已创建', running: 'Agent 执行中', submitted: '已提交，等待结果', evaluating: '评测中',
           final: '已出最终分', finalLate: '已出最终分（赛后）', failed: '评测未通过', incomplete: '提交未完成',
-          notSubmitted: '未提交', attempt: '提交', reference: '参考', points: '分' },
+          notSubmitted: '未提交', notUploaded: '评测包未上传', attempt: '提交', reference: '参考', points: '分' },
         metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
           result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
       },
@@ -54,13 +54,13 @@ window.__ModuleLoader__.load({
           late_scored: 'Scored after deadline', pending_review: 'Pending review', scoring: 'Scoring' },
         progress: { created: 'Task created', running: 'Agent running', submitted: 'Submitted, awaiting result', evaluating: 'Evaluating',
           final: 'Final score available', finalLate: 'Final score available (after deadline)', failed: 'Evaluation not passed', incomplete: 'Submission incomplete',
-          notSubmitted: 'Not submitted', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
+          notSubmitted: 'Not submitted', notUploaded: 'Bundle not uploaded', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
         metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
           result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
       },
     };
     const css = `
-      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--pg-accent-soft);border-color:var(--pg-accent)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--pg-accent);border-color:var(--pg-accent);color:#fff;font-weight:600}.pg-primary:hover:not(:disabled){background:var(--pg-accent-strong);filter:none}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--pg-accent-soft);border-color:var(--pg-accent)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--pg-accent);border-color:var(--pg-accent);color:#fff;font-weight:600}.pg-primary:hover:not(:disabled){background:var(--pg-accent-strong);filter:none}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     `;
 
     // Task-start dialog styles. The accent matches the shared --pg-accent; every other tone comes
@@ -159,27 +159,59 @@ window.__ModuleLoader__.load({
 
     const stageTones = { final: 'success', finalLate: 'success', failed: 'error', evaluating: 'warning', incomplete: 'error' };
 
+    // Mirrors receiptBundleMissing in lib/workflow.js: the plugin's receipt says the upload into this submission failed.
+    const receiptBundleMissing = (receipt) => receipt?.ok === false && receipt?.error?.code === 'upload_failed'
+      && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0;
+    // Mirrors taskBundleMissingIds in lib/workflow.js; states without the field derive it from the latest receipt.
+    function taskBundleMissingIds(state) {
+      const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
+      if (receiptBundleMissing(state?.receipt)) ids.push(state.receipt.attemptId);
+      return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    }
+
+    // One compact line about the checked bundle (lib/bundle.js summarizeZip), or undefined without a summary.
+    function bundleSummaryLine(summary) {
+      if (!summary || typeof summary !== 'object' || !Number.isFinite(summary.files)) return undefined;
+      const size = (bytes) => !Number.isFinite(bytes) ? '?' : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB`
+        : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
+      const named = (item) => `${String(item?.name ?? '').split('/').pop()}（${size(item?.bytes)}）`;
+      const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join('、') : '';
+      const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join('、') : '';
+      return [`评测包：${summary.files} 个文件，共 ${size(summary.totalBytes)}`,
+        largest ? `最大：${largest}` : '',
+        summary.nonTextCount ? `非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? ' 等' : ''}` : '非文本文件（按扩展名）0 个',
+        summary.symlinkCount ? `符号链接 ${summary.symlinkCount} 个` : '',
+        summary.complete === false ? 'ZIP 目录未能读完' : ''].filter(Boolean).join('；');
+    }
+
     // Stage, badge and score display for one submission receipt. The task list row, the drawer summary
     // and any submission history share it, so the stage, badge and score always follow the platform state.
     // The plugin's own `ok: false` marks an unfinished submission only while the platform has reported no
     // state: "查询结果" merges the platform attempt over the receipt and keeps a stale `ok: false`. A bundle
     // the platform accepted as incomplete stays submitted; its "材料不完整" badge carries a warning tone.
-    function receiptProgress(receipt, t = zhText, { running = false } = {}) {
+    // The platform keeps a submission whose bundle never arrived queued until it gives up on it (it reports
+    // no bundle state for any submission), so only the plugin's own receipt can tell it apart from a
+    // queued one: the confirmation created it and the upload into it failed (`upload_failed`). Such a
+    // submission shows "评测包未上传" until the platform reports a failure or a final score. `bundleMissing`
+    // passes the same evidence for a history row, which carries no receipt of its own.
+    function receiptProgress(receipt, t = zhText, { running = false, bundleMissing = false } = {}) {
       const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
       const states = [scoring.state, receipt?.status];
       const known = (value) => (value && value !== 'unknown' ? value : undefined);
       const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
       const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
+      const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && (bundleMissing || receiptBundleMissing(receipt));
       const receiptStage = !receipt ? 'created'
         : failed ? 'failed'
           : scoreIsFinal ? (states.includes('late_scored') ? 'finalLate' : 'final')
-            : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
-              : uploadFailed || states.includes('draft') ? 'incomplete'
-                : 'submitted';
+            : notUploaded ? 'incomplete'
+              : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
+                : uploadFailed || states.includes('draft') ? 'incomplete'
+                  : 'submitted';
       const stage = running ? 'running' : receiptStage;
       const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t('progress.points')}`
         : referenceScore !== undefined ? `${t('progress.reference')} ${referenceScore}` : '—';
-      const badgeText = !receipt ? t('progress.notSubmitted') : state ? stateLabel(state, t)
+      const badgeText = !receipt ? t('progress.notSubmitted') : notUploaded ? t('progress.notUploaded') : state ? stateLabel(state, t)
         : receipt.ok === false ? t('progress.notSubmitted') : t('unknown');
       const badgeTone = !receipt ? (running ? 'warning' : 'neutral')
         : receiptStage === 'submitted' && receipt.bundleStatus === 'incomplete' ? 'warning'
@@ -354,6 +386,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'pg-note' }, `${prepared.args.attempt_id ? `重传提交 #${prepared.args.attempt_id}` : '创建一条新提交'} · 方案：${prepared.args.method} · 轨迹 ${prepared.traceCount} 步`),
           declared ? h('p', { className: 'pg-note pg-path' }, declared) : null,
           h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
+          bundleSummaryLine(prepared.bundleSummary) ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(prepared.bundleSummary)) : null,
           h('p', { className: 'pg-note' }, `${prepared.cliPrecheck?.status === 'passed' ? '本地文件检查和 Playground CLI 预检均已通过；'
             : prepared.cliPrecheck?.note ? `本地文件检查通过；${prepared.cliPrecheck.note}` : '本地文件检查通过；'}最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。`),
           prepared.cliUpdate?.warning ? h('p', { className: 'pg-note', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', prepared.cliUpdate.warning) : null,
@@ -1060,7 +1093,8 @@ window.__ModuleLoader__.load({
     // Every submission of the current account for this challenge, including CLI or other-tool submissions.
     // Read through the session-free query service, so opening the drawer writes nothing into a conversation.
     // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
-    function AttemptHistory({ challengeId, attemptIds, attempts, query, t }) {
+    // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
+    function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], attempts, query, t }) {
       const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
@@ -1122,6 +1156,7 @@ window.__ModuleLoader__.load({
       const time = (value) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : -Infinity;
       const items = [...history.items].sort((a, b) => (time(b.createdAt) - time(a.createdAt)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
       const linked = new Set(attemptIds);
+      const missing = new Set(bundleMissingIds);
       return h('section', { className: 'pg-guide pg-history', 'aria-label': '提交历史', 'aria-busy': busy },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '提交历史'),
@@ -1138,7 +1173,7 @@ window.__ModuleLoader__.load({
         } }, items.map((item) => {
           // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
           // the conversation, not this attempt, so it is not passed.
-          const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)]), t);
+          const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)]), t, { bundleMissing: missing.has(Number(item.id)) });
           const created = Number.isFinite(Date.parse(item.createdAt))
             ? new Date(item.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '提交时间未知';
           const own = linked.has(Number(item.id));
@@ -1221,7 +1256,7 @@ window.__ModuleLoader__.load({
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, attempts: props.attempts, query, t: props.t }) : null));
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
@@ -1466,6 +1501,9 @@ window.__ModuleLoader__.load({
               h('dd', null, String(item.score))))),
             h('p', { className: 'pg-note' }, t('metricHint'))) : null,
           data.violations?.length ? h('ul', { className: 'pg-error' }, data.violations.slice(0, 5).map((item, index) => h('li', { key: index }, item.message || item.rule))) : null,
+          // The checked bundle: a material check carries its summary, a failed confirmation the one it checked.
+          bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)
+            ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)) : null,
           isAttempt && (data.attemptId ?? data.id) ? h('p', { className: 'pg-note' }, `${t('nextAttempt')} ${data.attemptId ?? data.id}`) : null) : null,
         phase === 'result' && text ? h('details', { className: 'pg-raw', open: !data }, h('summary', null, t('raw')), h('pre', null, text)) : null,
         phase === 'result' ? h('footer', null, t('snapshot')) : h('p', { className: 'pg-note', role: 'status' }, t('snapshot')));
@@ -1576,6 +1614,16 @@ window.__ModuleLoader__.load({
       return /bearer|authorization|token|password|secret|api[_-]?key|cookie|[a-z]:[\\/]|\/(home|users|tmp)\//i.test(text) ? undefined : text;
     }
 
+    // A failed confirmation from this plugin version carries `diagnosis`, and its message is plugin text plus
+    // reasons the Host already cleaned (lib/workflow.js cleanDetail), which can be longer than safeMessage
+    // allows and may name a field such as "token". It is shown whole, up to 2000 characters, unless it still
+    // holds something credential- or path-like; older results without `diagnosis` keep the stricter check.
+    function diagnosedMessage(result) {
+      if (!result?.diagnosis || typeof result.error?.message !== 'string' || !result.error.message.trim()) return undefined;
+      const text = result.error.message.trim().slice(0, 2000);
+      return /bearer\s+(?!<)|\beyJ[\w-]{4,}\.|\basp_[\w-]{4,}|[a-z]:[\\/]|\/(home|users|tmp)\/|[\w.+-]+@[\w-]+\.[\w.-]+/i.test(text) ? undefined : text;
+    }
+
     // uiWorkspace.archiveSession throws WorkspaceArchiveError carrying the host rpcError (read from the error, not
     // its class: bundles do not share classes). `workspace/session-active` covers any running work in the
     // conversation (turns, subagents, background jobs, schedules), not only a visible running turn. Errors without
@@ -1635,12 +1683,19 @@ window.__ModuleLoader__.load({
         ...(workflow?.receipt || action === 'results' ? { 提交编号: commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id),
           评测状态: commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status),
           平台返回分数: commandFact(workflow?.receipt?.scoringState?.displayScore ?? result.scoringState?.displayScore ?? result.score) } : {}),
+        ...(workflow?.prepared && bundleSummaryLine(workflow.prepared.bundleSummary) ? { 评测包: bundleSummaryLine(workflow.prepared.bundleSummary) } : {}),
+        ...(result.diagnosis && typeof result.diagnosis === 'object' ? {
+          失败环节: ({ worker_upload: '评测 Worker 接收评测包', attempt_create: '创建提交记录', local_check: 'CLI 本地检查' })[result.diagnosis.stage] || '未知',
+          ...(commandFact(result.diagnosis.httpStatus) !== undefined ? { HTTP状态: commandFact(result.diagnosis.httpStatus) } : {}),
+          ...(Array.isArray(result.diagnosis.details) ? { 平台给出的原因: result.diagnosis.details.slice(0, 5).map(commandFact).filter((item) => item !== undefined) } : {}),
+          ...(bundleSummaryLine(result.diagnosis.bundle) ? { 评测包: bundleSummaryLine(result.diagnosis.bundle) } : {}),
+        } : {}),
       };
       const summary = failed ? ({ authentication_required: '请先在工作台登录 Playground，再重试此操作。',
         confirmation_required: '提交尚未获得有效确认，请在工作台重新检查材料并确认。',
         materials_changed: '材料已改变，请在工作台重新检查后再提交。',
         identity_changed: '检查材料后登录身份已变化或无法核对，请在工作台确认登录身份并重新检查材料。' })[result.error?.code]
-          || safeMessage(result.error?.message ?? plainText) || '操作未完成或已中断。请检查工作台中的状态后重试。'
+          || diagnosedMessage(result) || safeMessage(result.error?.message ?? plainText) || '操作未完成或已中断。请检查工作台中的状态后重试。'
         : !node.outcome ? '此记录尚无完成结果；若任务已停止，请回到工作台核对状态。'
         : auth ? (auth.authenticated ? 'Playground 身份已确认。' : '尚未登录；公开赛题仍可浏览。')
         : catalog ? `共 ${details.比赛数量} 个比赛、${details.赛题数量} 道赛题。`
