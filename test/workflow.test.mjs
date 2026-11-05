@@ -3706,6 +3706,36 @@ test('#58: short encoded bare values and hf_ tokens are hidden; file names, path
   ]) assert.equal(cleanDetail(input), input, input);
 });
 
+// The round-4 review (#58), findings 1, 4 and 5: snake-case identifiers after a bare key, encoded values
+// with an extension-like suffix, and `session` compound keys.
+test('#58: short snake-case identifiers stay; encoded values with an extension-like suffix and session keys are hidden', () => {
+  // Kept: a lower-case snake/kebab identifier below 16 characters, file names and bare `session` prose.
+  for (const input of [
+    'Missing key: step1_output', 'invalid frontmatter key: model_v2', 'Unknown key: model_v2',
+    'key: config_v2 is not allowed in arm_manifest.json', 'key: v2_config', 'key: step-2-output',
+    'Missing key: README.md', 'skills/key.json is not allowed', 'key: skills/key.json', 'Missing key: settings2025.json',
+    'key: skills/Report2024Writer/SKILL.md', 'session: run_2 has no events', 'session: the trace session is empty',
+    'session_id: 3 sessions found, expected 1',
+  ]) assert.equal(cleanDetail(input), input, input);
+  for (const [input, expected] of [
+    // No separator, upper case, or 16 characters and more: the value is tested as before.
+    ['Unknown key: python310', 'Unknown key: <已隐藏>'],
+    ['token: s3cr3tvalue', 'token: <已隐藏>'],
+    ['token: hunter2hunter2', 'token: <已隐藏>'],
+    ['token: Step1_output', 'token: <已隐藏>'],
+    ['token: abc123_def456_gh7', 'token: <已隐藏>'],
+    // An encoded file name before the last dot, or an extension that is not lower case, is no file name.
+    ['token: AbCdEf0123456789.prod', 'token: <已隐藏>'],
+    ['session: s%3Aabc123def456.XyZ', 'session: <已隐藏>'],
+    ['key: abc123def456.JSON', 'key: <已隐藏>'],
+    // `session` compound keys are credential names; any value is hidden.
+    ['"sessionKey": "abc123"', '"sessionKey": "<已隐藏>"'],
+    ['session_key: abc123', 'session_key: <已隐藏>'],
+    ['SESSION-KEY: abc', 'SESSION-KEY: <已隐藏>'],
+    ['sessionKeyId: abc', 'sessionKeyId: <已隐藏>'],
+  ]) assert.equal(cleanDetail(input), expected, input);
+});
+
 test('#58: slash-containing base64 is tested whole unless the run is a path with a plain lower-case segment', () => {
   for (const input of [
     'base64 dGhpcyBpcyBhIHNl/Y3JldCB2YWx1ZSB0aGF0IGlzIGxvbmc',

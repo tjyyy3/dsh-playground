@@ -905,7 +905,8 @@ included) and after a scheme
 word (`access_token: Token …`): names ending in `password`, `passwd`, `pwd`,
 `passphrase`, `secret`, `credential` or `cookie` (such as `DB_PASSWORD`,
 `client_secret` or `clientSecret`), compound names such as `api_key`/`apiKey`,
-`access_key`/`accessKey`, `private_key`, `OPENAI_API_KEY`, `refresh_token`,
+`access_key`/`accessKey`, `private_key`, `session_key`/`sessionKey`,
+`OPENAI_API_KEY`, `refresh_token`,
 camelCase `authToken`, `accessToken` or `idToken`, and header-style names such
 as `x-api-key`, `x-access-token`, `x-auth-token` or `x-hub-signature-256` (a
 quoted value is removed whole). Two exceptions keep validator text readable:
@@ -923,9 +924,13 @@ and `signature`, and words that merely end in them (`monkey`, `max_tokens`,
 `maxTokens`, `primary_key`, `primaryKey`,
 `session_id`), are ordinary validator words: their value is removed only after
 `=` or when it looks encoded (8 or more characters with letters and digits and
-no spaces, not a file name and not a path with a plain lower-case segment), so
-"Missing key: README.md", "token: unexpected \"}\"" and "max_tokens: 4096" stay
-readable. A shorter bare value, such as `{"token": "abc123"}`, and one with
+no spaces, not a lower-case snake- or kebab-case identifier below 16
+characters such as `step1_output` or `model_v2`, not a file name with a
+lower-case extension whose name before the dot does not itself look encoded,
+and not a path with a plain lower-case segment), so "Missing key: README.md",
+"Missing key: step1_output", "token: unexpected \"}\"" and "max_tokens: 4096"
+stay readable, while `token: AbCdEf0123456789.prod` is removed. An identifier
+without a `_` or `-`, such as `python310`, still counts as encoded. A shorter bare value, such as `{"token": "abc123"}`, and one with
 spaces, such as a cut-off `"token": "cut off at the end`, are kept. Prose
 without `:` or `=`, such as "password
 is hunter2", is not recognised. Also removed are emails, URL query strings, hex
