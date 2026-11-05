@@ -456,8 +456,13 @@ platform's "[未评测 · 未收到提交包] / [Not evaluated - bundle missing]
 the attempt read by `playground_get_attempt` or `playground_task` `results`
 carries `bundleNotReceived: true` (only the flag, never the platform's text),
 also for a submission made elsewhere. The task row, the drawer summary and the
-task's own history row then show **未收到评测包，需重新提交** instead of a
-generic failure. The submission history comes from `/me/attempts`, which has
+task's own history rows then show **未收到评测包，需重新提交** instead of a
+generic failure. The task records every closure it reads into its latest
+receipt (a `results` query) in `bundleClosedIds`, so an earlier submission of
+the task keeps the label after a newer submission and after a reload. A
+closure seen only by the workbench's polling is held in memory, so after a
+reload an earlier submission's row shows it again only once a query has read
+it. The submission history comes from `/me/attempts`, which has
 no such marker, so a history row of a submission made outside this task shows
 the platform's generic failure. The platform does not re-evaluate such a
 submission, so only a new submission, confirmed by the user, helps: the
@@ -888,27 +893,57 @@ Each reason is cleaned first. Its input is cut to 800 characters (dropping the
 word the cut lands in) and the reply to 2,100 characters before any pattern
 runs. Control characters are dropped. Removed are: PEM private key blocks
 (`-----BEGIN … PRIVATE KEY-----`, its base64 lines and the END line),
-`Authorization` values (keeping a Basic, Bearer or Token scheme name), `Cookie`
+`Authorization` values (keeping a known scheme name such as Basic, Bearer,
+Token, Digest or ApiKey; a quoted value, an unknown scheme word with its value
+and a bare value are removed whole), `Cookie`
 and `Set-Cookie` values, bearer values, JWT-like and `asp_` tokens, keys with a
 known prefix (`sk-`, `ghp_`/`gho_`/`ghs_`, `github_pat_`, `AKIA`/`ASIA`,
-`xoxb-`-style Slack tokens, `glpat-`, Google `AIza…`), and the values after `:`
-or `=` of credential keys: names ending in `password`, `passwd`, `pwd`,
-`secret`, `credential` or `cookie` (such as `DB_PASSWORD` or `client_secret`)
-and compound names such as `api_key`, `access_key`, `private_key`,
-`x-api-key`, `OPENAI_API_KEY` or `refresh_token` (a quoted value is removed
-whole). Bare `key`, `keys`, `token`, `tokens`, `session` and `signature`, and
-words that merely end in them (`monkey`, `max_tokens`, `primary_key`,
+`xoxb-`-style Slack tokens, `glpat-`, Google `AIza…`, Hugging Face `hf_…`),
+and the values after `:`
+or `=` of credential keys, also written as quoted JSON keys (escaped quotes
+included) and after a scheme
+word (`access_token: Token …`): names ending in `password`, `passwd`, `pwd`,
+`passphrase`, `secret`, `credential` or `cookie` (such as `DB_PASSWORD`,
+`client_secret` or `clientSecret`), compound names such as `api_key`/`apiKey`,
+`access_key`/`accessKey`, `private_key`, `OPENAI_API_KEY`, `refresh_token`,
+camelCase `authToken`, `accessToken` or `idToken`, and header-style names such
+as `x-api-key`, `x-access-token`, `x-auth-token` or `x-hub-signature-256` (a
+quoted value is removed whole). Two exceptions keep validator text readable:
+tokenizer settings and token counts (`pad_token`, `eos_token`, `bos_token`,
+`unk_token`, `sep_token`, `cls_token`, `mask_token`, `stop_token`,
+`start_token`, `end_token`, their camelCase forms, and `max_*`, `num_*` or
+`min_*` names such as `max_input_token`) are treated as bare words; and an
+unquoted value after `:` that is one of the status words `missing`,
+`required`, `empty`, `absent`, `invalid`, `expired`, `revoked`, `malformed`,
+`unset`, `undefined`, `null` or `none` stays, so "auth_key: missing in
+arm_manifest.json" reads through. Any other lower-case word, a quoted value,
+a value after `=` and every value of a password-like key are still removed.
+Bare `key`, `keys`, `token`, `tokens`, `session`
+and `signature`, and words that merely end in them (`monkey`, `max_tokens`,
+`maxTokens`, `primary_key`, `primaryKey`,
 `session_id`), are ordinary validator words: their value is removed only after
-`=` or when it looks encoded (16 or more characters with letters and digits
-and no spaces, not a file name), so "Missing key: README.md" and
-"max_tokens: 4096" stay readable. Prose without `:` or `=`, such as "password
+`=` or when it looks encoded (8 or more characters with letters and digits and
+no spaces, not a file name and not a path with a plain lower-case segment), so
+"Missing key: README.md", "token: unexpected \"}\"" and "max_tokens: 4096" stay
+readable. A shorter bare value, such as `{"token": "abc123"}`, and one with
+spaces, such as a cut-off `"token": "cut off at the end`, are kept. Prose
+without `:` or `=`, such as "password
 is hunter2", is not recognised. Also removed are emails, URL query strings, hex
-runs of 32 or more characters, except a 64-digit digest shortly after
+runs of 32 or more characters, except a 64-digit digest directly after
 `sha256`, `sha-256`, `digest`, `hash` or `checksum` (kept so it can be compared
-with `bundleSha256`), and long base64-like runs. That test runs per `/`- or
-`\`-separated segment and skips a path ending in a file extension, so
-`skills/DataProcessingPipeline2024v2/scripts/run.py` stays; a slash-containing
-base64 value is caught only with a 40-character segment, `+` or `=` padding.
+with `bundleSha256`). Only punctuation, spaces and the words `expected`,
+`got`, `actual` or `mismatch` may stand between the word and the digest, and
+its clause must not name a credential (`password`, `secret`, `key`, `token`,
+`hmac`, `signature`), so "sha256 mismatch: expected …" stays and "password
+hash: …" or "HMAC key (sha256): …" does not. Long base64-like runs are
+removed as well. A run with `/` or `\` counts as a path only when one of its
+segments is a plain lower-case word (`skills`, `scripts`, `run.py`); a path
+is tested per segment and skipped when it ends in a file extension, so
+`skills/DataProcessingPipeline2024v2/scripts/run.py` stays. Any other run is
+tested whole, so a slash-containing base64 value is caught unless it happens
+to hold a lower-case-only segment (about 8% of random 40-character values, 1%
+at 64), and a relative path made only of CamelCase or numbered segments can
+be removed.
 Absolute paths are cut to their last
 segment: Windows paths (quoted, or with spaces inside a folder name), UNC
 paths, `file://` URLs and POSIX absolute or home paths, also after a backtick,

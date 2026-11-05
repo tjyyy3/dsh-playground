@@ -4402,6 +4402,48 @@ test('#58: the history row of the task\'s submission the platform closed agrees 
   assert.equal(views.summary, '提交 #63116 · 未收到评测包，需重新提交 · 提交未完成 · —');
 });
 
+test('#58: an earlier submission of the task the platform closed keeps its history label after a newer submission, with an empty store', async (t) => {
+  const closed = confirmedReceipt(63116, '2026-11-05T04:03:30.000Z', { ok: false, status: 'pending_review', bundleStatus: undefined, stage: 'upload', score: 0,
+    scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true,
+    error: { code: 'upload_failed', reason: 'bundle_rejected', message: '评测包未通过评测 Worker 的校验。' } });
+  const state = withReceipt(withReceipt(historyTask(), closed), confirmedReceipt(63200, '2026-11-05T08:00:00.000Z'));
+  assert.equal(state.receipt.attemptId, 63200);
+  assert.deepEqual(state.bundleClosedIds, [63116]);
+  const row = (id, scoring, at) => ({ id, challenge_id: 'fixture', status: scoring === 'failed' ? 'pending_review' : 'submitted', scoring_state: scoring, score: 0, created_at: at, updated_at: at });
+  const f = await historyFixture(t, () => attemptsPage([row(63200, 'queued', '2026-11-05T08:00:00Z'), row(63116, 'failed', '2026-11-05T04:03:27Z')]), state);
+  const rows = historyRows(f.panel);
+  assert.match(rows[0], /提交 #63200 .* · 评测中 · — 排队中 本对话/);
+  assert.match(rows[1], /提交 #63116 .* · 提交未完成 · — 未收到评测包，需重新提交 本对话/);
+});
+
+test('#58: the drawer hides the re-upload button once polling, through the workbench store, shows the platform closed the submission', async (t) => {
+  const args = { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: 63167 };
+  const platform = new Map([[63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }]]);
+  const h = await refreshHarness(t, [['a', uploadFailed(63167, { args })]], platform);
+  h.flush();
+  await h.settled();
+  const row = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow');
+  h.f.find(h.f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  const workflow = () => {
+    const drawer = h.f.find(h.flush(), (node) => node.type?.name === 'TaskDetailDrawer');
+    const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+    const task = h.f.render(selected.type, selected.props);
+    return h.f.render(task.type, task.props);
+  };
+  buttonLabeled(h.f, workflow(), '准备提交 / 检查材料').props.onClick();
+  assert.ok(buttonLabeled(h.f, workflow(), '检查后重传原提交 #63167'));
+  platform.set(63167, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true });
+  h.tick(twoMinutes);
+  await h.settled();
+  const tree = workflow();
+  assert.equal(buttonLabeled(h.f, tree, '检查后重传原提交 #63167'), undefined);
+  assert.equal(text(h.f.find(tree, (node) => node.props?.className === 'pg-note pg-closed-note')),
+    '平台已关闭提交 #63167（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。');
+  // Only the store holds the closure: the task's own receipt never carried the flag.
+  assert.equal(h.sessions[0].projectionValues.playgroundTask.receipt.bundleNotReceived, undefined);
+  assert.ok(buttonLabeled(h.f, tree, '检查并生成确认卡'));
+});
+
 test('#58: a submission whose upload failed is polled until the platform closes it as "bundle missing" or scores it', async (t) => {
   const awaitingReceipt = { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } };
   const platform = new Map([[63167, awaitingReceipt], [63200, awaitingReceipt]]);

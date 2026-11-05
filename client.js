@@ -1127,7 +1127,7 @@ window.__ModuleLoader__.load({
     // Read through the session-free query service, so opening the drawer writes nothing into a conversation.
     // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
     // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
-    // `closedIds` are the submissions the task's merged receipt shows closed as "bundle missing".
+    // `closedIds` are the task's submissions its receipts or the store show closed as "bundle missing".
     function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], attempts, query, t }) {
       const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
       const [busy, setBusy] = React.useState(false);
@@ -1269,7 +1269,14 @@ window.__ModuleLoader__.load({
       const attemptIds = taskAttemptIds(current);
       // The task's receipt with its refreshed platform state, as the task row and the drawer summary show it.
       const latestReceipt = withLatestAttempt(current.receipt, props.attempts?.[receiptAttemptId(current.receipt)]);
-      const closedIds = latestReceipt?.bundleNotReceived === true && receiptAttemptId(latestReceipt) !== undefined ? [receiptAttemptId(latestReceipt)] : [];
+      // Every submission of the task shown closed as "bundle missing": by a receipt the task recorded
+      // (bundleClosedIds, kept after newer receipts), by its latest receipt with the refreshed state laid
+      // over it, or by a refreshed entry in the workbench store.
+      const closedIds = [...new Set([
+        ...(Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : []),
+        ...(latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : []),
+        ...attemptIds.filter((id) => props.attempts?.[id]?.attempt?.bundleNotReceived === true),
+      ])].filter((id) => Number.isSafeInteger(id) && id > 0);
       const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
       const archived = Boolean(archive?.archived);
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },

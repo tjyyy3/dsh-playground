@@ -12,7 +12,7 @@ import { registerWorkbenchQueries } from '../lib/queries.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
 import { CHALLENGE_CONTENT_MAX, cleanDetail, createWorkflow, disciplineFacets, PARTIAL_REPLY_NOTE, platformReceivedBundle, serverReply, submissionFailure,
-  taskAttemptIds, taskBundleMissingIds, workflowProjection } from '../lib/workflow.js';
+  taskAttemptIds, taskBundleClosedIds, taskBundleMissingIds, workflowProjection } from '../lib/workflow.js';
 
 const directories = [];
 test.after(async () => { await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }))); });
@@ -3605,6 +3605,191 @@ test('#58: bare key / token / session / signature words keep their value; creden
   cleanDetail(`sha256 ${'0'.repeat(64)} `.repeat(2000));
   const elapsed = performance.now() - started;
   assert.ok(elapsed < 500, `took ${elapsed} ms`);
+});
+
+// The round-3 review (#58): camelCase and header-style credential names, and Authorization schemes.
+test('#58: camelCase and header-style credential names and any Authorization scheme hide their value', () => {
+  const secret = 'S3cr3tVal';
+  for (const input of [
+    // camelCase names, unquoted, as JSON keys (also escaped), with and without spaces in the value
+    `apiKey: ${secret}`, `apiKey=${secret}`, `"apiKey": "${secret}"`, `"apiKey":"${secret} more words"`, `{'apiKey': '${secret} x'}`,
+    `accessKey: ${secret}`, `privateKey: ${secret}`, `secretKey: ${secret}`, `clientSecret: ${secret}`, `appSecret: ${secret}`,
+    `authToken: ${secret}`, `accessToken: ${secret}`, `refreshToken: ${secret}`, `idToken: ${secret}`, `sessionToken: ${secret}`,
+    `"accessToken": "${secret}"`, `"accessToken": "${secret} with spaces"`, `"refreshToken":"${secret}"`, `"idToken" : "${secret}"`,
+    `authTOKEN: ${secret}`, `githubToken: ${secret}`, `csrfToken: ${secret}`, `bearerToken: ${secret}`, `apiSecret: ${secret}`,
+    `"clientSecret": "${secret} b"`, `"sessionToken": "${secret}"`, `masterKey: ${secret}`, `signingKey: ${secret}`, `encryptionKey: ${secret}`,
+    `{"apiKey": "${secret}", "name": "x"}`, `{\\"accessToken\\": \\"${secret}\\"}`, `apiKeyId: ${secret}`, `"passphrase": "${secret}"`,
+    `OpenAIApiKey: ${secret}`, `ACCESS_TOKEN: ${secret}`, `Access-Token: ${secret}`,
+    // Authorization with Token, another scheme word, a parameter list or a bare value
+    `Authorization: Token ${secret}`, `Authorization: token ${secret}`, `Authorization: TOKEN ${secret}`, `"Authorization": "Token ${secret}"`,
+    `Authorization: ApiKey ${secret}`, `Authorization: SSWS ${secret}`, `Authorization: Splunk ${secret}`, `Authorization: Custom ${secret}`,
+    `Authorization: ${secret}`, `Authorization: Token token-${secret}`, `Authorization: Token token=${secret}`,
+    `Authorization: Digest username="u", response="${secret}"`, `Authorization: AWS4-HMAC-SHA256 Credential=AK/x, Signature=${secret}`,
+    `"authorization": "${secret} rest"`, `Proxy-Authorization: Negotiate ${secret}`, `Authorization:Token ${secret}`,
+    // a scheme word after a credential key
+    `access_token: Token ${secret}`, `x-auth-token: Token ${secret}`, `apiKey: ApiKey ${secret}`, `auth_token: Bearer ${secret}`,
+    // header-style names
+    `x-access-token: ${secret}`, `x-auth-token: ${secret}`, `X-Auth-Token: ${secret}`, `x-csrftoken: ${secret}`, `X-Vault-Token: ${secret}`,
+    `x-goog-api-key: ${secret}`, `x-hasura-admin-secret: ${secret}`, `x-amz-security-token: ${secret}`, `"x-access-token": "${secret} b"`,
+    `x-api-key-id: ${secret}`, `x-functions-key: ${secret}`, `x-subscription-key: ${secret}`, `Ocp-Apim-Subscription-Key: ${secret}`,
+    `x-hub-signature-256: sha256=${secret}`, `x-token: ${secret}`, `x-key: ${secret}`, `x-authtoken: ${secret}`,
+  ]) assert.doesNotMatch(cleanDetail(input), new RegExp(secret), input);
+  for (const [input, expected] of [
+    ['"accessToken": "a b c", "name": "run"', '"accessToken": "<已隐藏>", "name": "run"'],
+    ['{\\"accessToken\\": \\"a b\\"}', '{\\"accessToken\\": \\"<已隐藏>\\"}'],
+    ['Authorization: Token abc123', 'Authorization: Token <已隐藏>'],
+    ['Authorization: Digest username="u", response="r1" then', 'Authorization: Digest <已隐藏> then'],
+    ['Authorization: Custom abc123 was rejected', 'Authorization: <已隐藏> was rejected'],
+    // A letters-only bare value may be an unknown scheme, so the word after it goes too.
+    ['Authorization: letmein was rejected', 'Authorization: <已隐藏> rejected'],
+    ['Authorization: abc123 was rejected', 'Authorization: <已隐藏> was rejected'],
+    ['Authorization: Basic', 'Authorization: Basic'],
+    ['access_token: Token abc', 'access_token: Token <已隐藏>'],
+  ]) assert.equal(cleanDetail(input), expected, input);
+  // Validator words keep their value: the plural `Tokens`, keys without a credential prefix and prose.
+  for (const input of [
+    'primaryKey: id must be unique', 'maxTokens: 4096 exceeds limit 2048', 'sortKey: name is not a column', 'keyName: output_coverage',
+    'tokenizer: gpt2 not found', 'secretScan: passed', 'unexpected token: "}" in skills/a.json', 'invalidtoken: "}" in skills/a.json',
+    'Authorization header is missing', 'Authorization required for this challenge', 'session: digest mismatch in arm_manifest.json',
+  ]) assert.equal(cleanDetail(input), input, input);
+  const started = performance.now();
+  cleanDetail(`Authorization: ${'Token '.repeat(20000)}`);
+  cleanDetail(`Authorization: Digest ${'a=b, '.repeat(20000)}`);
+  cleanDetail(`${'aK'.repeat(50000)}Token: x`);
+  cleanDetail(`x-${'a-'.repeat(50000)}token: x`);
+  cleanDetail(`"Authorization": "${'a'.repeat(100000)}`);
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 500, `took ${elapsed} ms`);
+});
+
+// The round-3 review (#58), findings 1 and 6: the exact cases it reported for camelCase `…Token` keys and
+// escaped-quote JSON keys.
+test('#58: the round-3 camelCase token keys and escaped-quote keys hide their value', () => {
+  for (const [input, expected] of [
+    ['"accessToken": "a1b2c3d4"', '"accessToken": "<已隐藏>"'],
+    ['"authToken": "abc123"', '"authToken": "<已隐藏>"'],
+    ['"refreshToken": "abc"', '"refreshToken": "<已隐藏>"'],
+    ['"idToken": "abc"', '"idToken": "<已隐藏>"'],
+    ['"sessionToken": "FwoGZXIvYXdzE"', '"sessionToken": "<已隐藏>"'],
+    ['"apiToken": "abc"', '"apiToken": "<已隐藏>"'],
+    ['"githubToken": "abc"', '"githubToken": "<已隐藏>"'],
+    ['"bearerToken": "abc"', '"bearerToken": "<已隐藏>"'],
+    ['"accessToken": "ya29 with space"', '"accessToken": "<已隐藏>"'],
+    ['accessToken: abc123', 'accessToken: <已隐藏>'],
+    ['{\\"accessToken\\": \\"abc123\\"}', '{\\"accessToken\\": \\"<已隐藏>\\"}'],
+    ['{\\"token\\": \\"abcd1234\\"}', '{\\"token\\": \\"<已隐藏>\\"}'],
+  ]) assert.equal(cleanDetail(input), expected, input);
+});
+
+// The round-3 review (#58), findings 2 to 5: short bare token values, `hf_` tokens, slash-containing
+// base64, the digest window and tokenizer settings.
+test('#58: short encoded bare values and hf_ tokens are hidden; file names, paths and words are kept', () => {
+  for (const [input, expected] of [
+    ['token: s3cr3tvalue', 'token: <已隐藏>'],
+    ['token: hunter2hunter2', 'token: <已隐藏>'],
+    ['{"token": "abcd1234"}', '{"token": "<已隐藏>"}'],
+    ['API key: AbCdEf12', 'API key: <已隐藏>'],
+    ['session: a1b2c3d4 expired', 'session: <已隐藏> expired'],
+    [`token: hf_${'abcdefghij'.repeat(3)}abcd`, 'token: <已隐藏>'],
+    [`uses hf_${'AbCdEfGhIj'.repeat(3)}1234 to download`, 'uses <已隐藏> to download'],
+    // A slash-containing value without a plain lower-case segment is tested whole.
+    ['key: Ab12/Cd34', 'key: <已隐藏>'],
+    // A cut-off quoted value: one that looks encoded is hidden (and closed), prose with spaces is kept.
+    ['"token": "AbCd1234XyZ', '"token": "<已隐藏>"'],
+    ['"token": "cut off at the end', '"token": "cut off at the end'],
+  ]) assert.equal(cleanDetail(input), expected, input);
+  // Kept: under 8 characters, without a digit, digits only, file names and paths with a plain segment.
+  for (const input of [
+    '{"token": "abc123"}', 'token: abc1234', 'token: unexpected "}" at line 3 of skills/a.json', 'key: entrypoint',
+    'session_id: 12345678 not found', 'Missing key: settings2025.json', 'key: skills/data2024/config',
+    'signature: missing in arm_manifest.json', `token: hf_${'abc'.repeat(5)}`,
+  ]) assert.equal(cleanDetail(input), input, input);
+});
+
+test('#58: slash-containing base64 is tested whole unless the run is a path with a plain lower-case segment', () => {
+  for (const input of [
+    'base64 dGhpcyBpcyBhIHNl/Y3JldCB2YWx1ZSB0aGF0IGlzIGxvbmc',
+    'value Qm9iIHNhaWQ/gaGVsbG8gdG8gQWxpY2UgYW5kIGJ5ZQ/X2 rejected',
+    'token \\Qm9iIHNhaWQgaGVsbG8gdG8\\gQWxpY2UgYW5kIGJ5ZQ12',
+  ]) assert.match(cleanDetail(input), /<已隐藏>/, input);
+  for (const input of [
+    'skills/DataProcessingPipeline2024v2/scripts/AnotherLongFolderName2025v3/data is too large',
+    'skills\\DataProcessingPipeline2024v2\\scripts\\run.py is a symlink',
+    'examples/minimal_demo/input/DataProcessingPipeline2024v2Final is empty',
+    'see skills/reading_document_parsing/scripts/structure_parser.py',
+    'output/Run2025Step3DataProcessingPipelineV2Final/report.md is missing',
+  ]) assert.equal(cleanDetail(input), input, input);
+});
+
+test('#58: a 64-digit digest is kept only directly after a digest word, in a clause without a credential word', () => {
+  const hex = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
+  for (const input of [
+    `sha256 mismatch: expected ${hex}`, `SHA-256 digest: ${hex.toUpperCase()} differs`, `checksum ${hex} bad`, `hash ${hex}`,
+    `bundleSha256: ${hex}`, `sha256 (expected): ${hex}`, `sha-256 = ${hex}`, `digest got ${hex}`, `sha256 actual: ${hex}`,
+  ]) assert.equal(cleanDetail(input), input, input);
+  for (const input of [
+    `password hash: ${hex}`, `HMAC key (sha256): ${hex}`, `sha256 ok; webhook secret ${hex}`, `api token hash ${hex}`,
+    `sha256 of the signature: ${hex}`, `hash of upload: ${hex}`, `sha256 ok. value ${hex}`, `value ${hex}`,
+  ]) assert.equal(cleanDetail(input).includes(hex), false, input);
+});
+
+test('#58: tokenizer settings, token counts and status words after a credential key keep their value', () => {
+  for (const input of [
+    'pad_token: missing', 'eos_token: </s> is not in the vocabulary', 'stop_token: "###"', 'max_input_token: 4096',
+    'num_special_token: 3', 'min_token: 1', 'bos-token: missing', 'padToken: missing', 'maxInputToken: 4096',
+    'auth_key: missing in arm_manifest.json', 'api_key: required', 'client_secret: empty', 'access_token: expired',
+    'apiKey: none', 'x-api-key: missing',
+  ]) assert.equal(cleanDetail(input), input, input);
+  for (const [input, expected] of [
+    // A special-token name is a bare word: an encoded value or one after `=` is still hidden.
+    ['pad_token: AbCd1234XyZ', 'pad_token: <已隐藏>'],
+    ['eos_token=abc', 'eos_token=<已隐藏>'],
+    // A credential compound outside the tokenizer names is still always hidden.
+    ['session_end_token: abc', 'session_end_token: <已隐藏>'],
+    ['refresh_token: abc', 'refresh_token: <已隐藏>'],
+    // Status words stay only unquoted, after ":", from the closed list, and never for a password.
+    ['auth_key: letmein', 'auth_key: <已隐藏>'],
+    ['api_key: "missing"', 'api_key: "<已隐藏>"'],
+    ['api_key=missing', 'api_key=<已隐藏>'],
+    ['password: missing', 'password: <已隐藏>'],
+    ['db_passwd: none', 'db_passwd: <已隐藏>'],
+    ['auth_key: Missing', 'auth_key: <已隐藏>'],
+  ]) assert.equal(cleanDetail(input), expected, input);
+});
+
+test('#58: the task records every receipt that shows a submission closed as "bundle missing"', () => {
+  const receipt = (attemptId, extra = {}) => ({ type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'receipt',
+    receipt: { attemptId, challengeId: 'challenge-a', ok: false, stage: 'upload', error: { code: 'upload_failed', message: 'x' }, ...extra } } } } });
+  const closed = { status: 'pending_review', scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true };
+  let state = workflowProjection.apply(workflowProjection.init(), { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'task',
+    task: { challengeId: 'challenge-a', title: 'A', mode: 'participate' } } } } });
+  state = workflowProjection.apply(state, receipt(63116));
+  assert.equal(state.bundleClosedIds, undefined);
+  // A results query merges the platform's closure into the receipt; a newer submission keeps the record.
+  state = workflowProjection.apply(state, receipt(63116, closed));
+  assert.deepEqual(state.bundleClosedIds, [63116]);
+  state = workflowProjection.apply(state, receipt(63200));
+  state = workflowProjection.apply(state, receipt(63200, closed));
+  state = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'receipt',
+    receipt: { attemptId: 63300, challengeId: 'challenge-a', ok: true, status: 'submitted' } } } } });
+  assert.deepEqual(state.bundleClosedIds, [63116, 63200]);
+  assert.deepEqual(taskBundleClosedIds(state), [63116, 63200]);
+  assert.equal(workflowProjection.stateSchema.safeParse(state).success, true);
+  assert.deepEqual(workflowProjection.wire.view(state).bundleClosedIds, [63116, 63200]);
+  // Platform evidence that a listed submission's bundle arrived removes it.
+  const received = workflowProjection.apply(state, receipt(63200, { scoringState: { state: 'evaluating', scoreIsFinal: false } }));
+  assert.deepEqual(received.bundleClosedIds, [63116]);
+  // A state saved before the field derives it from its latest receipt, in the view too.
+  const old = { task: state.task, prepared: null, receipt: { attemptId: 9, ok: false, ...closed } };
+  assert.deepEqual(taskBundleClosedIds(old), [9]);
+  assert.deepEqual(workflowProjection.wire.view(old).bundleClosedIds, [9]);
+  assert.equal(workflowProjection.wire.viewSchema.safeParse(workflowProjection.wire.view(old)).success, true);
+  // A bind keeps the record with the receipt; a new task starts without it.
+  const loose = { task: null, prepared: null, receipt: { attemptId: 63300, challengeId: 'challenge-a', ok: true }, attemptIds: [63116, 63300], bundleClosedIds: [63116] };
+  const bound = workflowProjection.apply(loose, { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'bind', task: { challengeId: 'challenge-a', title: 'A', mode: 'participate' } } } } });
+  assert.deepEqual(bound.bundleClosedIds, [63116]);
+  const fresh = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'task', task: { challengeId: 'challenge-a', title: 'B', mode: 'participate' } } } } });
+  assert.equal(fresh.bundleClosedIds, undefined);
 });
 
 test('#58: the cleaner cuts absolute paths to their last segment, also with spaces, quotes, file URLs and leading punctuation', () => {
