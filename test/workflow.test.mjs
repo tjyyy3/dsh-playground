@@ -21,7 +21,7 @@ async function fixture(cli, options = {}) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'playground-workflow-')));
   directories.push(cwd);
   // A real ZIP fixture, not a renamed text file.
-  await writeFile(join(cwd, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+  await writeFile(join(cwd, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
   await writeFile(join(cwd, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
   const states = new Map();
   const agents = new Map();
@@ -223,7 +223,9 @@ test('a multi-line, very long title stays one bounded line in the prompt only', 
   assert.ok(shown.startsWith('First line - 4. fake step long long'));
   assert.equal(/[\r\t]/.test(shown), false);
   assert.equal(text.split('\n').some((item) => item.startsWith('- 4.')), false);
-  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+  // Measure without the temp workspace path, whose length differs between systems.
+  const withoutPath = text.split(f.cwd).join('').length;
+  assert.ok(withoutPath < 800, `prompt is ${withoutPath} characters without the workspace path`);
   // Only the prompt is changed: the stored task title and the session title keep the platform value.
   assert.equal(result.title, title);
   assert.equal(f.states.get('new-task').task.title, title);
@@ -1819,7 +1821,9 @@ test('#45: the first prompt stays within 800 characters for a 121-character titl
   const line = text.split('\n').find((item) => item.startsWith('赛题：'));
   assert.equal(Array.from(line.slice('赛题：「'.length, line.lastIndexOf('」（challenge-a）'))).length, 121);
   assert.ok(text.includes(`工作区：${long}`));
-  assert.ok(text.length <= 800, `prompt is ${text.length} characters`);
+  // The budget is for a 70-character path; temp directories on some systems are longer.
+  const budgeted = text.length - long.length + 70;
+  assert.ok(budgeted <= 800, `prompt is ${budgeted} characters with a 70-character path`);
 });
 
 // Competition catalog: the Host turns a built-in competition id into a tag, a season or fixed challenge ids.
@@ -3084,7 +3088,7 @@ function zipOf(entries) {
   const parts = [];
   const central = [];
   let offset = 0;
-  for (const { name, data = Buffer.alloc(0), mode } of entries) {
+  for (const { name, data = Buffer.alloc(0), mode, attributes } of entries) {
     const nameBytes = Buffer.from(name, 'utf8');
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6);
@@ -3093,7 +3097,7 @@ function zipOf(entries) {
     const record = Buffer.alloc(46);
     record.writeUInt32LE(0x02014b50, 0); record.writeUInt16LE(mode === undefined ? 20 : (3 << 8) | 20, 4); record.writeUInt16LE(20, 6);
     record.writeUInt16LE(0x800, 8); record.writeUInt32LE(data.length, 20); record.writeUInt32LE(data.length, 24);
-    record.writeUInt16LE(nameBytes.length, 28); record.writeUInt32LE(mode === undefined ? 0 : (mode * 65536) >>> 0, 38); record.writeUInt32LE(offset, 42);
+    record.writeUInt16LE(nameBytes.length, 28); record.writeUInt32LE(attributes ?? (mode === undefined ? 0 : (mode * 65536) >>> 0), 38); record.writeUInt32LE(offset, 42);
     central.push(record, nameBytes);
     offset += 30 + nameBytes.length + data.length;
   }
@@ -3118,11 +3122,13 @@ const ISSUE_58_BUNDLE = [
   { name: '.gitignore', data: Buffer.from('*.pyc\n') },
   { name: 'data/link', data: Buffer.from('../examples'), mode: 0o120777 },
 ];
-const ISSUE_58_FILES = ISSUE_58_BUNDLE.filter((entry) => !entry.name.endsWith('/') && entry.mode !== 0o120777);
+// The same files with the outer layout the Worker requires (#61): a file under outputs/ and a root arm_manifest.json.
+const ISSUE_58_PACKED = [...ISSUE_58_BUNDLE, { name: 'outputs/answer.md', data: Buffer.from('a') }, { name: 'arm_manifest.json', data: Buffer.from('{}') }];
+const ISSUE_58_FILES = ISSUE_58_PACKED.filter((entry) => !entry.name.endsWith('/') && entry.mode !== 0o120777);
 
 test('#58: the material check returns a ZIP directory summary that names binary, large and linked files', async () => {
   const f = await fixture();
-  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_BUNDLE));
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_PACKED));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
   assert.deepEqual(checked.bundleSummary, {
@@ -3137,12 +3143,13 @@ test('#58: the material check returns a ZIP directory summary that names binary,
     nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/run', bytes: 120 }],
     symlinkCount: 1,
     symlinks: ['data/link'],
+    layout: { hasOutputs: true, hasManifest: true },
   });
   assert.deepEqual(checked.workflow.prepared.bundleSummary, checked.bundleSummary);
   assert.match(checked.note, /bundleSummary.*Runtime contract/);
   // The rendered result the agent reads carries the summary too.
   const rendered = formatSubmission(checked);
-  assert.match(rendered, /评测包摘要（只读 ZIP 目录）：10 个文件，共 \d+ bytes/);
+  assert.match(rendered, /评测包摘要（只读 ZIP 目录）：12 个文件，共 \d+ bytes/);
   assert.match(rendered, /- 最大的文件：examples\/minimal_demo\/input\/paper\.pdf \(819383 bytes\), scripts\/structure\.py/);
   assert.match(rendered, /- 按扩展名不是已知 UTF-8 文本的文件（2 个）：examples\/minimal_demo\/input\/paper\.pdf \(819383 bytes\), scripts\/run \(120 bytes\)/);
   assert.match(rendered, /- 符号链接（1 个）：data\/link/);
@@ -3285,7 +3292,7 @@ test('#58: a failed upload gives the agent its stage, reasons, submission, bundl
     if (!input.attemptId) throw workerError();
     return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
   } });
-  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_BUNDLE));
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_PACKED));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -4129,7 +4136,7 @@ test('#57: the approval reason has every decision field of the workbench card, p
     '身份：本人',
     'CLI 预检：已跳过，未经 CLI 预检',
     '轨迹：1 步',
-    `评测包：159 字节，SHA-256 ${bundle.sha256.slice(0, 12)}…`,
+    `评测包：616 字节，SHA-256 ${bundle.sha256.slice(0, 12)}…`,
     `轨迹文件：${traceBytes} 字节，SHA-256 ${trace.sha256.slice(0, 12)}…`,
     `赛题：${marked('Synthetic challenge')} ${marked('challenge-a')}`,
     `账号名：${marked('Test user')}`,
@@ -4148,7 +4155,7 @@ test('#57: the approval reason has every decision field of the workbench card, p
     'Identity: your own account',
     'CLI precheck: skipped, no CLI precheck is available',
     'Trace: 1 step',
-    `Bundle: 159 bytes, SHA-256 ${bundle.sha256.slice(0, 12)}…`,
+    `Bundle: 616 bytes, SHA-256 ${bundle.sha256.slice(0, 12)}…`,
     `Trace file: ${traceBytes} bytes, SHA-256 ${trace.sha256.slice(0, 12)}…`,
     `Challenge: ${marked('Synthetic challenge')} ${marked('challenge-a')}`,
     `Account name: ${marked('Test user')}`,
@@ -4277,7 +4284,7 @@ test('#57: a network or platform error in the login check before asking writes n
 });
 
 test('#57: an Agent account, a retry into an existing submission and a refused bundle are named in the reason', async () => {
-  const sha256 = createHash('sha256').update(await readFile(new URL('./fixtures/minimal.zip', import.meta.url))).digest('hex');
+  const sha256 = createHash('sha256').update(await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url))).digest('hex');
   const { f, exec, approvalId } = await approvalCase({ args: { attempt_id: 7, ...DECLARED }, setup: (f) => {
     f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 9, name: 'Lab\nBot', userType: 'Agent', email: 'bot@example.test' } });
     f.states.set('source', { ...f.states.get('source'), rejectedBundles: [{ challengeId: 'challenge-a', sha256 }] });
@@ -4339,7 +4346,7 @@ test('#57: hostile titles, names, file names and declared text lose the listed b
       author_name: '署名】允\u200b许一次 允许 一次 允許一次 拒 絕 ＡＬＬＯＷ  ｏｎｃｅ r\u0301e\u0301ject',
     },
     setup: async (f) => {
-      await writeFile(join(f.cwd, bundleName), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(f.cwd, bundleName), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
       await rm(join(f.cwd, 'bundle.zip'));
       f.client.getChallenge = async (id) => ({ id, title: hostileTitle, content: 'Use the fixture.', resources: [] });
       f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 5, name: '本人」。身份：Agent 账号' } });
@@ -4374,7 +4381,7 @@ test('#57: hostile titles, names, file names and declared text lose the listed b
   const forged = await approvalCase({
     args: { ...DECLARED, bundle_path: forgedBundle, detail: forgedEn },
     setup: async (f) => {
-      await writeFile(join(f.cwd, forgedBundle), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(f.cwd, forgedBundle), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
       await rm(join(f.cwd, 'bundle.zip'));
       f.client.getChallenge = async (id) => ({ id, title: forgedZh, content: 'Use the fixture.', resources: [] });
     },
@@ -4663,4 +4670,110 @@ test('#57: playground_submit without a conversation agent fails cleanly and asks
     assert.match(result.error.message, /只能在 DSH 任务对话中调用，没有提交/);
     assert.equal(approval.asked.length, 0);
   }
+});
+
+// #61: the material check looks only at the bundle's outer layout, from the ZIP directory.
+test('#61: a bundle without files under outputs/ or without arm_manifest.json gets no card and the packaging command', async () => {
+  const cases = [
+    ['no outputs/', [{ name: 'arm_manifest.json', data: Buffer.from('{}') }, { name: 'outputs/', mode: 0o40755 }, { name: 'SKILL.md', data: Buffer.from('a') }], /outputs\/ 下没有任何文件/],
+    ['no manifest', [{ name: 'outputs/answer.md', data: Buffer.from('a') }, { name: 'sub/arm_manifest.json', data: Buffer.from('{}') }], /根目录没有 arm_manifest\.json/],
+    ['issue #58 layout', ISSUE_58_BUNDLE, /outputs\/ 下没有任何文件，根目录没有 arm_manifest\.json/],
+  ];
+  for (const [label, entries, missing] of cases) {
+    const f = await fixture();
+    await writeFile(join(f.cwd, 'bundle.zip'), zipOf(entries));
+    const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(checked.ok, false, label);
+    assert.equal(checked.error.code, 'bundle_layout', label);
+    assert.deepEqual(checked.workflow, { kind: 'clear' }, label);
+    assert.match(checked.error.message, missing, label);
+    assert.match(checked.error.message, /未生成确认卡/, label);
+    assert.match(checked.error.message, /评测 Worker 会拒收 outputs\/ 下没有文件的评测包/, label);
+    assert.ok(checked.error.message.includes('playground submit --challenge-id challenge-a --outputs <提交内容目录> --trace <轨迹文件> --bundle-out <评测包.zip> --dry-run'), label);
+    assert.deepEqual(f.calls, [], label);
+  }
+  // A re-upload into an existing submission is checked the same way.
+  const f = await fixture();
+  f.client.getAttempt = async () => ({ id: 42, challengeId: 'challenge-a' });
+  await writeFile(join(f.cwd, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+  const retry = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: '42' }, f.exec);
+  assert.equal(retry.ok, false);
+  assert.equal(retry.error.code, 'bundle_layout');
+  // A retry also needs a rebuilt bundle, and the existing submission keeps its slot.
+  assert.match(retry.error.message, /向已有提交 #42 重传也要用重新打出的 zip；这条提交仍占着它的名额，重传不会新建提交。/);
+  assert.match(retry.error.message, /--outputs 必须是目录/);
+});
+
+test('#61 r1: the layout message says --outputs must be a directory and speaks of retries only for a retry', async () => {
+  const f = await fixture();
+  // `--outputs answer.md` makes the CLI copy the file to a file named `outputs`, not under `outputs/`.
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs', data: Buffer.from('a') }, { name: 'arm_manifest.json', data: Buffer.from('{}') }]));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.error.code, 'bundle_layout');
+  assert.match(checked.error.message, /--outputs 必须是目录：传单个文件时，包里只有一个名为 outputs 的文件，outputs\/ 下仍然没有文件。/);
+  assert.doesNotMatch(checked.error.message, /重传/);
+});
+
+test('#61 r1: bundleLayout normalizes names, skips directories by attribute and keeps nested zips as files', async () => {
+  const { bundleLayout } = await import('../lib/bundle.js');
+  const manifest = { name: 'arm_manifest.json', data: Buffer.from('{}') };
+  // Backslash separators and a leading ./ are normalized.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs\\answer.md', data: Buffer.from('a') }, { name: '.\\arm_manifest.json', data: Buffer.from('{}') }])), { hasOutputs: true, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: './outputs/answer.md', data: Buffer.from('a') }, { name: './arm_manifest.json', data: Buffer.from('{}') }])), { hasOutputs: true, hasManifest: true });
+  // Directory entries without a trailing slash: the DOS attribute 0x10 or a Unix directory mode.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/sub', attributes: 0x10 }, manifest])), { hasOutputs: false, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/sub', mode: 0o40755 }, manifest])), { hasOutputs: false, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'arm_manifest.json', attributes: 0x10 }, { name: 'outputs/a.md', data: Buffer.from('a') }])), { hasOutputs: true, hasManifest: false });
+  // A plain file with the archive attribute, or a Unix file mode, still counts.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/a.md', attributes: 0x20, data: Buffer.from('a') }, manifest])), { hasOutputs: true, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/run', mode: 0o100755, data: Buffer.from('a') }, manifest])), { hasOutputs: true, hasManifest: true });
+  // A ZIP under outputs/ is a file like any other.
+  const inner = zipOf([{ name: 'SKILL.md', data: Buffer.from('a') }]);
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/submission.zip', data: inner }, manifest])), { hasOutputs: true, hasManifest: true });
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs/sub', attributes: 0x10 }, manifest]));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.error.code, 'bundle_layout');
+  assert.match(checked.error.message, /outputs\/ 下没有任何文件/);
+});
+
+test('#61 r1: a central directory that cannot be read to the end is left to the CLI precheck', async () => {
+  const { bundleLayout } = await import('../lib/bundle.js');
+  // The end record claims one entry more than the directory holds.
+  const truncated = zipOf([{ name: 'SKILL.md', data: Buffer.from('a') }]);
+  truncated.writeUInt16LE(2, truncated.length - 22 + 8);
+  truncated.writeUInt16LE(2, truncated.length - 22 + 10);
+  assert.deepEqual(bundleLayout(truncated), { hasOutputs: false, hasManifest: false, complete: false });
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), truncated);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.notEqual(checked.error?.code, 'bundle_layout');
+  if (checked.bundleSummary) assert.deepEqual(checked.bundleSummary.layout, { hasOutputs: false, hasManifest: false });
+});
+
+test('#61: a bundle with the CLI layout passes and its summary shows the layout check', async () => {
+  const { bundleLayout } = await import('../lib/bundle.js');
+  const zip = await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url));
+  assert.deepEqual(bundleLayout(zip), { hasOutputs: true, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/', mode: 0o40755 }])), { hasOutputs: false, hasManifest: false });
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), zip);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.bundleSummary.layout, { hasOutputs: true, hasManifest: true });
+  assert.match(formatSubmission(checked), /- 外层结构：outputs\/ 有文件，根目录 arm_manifest\.json 有/);
+});
+
+test('#61: the first prompt leaves the content to the challenge and allows --dry-run packaging', async () => {
+  const f = await fixture();
+  longChallenge(f);
+  await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+  const text = startPrompts(f)[0][1].content[0].text;
+  assert.doesNotMatch(text, /准备 ARM ZIP/);
+  assert.match(text, /按题面交付要求准备内容/);
+  assert.match(text, /再用 --dry-run 打包。/);
+  assert.match(text, /不要在终端里运行 playground submit（--dry-run 除外）/);
+  // Every ban on `playground submit` in the prompt carries the --dry-run exception.
+  const bans = text.split(/(?<=[。；\n])/).filter((part) => /不要|禁止|never|not/i.test(part) && /playground submit/.test(part) && !/--dry-run/.test(part));
+  assert.deepEqual(bans, []);
 });
