@@ -21,7 +21,7 @@ from npm.
 | `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/me/attempts` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
 | `playground_bind_task` | Make the current conversation the task conversation of one challenge | DSH projections and `GET /api/challenges/{id}` |
-| `playground_check_materials` | Check explicit target, ZIP, trace, manifest and file hashes | Local reads and challenge metadata |
+| `playground_check_materials` | Check explicit target, the bundle's outer layout, trace, manifest and file hashes | Local reads and challenge metadata |
 | `playground_task` | Read task/receipt, switch working mode or refresh latest result | DSH projections and `GET /api/attempts/{id}` |
 | `playground_submit` | Submit this conversation's confirmation card after the user chooses **允许一次** in DSH's approval panel | `playground submit` (CLI) after approval |
 
@@ -69,7 +69,9 @@ and can consume a platform submission slot.
    agent not to run `playground submit` in the terminal; real submission
    happens only when you click **确认目标并提交**, or when you ask the agent
    to submit and choose **允许一次** in DSH's approval panel.
-3. Prepare an ARM ZIP and a real execution trace. In the global workbench, select
+3. Prepare the submission content as the challenge statement's delivery
+   requirements (交付要求) say, with a real execution trace, then build the
+   bundle (see **Bundle outer layout** below). In the global workbench, select
    the task and click **准备提交 / 检查材料**,
    or ask `playground_check_materials` with an explicit target. Unambiguous
    files are found in the working-directory root, `playground-submission/`, or
@@ -137,12 +139,55 @@ extensions, is listed as not known to be text (up to 20 names, with exact
 counts). Symbolic links are recognised in entries written by Unix tools, which
 record the file mode. Entry names are read as UTF-8, or as GBK when an entry
 is not marked UTF-8 and its name is not valid UTF-8 (Chinese Windows zip
-tools). The summary never blocks a check. It lets the agent
+tools). The summary itself never blocks a check; only the outer-layout check does. It lets the agent
 compare the bundle with the challenge's 交付要求 and Runtime contract (for
 example "at most 50 UTF-8 text files, 500KB each and 2MB total, no symlinks")
 before submitting, because the CLI's dry run does not contact the evaluation
 Worker. The confirmation section and the check card show it as one line, such
 as `评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）…；非文本文件（按扩展名）1 个：paper.pdf（800 KB）`.
+
+### Bundle outer layout
+
+The plugin does not prescribe what you submit: challenges differ widely (files
+written to `/app/outputs/`, a bare answer, a Skill, a `run.sh` program, a
+GitHub link with materials, and more), so the content follows the challenge
+statement. The bundle's outer layout is the same for every challenge:
+
+- `outputs/` holds the files the challenge asks for, at the paths it names;
+- `arm_manifest.json` sits at the bundle root;
+- the trace sits beside them (`traces/trace.jsonl`, `raw_messages.jsonl`).
+
+Build the bundle with the Playground CLI, locally:
+
+```text
+playground submit --challenge-id <challenge id> --outputs <content dir> --trace <trace file> --bundle-out <bundle.zip> --dry-run
+```
+
+With `--dry-run` the CLI only packages: it creates and uploads nothing. It
+copies the `--outputs` files to `outputs/` (and again to `results/`), and
+writes `arm_manifest.json`, `traces/` and placeholder files. The start
+prompt and the `playground_check_materials` / `playground_submit_attempt`
+descriptions allow this `--dry-run` use; a real `playground submit` in the
+terminal is still not allowed.
+
+The material check, for new submissions and retries alike, reads the ZIP's
+central directory and checks only this outer layout: at least one file under
+`outputs/` and a root `arm_manifest.json`. It does not inspect the content.
+A bundle missing either gets no confirmation card; the message names what is
+missing, says that the Worker refuses a bundle with no files under
+`outputs/`, and gives the command above with the challenge id filled in. A
+directory that cannot be read to the end is left to the CLI precheck. The
+result appears in `bundleSummary.layout` and in the bundle summary line
+(`外层结构：outputs/ 有文件，arm_manifest.json 有`).
+
+Evidence: the Playground CLI 0.1.48 source (`makeArmBundle`) notes that the
+Worker's intake refuses a bundle without files under `outputs/`. Three
+submissions of 2026-11-05 whose ZIP held the Skill files at its root (no
+`outputs/`, no `arm_manifest.json`) were recorded as 未收到提交包; on
+2026-11-06, #63534, built with `--outputs submission --trace arm/trace.jsonl
+--bundle-out arm/reading01-v3.zip --dry-run`, was accepted and went to
+evaluation. The CLI's `submit --bundle … --dry-run` precheck of a ready-made
+zip does not check this layout, which is why the plugin checks it.
 
 After the local checks pass, the material check runs the installed CLI once with
 the same arguments the confirmed submission will use plus `--dry-run`

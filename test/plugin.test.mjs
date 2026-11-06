@@ -670,7 +670,7 @@ test('D10a: playground_task mode and results actions never contain the checkId',
 test('D10a/#57: playground_check_materials renders without the checkId and names the approvalId on the agent\'s line; the structured value still carries the checkId (known residual)', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'playground-check-'));
   try {
-    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
     await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
     await withSyntheticPlatform(async () => {
       const { tools, exec } = mountWorkflowScope(
@@ -723,6 +723,17 @@ test('D10a: submission tool descriptions tell the agent to point at the button, 
   }
 });
 
+test('#61: submission tool descriptions leave the content to the challenge and explain the outer layout', () => {
+  const { tools } = mountWorkflowScope({ task: null, prepared: null, receipt: null });
+  for (const name of ['playground_submit_attempt', 'playground_check_materials']) {
+    const { description } = tools.find((item) => item.name === name);
+    assert.doesNotMatch(description, /local ARM ZIP|准备 ARM ZIP/, name);
+    assert.match(description, /as the challenge statement's delivery requirements say/, name);
+    assert.match(description, /required files under `outputs\/`, with `arm_manifest\.json` and the trace/, name);
+    assert.match(description, /`playground submit --challenge-id <id> --outputs <content dir> --trace <trace> --bundle-out <bundle\.zip> --dry-run`/, name);
+    assert.match(description, /verifies only this outer layout/, name);
+  }
+});
 test('D10a: the task context prompt tells the agent how confirmation works', () => {
   const { contexts, exec } = mountWorkflowScope({
     task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: { checkId: 'synthetic-check' }, receipt: null,
@@ -838,7 +849,7 @@ test('#12: the auth query and the CLI precheck use the token stored in DSH; the 
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'playground-token-wiring-')));
   const originalFetch = globalThis.fetch;
   try {
-    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+    await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
     await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
     const credentialsPath = join(directory, 'credentials.env');
     await writeFile(credentialsPath, 'PLAYGROUND_TOKEN=synthetic-file-token\n');
@@ -888,7 +899,7 @@ test('#12: a confirmed submission with a token only in DSH runs the CLI submit w
     await withoutAmbientToken(async () => {
       // An inherited worker token must not authenticate the upload as someone else.
       process.env.PLAYGROUND_WORKER_TOKEN = 'synthetic-worker-token';
-      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
       await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
       // No CLI credentials file: the token exists only in the DSH credential store.
       const credentialsPath = join(directory, 'missing-credentials.env');
@@ -946,7 +957,7 @@ test('#12: a token saved in DSH while the confirmation re-reads the materials do
   const originalFetch = globalThis.fetch;
   try {
     await withoutAmbientToken(async () => {
-      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
       await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
       const credentialsPath = join(directory, 'missing-credentials.env');
       const log = join(directory, 'calls.log');
@@ -1196,7 +1207,7 @@ test('#57: an approved playground_submit runs one CLI submission and its receipt
   const originalFetch = globalThis.fetch;
   try {
     await withoutAmbientToken(async () => {
-      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
+      await writeFile(join(directory, 'bundle.zip'), await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url)));
       await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
       const credentialsPath = join(directory, 'missing-credentials.env');
       const log = join(directory, 'calls.log');
