@@ -5286,6 +5286,60 @@ test('#63: track accepts a confirmed Agent account and refuses other authors, ot
   assert.equal((await bare.workflow.track({ attempt_id: 77 }, bare.exec)).error.code, 'task_required');
 });
 
+test('#63: track clears the open confirmation card and says so', async () => {
+  const { f } = await trackCase();
+  f.states.set('source', { ...f.states.get('source'), prepared: { checkId: 'open-card', challenge: { id: 'challenge-a' }, args: { challenge_id: 'challenge-a' } } });
+  const tracked = await f.workflow.track({ attempt_id: 77 }, f.exec);
+  assert.equal(tracked.ok, true, tracked.error?.message);
+  assert.match(tracked.note, /尚未确认的确认卡随之失效/);
+  f.record(tracked);
+  assert.equal(f.states.get('source').prepared, null);
+});
+
+test('#63: track refuses an unknown author, an unreadable Agent list and a missing submission', async () => {
+  for (const [options, id, code] of [[{ authorId: null }, 77, 'author_unknown'],
+    [{ authorId: 'opencode-glm', agents: async () => { throw new Error('agents down'); } }, 77, 'agents_unavailable'],
+    [{}, 404, 'not_found']]) {
+    const { f } = await trackCase(options);
+    const result = await f.workflow.track({ attempt_id: id }, f.exec);
+    assert.equal(result.ok, false, code);
+    assert.equal(result.error.code, code);
+    assert.equal(result.workflow, undefined, code);
+  }
+});
+
+test('#63: playground_submit recomputes the policy at submit time: a later counted submission or a later 429 asks first', async () => {
+  // A counted submission (for example from the terminal, never tracked) after the check.
+  const own = [];
+  const later = await approvalCase({ setup: (f) => quotaClient(f, { own, agents: [], publicItems: [], quota: { 10: true } }) });
+  assert.equal(later.checked.submitPolicy.askFirst, false);
+  own.push({ id: 10, createdAt: nowIso(500) });
+  const refused = await later.f.workflow.submitApproved({ approval_id: later.approvalId }, later.exec);
+  assert.equal(refused.error?.code, 'ask_first');
+  assert.deepEqual(refused.submitPolicy.reasons, ['quota_used_today']);
+  assert.match(refused.submitPolicy.announcement, /今天已提交 1 次，占名额 1 次/);
+  assert.equal(later.submits.length, 0);
+  // A 429 recorded after the check.
+  const limited = await approvalCase({ setup: (f) => quotaClient(f, { own: [], agents: [], publicItems: [] }) });
+  assert.equal(limited.checked.submitPolicy.askFirst, false);
+  limited.f.states.set('source', { ...limited.f.states.get('source'), submissionLimits: [{ challengeId: 'challenge-a', source: 'platform', limit: 5 }] });
+  const limitedRefused = await limited.f.workflow.submitApproved({ approval_id: limited.approvalId }, limited.exec);
+  assert.equal(limitedRefused.error?.code, 'ask_first');
+  assert.deepEqual(limitedRefused.submitPolicy.reasons, ['platform_limit']);
+  assert.equal(limited.submits.length, 0);
+  assert.equal((await limited.f.workflow.submitApproved({ approval_id: limited.approvalId, user_confirmed_limit: true }, limited.exec)).ok, true);
+  // Unreadable counts at submit time keep the card's policy and do not block.
+  const unread = await approvalCase({ setup: (f) => quotaClient(f, { own: [], agents: [], publicItems: [] }) });
+  unread.f.client.listMyAttempts = async () => { throw new PlaygroundApiError('down', { code: 'network_error' }); };
+  const submitted = await unread.f.workflow.submitApproved({ approval_id: unread.approvalId }, unread.exec);
+  assert.equal(submitted.ok, true, submitted.error?.message);
+  // A retry card never asks, even with a recorded 429.
+  const retry = await approvalCase({ args: { attempt_id: 7 }, setup: (f) => quotaClient(f, { own: [{ id: 10, createdAt: nowIso(500) }], agents: [], publicItems: [], quota: { 10: true } }) });
+  retry.f.states.set('source', { ...retry.f.states.get('source'), submissionLimits: [{ challengeId: 'challenge-a', source: 'platform' }] });
+  const retried = await retry.f.workflow.submitApproved({ approval_id: retry.approvalId }, retry.exec);
+  assert.notEqual(retried.error?.code, 'ask_first');
+});
+
 test('#63: failure next steps carry the direct-submit rule instead of the terminal ban', async () => {
   assert.doesNotMatch(SUBMIT_RULE, /不要在终端|只能由用户点击/);
   assert.match(SUBMIT_RULE, /只有用户在对话里明确要求时才新建或重传提交/);

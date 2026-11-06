@@ -647,11 +647,30 @@ test('D10a: playground_task status passes attemptIds through as an array of numb
 });
 
 test('D10a: playground_task status without a pending check reports no prepared submission', async () => {
-  const { tools, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null });
-  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
-  // The exact key set guards the shape: no attemptIds when absent, nothing added by accident.
-  assert.deepEqual(Object.keys(value).sort(), ['ok', 'prepared', 'receipt', 'task']);
-  assert.deepEqual(value, { ok: true, task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: null, prepared: null });
+  await withSyntheticPlatform(async () => {
+    const { tools, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null }, { config: SYNTHETIC_CONFIG });
+    const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+    // The exact key set guards the shape: no attemptIds when absent, nothing added by accident.
+    assert.deepEqual(Object.keys(value).sort(), ['ok', 'prepared', 'receipt', 'submitPolicy', 'task']);
+    assert.deepEqual(value, { ok: true, task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: null, prepared: null,
+      // #63: the policy without a material check; the synthetic platform has no submission list, so counts are unread.
+      submitPolicy: { askFirst: false, reasons: [], announcement: '将以本人账号向「challenge-a」（challenge-a）新建提交（今天的提交次数未能读取；题面没有写次数限制）' } });
+  });
+});
+
+test('#63: playground_task status recomputes submitPolicy from the recorded limits, without a material check', async () => {
+  await withSyntheticPlatform(async () => {
+    const { tools, exec } = mountWorkflowScope({ task: { challengeId: 'challenge-a', title: 'Synthetic challenge', mode: 'participate' }, prepared: null, receipt: null,
+      submissionLimits: [{ challengeId: 'challenge-a', source: 'statement', limit: 3 }, { challengeId: 'challenge-a', source: 'platform' }] }, { config: SYNTHETIC_CONFIG });
+    const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+    assert.equal(value.submitPolicy.askFirst, true);
+    assert.deepEqual(value.submitPolicy.reasons, ['statement_limit', 'platform_limit']);
+    assert.match(value.submitPolicy.announcement, /向「Synthetic challenge」（challenge-a）新建提交.*题面写了次数限制/);
+    // No task, no policy.
+    const bare = mountWorkflowScope({ task: null, prepared: null, receipt: null }, { config: SYNTHETIC_CONFIG });
+    const none = await bare.tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, bare.exec);
+    assert.equal('submitPolicy' in none, false);
+  });
 });
 
 test('D10a: playground_task mode and results actions never contain the checkId', async () => {

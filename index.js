@@ -604,7 +604,8 @@ function submissionCountsView(state) {
     }) };
 }
 
-function taskStatus(state, approvalIdOf) {
+const SUBMIT_POLICY_KEYS = ['askFirst', 'reasons', 'reasonText', 'announcement', 'retry'];
+function taskStatus(state, approvalIdOf, submitPolicy) {
   const prepared = state?.prepared;
   const approvalId = typeof approvalIdOf === 'function' ? approvalIdOf(prepared?.checkId) : undefined;
   const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
@@ -622,6 +623,7 @@ function taskStatus(state, approvalIdOf) {
     ok: true,
     task: pickKeys(state?.task, TASK_STATUS_TASK_KEYS),
     ...(submissionCounts ? { submissionCounts } : {}),
+    ...(submitPolicy ? { submitPolicy: pickKeys(submitPolicy, SUBMIT_POLICY_KEYS) } : {}),
     receipt,
     ...(state?.attemptIds !== undefined ? { attemptIds: state.attemptIds } : {}),
     ...(bundleMissingIds.length ? { bundleMissingIds } : {}),
@@ -633,7 +635,7 @@ function taskStatus(state, approvalIdOf) {
       files: prepared.files,
       ...(prepared.bundleSummary ? { bundleSummary: pickKeys(prepared.bundleSummary, BUNDLE_SUMMARY_KEYS) } : {}),
       ...(typeof prepared.bundleWarning === 'string' ? { bundleWarning: prepared.bundleWarning } : {}),
-      ...(prepared.submitPolicy ? { submitPolicy: pickKeys(prepared.submitPolicy, ['askFirst', 'reasons', 'reasonText', 'announcement', 'retry']) } : {}),
+      ...(prepared.submitPolicy ? { submitPolicy: pickKeys(prepared.submitPolicy, SUBMIT_POLICY_KEYS) } : {}),
       checkedAt: prepared.checkedAt,
       args: prepared.args,
     } : null,
@@ -1151,9 +1153,9 @@ export function apply(ctx, config) {
   // or a terminal `playground submit` that it then tracks; it asks first only when a new submission may waste a limited slot.
   // #61: the plugin leaves the content to the challenge and explains only the bundle's outer layout.
   const layoutGuidance = 'Prepare the submission content exactly as the challenge statement\'s delivery requirements say; the plugin does not prescribe it. The bundle\'s outer layout is the same for every challenge: the required files under `outputs/`, with `arm_manifest.json` and the trace (`traces/trace.jsonl`) beside them at the bundle root; the scoring Worker refuses a bundle with no files under `outputs/`. Build it locally with `playground submit --challenge-id <id> --outputs <content dir> --trace <trace> --bundle-out <bundle.zip> --dry-run`, where `--outputs` must be a directory (a single file becomes a file named `outputs`, not a file under `outputs/`): with `--dry-run` the CLI only packages and creates no submission. The material check verifies only this outer layout (from the ZIP directory), never the content. ';
-  const confirmGuidance = 'Submit only when the user explicitly asks in this conversation to submit (for example "帮我提交"); checking materials, finishing a solution or a passed precheck is not such a request. Then you may submit directly: call playground_submit with the card\'s approval_id, or run `playground submit ...` (without `--dry-run`) in the terminal and afterwards call playground_task with action "track" and the printed attempt_id, so the task records it. Before submitting, read submitPolicy from the latest material check: when submitPolicy.askFirst is true (the statement states a submission limit, today already has a submission counted toward the quota, or the platform answered 429), do NOT submit: explain submitPolicy.reasonText and submitPolicy.announcement to the user in text and wait for their reply; after they agree, pass user_confirmed_limit: true to playground_submit. Otherwise say submitPolicy.announcement in one line ("将以<身份>向<题目>新建提交（今天已提交 N 次，占名额 M 次；题面是否写了次数限制）") and submit without waiting. The user can also click "确认目标并提交" in the task details.';
+  const confirmGuidance = 'Submit only when the user explicitly asks in this conversation to submit (for example "帮我提交"); checking materials, finishing a solution or a passed precheck is not such a request. Then you may submit directly: call playground_submit with the card\'s approval_id, or run `playground submit ...` (without `--dry-run`) in the terminal and afterwards call playground_task with action "track" and the printed attempt_id, so the task records it. Before every submit, including a terminal one, read submitPolicy from playground_check_materials or from playground_task action "status" (which recomputes it from today\'s counts); never submit without having read it; when submitPolicy.askFirst is true (the statement states a submission limit, today already has a submission counted toward the quota, or the platform answered 429), do NOT submit: explain submitPolicy.reasonText and submitPolicy.announcement to the user in text and wait for their reply; after they agree, pass user_confirmed_limit: true to playground_submit. Otherwise say submitPolicy.announcement in one line ("将以<身份>向<题目>新建提交（今天已提交 N 次，占名额 M 次；题面是否写了次数限制）") and submit without waiting. The user can also click "确认目标并提交" in the task details.';
   // The short form for the task context prompt.
-  const promptGuidance = 'Submit only on the user\'s explicit request here: playground_submit, or a terminal `playground submit` followed by playground_task action "track" with its attempt_id. First say submitPolicy.announcement in one line; if submitPolicy.askFirst is true, ask the user in text and wait. The user can also click "确认目标并提交" in the task details.';
+  const promptGuidance = 'Submit only on the user\'s explicit request here: playground_submit, or a terminal `playground submit` followed by playground_task action "track" with its attempt_id. Before any submit, terminal included, read submitPolicy from playground_check_materials or playground_task status. First say submitPolicy.announcement in one line; if submitPolicy.askFirst is true, ask the user in text and wait. The user can also click "确认目标并提交" in the task details.';
   const settings = normalizeSettings(config);
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
@@ -1248,7 +1250,11 @@ export function apply(ctx, config) {
     scope.tools.register({ name: 'playground_task', description: 'Read this Playground task context, switch participate/author working mode, refresh its latest submission result, or track a submission made in the terminal. Action "track" with attempt_id records a submission created by a terminal `playground submit` as this task\'s submission (call it right after every terminal submit); it checks that the submission belongs to this task\'s challenge and was made by the signed-in account or one of its confirmed Agent accounts, refuses otherwise, and writes nothing to the platform. Tracking the same id again changes nothing. Afterwards "results" reads its status, changelog and execLog. Mode is not an account role.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results', 'track'] }, mode: { type: 'string', enum: ['participate', 'author'] }, attempt_id: { type: 'integer', description: 'For track: the attempt_id that the terminal playground submit printed.' } }, required: ['action'] }, output,
       execute: async (args, exec) => {
-        if (args.action === 'status') return toToolValue(taskStatus(scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask'), workflow.approvalIdOf));
+        if (args.action === 'status') {
+          // #63: the ask-first policy for a new submission now, so a terminal submit needs no material check first.
+          const policy = await workflow.taskPolicy(exec).catch((error) => { if (exec.signal?.aborted || error?.code === 'cancelled') throw error; return undefined; });
+          return toToolValue(taskStatus(scope.sessionProjections.stateOf(exec.agent.session, 'playgroundTask'), workflow.approvalIdOf, policy));
+        }
         if (args.action === 'results') return workflow.results({}, exec).then(toToolValue).catch(errorValue);
         if (args.action === 'track') return workflow.track({ attempt_id: args.attempt_id }, exec).then(toToolValue).catch(errorValue);
         const result = await workflow.command({ agent: exec.agent, signal: exec.signal, rawInput: JSON.stringify(args) });
