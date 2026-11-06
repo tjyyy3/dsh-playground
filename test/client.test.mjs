@@ -4598,7 +4598,7 @@ test('#62: the task history labels own and Agent-account submissions and shows t
   assert.equal(rows.some((row) => row.includes('#303')), false);
   assert.match(text(f.panel), /Agent 账号的提交来自这道题的公开提交列表，看不到未公开的提交/);
   const counts = text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-submission-counts'));
-  assert.match(counts, /^今天（北京时间 \d{4}-\d{2}-\d{2}）已提交 1 次，其中占名额 1 次，本人与名下 Agent 账号合计。次数上限：平台曾返回上限 5 次。$/);
+  assert.match(counts, /^今天（北京时间 \d{4}-\d{2}-\d{2}）已提交 1 次，其中占名额 1 次，本人与名下 Agent 账号合计（可能不完整）。Agent 账号未公开的提交看不到，没有计入。次数上限：平台曾返回上限 5 次。$/);
   assert.doesNotMatch(counts, /9 次|剩余/);
 });
 
