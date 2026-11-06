@@ -209,6 +209,8 @@ window.__ModuleLoader__.load({
         largest ? `最大：${largest}` : '',
         summary.nonTextCount ? `非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? ' 等' : ''}` : '非文本文件（按扩展名）0 个',
         summary.symlinkCount ? `符号链接 ${summary.symlinkCount} 个` : '',
+        summary.layout && typeof summary.layout === 'object'
+          ? `外层结构：outputs/ ${summary.layout.hasOutputs ? '有文件' : '无文件'}，arm_manifest.json ${summary.layout.hasManifest ? '有' : '缺失'}` : '',
         summary.complete === false ? 'ZIP 目录未能读完' : ''].filter(Boolean).join('；');
     }
 

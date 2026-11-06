@@ -4302,6 +4302,19 @@ const SUMMARY_58 = { files: 19, totalBytes: 1003000, nonTextCount: 1, symlinkCou
   nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }] };
 const SUMMARY_LINE_58 = '评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）、structure.py（31 KB）；非文本文件（按扩展名）1 个：paper.pdf（800 KB）';
 
+test('#61 r1: the bundle summary line shows the outer-layout check', async (t) => {
+  const f = await localizedFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  const line = (layout) => {
+    const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details: [], message: '评测包未通过评测 Worker 的校验。', cleaned: true },
+      diagnosis: { stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400, details: [], attemptId: 42, attemptCreated: true, bundle: { ...SUMMARY_58, layout }, nextSteps: '……' } };
+    const card = f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'error', text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt: result }, ...result }) } } });
+    return JSON.parse(text(f.find(card, (node) => node.type === 'pre'))).评测包;
+  };
+  assert.equal(line({ hasOutputs: true, hasManifest: true }), `${SUMMARY_LINE_58}；外层结构：outputs/ 有文件，arm_manifest.json 有`);
+  assert.equal(line({ hasOutputs: false, hasManifest: false }), `${SUMMARY_LINE_58}；外层结构：outputs/ 无文件，arm_manifest.json 缺失`);
+});
+
 test('#58: the confirmation card shows the cleaned reasons, the failure stage and the bundle summary', async (t) => {
   const f = await localizedFixture(t);
   const Card = f.registrations.get('playground').Component;
