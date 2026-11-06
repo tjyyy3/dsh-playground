@@ -1337,8 +1337,12 @@ test('mounting, cleaning up and mounting again starts a fresh round and drops th
 const fakeResponse = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
 const platformFailure = (message, status = 503) => ({ failure: fakeResponse({ error: message }, status) });
 const attemptsPage = (items, nextCursor = null) => ({ items, next_cursor: nextCursor, limit: 50 });
-function attemptsClient(respond, requests, { token = 'test-token' } = {}) {
+// `agents` answers the Agent account list (#62), which the first history page also reads; those reads
+// and the public list are kept out of `requests`, which records the own-list reads.
+function attemptsClient(respond, requests, { token = 'test-token', agents = [], publicAttempts = [], agentRequests = [] } = {}) {
   return createPlaygroundClient({ baseUrl: 'https://example.test', token, fetchImpl: async (url, init) => {
+    if (url.pathname === '/api/agent/register') { agentRequests.push({ url, init }); return typeof agents === 'function' ? agents() : fakeResponse(agents); }
+    if (/^\/api\/challenges\/[^/]+\/attempts$/.test(url.pathname)) { agentRequests.push({ url, init }); return typeof publicAttempts === 'function' ? publicAttempts() : fakeResponse({ attempts: publicAttempts, total: publicAttempts.length }); }
     requests.push({ url, init });
     const body = await respond(url, init);
     return body?.failure ?? fakeResponse(body);
@@ -4582,4 +4586,68 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   // While the panel waits for the user.
   const waiting = f.render(Card, { phase: 'start', toolName: 'playground_submit', t: f.zh, block: {} });
   assert.match(text(waiting), /等待“允许一次”或正在提交…/);
+});
+
+// #62: the drawer's history lists the Agent accounts' submissions from the public list, labelled, with today's counts.
+test('#62: the task history labels own and Agent-account submissions and shows today\'s counts with the recorded limits', async (t) => {
+  const today = new Date().toISOString();
+  const agentRequests = [];
+  const state = historyTask({ submissionLimits: [{ challengeId: 'fixture', source: 'platform', limit: 5 }, { challengeId: 'other', source: 'platform', limit: 9 }] });
+  const f = await historyFixture(t, (url) => (url.pathname === '/api/me/attempts'
+    ? attemptsPage([{ id: 301, challenge_id: 'fixture', status: 'submitted', score: null, created_at: '2026-10-01T08:00:00Z' }])
+    : { id: 0 }), state, {
+    agentRequests,
+    agents: [{ agentUser: { id: 'codex_asc_agent', name: 'Codex ASC Agent', agentFramework: 'Codex', operatorConfirmed: true } }],
+    publicAttempts: [
+      { id: 302, authorId: 'codex_asc_agent', author_name: 'Codex ASC Agent', authorIsAgent: true, countsTowardQuota: true, status: 'scored', score: 61, scoring_state: 'final', created_at: today },
+      { id: 303, authorId: 'someone', countsTowardQuota: true, created_at: today },
+    ],
+  });
+  assert.deepEqual(agentRequests.map(({ url }) => url.pathname), ['/api/agent/register', '/api/challenges/fixture/attempts']);
+  const rows = historyRows(f.panel);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /提交 #302 .*Agent 账号 · Codex ASC Agent/);
+  assert.match(rows[1], /提交 #301 .*本人/);
+  assert.equal(rows.some((row) => row.includes('#303')), false);
+  assert.match(text(f.panel), /Agent 账号的提交来自这道题的公开提交列表，看不到未公开的提交/);
+  const counts = text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-submission-counts'));
+  assert.match(counts, /^今天（北京时间 \d{4}-\d{2}-\d{2}）已提交 1 次，其中占名额 1 次，本人与名下 Agent 账号合计（可能不完整）。Agent 账号未公开的提交看不到，没有计入。次数上限：平台曾返回上限 5 次。$/);
+  assert.doesNotMatch(counts, /9 次|剩余/);
+});
+
+test('#62: a failed Agent list leaves the own submissions and the history says only they are listed', async (t) => {
+  const f = await historyFixture(t, () => attemptsPage([{ id: 401, challenge_id: 'fixture', status: 'submitted', score: null, created_at: '2026-10-01T08:00:00Z' }]),
+    historyTask(), { agents: () => fakeResponse({ error: 'boom' }, 500) });
+  assert.deepEqual(historyRows(f.panel).map((row) => row.match(/#(\d+)/)[1]), ['401']);
+  assert.match(text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-history-partial')), /无法读取名下 Agent 账号列表，只列出本人的提交/);
+});
+
+test('#62: the material check card and the confirmation section show today\'s counts and the limit sources', async (t) => {
+  const f = await localizedFixture(t);
+  const counts = { date: '2026-11-06', total: 3, counted: 2, partial: false,
+    limits: [{ source: 'statement', limit: 3, period: 'day', excerpt: '每天最多提交 3 次' }, { source: 'platform', limit: 5 }] };
+  const expected = '今天（北京时间 2026-11-06）已提交 3 次，其中占名额 2 次，本人与名下 Agent 账号合计。次数上限：题面写明每天最多 3 次（原文：每天最多提交 3 次）；平台曾返回上限 5 次。';
+  const Card = f.registrations.get('playground_check_materials').Component;
+  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', submissionCounts: counts } } } });
+  assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
+  const plain = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
+    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', submissionCounts: { ...counts, limits: [], partial: true } } } } });
+  assert.equal(text(f.find(plain, (node) => node.props?.className === 'pg-note pg-submission-counts')),
+    '今天（北京时间 2026-11-06）已提交 3 次，其中占名额 2 次，本人与名下 Agent 账号合计（可能不完整）。未查到次数上限。');
+  const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
+    args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
+    cliPrecheck: { status: 'passed' }, submissionCounts: counts };
+  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
+  const Main = f.registrations.get('main').Component;
+  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
+  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
+  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
+  f.find(f.render(rowElement.type, rowElement.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
+  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
+  const workflow = f.render(selected.type, selected.props);
+  const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
+  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
 });
