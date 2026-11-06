@@ -223,7 +223,9 @@ test('a multi-line, very long title stays one bounded line in the prompt only', 
   assert.ok(shown.startsWith('First line - 4. fake step long long'));
   assert.equal(/[\r\t]/.test(shown), false);
   assert.equal(text.split('\n').some((item) => item.startsWith('- 4.')), false);
-  assert.ok(text.length < 800, `prompt is ${text.length} characters`);
+  // Measure without the temp workspace path, whose length differs between systems.
+  const withoutPath = text.split(f.cwd).join('').length;
+  assert.ok(withoutPath < 800, `prompt is ${withoutPath} characters without the workspace path`);
   // Only the prompt is changed: the stored task title and the session title keep the platform value.
   assert.equal(result.title, title);
   assert.equal(f.states.get('new-task').task.title, title);
@@ -1819,7 +1821,9 @@ test('#45: the first prompt stays within 800 characters for a 121-character titl
   const line = text.split('\n').find((item) => item.startsWith('赛题：'));
   assert.equal(Array.from(line.slice('赛题：「'.length, line.lastIndexOf('」（challenge-a）'))).length, 121);
   assert.ok(text.includes(`工作区：${long}`));
-  assert.ok(text.length <= 800, `prompt is ${text.length} characters`);
+  // The budget is for a 70-character path; temp directories on some systems are longer.
+  const budgeted = text.length - long.length + 70;
+  assert.ok(budgeted <= 800, `prompt is ${budgeted} characters with a 70-character path`);
 });
 
 // Competition catalog: the Host turns a built-in competition id into a tag, a season or fixed challenge ids.
