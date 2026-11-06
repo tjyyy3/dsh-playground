@@ -13,9 +13,9 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: '提交与评测', playground_list_competitions: '比赛与赛季',
           playground_get_competition: '比赛详情', playground_list_my_attempts: '我的提交',
           playground_start_task: '新建任务对话', playground_bind_task: '绑定当前对话', playground_check_materials: '提交前检查', playground_task: '任务状态',
-          playground_submit: '确认提交（审批）',
+          playground_submit: '提交到 Playground',
         },
-        preparing: '正在准备参数…', running: '正在查询…', uploading: '正在提交评测包…', approving: '等待“允许一次”或正在提交…', failed: '操作未完成', loaded: '查询完成',
+        preparing: '正在准备参数…', running: '正在查询…', uploading: '正在提交评测包…', approving: '正在提交…', failed: '操作未完成', loaded: '查询完成',
         deadline: '截止时间', challengeCount: '赛题数量', threshold: '完成门槛',
         unknown: '未知', id: '编号', submissionId: '提交编号', challenge: '赛题', bundle: '评测包',
         total: '总计', trace: '轨迹步数', empty: '暂无匹配结果', more: '仅展示前 5 条，可在对话中继续查询。',
@@ -40,9 +40,9 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: 'Submit for evaluation', playground_list_competitions: 'Competitions',
           playground_get_competition: 'Competition details', playground_list_my_attempts: 'My submissions',
           playground_start_task: 'New task conversation', playground_bind_task: 'Bind this conversation', playground_check_materials: 'Submission checks', playground_task: 'Task status',
-          playground_submit: 'Submit (approval)',
+          playground_submit: 'Submit to Playground',
         },
-        preparing: 'Preparing arguments…', running: 'Querying…', uploading: 'Submitting bundle…', approving: 'Awaiting approval or submitting…', failed: 'Operation incomplete', loaded: 'Query complete',
+        preparing: 'Preparing arguments…', running: 'Querying…', uploading: 'Submitting bundle…', approving: 'Submitting…', failed: 'Operation incomplete', loaded: 'Query complete',
         deadline: 'Deadline', challengeCount: 'Challenges', threshold: 'Completion threshold',
         unknown: 'Unknown', id: 'ID', submissionId: 'Submission ID', challenge: 'Challenge', bundle: 'Bundle',
         total: 'Total', trace: 'Trace steps', empty: 'No matching results', more: 'Showing the first 5 entries. Ask in chat for more.',
@@ -1549,7 +1549,7 @@ window.__ModuleLoader__.load({
       // A refused approval, a login refused, unreachable or failed before asking, or a card that did not reach
       // the CLI, leaves the confirmation card valid.
       const cardKept = approvedSubmit && failed && !data?.workflow
-        && ['approval_rejected', 'approval_cancelled', 'approval_unavailable', 'authentication_required', 'network_error', 'login_check_failed', 'cli_not_started'].includes(data?.error?.code);
+        && ['approval_rejected', 'approval_cancelled', 'approval_unavailable', 'authentication_required', 'network_error', 'login_check_failed', 'cli_not_started', 'ask_first'].includes(data?.error?.code);
       return h('section', { className: 'pg-card', 'aria-label': t(`tools.${toolName}`) },
         h('style', null, css),
         h('div', { className: 'pg-head' },
