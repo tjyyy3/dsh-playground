@@ -4682,7 +4682,7 @@ function quotaClient(f, { own, agents, publicItems, quota = {} }) {
     reads.publicParams = params;
     return { total: publicItems.length, items: publicItems };
   };
-  f.client.getAttempt = async (id, options = {}) => { reads.details.push(id); (reads.tokens ??= []).push(options.token); return { id, challengeId: 'challenge-a', countsTowardQuota: quota[id] }; };
+  f.client.getAttempt = async (id, options = {}) => { reads.details.push(id); (reads.tokens ??= []).push(options.token); return { id, challengeId: 'challenge-a', status: 'final', countsTowardQuota: quota[id] }; };
   return reads;
 }
 const nowIso = (offsetMs = 0) => new Date(Date.now() - offsetMs).toISOString();
