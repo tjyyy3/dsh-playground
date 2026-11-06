@@ -173,6 +173,19 @@ test('getChallenge returns content and resources', async () => {
   const detail = await client.getChallenge('demo-1');
   assert.match(detail.content, /Do the thing/);
   assert.equal(detail.resources[0].name, 'python');
+  assert.equal(detail.agentPrompt, undefined);
+  assert.equal(detail.hackathonSeasonId, undefined);
+});
+
+test('#67: getChallenge keeps a non-empty agentPrompt and an integer hackathonSeasonId', async () => {
+  const detail = (raw) => createPlaygroundClient({ baseUrl: 'https://example.test',
+    fetchImpl: async () => jsonResponse({ id: 'demo-1', title: 'Demo', content: '', ...raw }) }).getChallenge('demo-1');
+  const kept = await detail({ agentPrompt: 'Own prompt', hackathonSeasonId: 4 });
+  assert.equal(kept.agentPrompt, 'Own prompt');
+  assert.equal(kept.hackathonSeasonId, 4);
+  const dropped = await detail({ agentPrompt: '  ', hackathonSeasonId: '4' });
+  assert.equal(dropped.agentPrompt, undefined);
+  assert.equal(dropped.hackathonSeasonId, undefined);
 });
 
 test('competition endpoints normalize lifecycle data and discover challenge ids', async () => {

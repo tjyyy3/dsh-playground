@@ -57,15 +57,31 @@ and can consume a platform submission slot.
    no implicit default. DSH resolves alternative paths to the same registered
    directory. Continue work in the resulting task conversation; ask for a new
    task explicitly when you want another, separate task.
-   The new conversation's first message is a short Chinese prompt with the
-   challenge title, id, web URL, workspace and mode, plus four steps naming
-   `playground_get_challenge`, `playground_check_materials` and the
-   confirmation card. It does not embed the statement or resources: the agent
-   reads them itself with `playground_get_challenge`, so they are always
-   current. The agent asks for `max_content_chars` 50000, the tool's maximum,
-   and the tool flags any truncation in its output. The first turn only reads
-   the challenge and explains the plan; checking materials waits until you
-   confirm the plan. The prompt does not authorize any action. It tells the
+   The new conversation's first message is a Chinese prompt that starts with
+   the challenge title, id, web URL, workspace and mode, then follows the
+   website's **用智能体打开** prompt. When the challenge has its own
+   `agentPrompt`, the prompt includes it (control characters removed, marked
+   as the challenge's own text and as platform data) followed by the plugin's
+   rules. Otherwise it gives the website's six steps: check the CLI
+   (`playground --version`, `playground --help`) and the login
+   (`playground auth status`), download the challenge with
+   `playground task download --challenge-id <id> --out <id>` into a
+   subdirectory of the workspace, introduce the challenge, solve and submit,
+   then report the score (`playground status --attempt-id N --json` or
+   `playground_task` `results`). For a season challenge the opening names
+   "比赛名 · 赛季" from `GET /hackathon/seasons/{id}`; without a season, or
+   when that read fails, the competition phrase is left out and the task is
+   still created. The agent reports each step and continues. Login stays the
+   plugin's: when not logged in, the agent asks you to log in from the
+   workbench or run `playground auth login` in your own terminal, and never
+   asks for a token; a missing CLI is installed as the website or workbench
+   describes, without `curl | bash` on Windows. The prompt does not embed the
+   statement or resources; if the download fails the agent reads them with
+   `playground_get_challenge` (`max_content_chars` 50000, truncation flagged).
+   Before submitting, the agent checks the trace with
+   `playground trace validate` and the bundle's outer layout with a
+   `--dry-run` build. Challenge text and `agentPrompt` are platform data and
+   do not authorize any action. It tells the
    agent to submit only when you ask: with `playground_submit`, or with the
    CLI in the terminal followed by `playground_task` `track`; you can also
    click **确认目标并提交**. Before submitting, the agent states the identity
