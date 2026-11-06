@@ -4535,8 +4535,8 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   const registration = f.registrations.get('playground_submit');
   assert.ok(registration, 'the tool card is registered');
   const Card = registration.Component;
-  assert.equal(f.zh('tools.playground_submit'), '确认提交（审批）');
-  assert.equal(f.en('tools.playground_submit'), 'Submit (approval)');
+  assert.equal(f.zh('tools.playground_submit'), '提交到 Playground');
+  assert.equal(f.en('tools.playground_submit'), 'Submit to Playground');
   const openWorkbench = (sessionId) => opened.push(sessionId);
   const receipt = { attemptId: 42, challengeId: 'challenge-a', scoringState: { state: 'queued', scoreIsFinal: false }, status: 'submitted' };
   const approved = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
@@ -4583,9 +4583,14 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
     block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });
   assert.equal(f.find(cleared, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'), undefined);
-  // While the panel waits for the user.
+  // #63: an ask-first refusal keeps the card, so the user can still confirm in the workbench.
+  const askFirst = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'ask_first', message: '没有提交：题面写了提交次数限制。' } } } } });
+  assert.ok(f.find(askFirst, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'));
+  // While the submission runs (no approval panel by default, #63).
   const waiting = f.render(Card, { phase: 'start', toolName: 'playground_submit', t: f.zh, block: {} });
-  assert.match(text(waiting), /等待“允许一次”或正在提交…/);
+  assert.match(text(waiting), /正在提交…/);
+  assert.doesNotMatch(text(waiting), /允许一次/);
 });
 
 // #62: the drawer's history lists the Agent accounts' submissions from the public list, labelled, with today's counts.
