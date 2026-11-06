@@ -3084,7 +3084,7 @@ function zipOf(entries) {
   const parts = [];
   const central = [];
   let offset = 0;
-  for (const { name, data = Buffer.alloc(0), mode } of entries) {
+  for (const { name, data = Buffer.alloc(0), mode, attributes } of entries) {
     const nameBytes = Buffer.from(name, 'utf8');
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6);
@@ -3093,7 +3093,7 @@ function zipOf(entries) {
     const record = Buffer.alloc(46);
     record.writeUInt32LE(0x02014b50, 0); record.writeUInt16LE(mode === undefined ? 20 : (3 << 8) | 20, 4); record.writeUInt16LE(20, 6);
     record.writeUInt16LE(0x800, 8); record.writeUInt32LE(data.length, 20); record.writeUInt32LE(data.length, 24);
-    record.writeUInt16LE(nameBytes.length, 28); record.writeUInt32LE(mode === undefined ? 0 : (mode * 65536) >>> 0, 38); record.writeUInt32LE(offset, 42);
+    record.writeUInt16LE(nameBytes.length, 28); record.writeUInt32LE(attributes ?? (mode === undefined ? 0 : (mode * 65536) >>> 0), 38); record.writeUInt32LE(offset, 42);
     central.push(record, nameBytes);
     offset += 30 + nameBytes.length + data.length;
   }
@@ -4695,6 +4695,56 @@ test('#61: a bundle without files under outputs/ or without arm_manifest.json ge
   const retry = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: '42' }, f.exec);
   assert.equal(retry.ok, false);
   assert.equal(retry.error.code, 'bundle_layout');
+  // A retry also needs a rebuilt bundle, and the existing submission keeps its slot.
+  assert.match(retry.error.message, /向已有提交 #42 重传也要用重新打出的 zip；这条提交仍占着它的名额，重传不会新建提交。/);
+  assert.match(retry.error.message, /--outputs 必须是目录/);
+});
+
+test('#61 r1: the layout message says --outputs must be a directory and speaks of retries only for a retry', async () => {
+  const f = await fixture();
+  // `--outputs answer.md` makes the CLI copy the file to a file named `outputs`, not under `outputs/`.
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs', data: Buffer.from('a') }, { name: 'arm_manifest.json', data: Buffer.from('{}') }]));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.error.code, 'bundle_layout');
+  assert.match(checked.error.message, /--outputs 必须是目录：传单个文件时，包里只有一个名为 outputs 的文件，outputs\/ 下仍然没有文件。/);
+  assert.doesNotMatch(checked.error.message, /重传/);
+});
+
+test('#61 r1: bundleLayout normalizes names, skips directories by attribute and keeps nested zips as files', async () => {
+  const { bundleLayout } = await import('../lib/bundle.js');
+  const manifest = { name: 'arm_manifest.json', data: Buffer.from('{}') };
+  // Backslash separators and a leading ./ are normalized.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs\\answer.md', data: Buffer.from('a') }, { name: '.\\arm_manifest.json', data: Buffer.from('{}') }])), { hasOutputs: true, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: './outputs/answer.md', data: Buffer.from('a') }, { name: './arm_manifest.json', data: Buffer.from('{}') }])), { hasOutputs: true, hasManifest: true });
+  // Directory entries without a trailing slash: the DOS attribute 0x10 or a Unix directory mode.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/sub', attributes: 0x10 }, manifest])), { hasOutputs: false, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/sub', mode: 0o40755 }, manifest])), { hasOutputs: false, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'arm_manifest.json', attributes: 0x10 }, { name: 'outputs/a.md', data: Buffer.from('a') }])), { hasOutputs: true, hasManifest: false });
+  // A plain file with the archive attribute, or a Unix file mode, still counts.
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/a.md', attributes: 0x20, data: Buffer.from('a') }, manifest])), { hasOutputs: true, hasManifest: true });
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/run', mode: 0o100755, data: Buffer.from('a') }, manifest])), { hasOutputs: true, hasManifest: true });
+  // A ZIP under outputs/ is a file like any other.
+  const inner = zipOf([{ name: 'SKILL.md', data: Buffer.from('a') }]);
+  assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/submission.zip', data: inner }, manifest])), { hasOutputs: true, hasManifest: true });
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs/sub', attributes: 0x10 }, manifest]));
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.error.code, 'bundle_layout');
+  assert.match(checked.error.message, /outputs\/ 下没有任何文件/);
+});
+
+test('#61 r1: a central directory that cannot be read to the end is left to the CLI precheck', async () => {
+  const { bundleLayout } = await import('../lib/bundle.js');
+  // The end record claims one entry more than the directory holds.
+  const truncated = zipOf([{ name: 'SKILL.md', data: Buffer.from('a') }]);
+  truncated.writeUInt16LE(2, truncated.length - 22 + 8);
+  truncated.writeUInt16LE(2, truncated.length - 22 + 10);
+  assert.deepEqual(bundleLayout(truncated), { hasOutputs: false, hasManifest: false, complete: false });
+  const f = await fixture();
+  await writeFile(join(f.cwd, 'bundle.zip'), truncated);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.notEqual(checked.error?.code, 'bundle_layout');
+  if (checked.bundleSummary) assert.deepEqual(checked.bundleSummary.layout, { hasOutputs: false, hasManifest: false });
 });
 
 test('#61: a bundle with the CLI layout passes and its summary shows the layout check', async () => {
@@ -4719,4 +4769,7 @@ test('#61: the first prompt leaves the content to the challenge and allows --dry
   assert.match(text, /按题面交付要求准备内容/);
   assert.match(text, /再用 --dry-run 打包。/);
   assert.match(text, /不要在终端里运行 playground submit（--dry-run 除外）/);
+  // Every ban on `playground submit` in the prompt carries the --dry-run exception.
+  const bans = text.split(/(?<=[。；\n])/).filter((part) => /不要|禁止|never|not/i.test(part) && /playground submit/.test(part) && !/--dry-run/.test(part));
+  assert.deepEqual(bans, []);
 });

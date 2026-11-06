@@ -718,9 +718,24 @@ test('D10a: submission tool descriptions tell the agent to point at the button, 
     assert.match(description, /clicking "确认目标并提交"/, name);
     assert.match(description, /"前往工作台确认提交"/, name);
     assert.match(description, /Never ask the user to type a command/, name);
-    assert.match(description, /never run `playground submit` in the terminal/, name);
+    assert.match(description, /never run a real `playground submit` \(one without `--dry-run`\) in the terminal/, name);
     assert.doesNotMatch(description, forbiddenGuidance, name);
   }
+});
+
+// Sentences that forbid `playground submit` without the --dry-run exception (#61 r1).
+const unqualifiedSubmitBans = (text) => String(text).split(/(?<=[.;。；])\s+|(?<=[。；])/)
+  .filter((part) => /\b(never|not|don't|do not)\b|不要|禁止/i.test(part) && /playground submit/.test(part) && !/--dry-run/.test(part));
+
+test('#61 r1: no tool description or prompt context bans `playground submit` without the --dry-run exception', () => {
+  const { tools, contexts, exec } = mountWorkflowScope({
+    task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: { checkId: 'synthetic-check' }, receipt: null,
+  });
+  assert.ok(tools.length > 0);
+  for (const tool of tools) assert.deepEqual(unqualifiedSubmitBans(tool.description), [], tool.name);
+  for (const entry of contexts) assert.deepEqual(unqualifiedSubmitBans(entry.text({ agent: exec.agent })), [], entry.name);
+  // The helper itself catches the old wording.
+  assert.equal(unqualifiedSubmitBans('Never ask the user to type a command, and never run `playground submit` in the terminal.').length, 1);
 });
 
 test('#61: submission tool descriptions leave the content to the challenge and explain the outer layout', () => {
@@ -732,6 +747,7 @@ test('#61: submission tool descriptions leave the content to the challenge and e
     assert.match(description, /required files under `outputs\/`, with `arm_manifest\.json` and the trace/, name);
     assert.match(description, /`playground submit --challenge-id <id> --outputs <content dir> --trace <trace> --bundle-out <bundle\.zip> --dry-run`/, name);
     assert.match(description, /verifies only this outer layout/, name);
+    assert.match(description, /`--outputs` must be a directory/, name);
   }
 });
 test('D10a: the task context prompt tells the agent how confirmation works', () => {
@@ -744,7 +760,7 @@ test('D10a: the task context prompt tells the agent how confirmation works', () 
   assert.match(text, /clicking "确认目标并提交"/);
   assert.match(text, /"前往工作台确认提交"/);
   assert.match(text, /Never ask the user to type a command/);
-  assert.match(text, /never run `playground submit` in the terminal/);
+  assert.match(text, /never run a real `playground submit` \(one without `--dry-run`\) in the terminal/);
   assert.doesNotMatch(text, forbiddenGuidance);
   assert.equal(text.includes('synthetic-check'), false);
   assert.equal(context.text({}), '');

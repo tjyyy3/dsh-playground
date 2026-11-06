@@ -66,7 +66,8 @@ and can consume a platform submission slot.
    and the tool flags any truncation in its output. The first turn only reads
    the challenge and explains the plan; checking materials waits until you
    confirm the plan. The prompt does not authorize any action. It tells the
-   agent not to run `playground submit` in the terminal; real submission
+   agent not to run a real `playground submit` (one without `--dry-run`)
+   in the terminal; real submission
    happens only when you click **确认目标并提交**, or when you ask the agent
    to submit and choose **允许一次** in DSH's approval panel.
 3. Prepare the submission content as the challenge statement's delivery
@@ -155,7 +156,10 @@ statement. The bundle's outer layout is the same for every challenge:
 
 - `outputs/` holds the files the challenge asks for, at the paths it names;
 - `arm_manifest.json` sits at the bundle root;
-- the trace sits beside them (`traces/trace.jsonl`, `raw_messages.jsonl`).
+- the trace sits beside them (`traces/trace.jsonl`, `raw_messages.jsonl`,
+  and the original trace file under `native_trace/`);
+- `results/` holds a second copy of the `outputs/` files, which the platform
+  reads.
 
 Build the bundle with the Playground CLI, locally:
 
@@ -163,9 +167,11 @@ Build the bundle with the Playground CLI, locally:
 playground submit --challenge-id <challenge id> --outputs <content dir> --trace <trace file> --bundle-out <bundle.zip> --dry-run
 ```
 
+`--outputs` must be a directory: the CLI copies a single file to a file named
+`outputs`, so the bundle has no files under `outputs/` and is refused.
 With `--dry-run` the CLI only packages: it creates and uploads nothing. It
 copies the `--outputs` files to `outputs/` (and again to `results/`), and
-writes `arm_manifest.json`, `traces/` and placeholder files. The start
+writes `arm_manifest.json`, `traces/`, `native_trace/` and placeholder files. The start
 prompt and the `playground_check_materials` / `playground_submit_attempt`
 descriptions allow this `--dry-run` use; a real `playground submit` in the
 terminal is still not allowed.
@@ -175,7 +181,11 @@ central directory and checks only this outer layout: at least one file under
 `outputs/` and a root `arm_manifest.json`. It does not inspect the content.
 A bundle missing either gets no confirmation card; the message names what is
 missing, says that the Worker refuses a bundle with no files under
-`outputs/`, and gives the command above with the challenge id filled in. A
+`outputs/`, and gives the command above with the challenge id filled in.
+This applies to a retry into an existing submission as well: a bundle built
+the old way, without this layout, has to be rebuilt with the command above
+before it can be re-uploaded. The refusal creates nothing, and the existing
+submission keeps its slot; the message says so for a retry. A
 directory that cannot be read to the end is left to the CLI precheck. The
 result appears in `bundleSummary.layout` and in the bundle summary line
 (`外层结构：outputs/ 有文件，arm_manifest.json 有`).
