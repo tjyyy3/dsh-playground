@@ -857,9 +857,10 @@ function clearOf(result) {
 async function failedConfirm(failure, setup) {
   const calls = [];
   const f = await fixture({ submit: async (input) => { calls.push(input); if (calls.length === 1) throw failure; return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }; } });
-  setup?.(f);
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
+  // After the check, which also reads the submission list to count today's submissions (#62).
+  setup?.(f);
   const checkId = checked.workflow.prepared.checkId;
   const result = await f.workflow.confirm(checkId, f.exec);
   return { f, calls, checkId, result };
@@ -1158,9 +1159,9 @@ test('D3: errors raised before the CLI started keep the same card valid and say 
     const calls = [];
     let queried = false;
     const f = await fixture({ submit: async (input) => { calls.push(input); throw error; } });
-    f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
+    f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
     const checkId = checked.workflow.prepared.checkId;
     const result = await f.workflow.confirm(checkId, f.exec);
     assert.equal(result.ok, false, error.code);
@@ -1236,9 +1237,9 @@ test('D3: an abort before the lookup skips it and leaves the outcome unknown', a
   const controller = new AbortController();
   let queried = false;
   const f = await fixture({ submit: async () => { controller.abort(); throw cliError('', 'cli_terminated'); } });
-  f.client.listMyAttempts = async () => { queried = true; return { items: [{ id: 50, challengeId: 'challenge-a', createdAt: new Date().toISOString() }], nextCursor: null }; };
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
+  f.client.listMyAttempts = async () => { queried = true; return { items: [{ id: 50, challengeId: 'challenge-a', createdAt: new Date().toISOString() }], nextCursor: null }; };
   f.exec.signal = controller.signal;
   const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
   assert.equal(queried, false);
@@ -1392,7 +1393,11 @@ test('the submission-history read lists the account attempts for one challenge a
   f.ctx.sessionProjections.stateOf = () => assert.fail('history read must not depend on a conversation');
   f.client.listMyAttempts = async (params, options) => { calls.push([params, options]); return { items: [{ id: 3 }], nextCursor: 'next', limit: 50 }; };
   const signal = new AbortController().signal;
-  assert.deepEqual(await f.workflow.myAttempts({ challengeId: 'challenge-a', limit: 50 }, { signal }), { ok: true, items: [{ id: 3 }], nextCursor: 'next', limit: 50 });
+  // The fixture client lists no Agent accounts (#62), so the result says only the own submissions are listed.
+  const listed = await f.workflow.myAttempts({ challengeId: 'challenge-a', limit: 50 }, { signal });
+  assert.deepEqual({ ok: listed.ok, items: listed.items, nextCursor: listed.nextCursor, limit: listed.limit },
+    { ok: true, items: [{ id: 3, identity: 'self' }], nextCursor: 'next', limit: 50 });
+  assert.deepEqual(listed.partial.reasons, ['agents_unavailable']);
   assert.deepEqual(calls, [[{ challengeId: 'challenge-a', limit: 50, cursor: undefined }, { signal }]]);
   f.client.listMyAttempts = async () => { throw Object.assign(new Error('A Playground token is required'), { code: 'authentication_required' }); };
   const signedOut = await f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal });
@@ -4663,4 +4668,199 @@ test('#57: playground_submit without a conversation agent fails cleanly and asks
     assert.match(result.error.message, /只能在 DSH 任务对话中调用，没有提交/);
     assert.equal(approval.asked.length, 0);
   }
+});
+
+// #62: today's submissions with the account's Agent accounts, their history rows, and the limit sources.
+import { beijingDate, countSubmissions, detectStatementLimit, platformLimitOf, submissionCountsText } from '../lib/workflow.js';
+
+// A client whose own list, Agent list and public list are the given ones; detail reads answer countsTowardQuota.
+function quotaClient(f, { own, agents, publicItems, quota = {} }) {
+  const reads = { details: [] };
+  f.client.listMyAttempts = async () => ({ items: own, nextCursor: null, limit: 50 });
+  f.client.listMyAgents = typeof agents === 'function' ? agents : async () => ({ items: agents });
+  f.client.listAttempts = typeof publicItems === 'function' ? publicItems : async (id, params) => {
+    reads.publicParams = params;
+    return { total: publicItems.length, items: publicItems };
+  };
+  f.client.getAttempt = async (id) => { reads.details.push(id); return { id, challengeId: 'challenge-a', countsTowardQuota: quota[id] }; };
+  return reads;
+}
+const nowIso = () => new Date().toISOString();
+const AGENTS = [{ id: 'opencode-glm', name: 'opencode-glm', framework: 'opencode', confirmed: true },
+  { id: 'codex_asc_agent', name: 'Codex ASC Agent', framework: 'Codex', confirmed: true },
+  { id: 'unconfirmed-agent', name: 'Unconfirmed', confirmed: false }];
+
+test('#62: the submission history merges the own and the confirmed Agent accounts\' submissions, labelled by identity', async () => {
+  const f = await fixture();
+  const reads = quotaClient(f, {
+    own: [{ id: 10, createdAt: nowIso(), status: 'scored' }],
+    agents: AGENTS,
+    publicItems: [
+      { id: 11, authorId: 'opencode-glm', authorName: 'opencode-glm', createdAt: nowIso(), countsTowardQuota: true, authorIsAgent: true },
+      { id: 12, authorId: 'codex_asc_agent', createdAt: nowIso(), countsTowardQuota: false, authorIsAgent: true },
+      { id: 13, authorId: 'someone-else', createdAt: nowIso(), countsTowardQuota: true },
+      { id: 14, authorId: 'unconfirmed-agent', createdAt: nowIso(), countsTowardQuota: true },
+      // The own submission also appears in the public list; it stays one row.
+      { id: 10, authorId: '5', createdAt: nowIso(), countsTowardQuota: true },
+    ],
+    quota: { 10: true },
+  });
+  const result = await f.workflow.myAttempts({ challengeId: 'challenge-a', limit: 50 }, { signal: new AbortController().signal });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.items.map((item) => [item.id, item.identity, item.agentName]),
+    [[10, 'self', undefined], [11, 'agent', 'opencode-glm'], [12, 'agent', 'Codex ASC Agent']]);
+  assert.equal(reads.publicParams.sort, 'newest');
+  assert.match(result.agentSource, /公开提交列表/);
+  assert.equal(result.partial, undefined);
+  // The own list has no countsTowardQuota; only today's own entry is read in detail.
+  assert.deepEqual(reads.details, [10]);
+  assert.equal(result.submissionCounts.total, 3);
+  assert.equal(result.submissionCounts.counted, 2);
+  assert.equal(result.submissionCounts.selfTotal, 1);
+  assert.equal(result.submissionCounts.agentTotal, 2);
+  assert.equal(result.submissionCounts.partial, false);
+  assert.equal(result.submissionCounts.date, beijingDate(new Date()));
+  // A later page continues the own list only.
+  const next = await f.workflow.myAttempts({ challengeId: 'challenge-a', cursor: 'next' }, { signal: new AbortController().signal });
+  assert.deepEqual(next.items.map((item) => item.identity), ['self']);
+  assert.equal(next.submissionCounts, undefined);
+});
+
+test('#62: a failed Agent list or public list leaves only the own submissions and says why', async () => {
+  for (const [label, setup, reason] of [
+    ['agents', { agents: async () => { throw new Error('HTTP 500'); }, publicItems: [] }, 'agents_unavailable'],
+    ['public', { agents: AGENTS, publicItems: async () => { throw new Error('HTTP 502'); } }, 'public_list_unavailable'],
+  ]) {
+    const f = await fixture();
+    quotaClient(f, { own: [{ id: 20, createdAt: nowIso() }], quota: { 20: true }, ...setup });
+    const result = await f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal: new AbortController().signal });
+    assert.equal(result.ok, true, label);
+    assert.deepEqual(result.items.map((item) => [item.id, item.identity]), [[20, 'self']], label);
+    assert.deepEqual(result.partial.reasons, [reason], label);
+    assert.match(result.partial.note, /只列出本人的提交/, label);
+    assert.equal(result.submissionCounts.partial, true, label);
+    assert.deepEqual(result.submissionCounts.partialReasons, [reason], label);
+    assert.equal(result.submissionCounts.total, 1, label);
+  }
+});
+
+test('#62: today is the Beijing calendar day, and only countsTowardQuota true counts toward the quota', () => {
+  // 16:30 UTC is 00:30 the next day in Beijing.
+  const now = new Date('2026-11-06T16:30:00Z');
+  const items = [
+    { id: 1, createdAt: '2026-11-06T16:10:00Z', countsTowardQuota: true },
+    { id: 2, createdAt: '2026-11-06T17:00:00+00:00', countsTowardQuota: false, identity: 'agent' },
+    { id: 3, createdAt: '2026-11-06T15:50:00Z', countsTowardQuota: true },
+    { id: 4, createdAt: '2026-11-06T08:00:00Z', countsTowardQuota: true },
+    { id: 5, createdAt: 'not a time', countsTowardQuota: true },
+  ];
+  const counts = countSubmissions(items, { now });
+  assert.equal(counts.date, '2026-11-07');
+  assert.equal(counts.timezone, 'Asia/Shanghai');
+  assert.equal(counts.total, 2);
+  assert.equal(counts.counted, 1);
+  assert.equal(counts.agentTotal, 1);
+  assert.equal(counts.partial, false);
+  assert.equal(beijingDate('2026-11-06T15:59:59Z'), '2026-11-06');
+  assert.equal(beijingDate('2026-11-06T16:00:00Z'), '2026-11-07');
+  // An entry whose quota flag stays unknown makes the counts partial; nothing derives a remaining count.
+  const unknown = countSubmissions([{ id: 6, createdAt: '2026-11-06T16:20:00Z' }], { now });
+  assert.deepEqual([unknown.total, unknown.counted, unknown.partial, unknown.partialReasons], [1, 0, true, ['quota_unknown']]);
+  assert.equal(JSON.stringify(counts).includes('remaining'), false);
+});
+
+test('#62: detail reads for the quota flag are capped and the counts say so beyond the cap', async () => {
+  const f = await fixture();
+  const own = Array.from({ length: 25 }, (_, index) => ({ id: 100 + index, createdAt: nowIso() }));
+  const reads = quotaClient(f, { own, agents: [], publicItems: [], quota: Object.fromEntries(own.map((item) => [item.id, true])) });
+  const result = await f.workflow.myAttempts({ challengeId: 'challenge-a' }, { signal: new AbortController().signal });
+  assert.equal(reads.details.length, 20);
+  assert.equal(result.submissionCounts.total, 25);
+  assert.equal(result.submissionCounts.counted, 20);
+  assert.equal(result.submissionCounts.partial, true);
+  assert.ok(result.submissionCounts.partialReasons.includes('quota_detail_capped'));
+});
+
+test('#62: clear statement phrases give a limit with its source and a short excerpt; other numbers do not', () => {
+  for (const [text, limit, period] of [
+    ['## 规则\n每天最多提交 3 次，超过后平台拒绝。', 3, 'day'],
+    ['每日最多 5 次评测。', 5, 'day'],
+    ['每人限 10 次。', 10, 'total'],
+    ['每人每天最多 2 次', 2, 'day'],
+    ['You may make at most 4 submissions per day.', 4, 'day'],
+    ['Each team is limited to 6 submissions per team.', 6, 'total'],
+    ['At most 8 submissions.', 8, 'unspecified'],
+  ]) {
+    const found = detectStatementLimit(text);
+    assert.equal(found?.limit, limit, text);
+    assert.equal(found.period, period, text);
+    assert.equal(found.source, 'statement', text);
+    assert.ok(Array.from(found.excerpt).length <= 80, text);
+    assert.doesNotMatch(found.excerpt, /[#\n]/, text);
+  }
+  for (const text of ['最多 3 个文件', '每天更新一次数据', '提交 3 次以上的方案会被比较', 'Submit at most 3 files.', 'Run up to 5 epochs.', '', undefined]) {
+    assert.equal(detectStatementLimit(text), undefined, String(text));
+  }
+  assert.ok(Array.from(detectStatementLimit(`${'说明'.repeat(100)}每天最多 3 次${'后文'.repeat(100)}`).excerpt).length <= 80);
+  assert.equal(platformLimitOf(['Submission limit reached: at most 5 submissions']), 5);
+  assert.equal(platformLimitOf(['Submission limit reached']), undefined);
+});
+
+test('#62: a 429 submission limit is recorded with its source and shown on the next card and approval reason', async () => {
+  const sample = `Submission limit reached: at most 5 submissions per participant${CLI_TAIL}`;
+  const { f, result } = await failedConfirm(cliError(sample));
+  assert.equal(result.error.reason, 'submission_limit');
+  assert.equal(result.diagnosis.platformLimit, 5);
+  f.record(result);
+  const [limit] = f.states.get('source').submissionLimits;
+  assert.deepEqual({ ...limit, at: undefined }, { challengeId: 'challenge-a', source: 'platform', limit: 5, at: undefined });
+  assert.equal(typeof limit.at, 'string');
+  // The next check shows today's counts with the platform limit, and no remaining count.
+  quotaClient(f, { own: [{ id: 30, createdAt: nowIso() }], agents: AGENTS,
+    publicItems: [{ id: 31, authorId: 'opencode-glm', createdAt: nowIso(), countsTowardQuota: true }], quota: { 30: false } });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const counts = checked.workflow.prepared.submissionCounts;
+  assert.deepEqual([counts.total, counts.counted], [2, 1]);
+  assert.deepEqual(counts.limits.map((item) => [item.source, item.limit]), [['platform', 5]]);
+  assert.deepEqual(checked.submissionCounts, counts);
+  assert.match(checked.note, /今天（北京时间 \d{4}-\d{2}-\d{2}）已提交 2 次，其中占名额 1 次.*平台曾返回上限 5 次/);
+  assert.doesNotMatch(checked.note, /剩余/);
+  f.record(checked);
+  const approval = fakeApproval('rejected');
+  const exec = { ...f.exec, name: 'playground_submit', callId: 'call-62' };
+  await f.workflow.submitApproved({ approval_id: checked.approvalId }, exec, { approval });
+  const zh = approval.asked[0].reason.split(' ｜\n');
+  assert.ok(zh.some((line) => /^今天（北京时间 .*）已提交 2 次，其中占名额 1 次（本人与名下 Agent 账号合计）；次数上限：平台曾返回上限 5 次$/.test(line)), zh.join('\n'));
+  assert.ok(approval.asked[0].displayReason.en.split(' ｜\n').some((line) => /^Today \(Beijing time, .*\): 2 submitted, 1 counted toward the quota .*platform reply: limit 5$/.test(line)));
+  // The plugin-facts line comes before the platform text.
+  assert.ok(zh.findIndex((line) => line.startsWith('今天')) < zh.findIndex((line) => line.startsWith('赛题：')));
+});
+
+test('#62: a statement limit is recorded at the check; without any limit the card shows only the counts', async () => {
+  const f = await fixture();
+  f.client.getChallenge = async (id) => ({ id, title: 'Synthetic challenge', content: '提交规则：每天最多提交 3 次。', resources: [] });
+  quotaClient(f, { own: [], agents: [], publicItems: [] });
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.deepEqual(checked.submissionCounts.limits.map((item) => [item.source, item.limit, item.period]), [['statement', 3, 'day']]);
+  f.record(checked);
+  assert.deepEqual(f.states.get('source').submissionLimits.map((item) => [item.challengeId, item.source, item.limit]), [['challenge-a', 'statement', 3]]);
+  assert.match(submissionCountsText(checked.submissionCounts)[0], /题面写明每天最多 3 次/);
+  const plain = await fixture();
+  quotaClient(plain, { own: [], agents: [], publicItems: [] });
+  const none = await plain.workflow.prepare({ challenge_id: 'challenge-a' }, plain.exec);
+  assert.deepEqual([none.submissionCounts.total, none.submissionCounts.limits], [0, []]);
+  assert.match(none.note, /已提交 0 次，其中占名额 0 次.*未查到次数上限/);
+});
+
+test('#62: results carry today\'s counts with the recorded limits and the projection keeps them', async () => {
+  const f = await fixture();
+  f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 40, challengeId: 'challenge-a' }, attemptIds: [40],
+    submissionLimits: [{ challengeId: 'challenge-a', source: 'platform', limit: 5, at: '2026-11-06T00:00:00.000Z' }] });
+  quotaClient(f, { own: [{ id: 40, createdAt: nowIso() }], agents: [], publicItems: [], quota: { 40: true } });
+  const result = await f.workflow.results({}, f.exec);
+  assert.equal(result.ok, true);
+  assert.deepEqual([result.submissionCounts.total, result.submissionCounts.counted], [1, 1]);
+  assert.deepEqual(result.submissionCounts.limits, [{ source: 'platform', limit: 5, at: '2026-11-06T00:00:00.000Z' }]);
+  f.record(result);
+  assert.equal(f.states.get('source').submissionCounts.total, 1);
 });

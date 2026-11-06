@@ -179,6 +179,24 @@ window.__ModuleLoader__.load({
       return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
     }
 
+    // The limits the task state records for one challenge (lib/workflow.js submissionLimits), or undefined.
+    function submissionLimitsOf(state, challengeId) {
+      if (!Array.isArray(state?.submissionLimits) || challengeId === undefined || challengeId === null) return undefined;
+      return state.submissionLimits.filter((item) => item?.challengeId === String(challengeId));
+    }
+
+    // Today's submission counts (lib/workflow.js countSubmissions) and the known limits, each with its source.
+    // `limits` overrides the counts' own list (the task state holds the latest). No remaining count is shown.
+    function submissionCountsLine(counts, limits) {
+      if (!counts || typeof counts !== 'object' || !Number.isInteger(counts.total)) return undefined;
+      const period = { day: '每天', total: '每人' };
+      const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : [])
+        .filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === 'platform')
+        .map((item) => item.source === 'statement' ? `题面写明${period[item.period] || ''}最多 ${item.limit} 次${typeof item.excerpt === 'string' ? `（原文：${item.excerpt}）` : ''}`
+          : Number.isSafeInteger(item.limit) ? `平台曾返回上限 ${item.limit} 次` : '平台曾返回已达提交上限');
+      return `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? '（可能不完整）' : ''}。${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
+    }
+
     // One compact line about the checked bundle (lib/bundle.js summarizeZip), or undefined without a summary.
     function bundleSummaryLine(summary) {
       if (!summary || typeof summary !== 'object' || !Number.isFinite(summary.files)) return undefined;
@@ -422,6 +440,7 @@ window.__ModuleLoader__.load({
           h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
           bundleSummaryLine(prepared.bundleSummary) ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(prepared.bundleSummary)) : null,
           typeof prepared.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', prepared.bundleWarning) : null,
+          submissionCountsLine(prepared.submissionCounts) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(prepared.submissionCounts)) : null,
           h('p', { className: 'pg-note' }, `${prepared.cliPrecheck?.status === 'passed' ? '本地文件检查和 Playground CLI 预检均已通过；'
             : prepared.cliPrecheck?.note ? `本地文件检查通过；${prepared.cliPrecheck.note}` : '本地文件检查通过；'}最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。`),
           prepared.cliUpdate?.warning ? h('p', { className: 'pg-note', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', prepared.cliUpdate.warning) : null,
@@ -1130,8 +1149,10 @@ window.__ModuleLoader__.load({
     // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
     // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
     // `closedIds` are the task's submissions its receipts or the store show closed as "bundle missing".
-    function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], attempts, query, t }) {
+    function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
       const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
+      // The first page's counts and partial reason (lib/workflow.js myAttempts).
+      const [overview, setOverview] = React.useState({ counts: undefined, partial: '' });
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
       const [signedOut, setSignedOut] = React.useState(false);
@@ -1172,6 +1193,7 @@ window.__ModuleLoader__.load({
           const nextCursor = typeof result?.nextCursor === 'string' && result.nextCursor ? result.nextCursor : null;
           setSignedOut(false); setError('');
           setHistory({ items, nextCursor, loaded: true });
+          if (!cursor) setOverview({ counts: result?.submissionCounts, partial: typeof result?.partial?.note === 'string' ? result.partial.note : '' });
           setStatus(items.length ? `已加载 ${items.length} 条提交` : '这道题还没有提交记录。');
           // The last page removes "加载更多"; move focus to the list instead of letting it fall back to the page.
           if (cursor && !nextCursor) latest.list?.focus?.();
@@ -1196,7 +1218,9 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'pg-guide pg-history', 'aria-label': '提交历史', 'aria-busy': busy },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '提交历史'),
-        h('p', { className: 'pg-note' }, '当前账号在这道题上的全部提交，从新到旧排列；包括在终端或其他工具中完成的提交。'),
+        h('p', { className: 'pg-note' }, '当前账号和名下 Agent 账号在这道题上的提交，从新到旧排列；包括在终端或其他工具中完成的提交。Agent 账号的提交来自这道题的公开提交列表，看不到未公开的提交。'),
+        submissionCountsLine(overview.counts, limits) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(overview.counts, limits)) : null,
+        overview.partial ? h('p', { className: 'pg-note pg-history-partial', role: 'status' }, overview.partial) : null,
         signedOut ? h('p', { className: 'pg-note' }, '登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。') : null,
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
         error && !items.length ? h('div', { className: 'pg-actions' },
@@ -1218,7 +1242,8 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pg-row-sub' }, created, ' · ', progress.stageText, ' · ', progress.scoreText)),
             h('div', { className: 'pg-history-side' },
               h('span', { className: 'pg-badge', 'data-tone': progress.badgeTone }, progress.badgeText),
-              h('span', { className: 'pg-badge', 'data-tone': own ? 'success' : 'neutral' }, own ? '本对话' : '未关联到对话')));
+              h('span', { className: 'pg-badge', 'data-tone': own ? 'success' : 'neutral' }, own ? '本对话' : '未关联到对话'),
+              h('span', { className: 'pg-badge pg-identity', 'data-tone': 'neutral' }, item.identity === 'agent' ? 'Agent 账号 · ' + (item.agentName || item.authorName || '未命名') : '本人')));
         })) : null,
         history.nextCursor && !signedOut ? h('div', { className: 'pg-actions' },
           h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load(history.nextCursor) }, busy ? '正在读取…' : '加载更多')) : null);
@@ -1302,7 +1327,7 @@ window.__ModuleLoader__.load({
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, attempts: props.attempts, query, t: props.t }) : null));
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
@@ -1564,6 +1589,7 @@ window.__ModuleLoader__.load({
           bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)
             ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)) : null,
           typeof data.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', data.bundleWarning) : null,
+          submissionCountsLine(data.submissionCounts) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(data.submissionCounts)) : null,
           isAttempt && (data.attemptId ?? data.id) ? h('p', { className: 'pg-note' }, `${t('nextAttempt')} ${data.attemptId ?? data.id}`) : null) : null,
         phase === 'result' && text ? h('details', { className: 'pg-raw', open: !data }, h('summary', null, t('raw')), h('pre', null, text)) : null,
         phase === 'result' ? h('footer', null, t('snapshot')) : h('p', { className: 'pg-note', role: 'status' }, t('snapshot')));

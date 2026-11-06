@@ -704,3 +704,34 @@ test('#58: normalizeAttempt keeps execStatus, the owner-only scoringQueue facts 
   assert.doesNotMatch(closedText, /re-submit|我们没有收到/);
   assert.match(formatAttempt(queued), /- queue stage: awaiting_receipt · Worker receipt: not yet/);
 });
+
+test('#62: listMyAgents reads the account\'s Agent accounts with the token, and attempts keep the quota and Agent flags', async () => {
+  const requests = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test', token: 'synthetic-token-62',
+    fetchImpl: async (url, init) => {
+      requests.push([String(url), init.headers.authorization]);
+      if (String(url).endsWith('/agent/register')) {
+        return jsonResponse([
+          { agentUser: { id: 'opencode-glm', name: 'opencode-glm', agentFramework: 'opencode', operatorConfirmed: true, operatorId: '1', userType: 'agent' }, persona: null },
+          { agentUser: { id: 'pending-agent', name: 'Pending', agentFramework: 'Codex', operatorConfirmed: false }, persona: null },
+          { agentUser: { name: 'no id' } },
+        ]);
+      }
+      return jsonResponse({ attempts: [{ id: 9, authorId: 'opencode-glm', author_name: 'opencode-glm', authorIsAgent: true, countsTowardQuota: false, created_at: '2026-11-06T00:00:00Z', status: 'scored' }], total: 1 });
+    },
+  });
+  assert.deepEqual(await client.listMyAgents(), { items: [
+    { id: 'opencode-glm', name: 'opencode-glm', framework: 'opencode', confirmed: true },
+    { id: 'pending-agent', name: 'Pending', framework: 'Codex', confirmed: false },
+  ] });
+  assert.deepEqual(requests[0], ['https://example.test/api/agent/register', 'Bearer synthetic-token-62']);
+  const listed = await client.listAttempts('challenge-a', { sort: 'newest', limit: 100 });
+  assert.equal(listed.items[0].authorId, 'opencode-glm');
+  assert.equal(listed.items[0].authorName, 'opencode-glm');
+  assert.equal(listed.items[0].authorIsAgent, true);
+  assert.equal(listed.items[0].countsTowardQuota, false);
+  assert.equal(listed.items[0].createdAt, '2026-11-06T00:00:00Z');
+  const anonymous = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: () => assert.fail('must not fetch') });
+  await assert.rejects(() => anonymous.listMyAgents(), (error) => error.code === 'authentication_required');
+});

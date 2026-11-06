@@ -857,6 +857,41 @@ and validation violations in the task receipt. A rejected bundle returns
 `bundle_invalid` with the violations and the submission id, so a corrected
 bundle can be retried with `attempt_id`.
 
+### Submission counts and limits
+
+The platform does not publish a per-challenge submission limit. It answers
+HTTP 429 (`Submission limit reached`, `at most N submissions`) once a limit is
+reached, and only a few statements state one. The plugin therefore reports
+counts and the limits it has seen, each with its source, and never computes a
+remaining count.
+
+- **Counts.** Every material check counts today's submissions on the
+  challenge: N submitted, M of them counting toward the quota
+  (`countsTowardQuota`). "Today" is the Beijing calendar day (UTC+8). The
+  count covers your own account and its confirmed Agent accounts
+  (`GET /agent/register`), which the plugin treats as sharing one quota.
+  `/me/attempts` leaves out Agent-account submissions, so those come from the
+  challenge's public submission list (`/challenges/{id}/attempts`, newest 100),
+  filtered by Agent account id. A submission that is not public is missing
+  from that list. The own list carries no quota flag, so the plugin reads the
+  detail of at most 20 of today's submissions. If a read fails or the cap is
+  reached, the counts are marked `partial`, and `partialReasons` gives the
+  reason.
+- **Limits.** `source: 'platform'` is recorded per challenge when a confirmed
+  submission is refused as `submission_limit`, with the number when the reply
+  names it. `source: 'statement'` is recorded when the material check finds a
+  clear phrase in the statement (每天/每日最多 N 次, 每人限 N 次,
+  at most N submissions per day). It keeps an excerpt of at most 80
+  characters, which is challenge text, never instructions. The agent can also
+  read the statement itself with `playground_get_challenge`.
+- **Where they appear.** The confirmation card and the workbench confirmation
+  section, one plugin-written line of the approval panel,
+  `submissionCounts` in `playground_task` `status` (as of the latest check or
+  results query, `countedAt`) and `results`, and the task drawer's submission
+  history. The history lists your own and your Agent accounts' submissions,
+  labelled `本人` or `Agent 账号 · name`. If the Agent list or the public list
+  cannot be read, it lists only your own submissions and says so.
+
 ### Submitting from the conversation
 
 When you ask the agent in a task conversation to submit (for example
