@@ -13,6 +13,7 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: '提交与评测', playground_list_competitions: '比赛与赛季',
           playground_get_competition: '比赛详情', playground_list_my_attempts: '我的提交',
           playground_start_task: '新建任务对话', playground_bind_task: '绑定当前对话', playground_check_materials: '提交前检查', playground_task: '任务状态',
+          playground_open_controller: '打开工作区主控',
           playground_submit: '提交到 Playground',
         },
         preparing: '正在准备参数…', running: '正在查询…', uploading: '正在提交评测包…', approving: '正在提交…', failed: '操作未完成', loaded: '查询完成',
@@ -40,6 +41,7 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: 'Submit for evaluation', playground_list_competitions: 'Competitions',
           playground_get_competition: 'Competition details', playground_list_my_attempts: 'My submissions',
           playground_start_task: 'New task conversation', playground_bind_task: 'Bind this conversation', playground_check_materials: 'Submission checks', playground_task: 'Task status',
+          playground_open_controller: 'Open workspace controller',
           playground_submit: 'Submit to Playground',
         },
         preparing: 'Preparing arguments…', running: 'Querying…', uploading: 'Submitting bundle…', approving: 'Submitting…', failed: 'Operation incomplete', loaded: 'Query complete',
@@ -1482,6 +1484,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'pg-workbench-inner' },
           h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
+            h('button', { className: 'pg-button', onClick: () => requestTask({ kind: 'controller' }) }, '打开工作区主控'),
             h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
           h(AuthStatusPanel, { query, login, saveToken, clearToken }),
@@ -1533,7 +1536,7 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M8 3h8M10 3v6l-6 10a1.3 1.3 0 0 0 1.1 2h13.8a1.3 1.3 0 0 0 1.1-2L14 9V3M7 15h10' }));
     }
 
-    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openWorkbench }) {
+    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench }) {
       const data = phase === 'result' ? block.meta?.playground : undefined;
       const text = phase === 'result' ? (block.content ?? []).filter((item) => item.type === 'text').map((item) => item.text).join('\n') : '';
       // playground_submit returns a confirmation's receipt, shown like the 确认提交 command card.
@@ -1561,7 +1564,9 @@ window.__ModuleLoader__.load({
         cardKept && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         phase === 'result' && data?.ok && requestTask && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
           ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
-        data?.sessionId && openTask ? h('button', { className: 'pg-button', onClick: () => openTask(data.sessionId) }, '打开任务对话') : null,
+        data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
+          ? h('button', { className: 'pg-button', onClick: () => (toolName === 'playground_open_controller' ? openControllerChat : openTask)(data.sessionId) },
+            toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
         data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         data ? h(React.Fragment, null,
           h('div', { className: 'pg-facts' },
@@ -1604,24 +1609,60 @@ window.__ModuleLoader__.load({
 
     function TaskStartOverlay(props) {
       const request = props.useTaskRequest((value) => value);
-      return request ? h(TaskStartDialog, { key: `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
+      return request ? h(TaskStartDialog, { key: request.kind === 'controller' ? 'controller' : `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
     }
 
-    function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask }) {
+    function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
       const workspaces = useWorkspaces((value) => value);
       const [selectedId, setSelectedId] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [adding, setAdding] = React.useState(false);
       const [error, setError] = React.useState('');
+      const [inspection, setInspection] = React.useState(null);
+      const controller = request.kind === 'controller';
       const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
-      const actionLabel = request.mode === 'author' ? '创建出题任务' : '创建参赛任务';
+      const inspectId = controller && workspaces.phase === 'ready' ? workspace?.workspaceId : undefined;
+      const snapshot = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
+      const checking = Boolean(inspectId && !snapshot);
+      React.useEffect(() => {
+        if (!inspectId) return;
+        const abort = new AbortController();
+        inspectController({ workspaceId: inspectId }, abort.signal)
+          .catch((failure) => ({ kind: 'blocked', reason: failure.message }))
+          .then((value) => { if (!abort.signal.aborted) setInspection({ workspaceId: inspectId, snapshot: value }); });
+        return () => abort.abort();
+      }, [inspectId, inspectController]);
+      const archived = snapshot?.archived;
+      const needsInitialization = snapshot?.kind === 'absent' || snapshot?.kind === 'incomplete';
+      const actionLabel = controller ? (snapshot?.kind === 'absent' ? '创建主控对话' : snapshot?.kind === 'incomplete' ? '初始化主控对话' : '打开主控对话')
+        : request.mode === 'author' ? '创建出题任务' : '创建参赛任务';
+      const title = controller ? '打开工作区主控' : actionLabel;
+      const controllerError = snapshot?.kind === 'blocked' ? `${snapshot.reason}${snapshot.sessionIds?.length ? ` 对话编号：${snapshot.sessionIds.join('、')}` : ''}`
+        : archived ? '主控对话已归档。请先在 DSH 中取消归档。' : '';
       // DSH keeps `phase` at 'pending' after a terminal list failure and reports it through `state`.
       const listError = workspaces.state === 'error' ? `无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ''}。请重启 DSH 后重试。` : '';
       const loading = workspaces.phase !== 'ready' && !listError;
       const hint = listError || (loading ? '正在读取 DSH 工作区列表…' : workspaces.items.length ? '选择已有工作区，或添加一个专用目录。' : '还没有工作区，请先添加。');
       const confirm = async () => {
-        if (!workspace || workspaces.phase !== 'ready' || busy || adding) return;
+        if (!workspace || workspaces.phase !== 'ready' || busy || adding || (controller && (!snapshot || controllerError))) return;
         setBusy(true); setError('');
+        if (controller) {
+          try {
+            const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
+            if (result.kind !== 'opened') {
+              setError(`${result.reason}${result.sessionIds?.length ? ` 对话编号：${result.sessionIds.join('、')}` : ''}`);
+              if (result.code === 'controller_init_failed' || result.code === 'controller_init_required') setInspection({ workspaceId: inspectId, snapshot: { kind: 'incomplete', codex: snapshot.codex } });
+              if (result.code === 'controller_attach_failed') setInspection({ workspaceId: inspectId, snapshot: result });
+            } else {
+              setInspection({ workspaceId: inspectId, snapshot: { kind: 'existing', codex: snapshot.codex } });
+              await openControllerChat(result.sessionId);
+              closeTaskStart();
+              return;
+            }
+          } catch (failure) { setError(failure.message || '无法打开主控对话，请重试。'); }
+          setBusy(false);
+          return;
+        }
         let created;
         try { const result = await run(request.sessionId, { action: 'start', challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
           if (result.ok && result.sessionId) created = result.sessionId;
@@ -1633,16 +1674,16 @@ window.__ModuleLoader__.load({
         closeTaskStart();
         Promise.resolve(openTask(created)).catch((failure) => console.warn('Playground: failed to open the new task conversation', failure));
       };
-      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title: actionLabel,
+      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title,
         onClose: () => { if (!busy && !adding) closeTaskStart(); } },
       h('style', null, taskModalCss),
       h('header', { className: 'pg-task-header' },
-        h('h2', null, actionLabel),
-        h('p', { className: 'pg-task-subtitle' }, '选择任务文件的存放工作区'),
-        h('button', { type: 'button', className: 'pg-task-close', 'aria-label': '取消创建任务', disabled: busy || adding, onClick: closeTaskStart },
+        h('h2', null, title),
+        h('p', { className: 'pg-task-subtitle' }, controller ? '选择要协调工作的 DSH 工作区。' : '选择任务文件的存放工作区'),
+        h('button', { type: 'button', className: 'pg-task-close', 'aria-label': controller ? '关闭工作区主控' : '取消创建任务', disabled: busy || adding, onClick: closeTaskStart },
           h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 6 12 12M18 6 6 18' })))),
-      h('div', { className: 'pg-task-body', 'aria-busy': busy || adding || loading },
-        h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
+      h('div', { className: 'pg-task-body', 'aria-busy': busy || adding || loading || checking },
+        controller ? null : h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
           h('div', { className: 'pg-task-summary-top' },
             h('h3', { className: 'pg-task-title', title: request.title }, request.title),
             h('span', { className: 'pg-task-mode' }, request.mode === 'author' ? '出题' : '参赛')),
@@ -1651,28 +1692,33 @@ window.__ModuleLoader__.load({
           h('label', { htmlFor: 'pg-task-workspace' }, '目标工作区'),
           h('div', { className: 'pg-task-select-wrap' },
             h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18' })),
-            h('select', { id: 'pg-task-workspace', className: 'pg-task-select', 'aria-invalid': !!error,
-              'aria-describedby': `${workspace ? 'pg-task-path' : 'pg-task-hint'}${error ? ' pg-task-error' : ''}`, 'data-empty': !workspace, 'data-modal-autofocus': true,
+            h('select', { id: 'pg-task-workspace', className: 'pg-task-select', 'aria-invalid': Boolean(error || controllerError),
+              'aria-describedby': `${workspace ? 'pg-task-path' : 'pg-task-hint'}${error || controllerError ? ' pg-task-error' : ''}`, 'data-empty': !workspace, 'data-modal-autofocus': true,
               value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
-              onChange: (event) => { setSelectedId(event.target.value); setError(''); } },
+              onChange: (event) => { setSelectedId(event.target.value); setError(''); setInspection(null); } },
               h('option', { value: '' }, '请选择工作区'),
               workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'))),
             h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
           workspace ? h('p', { id: 'pg-task-path', className: 'pg-task-path' }, workspace.path)
             : h('p', { id: 'pg-task-hint', className: listError ? 'pg-task-error' : 'pg-task-hint', role: listError ? 'alert' : loading ? 'status' : undefined }, hint),
-          error ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error) : null,
+          checking ? h('p', { className: 'pg-task-hint', role: 'status' }, '正在核对工作区的主控对话…') : null,
+          (error || controllerError) ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error || controllerError) : null,
+          needsInitialization ? h('p', { className: 'pg-task-hint' }, '初始化会请当前 DSH 模型确认主控角色。') : null,
+          snapshot?.codex ? h('p', { className: 'pg-task-hint' }, snapshot.codex === 'registered'
+            ? '已检测到官方 Codex 子代理。执行结果会显示在主控对话中。' : '未检测到 Codex 子代理。要派发任务，请先在当前 DSH Profile 启用官方 Codex 子代理。') : null,
           h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: async () => {
             setAdding(true); setError('');
             try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
             catch (failure) { setError(failure.message); } finally { setAdding(false); }
           } }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…'))),
       h('footer', { className: 'pg-task-footer' },
-        h('p', null, '将在所选目录创建独立对话并读写任务文件。'),
+        h('p', null, controller ? '主控可协调工作和派发 Codex 任务。赛题提交在独立任务对话中完成。' : '将在所选目录创建独立对话并读写任务文件。'),
         h('div', { className: 'pg-task-actions' },
           h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
-          h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy, disabled: !workspace || workspaces.phase !== 'ready' || busy || adding, onClick: confirm },
+          h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy,
+            disabled: !workspace || workspaces.phase !== 'ready' || busy || adding || (controller && (!snapshot || Boolean(controllerError))), onClick: confirm },
             busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
-            busy ? '正在创建…' : actionLabel))));
+            busy ? (controller ? '正在打开…' : '正在创建…') : actionLabel))));
     }
 
     function commandFact(value) {
@@ -1799,10 +1845,25 @@ window.__ModuleLoader__.load({
         typeof result.sessionId === 'string' ? h('button', { className: 'pg-button', onClick: () => openTask(result.sessionId) }, '打开任务对话') : null);
     }
 
+    function ControllerWelcome({ node }) {
+      const ready = node.outcome?.kind === 'success';
+      return h('section', { className: 'pg-card' }, h('style', null, css),
+        h('h3', null, 'Playground 工作区主控'),
+        h('p', { className: 'pg-note' }, ready
+          ? '在下方输入你要协调的工作。试试「请让 Codex 只读检查这个工作区的 README，并告诉我怎么运行测试」。'
+          : '请从 Playground 工作台打开或创建工作区主控。'));
+    }
+
     return {
       inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
         const taskRequest = createSnapshotStore(null);
+        const requestHost = async (method, input, signal) => {
+          const result = await ctx.connection.rpc.call('/api', `playgroundQueries/${method}`, { args: { input } }, signal)
+            .catch(() => ({ ok: false, error: { code: 'transport' } }));
+          if (result.ok) return result.value;
+          throw new Error(queryFailure(result.error));
+        };
         const actions = {
           requestTask: (request) => taskRequest.set(request),
           closeTaskStart: () => taskRequest.set(null),
@@ -1811,6 +1872,12 @@ window.__ModuleLoader__.load({
             return path ? ctx.workspaces.create({ path }) : null;
           },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
+          openControllerChat: async (sessionId) => {
+            await ctx.uiWorkspace.openSession(sessionId);
+            ctx.layout.selectPanel(null);
+          },
+          inspectController: (input, signal) => requestHost('inspectController', input, signal),
+          openController: (input) => requestHost('openController', input),
           // DSH's own archive, the one its sidebar uses. Running work is refused by the host, never stopped
           // from here. Both resolve to { ok } and report failures as a short message instead of throwing.
           archiveTask: (sessionId) => changeArchive(ctx.uiWorkspace, 'archiveSession', sessionId),
@@ -1821,12 +1888,7 @@ window.__ModuleLoader__.load({
             ctx.layout.selectPanel('playground');
           },
           refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
-          query: async (input, signal) => {
-            const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/query', { args: { input } }, signal)
-              .catch(() => ({ ok: false, error: { code: 'transport' } }));
-            if (result.ok) return result.value;
-            throw new Error(queryFailure(result.error));
-          },
+          query: (input, signal) => requestHost('query', input, signal),
           run: async (sessionId, input, confirm = false) => {
             const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${input}` : `/playground ${JSON.stringify(input)}`, []);
             if (!result.ok) throw new Error(result.error.message);
@@ -1889,6 +1951,7 @@ window.__ModuleLoader__.load({
           for (const key of ['playground', 'playground-confirm', 'playground-auth-login']) {
             yield ctx.slots.register({ name: 'conversation.chat.commandview', key, inject: () => actions }, PlaygroundCommandCard);
           }
+          yield ctx.slots.register({ name: 'conversation.chat.commandview', key: 'playground-controller' }, ControllerWelcome);
         });
       },
     };

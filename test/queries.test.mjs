@@ -102,6 +102,29 @@ test('session-free login accepts only the account email and never a password', a
   }
 });
 
+test('controller RPCs separate inspection from explicit creation and name only the selected workspace', async () => {
+  let service;
+  let invocations;
+  const calls = [];
+  registerWorkbenchQueries({ provide: (_name, value) => { service = value; }, typert: { register: (value) => { invocations = value.invocations; } } }, {}, {
+    inspect: async (input, signal) => { calls.push(['inspect', input, signal]); return { kind: 'absent', codex: 'registered' }; },
+    open: async (input, signal) => { calls.push(['open', input, signal]); return { kind: 'opened', sessionId: 'c', created: true }; },
+  });
+  const [inspect, open] = ['inspectController', 'openController'].map((method) => invocations.find((item) => item.method === method).parameters[0].codec.create());
+  const input = { workspaceId: 'workspace' };
+  const selected = { ...input, createIfMissing: true };
+  const signal = new AbortController().signal;
+  assert.equal((await service.inspectController(inspect.parse(input), signal)).kind, 'absent');
+  assert.equal((await service.openController(open.parse(selected), signal)).sessionId, 'c');
+  assert.deepEqual(calls, [['inspect', input, signal], ['open', selected, signal]]);
+  assert.equal(inspect.safeParse(selected).success, false);
+  assert.equal(open.safeParse(input).success, false);
+  for (const target of [{ cwd: '/example' }, { workspaceId: '' }, { ...input, sessionId: 'foreign' }]) {
+    assert.equal(inspect.safeParse(target).success, false);
+    assert.equal(open.safeParse({ ...target, createIfMissing: true }).success, false);
+  }
+});
+
 test('the attempt query reads one submission by id, forwards cancellation and rejects every other parameter', async () => {
   const services = new Map();
   const calls = [];

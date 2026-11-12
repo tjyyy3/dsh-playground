@@ -476,6 +476,82 @@ test('a created task closes the dialog even when opening the new conversation fa
   assert.equal(warn.mock.callCount(), 1);
 });
 
+test('the controller dialog inspects the selected workspace and opens native chat only after confirmation', async (t) => {
+  const calls = [];
+  let inspection = { kind: 'absent', codex: 'unavailable' };
+  const { registrations, find, render, unmount, effects } = await clientFixture(t, {
+    connection: { rpc: { async call(path, method, { args: { input } }) {
+      calls.push([path, method, input]);
+      return { ok: true, value: method.endsWith('/inspectController') ? inspection : { kind: 'opened', sessionId: 'controller' } };
+    } } },
+    uiWorkspace: { async openSession(id) { calls.push(['native', id]); } },
+    layout: { selectPanel(panel) { calls.push(['panel', panel]); } },
+  });
+  const main = registrations.get('main');
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  const useWorkspaces = (select) => select({ phase: 'ready', items: [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }] });
+  const workbench = render(main.Component, { ...main.definition.inject(), useWorkspaces,
+    useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }), useSessionAccess: () => false });
+  const entry = find(workbench, (node) => node.type === 'button' && node.props.children.includes('打开工作区主控'));
+  const props = { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()), useWorkspaces };
+  const button = (tree, label) => find(tree, (node) => node.type === 'button' && node.props.children.includes(label));
+  async function inspectSelected() {
+    entry.props.onClick();
+    const dialog = render(overlay.Component, props);
+    let tree = render(dialog.type, dialog.props);
+    assert.equal(button(tree, '打开主控对话').props.disabled, true);
+    effects.length = 0;
+    find(tree, (node) => node.type === 'select').props.onChange({ target: { value: 'b' } });
+    tree = render(dialog.type, dialog.props);
+    assert.match(text(tree), /正在核对工作区的主控对话/);
+    effects.splice(0).forEach((effect) => effect());
+    await settle();
+    return { dialog, tree: render(dialog.type, dialog.props) };
+  }
+  let { dialog, tree } = await inspectSelected();
+  assert.match(text(tree), /\/workspace-b/);
+  assert.match(text(tree), /启用官方 Codex 子代理/);
+  assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  assert.deepEqual(calls, [['/api', 'playgroundQueries/inspectController', { workspaceId: 'b' }]]);
+  await button(tree, '创建主控对话').props.onClick();
+  assert.deepEqual(calls.slice(1), [['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }], ['native', 'controller'], ['panel', null]]);
+  assert.equal(render(overlay.Component, props), null);
+  unmount(dialog.type);
+
+  inspection = { kind: 'existing', sessionId: 'controller', archived: true, codex: 'registered' };
+  ({ dialog, tree } = await inspectSelected());
+  assert.match(text(tree), /请先在 DSH 中取消归档/);
+  assert.equal(button(tree, '打开主控对话').props.disabled, true);
+  await button(tree, '打开主控对话').props.onClick();
+  assert.equal(calls.length, 5);
+  actions.closeTaskStart();
+  unmount(dialog.type);
+
+  inspection = { ...inspection, archived: false };
+  ({ dialog, tree } = await inspectSelected());
+  assert.doesNotMatch(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  await button(tree, '打开主控对话').props.onClick();
+  assert.deepEqual(calls.at(-3), ['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: false }]);
+  assert.deepEqual(calls.at(-2), ['native', 'controller']);
+  unmount(dialog.type);
+
+  inspection = { kind: 'incomplete', sessionId: 'controller', codex: 'registered' };
+  ({ tree } = await inspectSelected());
+  assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  assert.equal(calls.at(-1)[1], 'playgroundQueries/inspectController');
+  await button(tree, '初始化主控对话').props.onClick();
+  assert.deepEqual(calls.at(-3), ['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }]);
+  assert.deepEqual(calls.at(-2), ['native', 'controller']);
+});
+
+test('the native controller welcome offers a task the user can type without starting an agent turn', async (t) => {
+  const { registrations, render } = await clientFixture(t);
+  const { Component } = registrations.get('playground-controller');
+  const tree = render(Component, { node: { outcome: { kind: 'success' } } });
+  assert.match(text(tree), /在下方输入.*让 Codex 只读检查/);
+});
+
 test('workbench reads, re-entry, search, filters and source-session changes never execute a command', async (t) => {
   const calls = [];
   const f = await clientFixture(t, {

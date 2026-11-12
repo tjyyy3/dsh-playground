@@ -20,6 +20,7 @@ from npm.
 | `playground_get_competition` | Read a competition's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
 | `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/me/attempts` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
+| `playground_open_controller` | Find a registered workspace's controller and offer to open its conversation | DSH session/workspace services |
 | `playground_bind_task` | Make the current conversation the task conversation of one challenge | DSH projections and `GET /api/challenges/{id}` |
 | `playground_check_materials` | Check explicit target, the bundle's outer layout, trace, manifest and file hashes | Local reads and challenge metadata |
 | `playground_task` | Read task/receipt, switch working mode, refresh latest result, or `track` a terminal submission into the task | DSH projections and `GET /api/attempts/{id}` |
@@ -34,6 +35,14 @@ terminal `playground submit`, without a DSH approval panel (see
 plugin tools run the same confirmation, which invokes the installed Playground CLI to create
 the submission and upload its checked materials. It requires authentication
 and can consume a platform submission slot.
+
+## Try a workspace controller
+
+1. To delegate to Codex, enable the official Codex subagent in your DSH Profile and set up its Codex authentication. The workbench can detect a registered provider, but the first call is what checks that Codex can run.
+2. Open **Playground**, then click **打开工作区主控**. Select a registered workspace and verify its path. Click **创建主控对话** for a new controller or **初始化主控对话** to start a controller that has no turns yet. Initialization asks the current DSH model once to acknowledge its role. Click **打开主控对话** to reopen a started controller in the same conversation without sending a prompt. If the controller is archived, restore it in DSH first.
+3. In the controller, ask: “请让 Codex 只读检查这个工作区的 README，并告诉我怎么运行测试。” DSH returns the native Codex answer or error to this conversation. A start acknowledgement means Codex was dispatched; wait for the result.
+
+The controller is separate from challenge task conversations. Use those conversations for material checks, submission, and receipts. The official Codex subagent returns its selected answer, not a competition execution trace.
 
 ## MVP: from task to evaluation
 
