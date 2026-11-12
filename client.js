@@ -1334,7 +1334,7 @@ window.__ModuleLoader__.load({
           historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+    function PlaygroundWorkbench({ libraryOnly, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
       const catalog = useSessions((state) => state);
       // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
       // the archive controls stay hidden.
@@ -1487,7 +1487,7 @@ window.__ModuleLoader__.load({
             h('button', { className: 'pg-button', onClick: () => requestTask({ kind: 'controller' }) }, '打开工作区主控'),
             h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? '返回所选任务对话' : '打开 DSH 对话')),
           h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
-          h(AuthStatusPanel, { query, login, saveToken, clearToken }),
+          libraryOnly ? null : h(AuthStatusPanel, { query, login, saveToken, clearToken }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
           h('div', { className: 'pg-split-control' },
             h('span', null, '调整左右栏宽度'),
@@ -1529,6 +1529,148 @@ window.__ModuleLoader__.load({
               h('li', null, '选择目标工作区，核对完整路径后确认创建独立任务对话；需要新工作区时使用原生目录选择器添加。'),
               h('li', null, '完成方案后，在对应任务卡检查材料，核对赛题、平台和文件，再明确确认提交。'),
               h('li', null, '查询结果与关键指标；排队状态表示尚未得到最终评分。')))));
+    }
+
+    const controllerPanelCss = `
+      .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
+      .pg-controller-bar { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--dsw-alias-border-l3); flex-wrap:wrap; }
+      .pg-controller-bar h1 { font-size:17px; line-height:24px; margin:0; font-weight:600; }
+      .pg-controller-bar select, .pg-controller-bar button, .pg-controller button { font:inherit; color:inherit; }
+      .pg-controller-bar select, .pg-controller-bar button, .pg-controller-action { border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; padding:6px 10px; cursor:pointer; }
+      .pg-controller button:hover { background:var(--dsw-alias-interactive-bg-hover); }
+      .pg-controller button:focus-visible, .pg-controller select:focus-visible { outline:2px solid #087f78; outline-offset:2px; }
+      .pg-controller-bar button:disabled { opacity:.5; cursor:default; }
+      .pg-controller-body { flex:1; min-height:0; display:flex; }
+      .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+      .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
+      .pg-controller-tasks { width:320px; flex:none; border-left:1px solid var(--dsw-alias-border-l3); padding:18px; overflow:auto; }
+      .pg-controller-tasks h2 { font-size:14px; margin:0 0 14px; }
+      .pg-controller-tasks p { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.5; }
+      .pg-controller-row { border-top:1px solid var(--dsw-alias-border-l3); padding:12px 0; font-size:13px; overflow-wrap:anywhere; }
+      .pg-controller-row summary { cursor:pointer; }
+      .pg-controller-row pre { white-space:pre-wrap; font:inherit; }
+      .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
+      @media (max-width:850px) { .pg-controller-tasks { width:min(320px,40%); } }
+      @media (max-width:600px) { .pg-controller-body { position:relative; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(320px,85%); background:var(--dsw-alias-bg-base); z-index:10; } }
+    `;
+
+    function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, expectedId, onPromote, busy }) {
+      const session = useSession((value) => value);
+      const conversation = useConversation((value) => value);
+      const blank = useSessions((value) => sessionId === undefined ? undefined : value.byId[sessionId]?.blank);
+      if (!expectedId) return sessionId && onPromote ? h('button', { className: 'pg-controller-action', disabled: busy, onClick: () => onPromote(sessionId) }, '把当前对话设为主控') : null;
+      if (sessionId !== expectedId) return h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在打开所选主控对话…');
+      if (session?.openState === 'error') return h('div', { className: 'pg-controller-placeholder pg-controller-error', role: 'alert' }, '无法加载主控对话，请重新打开。');
+      if (!session || !conversation) return h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在加载主控对话…');
+      const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running
+        ? 'active' : session.promptAttempted ? 'engaging' : 'blank';
+      const settling = shellPhase === 'blank' && session.openState === 'loading' && blank !== true
+        || session.subagent?.address.mode === 'continuable' && session.subagent.parentAvailable === undefined;
+      const hero = shellPhase === 'blank' && (session.openState === 'open' || blank === true);
+      return renderFactorySlot('conversation.content', { variant: 'embedded', phase: settling ? 'settling' : hero ? 'hero' : 'active', hero });
+    }
+
+    function ControllerPanel(props) {
+      const { useWorkspaces, useSessions, renderSlot, inspectController, openController, openControllerChat, promoteController, controllerTasks } = props;
+      const workspaces = useWorkspaces((value) => value);
+      const sessions = useSessions((value) => value);
+      const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
+      const selectedMarker = selectedSession?.projectionValues?.playgroundController;
+      const [workspaceId, setWorkspaceId] = React.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker.workspaceId : '') || '');
+      const [inspection, setInspection] = React.useState(null);
+      const [expectedId, setExpectedId] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [view, setView] = React.useState('controller');
+      const [showTasks, setShowTasks] = React.useState(() => !window.matchMedia?.('(max-width: 600px)').matches);
+      const [tasks, setTasks] = React.useState(null);
+      const [retry, setRetry] = React.useState(0);
+      const [taskRetry, setTaskRetry] = React.useState(0);
+      React.useEffect(() => {
+        const media = window.matchMedia?.('(max-width: 600px)');
+        if (!media) return;
+        const changed = (event) => setShowTasks(!event.matches);
+        media.addEventListener('change', changed);
+        return () => media.removeEventListener('change', changed);
+      }, []);
+      React.useEffect(() => {
+        if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
+          props.controllerSelection.workspaceId = selectedMarker.workspaceId;
+          setWorkspaceId(selectedMarker.workspaceId);
+        }
+      }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
+      React.useEffect(() => {
+        setExpectedId(''); setInspection(null); setError('');
+        if (!workspaceId) return;
+        const abort = new AbortController();
+        inspectController({ workspaceId }, abort.signal).then((value) => {
+          if (abort.signal.aborted) return;
+          setInspection(value);
+          if (value.kind === 'existing' && !value.archived) { props.controllerSelection.sessionId = value.sessionId; setExpectedId(value.sessionId); Promise.resolve(openControllerChat(value.sessionId)).catch(() => { if (!abort.signal.aborted) { setExpectedId(''); setError('无法打开主控对话，请重试。'); } }); }
+        }).catch((failure) => { if (!abort.signal.aborted) setError(failure.message); });
+        return () => abort.abort();
+      }, [workspaceId, retry]);
+      React.useEffect(() => {
+        setTasks(null);
+        if (!workspaceId || !expectedId || !controllerTasks) return;
+        const abort = new AbortController();
+        let inFlight = false;
+        const refresh = () => {
+          if (inFlight) return;
+          inFlight = true;
+          void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal)
+            .then((value) => { if (!abort.signal.aborted) setTasks(value); })
+            .catch(() => { if (!abort.signal.aborted) setTasks({ kind: 'unavailable' }); })
+            .finally(() => { inFlight = false; });
+        };
+        void refresh();
+        const timer = setInterval(refresh, 4000);
+        return () => { abort.abort(); clearInterval(timer); };
+      }, [workspaceId, expectedId, controllerTasks, taskRetry]);
+      const open = async () => {
+        setBusy(true); setError('');
+        try {
+          const result = await openController({ workspaceId, createIfMissing: true });
+          if (result.kind !== 'opened') setError(result.reason);
+          else { props.controllerSelection.sessionId = result.sessionId; setExpectedId(result.sessionId); await openControllerChat(result.sessionId); }
+        } catch (failure) { setError(failure.message); }
+        finally { setBusy(false); }
+      };
+      if (view !== 'controller') return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
+        h('div', { className: 'pg-controller-bar' }, h('button', { onClick: () => setView('controller') }, '返回主控')),
+        view === 'settings' ? h('main', { className: 'pg-workbench', style: { padding: 24, overflow: 'auto' } }, h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, props))
+          : renderSlot('playground.library', { libraryOnly: true }));
+      return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
+        h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
+          h('select', { 'aria-label': '工作区', value: workspaceId, onChange: (event) => { props.controllerSelection.workspaceId = event.target.value; props.controllerSelection.sessionId = ''; setExpectedId(''); setInspection(null); setError(''); setWorkspaceId(event.target.value); } },
+            h('option', { value: '' }, '选择工作区'), workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'))),
+          h('button', { disabled: busy, onClick: async () => { setBusy(true); setError(''); try { await props.addTaskWorkspace(); } catch { setError('无法添加工作区，请重试。'); } finally { setBusy(false); } } }, '添加工作区'),
+          h('button', { onClick: () => setView('library') }, '赛题与提交'),
+          h('button', { onClick: () => setView('settings') }, '连接设置'),
+          h('button', { 'aria-expanded': showTasks, onClick: () => setShowTasks(!showTasks) }, showTasks ? '隐藏任务' : '显示任务')),
+        h('div', { className: 'pg-controller-body' },
+          h('main', { className: 'pg-controller-chat' },
+            !workspaceId ? h('div', { className: 'pg-controller-placeholder', role: workspaces.state === 'error' ? 'alert' : undefined }, workspaces.state === 'error' ? '无法读取工作区，请重启 DSH 后重试。' : workspaces.phase !== 'ready' ? '正在读取工作区…' : '选择工作区以打开或创建主控对话。', error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
+              : !expectedId && workspaceId && error && !inspection ? h('div', { className: 'pg-controller-placeholder', role: 'alert' }, error, h('button', { onClick: () => setRetry(retry + 1) }, '重试'))
+              : !expectedId && workspaceId && !inspection ? h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在核对主控对话…')
+              : !expectedId && workspaceId && inspection ? h('div', { className: 'pg-controller-placeholder' },
+              h('p', null, inspection.kind === 'blocked' ? inspection.reason : inspection.archived ? '主控对话已归档，请先取消归档。' : '为此工作区打开或创建主控对话。'),
+              inspection.kind !== 'blocked' && !inspection.archived ? h('button', { className: 'pg-controller-action', disabled: busy, onClick: open }, busy ? '正在打开…' : inspection.kind === 'absent' ? '创建主控对话' : '打开主控对话') : null,
+              h('p', null, '空对话会收到一条初始化消息。'),
+              renderSlot('playground.controller.session', { expectedId: '', busy, onPromote: async (sessionId) => {
+                setBusy(true); setError('');
+                try {
+                  const result = await promoteController({ workspaceId, sessionId });
+                  if (result.kind === 'opened') { props.controllerSelection.sessionId = result.sessionId; setExpectedId(result.sessionId); await openControllerChat(result.sessionId); }
+                  else setError(result.reason);
+                } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+              } }),
+              error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
+              : renderSlot('playground.controller.session', { expectedId })),
+          showTasks ? h('aside', { className: 'pg-controller-tasks', 'aria-label': '主控任务' }, h('h2', null, '主控任务'),
+            !expectedId ? h('p', null, '打开主控后查看其派发的任务。') : !tasks ? h('p', { role: 'status' }, '正在读取任务…')
+              : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, '无法读取任务。', h('button', { onClick: () => setTaskRetry(taskRetry + 1) }, '重试')) : !tasks.rows.length ? h('p', null, '还没有派发任务。')
+              : tasks.rows.map((row) => h('details', { key: row.childId, className: 'pg-controller-row' }, h('summary', null, row.label || row.childId, ' · ', { running: '运行中', settled: '已收到结果', unknown: '状态未知' }[row.state]), row.liveEnd ? h('p', null, `本次运行结束：${({ completed: '完成', aborted: '已中止', 'max-tokens': '达到输出上限', refusal: '拒绝', error: '出错' })[row.liveEnd.stopReason] || row.liveEnd.stopReason}`) : null, row.terminalText ? h('pre', null, row.terminalText) : row.liveEnd?.lastAssistantMessage ? h('pre', null, row.liveEnd.lastAssistantMessage.filter((part) => part.type === 'text').map((part) => part.text).join('\n')) : null))) : null));
     }
 
     function PlaygroundPanelIcon({ size = 20 }) {
@@ -1655,7 +1797,7 @@ window.__ModuleLoader__.load({
               if (result.code === 'controller_attach_failed') setInspection({ workspaceId: inspectId, snapshot: result });
             } else {
               setInspection({ workspaceId: inspectId, snapshot: { kind: 'existing', codex: snapshot.codex } });
-              await openControllerChat(result.sessionId);
+              await openControllerChat(result.sessionId, workspace.workspaceId);
               closeTaskStart();
               return;
             }
@@ -1858,6 +2000,7 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
         const taskRequest = createSnapshotStore(null);
+        const controllerSelection = { workspaceId: '', sessionId: '' };
         const requestHost = async (method, input, signal) => {
           const result = await ctx.connection.rpc.call('/api', `playgroundQueries/${method}`, { args: { input } }, signal)
             .catch(() => ({ ok: false, error: { code: 'transport' } }));
@@ -1865,6 +2008,7 @@ window.__ModuleLoader__.load({
           throw new Error(queryFailure(result.error));
         };
         const actions = {
+          controllerSelection,
           requestTask: (request) => taskRequest.set(request),
           closeTaskStart: () => taskRequest.set(null),
           addTaskWorkspace: async () => {
@@ -1872,10 +2016,14 @@ window.__ModuleLoader__.load({
             return path ? ctx.workspaces.create({ path }) : null;
           },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
-          openControllerChat: async (sessionId) => {
-            await ctx.uiWorkspace.openSession(sessionId);
-            ctx.layout.selectPanel(null);
+          openControllerChat: (sessionId, workspaceId) => {
+            if (workspaceId) { controllerSelection.workspaceId = workspaceId; controllerSelection.sessionId = sessionId; }
+            const opened = ctx.uiWorkspace.openSession(sessionId);
+            ctx.layout.selectPanel('playground');
+            return opened;
           },
+          promoteController: (input) => requestHost('promoteController', input),
+          controllerTasks: (input, signal) => requestHost('controllerTasks', input, signal),
           inspectController: (input, signal) => requestHost('inspectController', input, signal),
           openController: (input) => requestHost('openController', input),
           // DSH's own archive, the one its sidebar uses. Running work is refused by the host, never stopped
@@ -1935,7 +2083,10 @@ window.__ModuleLoader__.load({
         )));
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main', key: 'playground', locale: 'playground', inject: () => actions,
-        }, PlaygroundWorkbench));
+          children: { 'playground.controller.session': { kind: 'single', scope: 'session-maybe' }, 'playground.library': { kind: 'single', scope: 'root' } },
+        }, ControllerPanel));
+        ctx.slots.inject('playground.library', () => ctx.slots.register({ name: 'playground.library', inject: () => actions }, PlaygroundWorkbench));
+        ctx.slots.inject('playground.controller.session', () => ctx.slots.register({ name: 'playground.controller.session' }, ControllerSession));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist', id: 'playground', order: 20, label: () => 'Playground', locale: 'playground',
         }, PlaygroundPanelIcon));

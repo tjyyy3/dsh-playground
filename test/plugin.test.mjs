@@ -524,7 +524,7 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
       register() {},
       stateOf(requestedSession, key) {
         assert.equal(requestedSession, session);
-        if (key === 'playgroundController') return controllerMarker;
+        if (key === 'playgroundController') return { marker: controllerMarker };
         assert.equal(key, 'playgroundTask');
         return state;
       },
@@ -559,7 +559,7 @@ test('the controller tool offers the native session of the explicitly named work
   const workspace = { id: 'workspace', path: process.cwd(), sessionIds: ['controller-session'] };
   scope.workspaceRegistry = { list: () => [workspace], archivedSessionIds: [], async resolveByPath(path) { return path === cwd ? workspace : undefined; } };
   scope.sessionController = {
-    async projections() { return { kind: 'sequenced', asOfSeq: 5, values: { playgroundController: { workspaceId: workspace.id, sessionId: 'controller-session' } } }; },
+    async projections() { return { kind: 'sequenced', asOfSeq: 5, values: { playgroundController: { workspaceId: workspace.id, sessionId: 'controller-session' }, playgroundTask: { task: null } } }; },
     create() { assert.fail('reopening never creates a session'); },
   };
   const tool = tools.find((item) => item.name === 'playground_open_controller');

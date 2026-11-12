@@ -230,3 +230,16 @@ test('the catalog query takes a period only as a slug of the chosen competition\
   assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', period: '1' }).success, false);
   assert.equal(calls.length, 2);
 });
+
+
+test('controller task and promotion RPCs accept only workspace and session identity', () => {
+  const invocations = [];
+  const services = new Map();
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (descriptor) => invocations.push(...descriptor.invocations) } }, {}, {});
+  for (const method of ['promoteController', 'controllerTasks']) {
+    const schema = invocations.find((item) => item.method === method).parameters[0].codec.create();
+    assert.deepEqual(schema.parse({ workspaceId: 'w', sessionId: 's' }), { workspaceId: 'w', sessionId: 's' });
+    assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', cwd: '/other' }).success, false);
+    assert.equal(schema.safeParse({ workspaceId: 'w' }).success, false);
+  }
+});

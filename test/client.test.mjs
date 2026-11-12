@@ -68,7 +68,7 @@ async function clientFixture(t, services = {}) {
   const unmount = (Component) => states.delete(Component);
   // Render the workbench for one source session and return its panels.
   function workbench(sessionId, access = true) {
-    const main = registrations.get('main');
+    const main = registrations.get('playground.library');
     const tree = render(main.Component, { ...main.definition.inject(),
       useSessions: (select) => select({ ids: sessionId ? [sessionId] : [], byId: sessionId ? { [sessionId]: { id: sessionId } } : {}, projectionsBySession: {} }),
       useSessionAccess: () => access, refreshProjections: async () => {} });
@@ -88,7 +88,7 @@ async function clientFixture(t, services = {}) {
 
 test('F-01: opening a task drawer preserves confirmation actions and closes correctly', async (t) => {
   const { registrations, find, render } = await clientFixture(t);
-  const Main = registrations.get('main').Component;
+  const Main = registrations.get('playground.library').Component;
   const calls = [];
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
   const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
@@ -114,7 +114,7 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
 
 // Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
 function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
     useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
@@ -173,7 +173,7 @@ test('切回参赛 is disabled without session access or while the agent is runn
 
 test('the workbench usage help names only the participation start', async (t) => {
   const f = await clientFixture(t);
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const tree = f.render(main.Component, { ...main.definition.inject(),
     useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }), useSessionAccess: () => true, refreshProjections: async () => {} });
   const help = f.find(tree, (n) => n.type === 'details' && n.props.className === 'pg-help');
@@ -186,7 +186,7 @@ test('the workbench usage help names only the participation start', async (t) =>
 // `options.reject` and `options.throws` are read at call time, so a test can change the outcome between clicks.
 async function openTaskFixture(t, options = {}) {
   const f = await clientFixture(t);
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const opened = [];
   const openTask = (id) => {
     opened.push(id);
@@ -324,7 +324,7 @@ test('a successful navigation after a failure leaves no visible note', async (t)
 
 test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
   const { registrations, find, render, unmount } = await clientFixture(t);
-  const Main = registrations.get('main').Component;
+  const Main = registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
   const card = (args) => {
     const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
@@ -373,7 +373,7 @@ test('task starts from catalog and chat cards request a workspace without creati
   const requests = [];
   const run = async () => { throw Error('must not run before confirmation'); };
   const props = { sessionId: 'source', allowed: true, run, requestTask: (value) => requests.push(value), openChat: () => {} };
-  const main = render(registrations.get('main').Component, {
+  const main = render(registrations.get('playground.library').Component, {
     useSessions: (select) => select({ ids: ['source'], byId: { source: { id: 'source' } }, projectionsBySession: {} }),
     useSessionAccess: () => true, refreshProjections: async () => {}, ...props,
   });
@@ -487,7 +487,7 @@ test('the controller dialog inspects the selected workspace and opens native cha
     uiWorkspace: { async openSession(id) { calls.push(['native', id]); } },
     layout: { selectPanel(panel) { calls.push(['panel', panel]); } },
   });
-  const main = registrations.get('main');
+  const main = registrations.get('playground.library');
   const overlay = registrations.get('playground.task-start');
   const actions = overlay.definition.inject();
   const useWorkspaces = (select) => select({ phase: 'ready', items: [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }] });
@@ -515,7 +515,7 @@ test('the controller dialog inspects the selected workspace and opens native cha
   assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
   assert.deepEqual(calls, [['/api', 'playgroundQueries/inspectController', { workspaceId: 'b' }]]);
   await button(tree, '创建主控对话').props.onClick();
-  assert.deepEqual(calls.slice(1), [['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }], ['native', 'controller'], ['panel', null]]);
+  assert.deepEqual(calls.slice(1), [['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }], ['native', 'controller'], ['panel', 'playground']]);
   assert.equal(render(overlay.Component, props), null);
   unmount(dialog.type);
 
@@ -619,7 +619,7 @@ test('only the newest catalog request updates the panel; superseded requests are
 test('query failures name the cause without exposing raw transport errors', async (t) => {
   let reply;
   const f = await clientFixture(t, { connection: { rpc: { call: async () => reply() } } });
-  const { query } = f.registrations.get('main').definition.inject();
+  const { query } = f.registrations.get('playground.library').definition.inject();
   for (const [next, expected] of [
     [() => ({ ok: false, error: { code: 'remote-access/denied', message: 'Bearer secret-token' } }), /没有读取 Playground 数据的权限/],
     [() => ({ ok: false, error: { code: 'gateway/invocation-unavailable', message: 'secret-token' } }), /查询服务未加载/],
@@ -784,7 +784,7 @@ test('workbench login needs no conversation and keeps the password out of the ca
     },
     connection: { rpc: { call: async (...args) => { calls.push(['rpc', ...args]); return reply; } } },
   });
-  const { login } = f.registrations.get('main').definition.inject();
+  const { login } = f.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await login('a@example.test', 'synthetic-password'), { ok: true, authenticated: true });
   assert.deepEqual(calls[0], ['credential', 'PLAYGROUND_PASSWORD', 'synthetic-password']);
   assert.deepEqual(calls[1].slice(0, 4), ['rpc', '/api', 'playgroundQueries/login', { args: { input: { email: 'a@example.test' } } }]);
@@ -814,7 +814,7 @@ async function localizedFixture(t, services = {}) {
 // summary and the score line of the drawer's attempt card.
 function taskViews(f, playgroundTask, t, { running = false } = {}) {
   const session = { id: 's', displayTitle: 'Playground · Fixture', running, projectionValues: { playgroundTask } };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t };
   const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
@@ -1020,11 +1020,11 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
     remote: { commands: { execute: () => assert.fail('the refresh reached command history') } },
     ...(uiWorkspace ? { uiWorkspace } : {}),
   });
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const task = (title) => ({ challengeId: 'fixture', title, mode: 'participate' });
   const sessions = receipts.map(([id, receipt]) => ({ id, displayTitle: `Playground · ${id}`,
     projectionValues: { playgroundTask: { task: task(id), prepared: null, receipt } } }));
-  const actions = f.registrations.get('main').definition.inject();
+  const actions = f.registrations.get('playground.library').definition.inject();
   const props = () => ({ ...actions, useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])),
     projectionsBySession: Object.fromEntries(sessions.map((item) => [item.id, { state: 'ready', values: item.projectionValues }])) }),
   ...(archived ? { useWorkspaces: (select) => select({ phase: 'ready', items: [], archivedSessionIds: archived, pinnedSessionIds: [] }) } : {}),
@@ -1198,7 +1198,7 @@ test('a task with a pending submission can be archived, is not polled while arch
   };
   const platform = new Map([[61, queuedAttempt]]);
   const h = await refreshHarness(t, [['a', receiptOf(61)]], platform, { archived, uiWorkspace });
-  const actions = h.f.registrations.get('main').definition.inject();
+  const actions = h.f.registrations.get('playground.library').definition.inject();
   h.flush();
   assert.deepEqual(h.calls.map((call) => call.id), [61]);
   await h.settled();
@@ -1439,7 +1439,7 @@ async function historyFixture(t, respond, state, options) {
     connection: { rpc: { call: historyRpc(attemptsClient(respond, requests, options), calls) } },
     remote: { commands: { execute: () => assert.fail('submission history reached command history') } },
   });
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, projectionValues: { playgroundTask: state } };
   // The host's real zh translator, so rows render the same `progress.*` text as the task row and drawer.
   const props = { ...main.definition.inject(), t: f.zh, useSessionAccess: () => true, refreshProjections: async () => {},
@@ -1835,7 +1835,7 @@ test('catalog cards open the challenge web page in a new noopener window', async
 
 // Renders the main view with one task session, opens its drawer and returns the drawer's "在网页中打开" buttons.
 function drawerWebButtons(f) {
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   return async (task, { loadCatalog = false } = {}) => {
     f.unmount(main.Component);
     const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, projectionValues: { playgroundTask: { task, prepared: null, receipt: null } } };
@@ -2203,7 +2203,7 @@ async function archiveFixture(t, { archived = ['b'], running, uiWorkspace, useWo
     unarchiveSession: async (...args) => { calls.push(['unarchive', ...args]); set.ids = set.ids.filter((id) => id !== args[0]); },
   };
   const f = await clientFixture(t, { uiWorkspace: ui });
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const opened = [];
   const sessions = ['a', 'b', 'c'].map((id) => ({ id, displayTitle: `Playground · ${id}`, running: id === running,
     ...(id === mainView ? { retainedBy: { mainView: 1 } } : {}),
@@ -2371,10 +2371,10 @@ test('without DSH archive support nothing is archived, the controls are hidden, 
   a.controlButton().props.onClick();
   await settle();
   assert.equal(text(a.find(a.control(), (n) => n.props?.className === 'pg-note pg-error pg-archive-error')), '当前 DSH 版本不支持归档对话。');
-  const actions = a.registrations.get('main').definition.inject();
+  const actions = a.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '当前 DSH 版本不支持取消归档对话。' });
   const bare = await clientFixture(t);
-  assert.deepEqual(await bare.registrations.get('main').definition.inject().archiveTask('a'), { ok: false, message: '当前 DSH 版本不支持归档对话。' });
+  assert.deepEqual(await bare.registrations.get('playground.library').definition.inject().archiveTask('a'), { ok: false, message: '当前 DSH 版本不支持归档对话。' });
 });
 
 test('归档任务 is disabled with the reason for the conversation open in DSH\'s main view', async (t) => {
@@ -2479,7 +2479,7 @@ test('an unarchive failure in the host\'s own format shows only the generic mess
   assert.equal(a.announcement(), '取消归档未完成，请重试。');
   assert.doesNotMatch(text(a.tree()), /workspace session|storage\/failed|registry/);
   assert.equal(text(a.toggle()), '已归档 1 个', 'the task is still archived');
-  const actions = a.registrations.get('main').definition.inject();
+  const actions = a.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '取消归档未完成，请重试。' });
 });
 
@@ -3414,7 +3414,7 @@ test('#25: an ordinary conversation bound with playground_bind_task appears in t
   state = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: bound.workflow } } });
   const view = workflowProjection.wire.view(state);
   const f = await clientFixture(t);
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   // Neither conversation has a "Playground · " title: only the bound projection puts one in the list.
   const sessions = [{ id: 'bound', displayTitle: '普通对话', projectionValues: { playgroundTask: view } },
     { id: 'plain', displayTitle: '另一个普通对话', projectionValues: { playgroundTask: workflowProjection.wire.view(workflowProjection.init()) } }];
@@ -3490,7 +3490,7 @@ test('#12: an empty or malformed token is rejected in the Client and never store
   panel.tokenForm().props.onSubmit({ preventDefault() {} });
   await settle();
   assert.match(text(panel.rerender()), /请先粘贴 API 令牌/);
-  const { saveToken } = panel.f.registrations.get('main').definition.inject();
+  const { saveToken } = panel.f.registrations.get('playground.library').definition.inject();
   for (const [value, expected] of [['', /请先粘贴 API 令牌/], [' \n ', /请先粘贴 API 令牌/], [undefined, /请先粘贴 API 令牌/], ['asp_one two', /不能有空格或换行/]]) {
     await assert.rejects(saveToken(value), (error) => expected.test(error.message) && !error.message.includes('asp_'), String(value));
   }
@@ -3500,7 +3500,7 @@ test('#12: an empty or malformed token is rejected in the Client and never store
 test('#12: a credential store failure is reported without the token', async (t) => {
   const f = await clientFixture(t, { remote: { credentials: { set: async (_name, value) => { throw new Error(`cannot store ${value}`); },
     unset: async () => { throw new Error('denied'); } } } });
-  const { saveToken, clearToken } = f.registrations.get('main').definition.inject();
+  const { saveToken, clearToken } = f.registrations.get('playground.library').definition.inject();
   await assert.rejects(saveToken('asp_synthetic-token'), (error) => /无法把令牌保存到 DSH 凭据存储/.test(error.message) && !error.message.includes('asp_'));
   await assert.rejects(clearToken(), /无法清除 DSH 凭据存储中的令牌/);
 });
@@ -3599,7 +3599,7 @@ test('#12: email login removes the password from the DSH credential store after 
     },
     connection: { rpc: { call: async (...args) => { calls.push(['rpc', args[1]]); return reply; } } },
   });
-  const { login } = f.registrations.get('main').definition.inject();
+  const { login } = f.registrations.get('playground.library').definition.inject();
   await login('a@example.test', 'synthetic-password');
   assert.deepEqual(calls, [['set', 'PLAYGROUND_PASSWORD', 'synthetic-password'], ['rpc', 'playgroundQueries/login'], ['unset', 'PLAYGROUND_PASSWORD']]);
   for (const next of [{ ok: true, value: { ok: false, error: { code: 'login_failed', message: '未找到 Playground CLI。' } } }, { ok: false, error: { code: 'transport' } }]) {
@@ -3611,7 +3611,7 @@ test('#12: email login removes the password from the DSH credential store after 
   // A failing unset does not hide the login result.
   const g = await clientFixture(t, { remote: { credentials: { set: async () => {}, unset: async () => { throw new Error('denied'); } } },
     connection: { rpc: { call: async () => ({ ok: true, value: { ok: true, authenticated: true } }) } } });
-  assert.deepEqual(await g.registrations.get('main').definition.inject().login('a@example.test', 'pw'), { ok: true, authenticated: true });
+  assert.deepEqual(await g.registrations.get('playground.library').definition.inject().login('a@example.test', 'pw'), { ok: true, authenticated: true });
 });
 
 const BASE = 'https://play.bohrium.com/api';
@@ -4588,7 +4588,7 @@ test('#58: the material check card and the confirmation section show a compact b
     args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
     cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58, bundleWarning: '这个评测包与上次被拒收的完全相同（SHA-256 一致）。' };
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
@@ -4720,7 +4720,7 @@ test('#62: the material check card and the confirmation section show today\'s co
     args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
     cliPrecheck: { status: 'passed' }, submissionCounts: counts };
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
@@ -4731,4 +4731,21 @@ test('#62: the material check card and the confirmation section show today\'s co
   const workflow = f.render(selected.type, selected.props);
   const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
   assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
+});
+
+
+test('the scoped controller renderer mounts native content only for the verified session', async (t) => {
+  const { registrations, render } = await clientFixture(t);
+  const main = registrations.get('main');
+  assert.deepEqual(main.definition.children['playground.controller.session'], { kind: 'single', scope: 'session-maybe' });
+  const child = registrations.get('playground.controller.session').Component;
+  const calls = [];
+  const props = { sessionId: 'other', expectedId: 'controller', useSession: (select) => select({ openState: 'open', blank: false, awaitingFirstTurn: false, running: false }),
+    useConversation: (select) => select({ activeTargets: new Set() }), useSessions: (select) => select({ byId: { other: { blank: false } } }),
+    renderFactorySlot: (...args) => { calls.push(args); return 'native'; } };
+  assert.notEqual(render(child, props), 'native');
+  assert.equal(calls.length, 0);
+  assert.equal(render(child, { ...props, sessionId: 'controller' }), 'native');
+  assert.deepEqual(calls, [['conversation.content', { variant: 'embedded', phase: 'active', hero: false }]]);
+  assert.notEqual(render(child, { ...props, sessionId: 'controller', useSession: (select) => select({ openState: 'error' }) }), 'native');
 });

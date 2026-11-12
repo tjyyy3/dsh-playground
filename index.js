@@ -23,7 +23,7 @@ import * as fsp from 'node:fs/promises';
 import { basename, isAbsolute, resolve as resolvePath } from 'node:path';
 import { createWorkflow, submissionCountsText, submissionLimitsFor, taskBundleMissingIds, withoutReasonsList, workflowProjection } from './lib/workflow.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
-import { controllerCommand, controllerProjection, createController } from './lib/controller.js';
+import { controllerCommand, controllerProjection, controllerNoticesProjection, createController } from './lib/controller.js';
 import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, displayCredentialsPath, readCliCredential } from './lib/cli.js';
 
 import {
@@ -1193,7 +1193,10 @@ export function apply(ctx, config) {
   ctx.inject?.(['commands', 'sessionProjections', 'sessionController', 'agents', 'workingDirectory', 'workspaceRegistry', 'credentials'], (scope) => {
     scope.sessionProjections.register(workflowProjection);
     scope.sessionProjections.register(controllerProjection);
+    scope.sessionProjections.register(controllerNoticesProjection);
     const controller = createController(scope, (name) => scope.get?.(name) ?? ctx.get?.(name));
+    scope.on?.('subagent/start', controller.observeStart);
+    scope.on?.('subagent/end', controller.observeEnd);
     workflow = createWorkflow({ ctx: scope, client, cli, submit, readBundle, readTrace, readManifest, presentationMeta,
       tokenStatus: resolveToken.status, isController: controller.owns });
     scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller));
@@ -1236,6 +1239,21 @@ export function apply(ctx, config) {
         const result = await controller.open({ workspaceId: workspace.id, createIfMissing: args.create_if_missing === true }, exec.signal);
         return result.kind === 'opened' ? { ok: true, sessionId: result.sessionId, created: result.created }
           : { ok: false, error: { code: result.code, message: result.reason }, sessionIds: result.sessionIds };
+      } });
+    scope.tools.register({ name: 'playground_set_controller', description: 'Only on the user’s explicit request, make THIS conversation the Playground workspace controller. Preserves the conversation and reuses an existing controller. An empty conversation receives one initialization message. Takes no directory.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }, output,
+      execute: async (_args, exec) => {
+        const result = await controller.promote({ sessionId: exec.agent.id }, exec.signal);
+        return result.kind === 'opened' ? { ok: true, sessionId: result.sessionId, created: false }
+          : { ok: false, error: { code: result.code, message: result.reason }, sessionIds: result.sessionIds };
+      } });
+    scope.tools.register({ name: 'playground_controller_tasks', description: 'Read the current controller conversation’s direct delegated tasks and observed results.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }, output,
+      execute: async (_args, exec) => {
+        const marker = scope.sessionProjections.stateOf(exec.agent.session, 'playgroundController')?.marker;
+        if (!marker || marker.sessionId !== exec.agent.id) return { ok: false, error: { code: 'not_controller', message: '当前对话不是工作区主控。' } };
+        const result = await controller.tasks({ workspaceId: marker.workspaceId, sessionId: exec.agent.id }, exec.signal);
+        return { ok: result.kind === 'ready', ...result };
       } });
     scope.tools.register({ name: 'playground_start_task', description: 'Create a NEW native DSH task conversation for an explicitly selected Playground challenge. If this conversation already has a Playground task, continue working here and use playground_task to read its context, receipts or results. Only create another task when the user explicitly requests a new task. From a conversation without a Playground task, when the user explicitly asks to work on, solve or submit a specific Playground challenge in this conversation, call playground_bind_task to bind this conversation instead of creating a new one; before preparing materials for submission in this conversation, bind it: the Playground task list, material checks and submission track task conversations. Reading, browsing, explaining or comparing challenges needs neither tool. Call this tool only when the user explicitly asks for a new or separate task conversation. Use the directory the user names; if they name none, the current conversation\'s workspace is acceptable because the user started the request here. Requires an absolute cwd that is an existing registered DSH workspace; there is no implicit default. Does not create or register directories and does not submit platform changes.',
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, cwd: { type: 'string', description: 'Required absolute path of a registered DSH workspace: the directory the user named, otherwise the current conversation\'s workspace.' }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['challenge_id', 'cwd'] }, output,

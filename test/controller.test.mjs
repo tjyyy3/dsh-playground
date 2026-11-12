@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { controllerCommand, controllerProjection, createController } from '../lib/controller.js';
+import { controllerCommand, controllerProjection, controllerNoticesProjection, createController } from '../lib/controller.js';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'playground-controller-'));
@@ -20,26 +20,26 @@ async function fixture(t) {
   const options = { codex: true, flush: true };
   const task = { task: { challengeId: 'fixture' }, prepared: null, receipt: { attemptId: 42 }, attemptIds: [42] };
   const snapshot = (marker, playgroundTask = { task: null }, blank = false) => ({ kind: 'sequenced', asOfSeq: 4,
-    values: { playgroundController: marker, playgroundTask, sessionListMetadata: { blank } } });
+    values: { playgroundController: marker, playgroundTask, playgroundControllerNotices: [], sessionListMetadata: { blank } } });
   function put(workspaceId, sessionId, value) {
     workspaces.find((item) => item.id === workspaceId).sessionIds.push(sessionId);
     disk.set(sessionId, value);
   }
   let controller;
   const ctx = {
-    workspaceRegistry: { list: () => workspaces, archivedSessionIds: archived },
+    workspaceRegistry: { list: () => workspaces, archivedSessionIds: archived, resolveByPath: async (path) => workspaces.find((item) => item.path === path) },
     sessionController: {
       async projections({ sessionId }, signal) {
         signal.throwIfAborted();
         if (options.brokenRead === sessionId) throw Error('projection unreadable');
         const found = live.get(sessionId);
-        return found ? snapshot(found.marker, undefined, found.blank) : disk.get(sessionId) ?? null;
+        return found ? snapshot(found.marker && 'marker' in found.marker ? found.marker.marker : found.marker, undefined, found.blank) : disk.get(sessionId) ?? null;
       },
       async create(request) {
         createRequests.push(request);
         const sessionId = `session-${createRequests.length}`;
         const workspace = workspaces.find((item) => item.id === request.workspaceId);
-        live.set(sessionId, { agent: { id: sessionId, session: { id: sessionId, cwd: workspace.path } }, marker: controllerProjection.init(), blank: true });
+        live.set(sessionId, { agent: { id: sessionId, session: { id: sessionId, cwd: workspace.path } }, marker: controllerProjection.init({ id: sessionId }, 0), blank: true });
         if (options.attachFails) throw Object.assign(Error('attach'), { code: 'session/workspace-attach-failed', details: { sessionId } });
         workspace.sessionIds.push(sessionId);
         return { sessionId };
@@ -53,7 +53,7 @@ async function fixture(t) {
         if (!live.has(sessionId)) {
           const workspace = workspaces.find((item) => item.sessionIds.includes(sessionId));
           live.set(sessionId, { agent: { id: sessionId, session: { id: sessionId, cwd: workspace.path } },
-            marker: disk.get(sessionId).values.playgroundController, blank: true });
+            marker: { ...controllerProjection.init({ id: sessionId }, 0), marker: disk.get(sessionId).values.playgroundController }, blank: true });
         }
         admitted.add(requestId);
         live.get(sessionId).blank = false;
@@ -66,14 +66,14 @@ async function fixture(t) {
       const entry = live.get(session.id);
       if (key === 'playgroundController') return entry?.marker;
       if (key === 'sessionListMetadata') return { blank: entry.blank };
-      return { task: null };
+      return entry?.task ?? { task: null };
     } },
     workingDirectory: { get: (session) => session.cwd },
     commands: { async execute(agent, input) {
       assert.equal(input, `/${controllerCommand}`);
       const entry = live.get(agent.id);
       const result = options.markerFails ? { kind: 'error', text: 'marker unavailable' } : controller.initialize({ agent });
-      entry.marker = controllerProjection.apply(entry.marker, { type: 'command/done', data: { commandId: 'cmd-1', ...result } });
+      entry.marker = controllerProjection.apply(entry.marker, { seq: 0, type: 'command/done', data: { commandId: 'cmd-1', ...result } });
       return { commandId: 'cmd-1', result };
     } },
     get: (name) => ({
@@ -82,7 +82,7 @@ async function fixture(t) {
         options.enteredFlush?.();
         if (options.flushGate) await options.flushGate;
         const entry = live.get(session.id);
-        disk.set(session.id, snapshot(entry.marker, undefined, entry.blank));
+        disk.set(session.id, snapshot(entry.marker && 'marker' in entry.marker ? entry.marker.marker : entry.marker, undefined, entry.blank));
         return true;
       } },
       subagents: options.codex ? { getProvider: (id) => id === 'codex' && { id } } : undefined,
@@ -111,7 +111,7 @@ test('explicit concurrent creation writes one native session and cold reopening 
   assert.equal(settled, false);
   finishFlush();
   const results = await Promise.all([first, second]);
-  assert.deepEqual(results, Array(2).fill({ kind: 'opened', sessionId: 'session-1', created: true }));
+  assert.deepEqual(results, [{ kind: 'opened', sessionId: 'session-1', created: true }, { kind: 'opened', sessionId: 'session-1', created: false }]);
   assert.equal(f.promptRequests.length, 1);
   const [prompt] = f.promptRequests;
   assert.equal(prompt.sessionId, 'session-1');
@@ -143,7 +143,7 @@ test('forks do not own inherited controller markers and archived controllers are
   assert.equal((await open(f.controller)).code, 'controller_archived');
   assert.deepEqual(f.createRequests, []);
   const fork = { id: 'fork', session: { id: 'fork', cwd: f.workspaces[0].path } };
-  f.live.set('fork', { agent: fork, marker });
+  f.live.set('fork', { agent: fork, marker: { ...controllerProjection.init({ id: 'fork' }, 0), marker } });
   assert.equal(f.controller.owns(fork), false);
   assert.equal(f.controller.context(fork), '');
   f.archived.pop();
@@ -247,7 +247,103 @@ test('the native controller prompt directs Codex only while the registered works
   assert.match(context, /terminal result or error/);
   assert.match(context, /Do not delegate Playground submissions/);
   assert.equal(f.controller.initialize({ agent }).kind, 'error', 'chat commands cannot reinitialize the controller');
+  agent.session.cwd = `${f.workspaces[0].path}/.`;
+  assert.match(f.controller.context(agent), /subagent_codex/, 'directory aliases retain controller guidance');
   agent.session.cwd = f.workspaces[1].path;
   assert.match(f.controller.context(agent), /no longer matches its registered workspace/);
   assert.doesNotMatch(f.controller.context(agent), /subagent_codex/);
+});
+
+
+test('projection replays only the current session marker after its inherited prefix', () => {
+  let state = controllerProjection.init({ id: 'fork' }, 2);
+  const marker = (seq, sessionId) => ({ seq, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: { workspaceId: 'one', sessionId } }) } });
+  state = controllerProjection.apply(state, marker(0, 'ancestor'));
+  state = controllerProjection.apply(state, marker(2, 'fork'));
+  assert.deepEqual(controllerProjection.wire.view(state), { workspaceId: 'one', sessionId: 'fork' });
+  assert.equal(controllerProjection.stateVersion, 2);
+});
+
+test('promotion preserves a nonblank conversation and is idempotent', async (t) => {
+  const f = await fixture(t);
+  const sessionId = 'ordinary';
+  f.workspaces[0].sessionIds.push(sessionId);
+  f.live.set(sessionId, { agent: { id: sessionId, session: { id: sessionId, cwd: f.workspaces[0].path } }, marker: controllerProjection.init({ id: sessionId }, 0), blank: false });
+  const result = await f.controller.promote({ sessionId });
+  assert.deepEqual(result, { kind: 'opened', sessionId, created: false });
+  assert.deepEqual(await f.controller.promote({ sessionId }), result);
+  assert.equal(f.promptRequests.length, 0);
+  assert.equal(f.createRequests.length, 0);
+  assert.equal(f.live.get(sessionId).title, undefined);
+});
+
+test('promotion refuses challenge evidence and serializes with creation', async (t) => {
+  const f = await fixture(t);
+  const sessionId = 'ordinary';
+  f.workspaces[0].sessionIds.push(sessionId);
+  const entry = { agent: { id: sessionId, session: { id: sessionId, cwd: f.workspaces[0].path } }, marker: controllerProjection.init({ id: sessionId }, 0), blank: false, task: { task: null, prepared: null, receipt: null, attemptIds: [7] } };
+  f.live.set(sessionId, entry);
+  assert.equal((await f.controller.promote({ sessionId })).code, 'controller_conflict');
+  entry.task = { task: null };
+  const [promoted, opened] = await Promise.all([f.controller.promote({ sessionId }), open(f.controller)]);
+  assert.equal(promoted.sessionId, opened.sessionId);
+  assert.ok(f.createRequests.length <= 1);
+});
+
+test('task rows require catalog membership and preserve notice and observed terminal evidence', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { getProvider: () => ({}), listChildren: async () => [{ id: 'child', createdAt: 1, mode: 'external', label: 'Work' }] } : previous(name);
+  const previousRead = f.ctx.sessionController.projections;
+  f.ctx.sessionController.projections = async (...args) => {
+    const result = await previousRead(...args);
+    result.values.playgroundControllerNotices = [{ childId: 'child', text: 'actual result' }, { childId: 'other', text: 'not owned' }];
+    return result;
+  };
+  f.controller.observeStart({ id: 'other', runId: 'x', provider: 'codex' });
+  f.controller.observeEnd({ id: 'child', runId: 'run', provider: 'codex', stopReason: 'error' });
+  const result = await f.controller.tasks({ workspaceId: 'one', sessionId });
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].state, 'settled');
+  assert.equal(result.rows[0].terminalText, 'actual result');
+  assert.equal(result.rows[0].liveEnd.stopReason, 'error');
+  assert.deepEqual(await f.controller.tasks({ workspaceId: 'two', sessionId }), { kind: 'unavailable' });
+  f.controller.observeStart({ id: 'child', runId: 'new', provider: 'codex' });
+  assert.equal((await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0].state, 'running');
+});
+
+test('settlement projection excludes inherited events and keeps bounded text', () => {
+  let state = controllerNoticesProjection.init({ id: 'fork' }, 1);
+  const event = (seq, id) => ({ seq, type: 'agent/inbox/spliced', data: { inserted: [{ source: { kind: 'subagent-settled', senderSessionId: id }, content: [{ type: 'text', text: 'result' }] }] } });
+  state = controllerNoticesProjection.apply(state, event(0, 'ancestor-child'));
+  state = controllerNoticesProjection.apply(state, event(1, 'own-child'));
+  assert.deepEqual(controllerNoticesProjection.wire.view(state), [{ childId: 'own-child', text: 'result' }]);
+});
+
+
+test('a failed promotion flush retries without renaming or prompting', async (t) => {
+  const f = await fixture(t);
+  const sessionId = 'ordinary';
+  f.workspaces[0].sessionIds.push(sessionId);
+  f.live.set(sessionId, { agent: { id: sessionId, session: { id: sessionId, cwd: f.workspaces[0].path } }, marker: controllerProjection.init({ id: sessionId }, 0), blank: false });
+  f.options.flush = false;
+  assert.equal((await f.controller.promote({ sessionId })).code, 'controller_init_failed');
+  f.options.flush = true;
+  assert.equal((await f.controller.promote({ sessionId })).sessionId, sessionId);
+  assert.equal(f.live.get(sessionId).title, undefined);
+  assert.equal(f.promptRequests.length, 0);
+});
+
+
+test('verified cold controllers retain their direct task history', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { getProvider: () => ({}), listChildren: async () => [{ id: 'child', createdAt: 1, mode: 'external' }] } : previous(name);
+  f.disk.get(sessionId).values.playgroundControllerNotices = [{ childId: 'child', text: 'saved result' }];
+  const result = await f.restart().tasks({ workspaceId: 'one', sessionId });
+  assert.equal(result.kind, 'ready');
+  assert.equal(result.rows[0].state, 'settled');
+  assert.equal(result.rows[0].terminalText, 'saved result');
 });
