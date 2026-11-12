@@ -4749,3 +4749,86 @@ test('the scoped controller renderer mounts native content only for the verified
   assert.deepEqual(calls, [['conversation.content', { variant: 'embedded', phase: 'active', hero: false }]]);
   assert.notEqual(render(child, { ...props, sessionId: 'controller', useSession: (select) => select({ openState: 'error' }) }), 'native');
 });
+
+test('controller tabs keep the chat occurrence while routing separate library sections and resizing the task pane', async (t) => {
+  const f = await clientFixture(t);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const Main = f.registrations.get('main').Component;
+  const calls = [];
+  const selection = { workspaceId: 'one' };
+  const props = { controllerSelection: selection, useWorkspaces: (fn) => fn({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }),
+    useSessions: (fn) => fn({ ids: [], byId: {} }), inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    openControllerChat: async () => {}, controllerTasks: async () => ({ kind: 'ready', rows: [] }),
+    renderSlot: (name, data) => { calls.push([name, data]); return { type: 'slot', props: { name, data, children: [] } }; } };
+  let tree = f.render(Main, props);
+  f.effects.splice(0).forEach((effect) => cleanups.push(effect()));
+  await settle();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.type === 'slot' && node.props.name === 'playground.controller.session'));
+  const divider = f.find(tree, (node) => node.props?.role === 'separator');
+  divider.props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} });
+  assert.equal(selection.taskWidth, 390);
+  f.find(f.render(Main, props), (node) => node.type === 'button' && text(node) === '赛题').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.type === 'slot' && node.props.name === 'playground.controller.session'));
+  assert.ok(calls.some(([name, data]) => name === 'playground.library' && data.section === 'catalog'));
+  assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
+  f.find(tree, (node) => node.type === 'button' && text(node) === '提交').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(calls.some(([name, data]) => name === 'playground.library' && data.section === 'submissions'));
+  const catalog = f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog');
+  assert.equal(catalog.props.style.display, 'none');
+  assert.equal(f.find(catalog, (node) => node.type === 'slot').props.data.active, false);
+  assert.equal(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions').props.style.display, 'flex');
+  f.find(tree, (node) => node.props?.['aria-label'] === '连接设置').props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.tabIndex, 0);
+  assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
+  f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
+  assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
+  assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions'));
+});
+
+test('task detail renders recognized result text with a preserved raw notice and keeps unknown states honest', async (t) => {
+  const f = await clientFixture(t);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const Main = f.registrations.get('main').Component;
+  const raw = 'Background subagent child finished. It cannot receive follow-up messages.\nIts closing message:\n# Result\n- Complete';
+  const rows = [{ childId: 'child', label: 'Work', provider: 'codex', state: 'settled', terminalText: raw }, { childId: 'unknown', label: 'Pending', state: 'unknown' }, { childId: 'odd', label: 'Other', state: 'settled', terminalText: 'Unrecognized notification\nIts closing message:\nKeep everything' }, { childId: 'live', label: 'Live', state: 'settled', terminalText: raw, liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'Actual output' }] } }];
+  const factory = [];
+  const props = { controllerSelection: { workspaceId: 'one' }, useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }), useSessions: (fn) => fn({ ids: [], byId: {} }),
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    controllerTasks: async () => ({ kind: 'ready', rows }), renderSlot: () => null,
+    renderFactorySlot: (name, input, options) => { factory.push([name, input, options]); return { type: 'markdown', props: { children: [input.text] } }; } };
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  let tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Work')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, '# Result\n- Complete');
+  assert.equal(factory.at(-1)[2].fallback.type, 'pre');
+  assert.match(text(f.render(Main, { ...props, renderFactorySlot: undefined })), /# Result/);
+  assert.ok(f.find(tree, (node) => node.type === 'details' && text(node).includes(raw)));
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Pending')).props.onClick();
+  tree = f.render(Main, props);
+  assert.match(text(tree), /暂无执行回执/);
+  assert.match(text(tree), /不表示任务失败/);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Other')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, 'Unrecognized notification\nIts closing message:\nKeep everything');
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Live')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, 'Actual output');
+  assert.match(text(tree), /运行出错/);
+  assert.ok(f.find(tree, (node) => node.type === 'details' && text(node).includes(raw)));
+});

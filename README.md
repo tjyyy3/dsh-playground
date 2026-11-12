@@ -40,7 +40,7 @@ and can consume a platform submission slot.
 
 ## Try a workspace controller
 
-Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation; a task whose state is unavailable remains unknown. Use **赛题与提交** for challenges and submissions, and **连接设置** for authentication.
+Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation; a task whose state is unavailable remains unknown. Use **赛题** for challenges, **提交** for task submissions, and **连接设置** for authentication.
 
 To keep working in an ordinary conversation, open Playground from it, select its workspace, and click **把当前对话设为主控**. The conversation and its history stay in place. If the workspace already has a controller, Playground opens that controller instead. Challenge task conversations cannot be promoted. An empty conversation receives one initialization message so DSH keeps it as a distinct session.
 
@@ -277,16 +277,16 @@ expandable details section. Details project selected business facts rather
 than raw CLI output, credentials, account details or local paths; expanding a
 card never reruns it.
 
-In v0.4.4, **Playground** in the native left navigation opens a global workbench
-with a Playground login area (an API token, or email and password under
-**其他登录方式**, see [Authentication](#authentication)) and an authentication
-status check.
-The plugin no longer adds any controls above the composer. The workbench uses
-DSH's existing session catalog, workspace paths and persisted task projections;
-it does not embed the website or create a separate conversation store.
-The workbench now keeps the connection status in a full-width header card, then
-uses two adjustable columns by default: a searchable competition/challenge
-catalog on the left and task summaries on the right. Choose a
+**Playground** in the native left navigation opens the workbench. Choose a registered
+workspace to open or create its controller conversation. The **对话**, **赛题**,
+and **提交** tabs keep the controller available while you browse challenges and
+task submissions. Connection settings are in the toolbar. The task sidebar shows
+delegated work and its available results; drag its divider or use the keyboard to
+resize it. An unavailable receipt does not mean the task failed.
+
+The plugin uses DSH's existing session catalog, workspace paths and persisted task
+projections. It does not embed the website or create a separate conversation store.
+Choose a
 readable challenge card and click **开始参赛任务**, then
 select and confirm the destination workspace. The same confirmation applies
 to start buttons in chat result cards. The challenge id stays an implementation

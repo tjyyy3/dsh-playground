@@ -347,3 +347,24 @@ test('verified cold controllers retain their direct task history', async (t) => 
   assert.equal(result.rows[0].state, 'settled');
   assert.equal(result.rows[0].terminalText, 'saved result');
 });
+
+test('only owned first user input with the exact Mnemon marker is grouped as maintenance', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const children = ['marked', 'lookalike', 'inherited', 'missing', 'external'].map((id) => ({ id, createdAt: 1, mode: id === 'external' ? 'external' : 'one-shot' }));
+  const reads = [];
+  const message = (seq, text) => ({ seq, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } });
+  const records = {
+    marked: { inheritedEventCount: 0, events: [message(0, '[dsh-mnemon:delegated review]\nReview')] },
+    lookalike: { inheritedEventCount: 0, events: [message(0, 'please run [dsh-mnemon:delegated review]')] },
+    inherited: { inheritedEventCount: 1, events: [message(0, '[dsh-mnemon:delegated review]'), message(1, 'regular work')] },
+  };
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { getProvider: () => ({}), listChildren: async () => children }
+    : name === 'sessionQuery' ? { readSession: async (id) => { reads.push(id); if (!records[id]) throw Error('unavailable'); return records[id]; } } : previous(name);
+  let result = await f.controller.tasks({ workspaceId: 'one', sessionId });
+  assert.deepEqual(result.rows.filter((row) => row.category === 'maintenance').map((row) => row.childId), ['marked']);
+  result = await f.controller.tasks({ workspaceId: 'one', sessionId });
+  assert.equal(result.rows.length, 5);
+  assert.deepEqual(reads.sort(), ['inherited', 'lookalike', 'marked', 'missing']);
+});
