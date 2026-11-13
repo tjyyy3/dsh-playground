@@ -662,6 +662,98 @@ window.__ModuleLoader__.load({
                 loginError ? h('p', { className: 'pg-error', role: 'alert' }, loginError) : null))));
     }
 
+    const RELEASE_CHANNEL_KEY = 'playground.release.channel';
+    const RELEASE_CHANNEL_LABELS = { stable: '正式版', beta: 'Beta' };
+    const releaseCss = `
+      .pg-release{margin-top:12px;overflow-wrap:anywhere}.pg-release-version strong{color:var(--dsw-alias-label-primary)}.pg-release .pg-error{color:var(--pg-error)}
+      .pg-release-controls{align-items:flex-end;justify-content:flex-start;margin-top:10px}.pg-release-controls label{display:grid;gap:4px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}
+      .pg-release-link{box-sizing:border-box;display:inline-flex;align-items:center;text-decoration:none}.pg-release-steps{margin:8px 0 0;padding-inline-start:1.5em;line-height:1.6}.pg-release-steps li+li{margin-top:4px}
+    `;
+
+    function ReleaseStatusPanel({ query }) {
+      const [channel, setChannel] = React.useState(() => {
+        try { return window.localStorage?.getItem(RELEASE_CHANNEL_KEY) === 'beta' ? 'beta' : 'stable'; }
+        catch { return 'stable'; }
+      });
+      const [running, setRunning] = React.useState(null);
+      const [release, setRelease] = React.useState({ status: 'loading' });
+      const [latest] = React.useState(() => ({ controller: null }));
+      const cancel = () => { latest.controller?.abort(); latest.controller = null; };
+      const load = async (check) => {
+        cancel();
+        const controller = new AbortController();
+        latest.controller = controller;
+        setRelease({ status: check ? 'checking' : 'loading' });
+        try {
+          const next = await query({ action: 'releases', channel, check }, controller.signal);
+          if (latest.controller !== controller) return;
+          if (!['ready', 'unchecked', 'unavailable'].includes(next?.status) || next.channel !== channel) {
+            setRelease({ status: 'unavailable' });
+            return;
+          }
+          setRunning({ version: next.currentVersion, channel: next.currentChannel });
+          setRelease(next);
+        } catch {
+          if (latest.controller === controller) setRelease({ status: 'unavailable' });
+        }
+      };
+      React.useEffect(() => { load(false); return cancel; }, [query]);
+
+      const chooseChannel = (event) => {
+        const next = event.target.value;
+        if (next === channel) return;
+        cancel();
+        setChannel(next);
+        setRelease({ status: 'unchecked' });
+        try { window.localStorage?.setItem(RELEASE_CHANNEL_KEY, next); } catch {}
+      };
+      const { status, comparison } = release;
+      const target = status === 'ready' ? release.target : null;
+      const runningChannel = RELEASE_CHANNEL_LABELS[running?.channel];
+      const targetChannel = target?.prerelease ? RELEASE_CHANNEL_LABELS.beta : RELEASE_CHANNEL_LABELS.stable;
+      const targetLabel = target ? `${target.version}（${targetChannel}）` : '';
+      const notesUrl = openableWebUrl(target?.notesUrl);
+      const downloadUrl = openableWebUrl(target?.downloadUrl);
+      const canReadNotes = notesUrl?.startsWith('https://');
+      const canDownload = downloadUrl?.startsWith('https://');
+      const statusText = {
+        unchecked: '尚未检查更新。',
+        checking: '正在检查发布版本…',
+        unavailable: '无法读取发布版本，请重试。',
+        ready: target ? {
+          current: `当前已运行此版本（${targetChannel}）。`,
+          upgrade: `可升级至 ${targetLabel}。`,
+          downgrade: `可降级至 ${targetLabel}。`,
+        }[comparison] || `已发布 ${targetLabel}。` : channel === 'beta' ? 'Beta 渠道暂无发布。' : '暂无稳定版发布。',
+      }[status];
+
+      return h('section', { className: 'pg-guide pg-release', 'aria-label': 'Playground 版本与更新' },
+        h('style', null, releaseCss),
+        h('h2', { className: 'pg-brand' }, 'Playground 版本与更新'),
+        h('p', { className: 'pg-note pg-release-version' }, running?.version
+          ? h(React.Fragment, null, '当前运行版本 ', h('strong', null, running.version), runningChannel ? ` · ${runningChannel}` : '')
+          : status === 'loading' ? '正在读取运行版本…' : '无法读取运行版本。'),
+        h('div', { className: 'pg-head pg-release-controls' },
+          h('label', null, '查看更新渠道', h('select', { className: 'pg-button', value: channel, onChange: chooseChannel, disabled: status === 'loading' },
+            Object.entries(RELEASE_CHANNEL_LABELS).map(([value, label]) => h('option', { key: value, value }, label)))),
+          h('button', { type: 'button', className: 'pg-button', disabled: status === 'loading' || status === 'checking', onClick: () => load(true) },
+            status === 'checking' ? '正在检查…' : status === 'unavailable' ? '重试检查' : '检查更新')),
+        channel === 'beta' ? h('p', { className: 'pg-note' }, 'Beta 提供抢先功能，可能不稳定。') : null,
+        h('p', { className: status === 'unavailable' ? 'pg-note pg-error' : 'pg-note', role: 'status' }, statusText),
+        target ? h(React.Fragment, null,
+          canReadNotes || canDownload ? h('div', { className: 'pg-actions' },
+            canReadNotes ? h('a', { className: 'pg-button pg-release-link', href: notesUrl, target: '_blank', rel: 'noopener noreferrer' }, '发布说明') : null,
+            canDownload ? h('a', { className: 'pg-button pg-release-link', href: downloadUrl, target: '_blank', rel: 'noopener noreferrer' }, '下载 .tgz 安装包') : null) : null,
+          canDownload ? h('details', { className: 'pg-raw', key: `${channel}:${target.version}` },
+            h('summary', null, '查看手动安装步骤'),
+            h('ol', { className: 'pg-release-steps' },
+              h('li', null, '保存下载的原始 .tgz 文件，无需解压。'),
+              h('li', null, '旧版 DSH 如需先卸载，请在 DSH 的「插件」页只卸载 Playground。'),
+              h('li', null, '打开「添加插件 → 安装第三方插件」，输入 .tgz 文件的完整路径。'),
+              h('li', null, '按提示启用插件并重启 DSH，再回到这里核对当前运行版本。')))
+            : h('p', { className: 'pg-note' }, '此版本未提供可下载的安装包。')) : null);
+    }
+
     // The competition selector. The Host returns built-in competitions (queried by `competition`) and API
     // seasons the table lacks (queried by `season`); the select value says which. A bare value is a season slug.
     const COMPETITION_GROUPS = [['live', '进行中'], ['upcoming', '即将开始'], ['ended', '已结束']];
@@ -1626,7 +1718,7 @@ window.__ModuleLoader__.load({
       const [dispatchControls] = React.useState(() => ({ busy: false }));
       const [authStatus, setAuthStatus] = React.useState('checking');
       const [visited] = React.useState(() => new Set());
-      if (view === 'catalog' || view === 'submissions') visited.add(view);
+      if (view === 'catalog' || view === 'submissions' || view === 'settings') visited.add(view);
       const [preferences] = React.useState(() => {
         try { return JSON.parse(window.localStorage?.getItem('playground.controller.pane') || '{}'); } catch { return {}; }
       });
@@ -1854,7 +1946,9 @@ window.__ModuleLoader__.load({
               } }),
               error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
               : renderSlot('playground.controller.session', { expectedId })),
-          h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } }, h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus })),
+          h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } },
+            h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
+            visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query }) : null),
           ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff } : {}) })) : null),
           view === 'controller' && showTasks ? h(React.Fragment, null,
             h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': '调整任务侧栏宽度', 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,

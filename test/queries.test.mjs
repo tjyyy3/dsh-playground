@@ -47,6 +47,26 @@ test('the session-free query contract admits only reads and forwards cancellatio
   assert.equal(descriptor.cancellation.parameter, 'signal');
 });
 
+test('the release query takes an explicit channel and check flag and forwards cancellation', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  const result = { currentVersion: '1.1.0-beta.1', currentChannel: 'beta', channel: 'stable',
+    status: 'ready', target: null, comparison: null };
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } },
+    {}, {}, async (input, exec) => { calls.push([input, exec]); return result; });
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  const input = { action: 'releases', channel: 'stable', check: true };
+  assert.deepEqual(await services.get('playgroundQueries').query(schema.parse(input), signal), result);
+  assert.deepEqual(calls, [[input, { signal }]]);
+  assert.equal(schema.safeParse({ action: 'releases', channel: 'beta', check: false }).success, true);
+  for (const invalid of [{ channel: 'preview' }, { channel: undefined }, { check: 'true' }, { check: undefined },
+    { version: '1.0.0' }, { install: true }, { url: 'https://other.test' }]) {
+    assert.equal(schema.safeParse({ ...input, ...invalid }).success, false, JSON.stringify(invalid));
+  }
+});
+
 test('the catalog query accepts a competition only by an id of the built-in table', async () => {
   const services = new Map();
   const calls = [];

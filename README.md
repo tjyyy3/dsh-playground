@@ -1,6 +1,6 @@
 # Playground 比赛助手（DSH 插件）
 
-![预览版 0.5.0-preview.7](https://img.shields.io/badge/preview-0.5.0--preview.7-blue)
+![预览版 0.5.0-preview.8](https://img.shields.io/badge/preview-0.5.0--preview.8-blue)
 
 在 DeepSeek Harness（DSH）里浏览赛题，让工作区主控分派任务、汇总结果，并查看提交历史和评分。
 
@@ -42,7 +42,11 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 
 ## 更新和反馈
 
-在 DSH 的 **插件** 页打开 Playground 的详情，按页面提示更新或卸载。使用本地包试用时，向维护者索取新版本的 `.tgz`。
+打开 Playground 的 **连接设置**，在 **版本与更新** 中查看当前运行版本，并选择正式版或 Beta 检查更新。Beta 提供抢先功能，也更可能遇到问题。选择渠道后，点击 **检查更新** 才会访问 GitHub。正式版只列正式发布，Beta 也包含更新的正式发布。
+
+发布版本可从卡片打开更新说明或下载 `.tgz`。旧版 DSH 可能要求先在 **插件** 页卸载 Playground，再通过 **添加插件** 输入安装包的完整路径。重新启动后，核对卡片中的运行版本。遇到问题可从 [Releases](https://github.com/tjyyy3/dsh-playground/releases) 选择已验证兼容的旧版安装包。暂无发布时，卡片会明确提示。
+
+维护者的打包、发版及回退验证流程见 [发布指南](guide/releases.md)。
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 
