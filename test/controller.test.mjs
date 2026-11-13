@@ -117,7 +117,7 @@ test('handoff resumes the exact initialized workspace controller and queues a re
   assert.equal(f.admitted.size, 1);
   assert.deepEqual(f.promptRequests.map(({ sessionId, requestId, mode }) => [sessionId, requestId, mode]),
     Array(2).fill(['controller', `playground-dispatch:${handoff.requestId}`, 'queue']));
-  assert.match(f.promptRequests[0].content[0].text, /"a b\/c".*子代理.*专用子目录.*不授权提交评测/);
+  assert.match(f.promptRequests[0].content[0].text, /"a b\/c".*子智能体.*专用子目录.*不授权提交评测/);
 });
 
 test('handoff rejects missing, archived, stale, conflicting and uninitialized controller targets', async (t) => {
@@ -295,14 +295,16 @@ test('a native workspace attach failure reports its created session instead of c
   assert.deepEqual(f.createRequests, [{ workspaceId: 'one' }]);
 });
 
-test('the native controller prompt directs Codex only while the registered workspace matches', async (t) => {
+test('controller guidance delegates solution work to a separate DSH child when Codex cannot run', async (t) => {
   const f = await fixture(t);
   const { sessionId } = await open(f.controller);
   const { agent } = f.live.get(sessionId);
   const context = f.controller.context(agent);
   assert.ok(context.includes(JSON.stringify(f.workspaces[0].path)));
   assert.match(context, /subagent_codex/);
-  assert.match(context, /terminal result or error/);
+  assert.match(context, /native DSH subagent tool.*Codex is unavailable.*fresh separate DSH conversation/);
+  assert.match(context, /If Codex cannot start or ends with a failure.*delegate the unfinished work/);
+  assert.match(context, /Never solve the challenge in this controller conversation/);
   assert.match(context, /Do not delegate Playground submissions/);
   assert.equal(f.controller.initialize({ agent }).kind, 'error', 'chat commands cannot reinitialize the controller');
   agent.session.cwd = `${f.workspaces[0].path}/.`;

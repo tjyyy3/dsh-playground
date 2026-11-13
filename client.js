@@ -1610,7 +1610,7 @@ window.__ModuleLoader__.load({
     }
 
     function ControllerPanel(props) {
-      const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, promoteController, controllerTasks, dispatchChallenge } = props;
+      const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
       const workspaces = useWorkspaces((value) => value);
       const sessions = useSessions((value) => value);
       const controllerTarget = useControllerTarget((value) => value);
@@ -1634,7 +1634,7 @@ window.__ModuleLoader__.load({
       const [taskWidth, setTaskWidth] = React.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
       const [selectedTask, setSelectedTask] = React.useState('');
       const [showMaintenance, setShowMaintenance] = React.useState(false);
-      const [copyStatus, setCopyStatus] = React.useState('');
+      const [taskActionStatus, setTaskActionStatus] = React.useState('');
       const [pane] = React.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: new Map(), focus: '', drag: null }));
       const savePane = (change) => { Object.assign(preferences, change); try { window.localStorage?.setItem('playground.controller.pane', JSON.stringify(preferences)); } catch {} };
       const resize = (width) => { const next = Math.min(520, Math.max(300, width)); props.controllerSelection.taskWidth = next; savePane({ width: next }); setTaskWidth(next); };
@@ -1816,7 +1816,9 @@ window.__ModuleLoader__.load({
         }
       }
       const row = tasks?.rows?.find((item) => item.childId === selectedTask);
-      const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setCopyStatus(''); setSelectedTask(item.childId); } },
+      const childAddress = expectedId && (row?.mode === 'continuable' || row?.mode === 'one-shot')
+        ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
+      const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
         h('strong', null, item.label || '未命名任务'), h('span', null, [item.provider, taskState(item)].filter(Boolean).join(' · ')));
       return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
         h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
@@ -1867,10 +1869,16 @@ window.__ModuleLoader__.load({
                   : row ? h('div', { className: 'pg-controller-detail' },
                     h('button', { className: 'pg-controller-back', ref: (node) => { pane.back = node; }, onClick: () => { pane.focus = row.childId; setSelectedTask(''); } }, '返回任务'),
                     h('h3', null, row.label || '未命名任务'), h('p', null, [row.provider, taskState(row)].filter(Boolean).join(' · ')),
+                    childAddress ? h('button', { className: 'pg-controller-back', onClick: async () => {
+                      setTaskActionStatus('');
+                      try { await openTask(childAddress); }
+                      catch { setTaskActionStatus('无法打开子智能体对话，请重试。'); }
+                    } }, '打开子智能体对话') : null,
                     row.state === 'unknown' && !row.liveEnd ? h('p', null, '未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。') : null,
                     row.liveEnd ? h('p', null, `本次运行结束：${({ completed: '完成', aborted: '已中止', 'max-tokens': '达到输出上限', refusal: '拒绝', error: '出错' })[row.liveEnd.stopReason] || row.liveEnd.stopReason}`) : null,
                     taskOutput(row) ? h('div', { className: 'pg-controller-markdown' }, typeof renderFactorySlot === 'function' ? renderFactorySlot('conversation.chat.reasoning.content', { text: taskOutput(row), running: false }, { fallback: h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row)) }) : h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row))) : null,
-                    taskOutput(row) ? h('div', null, h('button', { className: 'pg-controller-back', onClick: async () => { try { await navigator.clipboard.writeText(taskOutput(row)); setCopyStatus('已复制结果'); } catch { setCopyStatus('无法复制，请选择文本后复制。'); } } }, '复制结果'), h('span', { role: 'status' }, copyStatus)) : null,
+                    taskOutput(row) ? h('button', { className: 'pg-controller-back', onClick: async () => { try { await navigator.clipboard.writeText(taskOutput(row)); setTaskActionStatus('已复制结果'); } catch { setTaskActionStatus('无法复制，请选择文本后复制。'); } } }, '复制结果') : null,
+                    taskActionStatus ? h('p', { role: 'status' }, taskActionStatus) : null,
                     row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, '原始通知'), h('pre', null, row.terminalText)) : null)
                   : !tasks.rows.length ? h('p', null, '还没有派发任务。') : h(React.Fragment, null,
                     tasks.rows.filter((item) => item.category !== 'maintenance').map(listRow),
@@ -2116,14 +2124,14 @@ window.__ModuleLoader__.load({
           (error || controllerError) ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error || controllerError) : null,
           needsInitialization ? h('p', { className: 'pg-task-hint' }, '初始化会请当前 DSH 模型确认主控角色。') : null,
           snapshot?.codex ? h('p', { className: 'pg-task-hint' }, snapshot.codex === 'registered'
-            ? '已检测到官方 Codex 子代理。执行结果会显示在主控对话中。' : '未检测到 Codex 子代理。要派发任务，请先在当前 DSH Profile 启用官方 Codex 子代理。') : null,
+            ? '已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体。' : '未启用 Codex 时，主控可将工作交给 DSH 子智能体，在独立对话中执行。') : null,
           h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: async () => {
             setAdding(true); setError('');
             try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
             catch (failure) { setError(failure.message); } finally { setAdding(false); }
           } }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…'))),
       h('footer', { className: 'pg-task-footer' },
-        h('p', null, controller ? '主控可协调工作和派发 Codex 任务。赛题提交在独立任务对话中完成。' : '将在所选目录创建独立对话并读写任务文件。'),
+        h('p', null, controller ? '主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。' : '将在所选目录创建独立对话并读写任务文件。'),
         h('div', { className: 'pg-task-actions' },
           h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
           h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy,

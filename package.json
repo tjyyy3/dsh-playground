@@ -1,6 +1,6 @@
 {
   "name": "@playground/dsh-playground",
-  "version": "0.5.0-preview.6",
+  "version": "0.5.0-preview.7",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,9 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "guide/*.md",
+    "assets/*.png"
   ],
   "engines": {
     "node": ">=24"
