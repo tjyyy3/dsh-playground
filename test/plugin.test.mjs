@@ -405,7 +405,7 @@ test('M-01: confirmation command returns an error when the workflow throws', asy
   const scope = {
     tools: { register() {} },
     commands: { register: (command) => commands.push(command) },
-    sessionProjections: { register() {} },
+    sessionProjections: { register() {}, stateOf: () => undefined },
     inject() {},
   };
   apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
