@@ -29,6 +29,14 @@ async function fixture(t) {
   const ctx = {
     workspaceRegistry: { list: () => workspaces, archivedSessionIds: archived, resolveByPath: async (path) => workspaces.find((item) => item.path === path) },
     sessionController: {
+      async resolveAgent(sessionId) {
+        const workspace = workspaces.find((item) => item.sessionIds.includes(sessionId));
+        const value = disk.get(sessionId)?.values;
+        if (!workspace || !value) return { error: new Error('not found') };
+        const agent = { id: sessionId, session: { id: sessionId, cwd: options.resumeCwd || workspace.path } };
+        live.set(sessionId, { agent, marker: { marker: value.playgroundController }, blank: value.sessionListMetadata.blank, task: value.playgroundTask });
+        return { agent };
+      },
       async projections({ sessionId }, signal) {
         signal.throwIfAborted();
         if (options.brokenRead === sessionId) throw Error('projection unreadable');
@@ -93,6 +101,56 @@ async function fixture(t) {
 }
 
 const open = (controller, workspaceId = 'one', createIfMissing = true) => controller.open({ workspaceId, createIfMissing });
+
+const handoff = { workspaceId: 'one', sessionId: 'controller', challengeId: 'a b/c', requestId: '98bcdf27-3bfb-4120-8ad2-06c2eca5810d' };
+
+test('handoff resumes the exact initialized workspace controller and queues a retry-safe challenge prompt', async (t) => {
+  const f = await fixture(t);
+  f.put('one', 'controller', f.snapshot({ workspaceId: 'one', sessionId: 'controller' }));
+  f.put('two', 'other', f.snapshot({ workspaceId: 'two', sessionId: 'other' }));
+  f.options.loseAcknowledgement = true;
+  await assert.rejects(f.controller.dispatch(handoff), /acknowledgement lost/);
+  f.options.loseAcknowledgement = false;
+  assert.deepEqual(await f.controller.dispatch(handoff), { kind: 'accepted', sessionId: 'controller' });
+  assert.equal(f.live.has('other'), false);
+  assert.equal(f.createRequests.length, 0);
+  assert.equal(f.admitted.size, 1);
+  assert.deepEqual(f.promptRequests.map(({ sessionId, requestId, mode }) => [sessionId, requestId, mode]),
+    Array(2).fill(['controller', `playground-dispatch:${handoff.requestId}`, 'queue']));
+  assert.match(f.promptRequests[0].content[0].text, /"a b\/c".*子代理.*专用子目录.*不授权提交评测/);
+});
+
+test('handoff rejects missing, archived, stale, conflicting and uninitialized controller targets', async (t) => {
+  const f = await fixture(t);
+  const { workspaceId, sessionId } = handoff;
+  const marker = { workspaceId, sessionId };
+  assert.equal((await f.controller.dispatch({ ...handoff, workspaceId: 'removed' })).code, 'workspace_missing');
+  assert.equal((await f.controller.dispatch(handoff)).code, 'controller_missing');
+  f.put(workspaceId, sessionId, f.snapshot(marker, undefined, true));
+  assert.equal((await f.controller.dispatch(handoff)).code, 'controller_init_required');
+  f.disk.set(sessionId, f.snapshot(marker));
+  assert.equal((await f.controller.dispatch({ ...handoff, sessionId: 'wrong' })).code, 'controller_changed');
+  f.archived.push(sessionId);
+  assert.equal((await f.controller.dispatch(handoff)).code, 'controller_archived');
+  f.archived.pop();
+  f.options.resumeCwd = f.workspaces[1].path;
+  assert.equal((await f.controller.dispatch(handoff)).code, 'workspace_mismatch');
+  f.live.delete(sessionId);
+  f.put(workspaceId, 'second', f.snapshot({ workspaceId, sessionId: 'second' }));
+  assert.equal((await f.controller.dispatch(handoff)).code, 'controller_conflict');
+  assert.deepEqual(f.promptRequests, []);
+  assert.deepEqual(f.createRequests, []);
+});
+
+test('handoff reports a native rejection and never claims admission', async (t) => {
+  const f = await fixture(t);
+  const { workspaceId, sessionId } = handoff;
+  f.put(workspaceId, sessionId, f.snapshot({ workspaceId, sessionId }));
+  f.options.rejectPrompt = true;
+  assert.equal((await f.controller.dispatch(handoff)).code, 'dispatch_rejected');
+  assert.equal(f.promptRequests.length, 1);
+  assert.equal(f.admitted.size, 0);
+});
 
 test('explicit concurrent creation writes one native session and cold reopening keeps its id', async (t) => {
   const f = await fixture(t);

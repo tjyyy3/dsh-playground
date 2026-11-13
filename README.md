@@ -48,18 +48,14 @@ To delegate to Codex, enable the official Codex subagent in your DSH Profile and
 
 ## MVP: from task to evaluation
 
-1. Search/read challenges in an exploration conversation, or open
-   **Playground** in DSH's left navigation. Use the readable competition and
-   challenge catalog and click **开始参赛任务**. The plugin
-   asks you to select a DSH workspace and confirm its full path before creating
-   a fresh native DSH session with the selected challenge; the
-   exploration conversation remains intact. You do not need to type a challenge
-   id by hand.
-2. The workspace dialog lists DSH's registered workspaces. **添加工作区…** uses
-   DSH's native directory picker to register another directory. Choosing a
-   directory does not start a task: click **创建参赛任务**
-   to continue, or cancel without creating a conversation. Every UI start
-   requires this confirmation.
+1. Open **Playground → 赛题** in DSH and click **交给主控** on a challenge. If the
+   selected workspace has an initialized controller, Playground sends it the
+   challenge and opens its conversation. Otherwise, select a workspace and
+   confirm the handoff. Use **创建主控并交接** if the workspace needs a controller.
+2. To create a separate challenge task from a chat result card, click
+   **开始参赛任务** and confirm the target workspace. **添加工作区…** uses DSH's
+   native directory picker to register another directory. Click **创建参赛任务**
+   to create the task conversation.
    Work using DSH's existing chat, files and workspace features. Agent calls to
    `playground_start_task` pass the absolute `cwd` of a registered DSH
    workspace: the directory you name, or the current conversation's workspace
@@ -265,9 +261,9 @@ their Chinese/English translations.
 Login status checks and catalog loading, refresh, search, and filtering use a
 session-free read-only Host query. Their status and errors stay in the workbench;
 they do not append commands to any conversation, and browsing works without an
-open conversation. Creating tasks, checking materials, and confirming
-submissions continue to use the session workflow, so the catalog's start
-buttons stay disabled until a conversation with command access is open.
+open conversation. **交给主控** sends a request to the controller of the selected
+workspace. Creating a separate challenge task, checking materials, and
+confirming submissions use the session workflow.
 
 Chat no longer shows the login-status and catalog cards that older plugin
 versions wrote automatically into open conversations; the stored history is
@@ -286,11 +282,10 @@ resize it. An unavailable receipt does not mean the task failed.
 
 The plugin uses DSH's existing session catalog, workspace paths and persisted task
 projections. It does not embed the website or create a separate conversation store.
-Choose a
-readable challenge card and click **开始参赛任务**, then
-select and confirm the destination workspace. The same confirmation applies
-to start buttons in chat result cards. The challenge id stays an implementation
-detail. **在网页中打开** on a challenge card opens the challenge's platform page,
+Click **交给主控** on a challenge card to ask the selected workspace's controller
+to read the challenge, delegate work, and report results in its conversation.
+If the workspace or controller still needs setup, confirm the handoff after
+selecting a workspace. **在网页中打开** on a challenge card opens the challenge's platform page,
 `<site root>/challenge/<encoded challenge id>` (for example
 `https://play.bohrium.com/challenge/ai-github-98fdb6f0`). DSH desktop opens it
 in the system browser; in a browser profile it opens in a new tab. It needs no
@@ -439,7 +434,7 @@ answer for at most one second. Either way the catalog still answers, and 学科
 then offers only 全部学科 and 其他. The workbench keeps the first choices it
 receives for as long as the panel is open.
 
-**查看详情** on a challenge card opens a challenge detail drawer on the right.
+Click a challenge card or its **查看详情** button to open the detail drawer on the right.
 It closes with **关闭**, a click on the backdrop, or Escape. Both drawers
 (this one and the task drawer below) move keyboard focus to their title when
 they open and keep Tab and Shift+Tab inside the drawer, also from an element
@@ -467,8 +462,7 @@ kept, without markdown formatting, and scrolls inside the drawer. The Host
 sends at most 50,000 characters of it and marks a longer statement as cut. A
 statement that needs access permission shows **题面需要权限，请在网页中查看**.
 A failed read shows a fixed message and **重试**, never the raw error.
-**开始参赛任务** in the drawer closes it and opens the same workspace selection
-and confirmation as the card; it is disabled in the same cases.
+**交给主控** in the drawer closes it and starts the same handoff as the card.
 **在网页中打开** opens the same page as the card's button.
 
 The right column lists only

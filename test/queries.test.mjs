@@ -3,6 +3,25 @@ import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 
+test('challenge dispatch admits only the exact workspace, session, challenge and request identities', async () => {
+  let service;
+  let invocations;
+  const calls = [];
+  registerWorkbenchQueries({ provide: (_name, value) => { service = value; }, typert: { register: (value) => { invocations = value.invocations; } } }, {}, {
+    dispatch: async (input, signal) => { calls.push([input, signal]); return { kind: 'accepted', sessionId: input.sessionId }; },
+  });
+  const descriptor = invocations.find(({ method }) => method === 'dispatchChallenge');
+  const schema = descriptor.parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  const input = { workspaceId: 'workspace-a', sessionId: 'controller-a', challengeId: 'a b/c', requestId: '98bcdf27-3bfb-4120-8ad2-06c2eca5810d' };
+  assert.deepEqual(await service.dispatchChallenge(schema.parse(input), signal), { kind: 'accepted', sessionId: 'controller-a' });
+  assert.deepEqual(calls, [[input, signal]]);
+  for (const invalid of [{ ...input, title: 'other' }, { ...input, prompt: 'other' }, { ...input, workspaceId: '' },
+    { ...input, sessionId: undefined }, { ...input, challengeId: ' ' }, { ...input, requestId: 'random' }]) {
+    assert.equal(schema.safeParse(invalid).success, false);
+  }
+});
+
 // Client-side behavior of the workbench reads is covered in client.test.mjs.
 test('the session-free query contract admits only reads and forwards cancellation', async () => {
   const services = new Map();

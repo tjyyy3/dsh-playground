@@ -11,7 +11,10 @@ show delegated tasks beside it. Use flat regions and concise labels.
 Use DSH semantic variables for text, surfaces, borders, hover and error states.
 The controller uses `--dsw-alias-label-primary`, `--dsw-alias-label-secondary`,
 `--dsw-alias-bg-base` and `--dsw-alias-border-l3`. Do not replace the host theme
-with fixed light colors. Selection uses the existing Playground accent.
+with fixed light colors. Primary buttons use `--dsw-alias-button-primary-fill`,
+`--dsw-alias-button-primary-hover` and `--dsw-alias-label-primary-foreground`.
+Scope controller header rules to that header so they cannot override button
+variants or task-row backgrounds inside the workbench.
 
 ## Typography
 
@@ -30,12 +33,23 @@ and can be resized from 300 to 520 px by pointer or keyboard. When the content
 region is 720 px wide or less, the pane overlays the conversation. Its close
 action and Escape return focus to the toggle.
 
+Challenge and submission detail drawers share a 640 px width, limited to the
+viewport width. Leave room for native window controls at the top. Headings wrap;
+close buttons keep their label on one line.
+
 ## Elevation & Depth
 
 Use borders between regions. Only the narrow task overlay uses a shadow to
 distinguish it from the conversation underneath.
 
 ## Components
+
+Challenge cards open details across their non-action area. A real detail button
+provides keyboard access; the handoff and website buttons remain separate.
+The primary catalog action is 交给主控. It uses the selected workspace controller
+or gives inline setup guidance, retaining the selected challenge. Creation and
+initialization require an explicit action. A received request is distinct from
+a completed child task or permission to submit.
 
 Task rows show a title and observed execution state. Selecting one opens its
 details with a return action, formatted result, copy action and an expandable
