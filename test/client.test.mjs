@@ -505,7 +505,7 @@ test('the controller dialog inspects the selected workspace and opens native cha
   }
   let { dialog, tree } = await inspectSelected();
   assert.match(text(tree), /\/workspace-b/);
-  assert.match(text(tree), /启用官方 Codex 子代理/);
+  assert.match(text(tree), /DSH 子智能体.*独立对话/);
   assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
   assert.deepEqual(calls, [['/api', 'playgroundQueries/inspectController', { workspaceId: 'b' }]]);
   await button(tree, '创建主控对话').props.onClick();
@@ -4795,6 +4795,43 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions'));
+});
+
+test('a native task opens its separate conversation while an external result stays in the task pane', async (t) => {
+  const opened = [];
+  const f = await clientFixture(t, { uiWorkspace: { openSession: (address) => opened.push(address) } });
+  const main = f.registrations.get('main');
+  const actions = main.definition.inject();
+  actions.controllerSelection.workspaceId = 'one';
+  const props = { ...actions, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }),
+    useSessions: (select) => select({ ids: [], byId: {} }),
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    openControllerChat: async () => {},
+    controllerTasks: async () => ({ kind: 'ready', rows: [
+      { childId: 'native', mode: 'continuable', label: 'DSH task', state: 'settled', terminalText: 'DSH result' },
+      { childId: 'external', mode: 'external', label: 'Codex task', state: 'settled', terminalText: 'Codex result' },
+    ] }),
+    renderSlot: () => null };
+  const render = () => f.render(main.Component, props);
+  render();
+  const mounted = f.effects.splice(0).map((effect) => effect());
+  t.after(() => mounted.forEach((cleanup) => cleanup?.()));
+  await settle();
+  render();
+  const refreshed = f.effects.splice(0).filter((effect) => effect.deps?.[1] === 'controller').map((effect) => effect());
+  t.after(() => refreshed.forEach((cleanup) => cleanup?.()));
+  await settle();
+  const button = (label) => f.find(render(), (node) => node.type === 'button' && text(node).includes(label));
+  button('DSH task').props.onClick();
+  assert.match(text(render()), /DSH result/);
+  await button('打开子智能体对话').props.onClick();
+  assert.deepEqual(opened, [{ parentSessionId: 'controller', childSessionId: 'native', mode: 'continuable' }]);
+  assert.equal(actions.controllerSelection.workspaceId, 'one');
+  button('返回任务').props.onClick();
+  button('Codex task').props.onClick();
+  assert.equal(button('打开子智能体对话'), undefined);
+  assert.match(text(render()), /Codex result/);
 });
 
 async function controllerHandoffHarness(t, { workspaceId = '', inspections = {}, dispatch, navigate, pickDirectory,
