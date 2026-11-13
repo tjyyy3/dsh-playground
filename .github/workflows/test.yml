@@ -46,3 +46,6 @@ jobs:
       - run: npm ci
       # Offline suite only: scripts/smoke.mjs reaches the live platform and is not run here.
       - run: npm test
+      - name: Check release package
+        shell: bash
+        run: npm run release:pack -- --tag "v$(node -p 'require("./package.json").version')" --out "$RUNNER_TEMP/package"

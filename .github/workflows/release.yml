@@ -1,0 +1,114 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v0.5.0-preview.8
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Resolve release commit
+        id: target
+        run: |
+          node --input-type=module -e 'import {checkReleaseTag} from "./scripts/package-release.mjs"; import {readFileSync} from "node:fs"; checkReleaseTag(JSON.parse(readFileSync("package.json")).version, process.env.RELEASE_TAG);'
+          sha="$(git rev-parse HEAD)"
+          test "$sha" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor "$sha" origin/main
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        node: [24, 26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PLAYGROUND_API_BASE: http://127.0.0.1:9
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Validate release target
+        shell: bash
+        run: |
+          node --input-type=module -e 'import {checkReleaseTag} from "./scripts/package-release.mjs"; import {readFileSync} from "node:fs"; checkReleaseTag(JSON.parse(readFileSync("package.json")).version, process.env.RELEASE_TAG);'
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+      - run: npm ci
+      - run: npm test
+      - name: Check package contents
+        shell: bash
+        run: npm run release:pack -- --tag "$RELEASE_TAG" --out "$RUNNER_TEMP/package"
+
+  draft:
+    needs: [resolve, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build release package
+        run: npm run release:pack -- --tag "$RELEASE_TAG" --out "$RUNNER_TEMP/package"
+      - name: Create draft with verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$RELEASE_SHA"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "A release already exists for this tag. Inspect it instead of overwriting its assets."
+            exit 1
+          fi
+          prerelease=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/package/"*.tgz "$RUNNER_TEMP/package/SHA256SUMS" \
+            --verify-tag --draft --latest=false "${prerelease[@]}" \
+            --title "$RELEASE_TAG" --generate-notes
