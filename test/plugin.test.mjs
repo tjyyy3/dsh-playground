@@ -405,7 +405,7 @@ test('M-01: confirmation command returns an error when the workflow throws', asy
   const scope = {
     tools: { register() {} },
     commands: { register: (command) => commands.push(command) },
-    sessionProjections: { register() {} },
+    sessionProjections: { register() {}, stateOf: () => undefined },
     inject() {},
   };
   apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
@@ -511,9 +511,8 @@ test('CLI timeouts: submission defaults to at least the login timeout and both a
   assert.deepEqual(timeouts({ cliTimeoutMs: 3e9 }), [2147483647, 2147483647]);
 });
 
-// `stateOf` is strict: the tools must read the projection of the calling agent's session under the
-// `playgroundTask` key, so reading another session or key fails the test.
-function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials, approval } = {}) {
+// `stateOf` must read the calling agent's session with a registered projection key.
+function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials, approval, controllerMarker = null } = {}) {
   const tools = [];
   const contexts = [];
   const session = { id: 'synthetic-session' };
@@ -525,6 +524,7 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
       register() {},
       stateOf(requestedSession, key) {
         assert.equal(requestedSession, session);
+        if (key === 'playgroundController') return { marker: controllerMarker };
         assert.equal(key, 'playgroundTask');
         return state;
       },
@@ -542,6 +542,34 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
   return { tools, contexts, scope, session, exec, commands, services };
 }
+
+test('a workspace controller cannot bind a challenge or change task state', async () => {
+  const state = workflowProjection.init();
+  const { tools, exec } = mountWorkflowScope(state, { controllerMarker: { workspaceId: 'workspace', sessionId: 'synthetic-agent' } });
+  const tool = tools.find((item) => item.name === 'playground_bind_task');
+  const value = await tool.execute({ challenge_id: 'challenge-a' }, exec);
+  assert.equal(value.error.code, 'controller_conversation');
+  assert.equal(tool.output.presentationMeta({}, value).playgroundWorkflow, undefined);
+  assert.deepEqual(state, workflowProjection.init());
+});
+
+test('the controller tool offers the native session of the explicitly named workspace', async () => {
+  const cwd = join(process.cwd(), 'synthetic-workspace');
+  const { tools, scope, exec } = mountWorkflowScope(workflowProjection.init(), { cwd });
+  const workspace = { id: 'workspace', path: process.cwd(), sessionIds: ['controller-session'] };
+  scope.workspaceRegistry = { list: () => [workspace], archivedSessionIds: [], async resolveByPath(path) { return path === cwd ? workspace : undefined; } };
+  scope.sessionController = {
+    async projections() { return { kind: 'sequenced', asOfSeq: 5, values: { playgroundController: { workspaceId: workspace.id, sessionId: 'controller-session' }, playgroundTask: { task: null } } }; },
+    create() { assert.fail('reopening never creates a session'); },
+  };
+  const tool = tools.find((item) => item.name === 'playground_open_controller');
+  assert.equal((await tool.execute({ cwd: 'relative' }, exec)).error.code, 'workspace_missing');
+  const result = await tool.execute({ cwd }, exec);
+  assert.deepEqual(result, { ok: true, sessionId: 'controller-session', workspaceId: workspace.id, created: false });
+  const { playground } = tool.output.presentationMeta({ cwd }, result);
+  assert.equal(playground.sessionId, 'controller-session');
+  assert.equal(playground.workspaceId, workspace.id);
+});
 
 const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
 

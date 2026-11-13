@@ -13,6 +13,7 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: '提交与评测', playground_list_competitions: '比赛与赛季',
           playground_get_competition: '比赛详情', playground_list_my_attempts: '我的提交',
           playground_start_task: '新建任务对话', playground_bind_task: '绑定当前对话', playground_check_materials: '提交前检查', playground_task: '任务状态',
+          playground_open_controller: '打开工作区主控',
           playground_submit: '提交到 Playground',
         },
         preparing: '正在准备参数…', running: '正在查询…', uploading: '正在提交评测包…', approving: '正在提交…', failed: '操作未完成', loaded: '查询完成',
@@ -40,6 +41,7 @@ window.__ModuleLoader__.load({
           playground_submit_attempt: 'Submit for evaluation', playground_list_competitions: 'Competitions',
           playground_get_competition: 'Competition details', playground_list_my_attempts: 'My submissions',
           playground_start_task: 'New task conversation', playground_bind_task: 'Bind this conversation', playground_check_materials: 'Submission checks', playground_task: 'Task status',
+          playground_open_controller: 'Open workspace controller',
           playground_submit: 'Submit to Playground',
         },
         preparing: 'Preparing arguments…', running: 'Querying…', uploading: 'Submitting bundle…', approving: 'Submitting…', failed: 'Operation incomplete', loaded: 'Query complete',
@@ -62,13 +64,13 @@ window.__ModuleLoader__.load({
       },
     };
     const css = `
-      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--pg-accent-soft);border-color:var(--pg-accent)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--pg-accent);border-color:var(--pg-accent);color:#fff;font-weight:600}.pg-primary:hover:not(:disabled){background:var(--pg-accent-strong);filter:none}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+      .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground);font-weight:600}.pg-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     `;
 
     // Task-start dialog styles. The accent matches the shared --pg-accent; every other tone comes
     // from DSH tokens so the dialog follows light and dark themes.
     const taskModalCss = `
-        .pg-task-modal{--pg-task-accent:#007f86;--pg-task-accent-hover:#006b72;--pg-task-text:var(--dsw-alias-label-primary,#24282e);--pg-task-secondary:var(--dsw-alias-label-secondary,#68717c);--pg-task-base:var(--dsw-alias-bg-base,#fff);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--dsw-alias-border-l2,#d4dbe1);--pg-task-error:var(--dsw-alias-state-error-primary,#b42318);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:16px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;overflow:hidden}
+        .pg-task-modal{--pg-task-accent:#007f86;--pg-task-text:var(--dsw-alias-label-primary,#24282e);--pg-task-secondary:var(--dsw-alias-label-secondary,#68717c);--pg-task-base:var(--dsw-alias-bg-base,#fff);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--dsw-alias-border-l2,#d4dbe1);--pg-task-error:var(--dsw-alias-state-error-primary,#b42318);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:16px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;overflow:hidden}
         .pg-task-modal *{box-sizing:border-box}.pg-task-modal ::selection{background:color-mix(in srgb,var(--pg-task-accent) 25%,var(--pg-task-base));color:var(--pg-task-text)}
         .pg-task-modal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
         .pg-task-header{position:relative;flex:none;padding:24px 24px 0}.pg-task-header h2{padding-right:36px;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.2px}.pg-task-subtitle{margin:6px 0 0;color:var(--pg-task-secondary);font-size:13px;line-height:20px}
@@ -80,7 +82,7 @@ window.__ModuleLoader__.load({
         .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9ecf0);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
         .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--pg-task-error);font-size:12px;line-height:20px;overflow-wrap:anywhere}
         .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;gap:8px}
-        .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--pg-task-accent);color:#fff}.pg-task-create:hover:not(:disabled){background:var(--pg-task-accent-hover);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--pg-task-accent);color:#fff}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
+        .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
         .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent);outline-offset:2px}
         @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
         @media(max-width:600px){.pg-task-header{padding:22px 20px 0}.pg-task-header h2{font-size:19px}.pg-task-body{padding:20px;gap:20px}.pg-task-footer{padding:16px 20px 20px}.pg-task-summary{padding:14px}}
@@ -526,7 +528,7 @@ window.__ModuleLoader__.load({
       return `CLI 登录成功，但插件仍在使用${what}，它优先于 CLI 凭据文件。${next}`;
     }
 
-    function AuthStatusPanel({ query, login, saveToken, clearToken }) {
+    function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }) {
       // `state` is the last auth answer (null until the first one). It stays rendered while a re-check runs,
       // so the controls keep their place; `checking` only marks the re-check.
       const [state, setState] = React.useState(null);
@@ -554,6 +556,10 @@ window.__ModuleLoader__.load({
         if (latest.refocus) { latest.refocus = false; latest.status?.focus?.(); }
       };
       React.useEffect(() => { check(); }, [query]);
+      React.useEffect(() => {
+        onStatusChange?.(!state || checking ? 'checking' : state.authenticated ? 'authenticated'
+          : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated');
+      }, [state, checking, onStatusChange]);
       const submitLogin = async () => {
         setLoginBusy(true); setLoginError(''); setLoginDone(false);
         try {
@@ -710,7 +716,7 @@ window.__ModuleLoader__.load({
     const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total : undefined, hasMore: page?.hasMore === true,
       missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0 });
 
-    function CatalogPanel({ sessionId, allowed, query, requestTask, onWebBase }) {
+    function CatalogPanel({ query, handoff, onWebBase }) {
       const [search, setSearch] = React.useState('');
       const [season, setSeason] = React.useState('');
       // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
@@ -854,13 +860,9 @@ window.__ModuleLoader__.load({
       const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
         : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
       const applyOther = () => { if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() }); };
-      // Browsing is session-free; creating a task still runs through an open conversation.
-      const startBlocked = !sessionId ? '打开一个 DSH 对话后才能从目录创建任务。'
-        : !allowed ? '当前连接没有在此对话中创建任务的权限。' : '';
       return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': Boolean(busy) },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
-        h('div', { className: 'pg-head' }, h('div', null, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '选择比赛或赛题'),
-          h('p', { className: 'pg-note' }, '先从目录选择题目，再创建独立任务对话；不需要记住赛题 ID。')),
+        h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '选择比赛或赛题'),
           h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load() }, busy === 'load' ? '正在刷新…' : '刷新目录')),
         h('div', { className: 'pg-search' },
           h('input', { className: 'pg-input', 'aria-label': '搜索 Playground 赛题', placeholder: '按题目名称、方向或关键词搜索', value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
@@ -923,20 +925,20 @@ window.__ModuleLoader__.load({
         notice ? h('p', { className: 'pg-note' }, notice) : null,
         failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
           h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,
-        startBlocked && challenges.length ? h('p', { className: 'pg-note' }, startBlocked) : null,
         busy === 'load' && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
         busy === 'load' && catalog && !shownList ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
         shownList && !loaded.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或筛选条件试试。') : null,
         shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${canLoadMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
         otherPending ? h('p', { className: 'pg-note pg-catalog-hint' }, '输入学科后按回车筛选') : null,
         countLine ? h('p', { className: 'pg-note pg-catalog-count', tabIndex: -1, ref: (node) => { latest.count = node; } }, countLine) : null,
-        h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
+        h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id,
+          onClick: (event) => { if (!event.target.closest('button, a[href]') && !window.getSelection?.()?.toString()) setDetail(item); } },
           h('div', { className: 'pg-head' }, h('h3', null, item.titleZh || item.title || item.id), item.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: item.id, title: item.titleZh || item.title || item.id, mode: 'participate', sessionId, requestTask, disabled: Boolean(startBlocked) }),
-            h('button', { type: 'button', className: 'pg-button', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item),
+            handoff ? h(DispatchChallengeButton, { challenge: item, handoff }) : null,
+            h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': `查看详情：${item.titleZh || item.title || item.id}`, onClick: () => setDetail(item),
               ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, '查看详情'),
             openWebButton(item.webUrl, item.titleZh || item.title || item.id))
         ))),
@@ -945,8 +947,18 @@ window.__ModuleLoader__.load({
         canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', 'aria-disabled': busy ? true : undefined, 'aria-busy': busy === 'more', onClick: loadMore,
           ref: (node) => { latest.more = node; } }, busy === 'more' ? '正在加载…' : '加载更多') : null,
         // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
-        detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, sessionId, requestTask, startBlocked, close: () => setDetail(null),
-          focusFallback: () => latest.heading }) : null);
+        detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff, close: () => setDetail(null),
+          focusFallback: () => [latest.details.get(String(detail.id)), latest.heading] }) : null);
+    }
+
+    function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
+      const busy = handoff.state?.phase === 'sending' || handoff.state?.phase === 'opening';
+      return h('button', { type: 'button', className: 'pg-button pg-primary', 'aria-disabled': busy || undefined, onClick: (event) => {
+        if (busy) return;
+        event?.currentTarget?.focus();
+        beforeDispatch?.();
+        handoff.start({ id: String(challenge.id), title: challenge.titleZh || challenge.title || String(challenge.id) });
+      } }, busy && handoff.state.challenge.id === String(challenge.id) ? '正在交接…' : '交给主控');
     }
 
     const challengeDetailCss = '.pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}';
@@ -1021,7 +1033,7 @@ window.__ModuleLoader__.load({
 
     // Right-side drawer for one catalog challenge. It reads the detail once when it opens, through the
     // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
-    function ChallengeDetailDrawer({ challenge, query, sessionId, requestTask, startBlocked, close, focusFallback }) {
+    function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
       const [detail, setDetail] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [failed, setFailed] = React.useState(false);
@@ -1073,23 +1085,20 @@ window.__ModuleLoader__.load({
       const tags = Array.isArray(shown.tags) ? [...new Set(shown.tags.filter((tag) => typeof tag === 'string' && tag))] : [];
       const resources = Array.isArray(detail?.resources) ? detail.resources.filter((item) => item && typeof item === 'object') : [];
       const content = typeof detail?.content === 'string' ? detail.content : '';
-      // Starting goes through the shared workspace dialog; the drawer closes so the dialog is the only modal.
-      const startTask = (request) => { dismiss(); requestTask(request); };
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 赛题详情`, 'aria-busy': busy, onMouseDown: (event) => event.stopPropagation(), ref: (node) => { focus.dialog = node; } },
           h('style', null, challengeDetailCss),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
           h('div', { className: 'pg-drawer-header' },
-            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '赛题详情'), h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
+            h('div', { className: 'pg-drawer-heading' }, h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
             h('div', { className: 'pg-drawer-actions' },
               h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: dismiss, 'aria-label': '关闭赛题详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, `题目编号：${challengeId}`),
           facts.length ? h('dl', { className: 'pg-detail-facts' }, facts.flatMap(([label, value]) => [h('dt', { key: `${label}-t` }, label), h('dd', { key: `${label}-d` }, String(value))])) : null,
           tags.length ? h('ul', { className: 'pg-detail-tags', 'aria-label': '标签' }, tags.map((tag) => h('li', { key: tag, className: 'pg-badge' }, tag))) : null,
           h('div', { className: 'pg-actions' },
-            h(StartTaskButton, { id: challengeId, title, mode: 'participate', sessionId, requestTask: startTask, disabled: Boolean(startBlocked) }),
+            handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss }) : null,
             openWebButton(detail?.webUrl || challenge.webUrl, title)),
-          startBlocked ? h('p', { className: 'pg-note' }, startBlocked) : null,
           failed ? h('div', { className: 'pg-detail-section' },
             h('p', { className: 'pg-error', role: 'alert' }, '赛题详情读取失败，请稍后重试，或在网页中查看。'),
             h('div', { className: 'pg-actions' }, h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => load() }, busy ? '正在读取…' : '重试'))) : null,
@@ -1311,13 +1320,13 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'pg-drawer-backdrop', onMouseDown: dismiss },
         h('aside', { className: 'pg-drawer', role: 'dialog', 'aria-modal': true, 'aria-label': `${title} 任务详情`, onMouseDown: (event) => event.stopPropagation(), ref: (node) => { focus.dialog = node; } },
           h('div', { className: 'pg-drawer-header' },
-            h('div', { className: 'pg-drawer-heading' }, h('p', { className: 'pg-eyebrow' }, '任务详情'), h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
+            h('div', { className: 'pg-drawer-heading' }, h('h2', { className: 'pg-drawer-title', tabIndex: -1, ref: (node) => { focus.title = node; } }, title)),
             h('div', { className: 'pg-drawer-actions' },
               // Close after starting navigation so a workbench the host keeps mounted does not come back
               // to an open modal drawer whose Escape listener is still attached. Navigation is deferred, so
               // focus is back on the task row before the conversation opens.
               // DSH does not open an archived conversation, so its drawer offers no way there.
-              archived ? null : h('button', { type: 'button', className: 'pg-button pg-drawer-open', onClick: () => { props.openConversation(session.id); dismiss(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
+              archived ? null : h('button', { type: 'button', className: 'pg-button pg-primary pg-drawer-open', onClick: () => { props.openConversation(session.id); dismiss(); }, 'aria-label': `打开任务对话：${title}` }, '打开任务对话'),
               h('button', { type: 'button', className: 'pg-button pg-drawer-close', onClick: dismiss, 'aria-label': '关闭任务详情' }, '关闭'))),
           h('p', { className: 'pg-note pg-path' }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : '赛题信息待读取'),
           openWeb ? h('div', { className: 'pg-actions' }, openWeb) : null,
@@ -1332,7 +1341,7 @@ window.__ModuleLoader__.load({
           historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
     }
 
-    function PlaygroundWorkbench({ useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+    function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
       const catalog = useSessions((state) => state);
       // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
       // the archive controls stay hidden.
@@ -1340,7 +1349,6 @@ window.__ModuleLoader__.load({
       const archiveAvailable = Array.isArray(archivedIds);
       const archivedSet = new Set(archiveAvailable ? archivedIds : []);
       const sessions = catalog.ids.map((id) => catalog.byId[id]).filter((session) => !session.parentId);
-      const sourceSession = sessions.find((session) => (session.retainedBy?.mainView ?? 0) > 0) || sessions[0];
       const allTaskSessions = sessions.filter((session) => session.projectionValues?.playgroundTask?.task || session.displayTitle?.startsWith('Playground · '));
       // Everything below counts, refreshes and selects by default from the tasks that are not archived.
       const taskSessions = allTaskSessions.filter((session) => !archivedSet.has(session.id));
@@ -1390,15 +1398,15 @@ window.__ModuleLoader__.load({
       // Opening the workbench reads the pending submissions once. A mount that follows a cleanup, as in
       // StrictMode, starts over.
       React.useEffect(() => {
-        store.disposed = false;
-        if (pageVisible()) refreshAttempts(store, store.pendingIds);
+        store.disposed = !active;
+        if (active && pageVisible() && section !== 'catalog') refreshAttempts(store, store.pendingIds);
         return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
-      }, []);
+      }, [active]);
       // While any submission is unscored: every two minutes, and when the page becomes visible again unless a
       // round began in the last 30 seconds. It depends on whether anything is pending, not on which ids, so a
       // task finishing neither requests again nor resets the timer. The ids are read when a round starts.
       React.useEffect(() => {
-        if (!anyPending) return undefined;
+        if (!active || section === 'catalog' || !anyPending) return undefined;
         const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingIds); };
         const onVisibility = () => { if (store.startedAt === undefined || Date.now() - store.startedAt >= visibleRefreshGapMs) tick(); };
         // Pending submissions that appear before any round has run (a list that loaded after mounting).
@@ -1409,7 +1417,7 @@ window.__ModuleLoader__.load({
           clearInterval(timer);
           if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
         };
-      }, [anyPending]);
+      }, [active, anyPending]);
       const refreshing = Boolean(store.controller);
       // A task archived from its open drawer stays selected so the drawer can offer "撤销"; once the drawer
       // is closed, the selection moves back to a task that is not archived.
@@ -1476,25 +1484,24 @@ window.__ModuleLoader__.load({
           setOpenError('无法打开任务对话，请重试。');
         });
       };
-      const sourceAllowed = useSessionAccess(sourceSession?.id || '', 'commands/execute');
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover,.pg-task-row.is-selected{border-color:var(--pg-accent);background:var(--pg-accent-soft)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(480px,92vw);height:100%;overflow:auto;padding:24px;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-eyebrow{margin:0 0 4px;color:var(--pg-accent-strong);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px}.pg-drawer-heading{min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 1 auto}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}.pg-drawer{width:min(520px,100vw)}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}'),
         h('div', { className: 'pg-workbench-inner' },
-          h('header', { className: 'pg-head' },
+          section ? null : h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
+            h('button', { className: 'pg-button', onClick: () => requestTask({ kind: 'controller' }) }, '打开工作区主控'),
             h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? '返回所选任务对话' : '打开 DSH 对话')),
-          h('p', { className: 'pg-note' }, '从目录选择赛题，再用 DSH 原生对话和工作区完成方案。提交前回到任务卡检查材料并确认目标。'),
-          h(AuthStatusPanel, { query, login, saveToken, clearToken }),
+          libraryOnly ? null : h(AuthStatusPanel, { query, login, saveToken, clearToken }),
           h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
-          h('div', { className: 'pg-split-control' },
+          section ? null : h('div', { className: 'pg-split-control' },
             h('span', null, '调整左右栏宽度'),
             h('input', { type: 'range', min: 35, max: 65, step: 5, value: split, 'aria-label': '调整左右栏宽度', 'aria-valuetext': `左侧 ${split}%，右侧 ${100 - split}%`, onChange: (event) => setSplit(Number(event.target.value)) }),
             h('span', null, `${split}% / ${100 - split}%`)),
-          h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
-            h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 赛题目录' },
+          h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: section ? 'minmax(0,1fr)' : `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
+            section === 'submissions' ? null : h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 赛题目录' },
               h('div', { className: 'pg-column-heading' }, h('h2', null, '赛题目录')),
-              h(CatalogPanel, { sessionId: sourceSession?.id, allowed: sourceAllowed, query, requestTask, onWebBase: setWebBase })),
-            h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
+              h(CatalogPanel, { query, handoff, onWebBase: setWebBase })),
+            section === 'catalog' ? null : h('section', { className: 'pg-workbench-column', 'aria-label': 'Playground 任务总览' },
               h('div', { className: 'pg-column-heading' }, h('h2', { tabIndex: -1, ref: (node) => { nav.heading = node; } }, '任务总览'),
                 h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, `${taskSessions.length} 个任务`),
                   taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !taskIds.length,
@@ -1507,7 +1514,7 @@ window.__ModuleLoader__.load({
               openError ? h('p', { className: 'pg-note pg-error pg-open-error', role: 'none' }, openError) : null,
               taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': 'Playground 任务列表' },
                 taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setArchiveError(noArchiveError); setAnnouncement(`已打开任务：${item.displayTitle}`); }, onOpen: () => openConversation(item.id), selectRef: refInto(nav.rows, item.id) })))
-                : h('p', { className: 'pg-task-empty' }, archivedTasks.length ? '没有未归档的任务。' : '还没有 Playground 任务。先从左侧赛题目录选择一个题目。'),
+                : h('p', { className: 'pg-task-empty' }, archivedTasks.length ? '没有未归档的任务。' : '还没有 Playground 任务。先从赛题目录选择一个题目。'),
               // Visible copy of an archive failure while the drawer is closed; the drawer shows its own.
               archive && archiveError.message && !drawerOpen ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'none' }, archiveError.message) : null,
               archive && archivedTasks.length ? h('div', { className: 'pg-archived' },
@@ -1520,12 +1527,358 @@ window.__ModuleLoader__.load({
           // drawer, the 任务总览 heading.
           drawerOpen && session ? h(TaskDetailDrawer, { session, projection: catalog.projectionsBySession[session.id], close: closeDrawer, focusFallback: () => [nav.rows.get(session.id), nav.heading], attempts: store.attempts, useSessionAccess, refreshProjections, openTask, openConversation, run, query, webBase,
             archive: archive && { ...archive, archived: archivedSet.has(session.id), error: archiveError.id === session.id ? archiveError.message : '' }, ...props }) : null,
-          h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
+          section === 'submissions' ? null : h('details', { className: 'pg-help' }, h('summary', null, '如何使用'),
             h('ol', null,
-              h('li', null, '搜索比赛和赛题，阅读题目摘要后点击“开始参赛任务”。'),
-              h('li', null, '选择目标工作区，核对完整路径后确认创建独立任务对话；需要新工作区时使用原生目录选择器添加。'),
+              h('li', null, '搜索比赛和赛题，查看题目后点击“交给主控”。'),
+              h('li', null, '首次交接时选择工作区并确认，主控会在该工作区协调赛题工作。'),
               h('li', null, '完成方案后，在对应任务卡检查材料，核对赛题、平台和文件，再明确确认提交。'),
               h('li', null, '查询结果与关键指标；排队状态表示尚未得到最终评分。')))));
+    }
+
+    const controllerPanelCss = `
+      .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
+      .pg-controller-bar { display:flex; align-items:center; gap:10px; min-height:48px; padding:0 14px; border-bottom:1px solid var(--dsw-alias-border-l3); flex-wrap:wrap; }
+      .pg-controller-bar h1 { font-size:15px; line-height:24px; margin:0; font-weight:600; }
+      .pg-controller-bar :is(select,button), .pg-controller-action, .pg-controller-row, .pg-controller-back { font:inherit; color:inherit; }
+      .pg-controller-bar select, .pg-controller-action { border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; padding:5px 8px; }
+      .pg-controller-bar button, .pg-controller-action, .pg-controller-row, .pg-controller-back { cursor:pointer; }
+      .pg-controller-bar button:hover, .pg-controller-action:hover:not(:disabled), .pg-controller-row:hover, .pg-controller-back:hover { background:var(--dsw-alias-interactive-bg-hover); }
+      .pg-controller-bar :is(button,select):focus-visible, .pg-controller-action:focus-visible, .pg-controller-row:focus-visible, .pg-controller-back:focus-visible, .pg-controller-resize:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:-2px; }
+      .pg-controller-tabs { display:flex; align-self:stretch; gap:4px; }
+      .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
+      .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
+      .pg-controller-spacer { flex:1; }
+      .pg-controller-icon { display:grid; place-items:center; width:32px; height:32px; padding:6px; border:0; border-radius:5px; background:transparent; }
+      .pg-controller-connection { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; white-space:nowrap; font-size:12px!important; }
+      .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--dsw-alias-label-secondary); }
+      .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:#16a34a; }
+      .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
+      .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
+      .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+      .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
+      .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
+      .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
+      .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; background:var(--dsw-alias-bg-base); }
+      .pg-controller-tasks header { padding:14px 16px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); }
+      .pg-controller-tasks h2 { font-size:14px; margin:0; }
+      .pg-controller-task-content { overflow:auto; min-height:0; padding:8px 12px 20px; }
+      .pg-controller-tasks p { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.5; }
+      .pg-controller-row { display:block; width:100%; border:0; border-bottom:1px solid var(--dsw-alias-border-l3); padding:10px 4px; background:transparent; text-align:left; }
+      .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
+      .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
+      .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
+      .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
+      .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
+      .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
+      .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
+      .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
+      .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
+      @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
+      @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
+    `;
+
+    function taskState(row) {
+      if (row.liveEnd?.stopReason === 'error') return '运行出错';
+      if (row.liveEnd?.stopReason === 'aborted') return '已中止';
+      return { running: '运行中', settled: '已收到结果', unknown: '暂无执行回执' }[row.state];
+    }
+
+    function taskOutput(row) {
+      const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === 'text').map((part) => part.text).join('\n');
+      if (live) return live;
+      const text = row.terminalText || '';
+      const [summary, marker, ...rest] = text.split('\n');
+      const prefix = `Background subagent ${row.childId} `;
+      const endings = ['finished and will do no further work unless you send it more.', 'finished. It cannot receive follow-up messages.', 'was stopped before it finished.', 'ran out of room before it finished.', 'declined the task.', 'failed before it finished.'];
+      return marker === 'Its closing message:' && endings.some((ending) => summary === prefix + ending) ? rest.join('\n') : text;
+    }
+
+    function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, expectedId, onPromote, busy }) {
+      const session = useSession((value) => value);
+      const conversation = useConversation((value) => value);
+      const blank = useSessions((value) => sessionId === undefined ? undefined : value.byId[sessionId]?.blank);
+      if (!expectedId) return sessionId && onPromote ? h('button', { className: 'pg-controller-action', disabled: busy, onClick: () => onPromote(sessionId) }, '把当前对话设为主控') : null;
+      if (sessionId !== expectedId) return h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在打开所选主控对话…');
+      if (session?.openState === 'error') return h('div', { className: 'pg-controller-placeholder pg-controller-error', role: 'alert' }, '无法加载主控对话，请重新打开。');
+      if (!session || !conversation) return h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在加载主控对话…');
+      const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running
+        ? 'active' : session.promptAttempted ? 'engaging' : 'blank';
+      const settling = shellPhase === 'blank' && session.openState === 'loading' && blank !== true
+        || session.subagent?.address.mode === 'continuable' && session.subagent.parentAvailable === undefined;
+      const hero = shellPhase === 'blank' && (session.openState === 'open' || blank === true);
+      return renderFactorySlot('conversation.content', { variant: 'embedded', phase: settling ? 'settling' : hero ? 'hero' : 'active', hero });
+    }
+
+    function ControllerPanel(props) {
+      const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, promoteController, controllerTasks, dispatchChallenge } = props;
+      const workspaces = useWorkspaces((value) => value);
+      const sessions = useSessions((value) => value);
+      const controllerTarget = useControllerTarget((value) => value);
+      const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
+      const selectedMarker = selectedSession?.projectionValues?.playgroundController;
+      const [workspaceId, setWorkspaceId] = React.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : '') || '');
+      const [inspection, setInspection] = React.useState(null);
+      const [expectedId, setExpectedId] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [view, setView] = React.useState('controller');
+      const [dispatchState, setDispatchState] = React.useState(null);
+      const [dispatchControls] = React.useState(() => ({ busy: false }));
+      const [authStatus, setAuthStatus] = React.useState('checking');
+      const [visited] = React.useState(() => new Set());
+      if (view === 'catalog' || view === 'submissions') visited.add(view);
+      const [preferences] = React.useState(() => {
+        try { return JSON.parse(window.localStorage?.getItem('playground.controller.pane') || '{}'); } catch { return {}; }
+      });
+      const [showTasks, setShowTasks] = React.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.('(max-width: 600px)').matches);
+      const [taskWidth, setTaskWidth] = React.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+      const [selectedTask, setSelectedTask] = React.useState('');
+      const [showMaintenance, setShowMaintenance] = React.useState(false);
+      const [copyStatus, setCopyStatus] = React.useState('');
+      const [pane] = React.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: new Map(), focus: '', drag: null }));
+      const savePane = (change) => { Object.assign(preferences, change); try { window.localStorage?.setItem('playground.controller.pane', JSON.stringify(preferences)); } catch {} };
+      const resize = (width) => { const next = Math.min(520, Math.max(300, width)); props.controllerSelection.taskWidth = next; savePane({ width: next }); setTaskWidth(next); };
+      const toggleTasks = () => { if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = 'heading'; props.controllerSelection.showTasks = !showTasks; savePane({ open: !showTasks }); setShowTasks(!showTasks); };
+      React.useEffect(() => { if (pane.focus === 'heading') pane.heading?.focus(); else if (pane.focus === 'back') pane.back?.focus(); else if (pane.focus) pane.rows.get(pane.focus)?.focus(); pane.focus = ''; }, [selectedTask, showTasks]);
+      const [tasks, setTasks] = React.useState(null);
+      const [retry, setRetry] = React.useState(0);
+      const [taskRetry, setTaskRetry] = React.useState(0);
+      const selectWorkspace = (id) => {
+        if (id === workspaceId) return;
+        props.controllerSelection.workspaceId = id;
+        props.controllerSelection.sessionId = '';
+        setExpectedId('');
+        setInspection(null);
+        setError('');
+        setSelectedTask('');
+        setWorkspaceId(id);
+      };
+      const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId ||
+        workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
+      React.useEffect(() => {
+        if (!targetWorkspaceId) return;
+        setView('controller');
+        if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
+        else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
+        props.clearControllerTarget(controllerTarget);
+      }, [controllerTarget, targetWorkspaceId]);
+      React.useEffect(() => {
+        const media = window.matchMedia?.('(max-width: 600px)');
+        if (!media) return;
+        const changed = (event) => { if (event.matches) setShowTasks(false); else setShowTasks(props.controllerSelection.showTasks ?? true); };
+        media.addEventListener('change', changed);
+        return () => media.removeEventListener('change', changed);
+      }, []);
+      React.useEffect(() => {
+        if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
+          props.controllerSelection.workspaceId = selectedMarker.workspaceId;
+          setWorkspaceId(selectedMarker.workspaceId);
+        }
+      }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
+      React.useEffect(() => {
+        setExpectedId(''); setInspection(null); setError('');
+        if (!workspaceId) return;
+        const abort = new AbortController();
+        inspectController({ workspaceId }, abort.signal).then((value) => {
+          if (abort.signal.aborted) return;
+          setInspection(value);
+          if (value.kind === 'existing' && !value.archived) { props.controllerSelection.sessionId = value.sessionId; setExpectedId(value.sessionId); Promise.resolve(openControllerChat(value.sessionId)).catch(() => { if (!abort.signal.aborted) { setExpectedId(''); setError('无法打开主控对话，请重试。'); } }); }
+        }).catch((failure) => { if (!abort.signal.aborted) setError(failure.message); });
+        return () => abort.abort();
+      }, [workspaceId, retry]);
+      React.useEffect(() => {
+        setTasks(null);
+        if (!workspaceId || !expectedId || !controllerTasks) return;
+        const abort = new AbortController();
+        let inFlight = false;
+        const refresh = () => {
+          if (inFlight) return;
+          inFlight = true;
+          void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal)
+            .then((value) => { if (!abort.signal.aborted) setTasks(value); })
+            .catch(() => { if (!abort.signal.aborted) setTasks({ kind: 'unavailable' }); })
+            .finally(() => { inFlight = false; });
+        };
+        void refresh();
+        const timer = setInterval(refresh, 4000);
+        return () => { abort.abort(); clearInterval(timer); };
+      }, [workspaceId, expectedId, controllerTasks, taskRetry]);
+      const selectController = (sessionId) => {
+        setInspection({ kind: 'existing', sessionId, archived: false });
+        props.controllerSelection.sessionId = sessionId;
+        setExpectedId(sessionId);
+      };
+      const open = async () => {
+        setBusy(true); setError('');
+        try {
+          const result = await openController({ workspaceId, createIfMissing: true });
+          if (result.kind !== 'opened') setError(result.reason);
+          else { selectController(result.sessionId); await openControllerChat(result.sessionId); }
+        } catch (failure) { setError(failure.message); }
+        finally { setBusy(false); }
+      };
+      const selectedWorkspace = workspaces.phase === 'ready' && workspaces.items.find((item) => item.workspaceId === workspaceId);
+      const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
+      const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
+      const needsRecheck = dispatchState?.phase === 'error' && dispatchState.workspaceId === workspaceId &&
+        (['controller_changed', 'controller_missing', 'controller_init_required', 'controller_archived', 'workspace_mismatch'].includes(dispatchState.code) ||
+          dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
+      const recheckHandoff = () => {
+        setDispatchState({ phase: 'guide', challenge: dispatchState.challenge });
+        setRetry(retry + 1);
+      };
+      const openAfterDispatch = async (state) => {
+        try {
+          await openControllerChat(state.sessionId);
+          selectController(state.sessionId);
+          setDispatchState(null);
+          setView('controller');
+        } catch {
+          setDispatchState({ ...state, phase: 'accepted' });
+        }
+      };
+      const retryOpenAfterDispatch = async (state) => {
+        if (dispatchControls.busy) return;
+        dispatchControls.busy = true;
+        setDispatchState({ ...state, phase: 'opening' });
+        try { await openAfterDispatch(state); }
+        finally { dispatchControls.busy = false; }
+      };
+      const sendChallenge = async (state, target, initialize = false) => {
+        if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
+        dispatchControls.busy = true;
+        let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: 'sending' };
+        setDispatchState(attempt);
+        try {
+          if (initialize) {
+            const opened = await openController({ workspaceId: target.workspaceId, createIfMissing: true });
+            if (opened.kind !== 'opened') {
+              setDispatchState({ ...attempt, phase: 'error', message: opened.reason });
+              return;
+            }
+            attempt = { ...attempt, sessionId: opened.sessionId };
+            setInspection({ kind: 'existing', sessionId: opened.sessionId, archived: false });
+          }
+          const result = await dispatchChallenge({ workspaceId: attempt.workspaceId, sessionId: attempt.sessionId,
+            challengeId: attempt.challenge.id, requestId: attempt.requestId });
+          if (result.kind === 'accepted' && result.sessionId === attempt.sessionId) {
+            await openAfterDispatch(attempt);
+          } else {
+            setDispatchState({ ...attempt, phase: 'error', code: result.code, message: result.reason || 'DSH 未确认接收请求，请重试。' });
+          }
+        } catch (failure) {
+          setDispatchState({ ...attempt, phase: 'error', message: failure.message || '无法交给主控，请重试。' });
+        } finally {
+          dispatchControls.busy = false;
+        }
+      };
+      const startHandoff = (challenge) => {
+        if (busy || dispatchControls.busy) return;
+        if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
+        const retry = dispatchState?.phase === 'error' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
+        const state = retry ? dispatchState : { challenge };
+        if (retry && needsRecheck) return;
+        if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry && state.sessionId || selectedController });
+        setDispatchState({ ...state, phase: 'guide', showDialog: true });
+      };
+      const handoff = { state: dispatchState, start: startHandoff };
+      const handoffBusy = dispatchState?.phase === 'sending' || dispatchState?.phase === 'opening';
+      const showHandoffDialog = dispatchState && (dispatchState.phase !== 'sending' || dispatchState.showDialog);
+      let handoffMessage;
+      let handoffAction;
+      if (showHandoffDialog) {
+        if (handoffBusy) {
+          handoffMessage = dispatchState.phase === 'sending' ? '正在交给主控…' : '正在打开主控对话…';
+        } else if (dispatchState.phase === 'accepted') {
+          handoffMessage = '主控已接收请求，无法打开对话。';
+          if (dispatchState.workspaceId === workspaceId) handoffAction = { label: '打开主控对话', run: () => retryOpenAfterDispatch(dispatchState) };
+        } else if (!selectedWorkspace) {
+          handoffMessage = workspaces.state === 'error' ? '无法读取 DSH 工作区，请重启 DSH 后重试。'
+            : workspaces.phase !== 'ready' ? '正在读取 DSH 工作区…'
+            : workspaces.items.length ? '请选择赛题工作所在的工作区。' : '还没有工作区。请选择一个目录添加为工作区。';
+        } else if (inspection?.kind === 'blocked' || inspection?.archived) {
+          handoffMessage = inspection.reason || '主控对话已归档，请先取消归档。';
+          handoffAction = { label: '重新核对', run: () => setRetry(retry + 1) };
+        } else if (needsRecheck) {
+          handoffMessage = dispatchState.message;
+          handoffAction = { label: '重新核对', run: recheckHandoff };
+        } else if (selectedController || canInitialize) {
+          const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId
+            ? { challenge: dispatchState.challenge } : dispatchState;
+          const sessionId = state.sessionId || selectedController;
+          handoffMessage = dispatchState.phase === 'error' && state === dispatchState ? dispatchState.message
+            : canInitialize ? 'DSH 会发送一条初始化消息，再把赛题交给主控。' : undefined;
+          handoffAction = { label: selectedController ? '交给主控' : inspection.kind === 'incomplete' ? '初始化并交接' : '创建主控并交接',
+            run: () => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController) };
+        } else {
+          handoffMessage = error || '正在核对工作区的主控对话…';
+          if (error) handoffAction = { label: '重新核对', run: () => setRetry(retry + 1) };
+        }
+      }
+      const row = tasks?.rows?.find((item) => item.childId === selectedTask);
+      const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setCopyStatus(''); setSelectedTask(item.childId); } },
+        h('strong', null, item.label || '未命名任务'), h('span', null, [item.provider, taskState(item)].filter(Boolean).join(' · ')));
+      return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
+        h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
+          h('select', { 'aria-label': '工作区', value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
+            if (dispatchControls.busy) return;
+            if (event.target.value === '__add_workspace__') { setBusy(true); setError(''); try { await props.addTaskWorkspace(); } catch { setError('无法添加工作区，请重试。'); } finally { setBusy(false); } return; }
+            selectWorkspace(event.target.value);
+          } }, h('option', { value: '' }, '选择工作区'), workspaceOptions(workspaces.items), h('option', { value: '__add_workspace__', disabled: busy }, '添加工作区…')),
+          h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': 'Playground 导航', onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; setView(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
+            [['controller', '对话'], ['catalog', '赛题'], ['submissions', '提交']].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => setView(id) }, title))),
+          h('span', { className: 'pg-controller-spacer' }),
+          h('button', { className: 'pg-controller-connection', title: '连接设置', 'data-status': authStatus, onClick: () => setView('settings') },
+            h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
+            { checking: '检查中…', authenticated: '已登录', unauthenticated: '未登录', unavailable: '检测失败' }[authStatus]),
+          view === 'controller' ? h('button', { className: 'pg-controller-icon', ref: (node) => { pane.toggle = node; }, title: showTasks ? '隐藏任务侧栏' : '显示任务侧栏', 'aria-label': showTasks ? '隐藏任务侧栏' : '显示任务侧栏', 'aria-expanded': showTasks, 'aria-controls': 'pg-controller-tasks', onClick: toggleTasks },
+            h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, 'aria-hidden': true }, h('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h('path', { d: 'M15 4v16' }))) : null),
+        h('div', { className: 'pg-controller-body', ref: (node) => { pane.body = node; } },
+          h('main', { className: 'pg-controller-chat', style: { display: view === 'controller' ? 'flex' : 'none' } },
+            !workspaceId ? h('div', { className: 'pg-controller-placeholder', role: workspaces.state === 'error' ? 'alert' : undefined }, workspaces.state === 'error' ? '无法读取工作区，请重启 DSH 后重试。' : workspaces.phase !== 'ready' ? '正在读取工作区…' : '选择工作区以打开或创建主控对话。', error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
+              : !expectedId && workspaceId && error && !inspection ? h('div', { className: 'pg-controller-placeholder', role: 'alert' }, error, h('button', { onClick: () => setRetry(retry + 1) }, '重试'))
+              : !expectedId && workspaceId && !inspection ? h('div', { className: 'pg-controller-placeholder', role: 'status' }, '正在核对主控对话…')
+              : !expectedId && workspaceId && inspection ? h('div', { className: 'pg-controller-placeholder' },
+              h('p', null, inspection.kind === 'blocked' ? inspection.reason : inspection.archived ? '主控对话已归档，请先取消归档。' : '为此工作区打开或创建主控对话。'),
+              inspection.kind !== 'blocked' && !inspection.archived ? h('button', { className: 'pg-controller-action', disabled: busy, onClick: open }, busy ? '正在打开…' : inspection.kind === 'absent' ? '创建主控对话' : '打开主控对话') : null,
+              h('p', null, '空对话会收到一条初始化消息。'),
+              renderSlot('playground.controller.session', { expectedId: '', busy, onPromote: async (sessionId) => {
+                setBusy(true); setError('');
+                try {
+                  const result = await promoteController({ workspaceId, sessionId });
+                  if (result.kind === 'opened') { selectController(result.sessionId); await openControllerChat(result.sessionId); }
+                  else setError(result.reason);
+                } catch (failure) { setError(failure.message); } finally { setBusy(false); }
+              } }),
+              error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
+              : renderSlot('playground.controller.session', { expectedId })),
+          h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } }, h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus })),
+          ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff } : {}) })) : null),
+          view === 'controller' && showTasks ? h(React.Fragment, null,
+            h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': '调整任务侧栏宽度', 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,
+              onKeyDown: (event) => { const next = { ArrowLeft: taskWidth + 10, ArrowRight: taskWidth - 10, Home: 300, End: 520 }[event.key]; if (next !== undefined) { event.preventDefault(); resize(next); } },
+              onPointerDown: (event) => { pane.drag = { x: event.clientX, width: taskWidth }; event.currentTarget.setPointerCapture(event.pointerId); },
+              onPointerMove: (event) => { if (pane.drag) resize(pane.drag.width + pane.drag.x - event.clientX); }, onPointerUp: () => { pane.drag = null; }, onPointerCancel: () => { pane.drag = null; } }),
+            h('aside', { id: 'pg-controller-tasks', className: 'pg-controller-tasks', 'aria-label': '主控任务', style: { width: taskWidth }, onKeyDown: (event) => { if (event.key === 'Escape' && pane.body?.clientWidth <= 720) { toggleTasks(); pane.toggle?.focus(); } } },
+              h('header', null, h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, '任务')),
+              h('div', { className: 'pg-controller-task-content' },
+                !expectedId ? h('p', null, '打开主控后查看其派发的任务。') : !tasks ? h('p', { role: 'status' }, '正在读取任务…')
+                  : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, '无法读取任务。', h('button', { onClick: () => setTaskRetry(taskRetry + 1) }, '重试'))
+                  : row ? h('div', { className: 'pg-controller-detail' },
+                    h('button', { className: 'pg-controller-back', ref: (node) => { pane.back = node; }, onClick: () => { pane.focus = row.childId; setSelectedTask(''); } }, '返回任务'),
+                    h('h3', null, row.label || '未命名任务'), h('p', null, [row.provider, taskState(row)].filter(Boolean).join(' · ')),
+                    row.state === 'unknown' && !row.liveEnd ? h('p', null, '未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。') : null,
+                    row.liveEnd ? h('p', null, `本次运行结束：${({ completed: '完成', aborted: '已中止', 'max-tokens': '达到输出上限', refusal: '拒绝', error: '出错' })[row.liveEnd.stopReason] || row.liveEnd.stopReason}`) : null,
+                    taskOutput(row) ? h('div', { className: 'pg-controller-markdown' }, typeof renderFactorySlot === 'function' ? renderFactorySlot('conversation.chat.reasoning.content', { text: taskOutput(row), running: false }, { fallback: h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row)) }) : h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row))) : null,
+                    taskOutput(row) ? h('div', null, h('button', { className: 'pg-controller-back', onClick: async () => { try { await navigator.clipboard.writeText(taskOutput(row)); setCopyStatus('已复制结果'); } catch { setCopyStatus('无法复制，请选择文本后复制。'); } } }, '复制结果'), h('span', { role: 'status' }, copyStatus)) : null,
+                    row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, '原始通知'), h('pre', null, row.terminalText)) : null)
+                  : !tasks.rows.length ? h('p', null, '还没有派发任务。') : h(React.Fragment, null,
+                    tasks.rows.filter((item) => item.category !== 'maintenance').map(listRow),
+                    tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, `后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),
+        showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: selectedWorkspace, busy: handoffBusy,
+          selectWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
+          close: () => { if (!dispatchControls.busy) setDispatchState(null); } }) : null);
+
     }
 
     function PlaygroundPanelIcon({ size = 20 }) {
@@ -1533,7 +1886,7 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M8 3h8M10 3v6l-6 10a1.3 1.3 0 0 0 1.1 2h13.8a1.3 1.3 0 0 0 1.1-2L14 9V3M7 15h10' }));
     }
 
-    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openWorkbench }) {
+    function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench }) {
       const data = phase === 'result' ? block.meta?.playground : undefined;
       const text = phase === 'result' ? (block.content ?? []).filter((item) => item.type === 'text').map((item) => item.text).join('\n') : '';
       // playground_submit returns a confirmation's receipt, shown like the 确认提交 command card.
@@ -1561,7 +1914,10 @@ window.__ModuleLoader__.load({
         cardKept && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         phase === 'result' && data?.ok && requestTask && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
           ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
-        data?.sessionId && openTask ? h('button', { className: 'pg-button', onClick: () => openTask(data.sessionId) }, '打开任务对话') : null,
+        data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
+          ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
+            ? openControllerChat(data.sessionId, data.workspaceId || '') : openTask(data.sessionId) },
+            toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
         data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         data ? h(React.Fragment, null,
           h('div', { className: 'pg-facts' },
@@ -1604,24 +1960,120 @@ window.__ModuleLoader__.load({
 
     function TaskStartOverlay(props) {
       const request = props.useTaskRequest((value) => value);
-      return request ? h(TaskStartDialog, { key: `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
+      return request ? h(TaskStartDialog, { key: request.kind === 'controller' ? 'controller' : `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
     }
 
-    function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask }) {
+    function workspaceOptions(items) {
+      return items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'));
+    }
+
+    function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
+      const [picker] = React.useState(() => ({ pending: false }));
+      const [adding, setAdding] = React.useState(false);
+      const [addError, setAddError] = React.useState('');
+      const title = '交给工作区主控';
+      const accepted = state.phase === 'accepted' || state.phase === 'opening';
+      const canAdd = workspaces.phase === 'ready' && !accepted;
+      const canSelect = canAdd && workspaces.items.length > 0 && !busy && !adding;
+      const failed = state.phase === 'error' || state.phase === 'accepted' || workspaces.state === 'error';
+      const dismiss = () => { if (!picker.pending) close(); };
+      const addWorkspace = async () => {
+        if (busy || picker.pending) return;
+        picker.pending = true;
+        setAdding(true);
+        setAddError('');
+        try {
+          const created = await addTaskWorkspace();
+          if (created?.workspaceId) selectWorkspace(created.workspaceId);
+        } catch {
+          setAddError('无法添加工作区，请重试。');
+        } finally {
+          picker.pending = false;
+          setAdding(false);
+        }
+      };
+      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title, onClose: dismiss },
+        h('style', null, taskModalCss),
+        h('header', { className: 'pg-task-header' }, h('h2', { tabIndex: -1, 'data-modal-autofocus': true }, title),
+          h('button', { type: 'button', className: 'pg-task-close', 'aria-label': '关闭交接弹窗', disabled: busy || adding, onClick: dismiss },
+            h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 6 12 12M18 6 6 18' })))),
+        h('div', { className: 'pg-task-body' },
+          h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
+            h('h3', { className: 'pg-task-title', title: state.challenge.title }, state.challenge.title),
+            h('p', { className: 'pg-task-id' }, state.challenge.id)),
+          h('div', { className: 'pg-task-field' },
+            h('label', { htmlFor: 'pg-handoff-workspace' }, '目标工作区'),
+            h('div', { className: 'pg-task-select-wrap' },
+              h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18' })),
+              h('select', { id: 'pg-handoff-workspace', className: 'pg-task-select', value: workspace?.workspaceId || '', disabled: !canSelect,
+                'data-empty': !workspace,
+                'aria-describedby': message ? 'pg-handoff-status' : undefined,
+                onChange: (event) => { setAddError(''); selectWorkspace(event.target.value); } },
+                h('option', { value: '' }, '请选择工作区'), workspaceOptions(workspaces.items)),
+              h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
+            message ? h('p', { id: 'pg-handoff-status', className: failed ? 'pg-task-error' : 'pg-task-hint', role: failed ? 'alert' : 'status' }, message) : null,
+            addError ? h('p', { className: 'pg-task-error', role: 'alert' }, addError) : null,
+            canAdd ? h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: addWorkspace },
+              h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…') : null)),
+        h('footer', { className: 'pg-task-footer' },
+          h('div', { className: 'pg-task-actions' },
+            h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: dismiss }, accepted ? '关闭' : '取消'),
+            action || busy ? h('button', { type: 'button', className: 'pg-task-button pg-task-create', disabled: busy || adding, 'data-busy': busy, onClick: action?.run },
+              busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
+              busy ? state.phase === 'opening' ? '正在打开…' : '正在交接…' : action.label) : null)));
+    }
+
+    function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
       const workspaces = useWorkspaces((value) => value);
       const [selectedId, setSelectedId] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [adding, setAdding] = React.useState(false);
       const [error, setError] = React.useState('');
+      const [inspection, setInspection] = React.useState(null);
+      const controller = request.kind === 'controller';
       const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
-      const actionLabel = request.mode === 'author' ? '创建出题任务' : '创建参赛任务';
+      const inspectId = controller && workspaces.phase === 'ready' ? workspace?.workspaceId : undefined;
+      const snapshot = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
+      const checking = Boolean(inspectId && !snapshot);
+      React.useEffect(() => {
+        if (!inspectId) return;
+        const abort = new AbortController();
+        inspectController({ workspaceId: inspectId }, abort.signal)
+          .catch((failure) => ({ kind: 'blocked', reason: failure.message }))
+          .then((value) => { if (!abort.signal.aborted) setInspection({ workspaceId: inspectId, snapshot: value }); });
+        return () => abort.abort();
+      }, [inspectId, inspectController]);
+      const archived = snapshot?.archived;
+      const needsInitialization = snapshot?.kind === 'absent' || snapshot?.kind === 'incomplete';
+      const actionLabel = controller ? (snapshot?.kind === 'absent' ? '创建主控对话' : snapshot?.kind === 'incomplete' ? '初始化主控对话' : '打开主控对话')
+        : request.mode === 'author' ? '创建出题任务' : '创建参赛任务';
+      const title = controller ? '打开工作区主控' : actionLabel;
+      const controllerError = snapshot?.kind === 'blocked' ? `${snapshot.reason}${snapshot.sessionIds?.length ? ` 对话编号：${snapshot.sessionIds.join('、')}` : ''}`
+        : archived ? '主控对话已归档。请先在 DSH 中取消归档。' : '';
       // DSH keeps `phase` at 'pending' after a terminal list failure and reports it through `state`.
       const listError = workspaces.state === 'error' ? `无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ''}。请重启 DSH 后重试。` : '';
       const loading = workspaces.phase !== 'ready' && !listError;
       const hint = listError || (loading ? '正在读取 DSH 工作区列表…' : workspaces.items.length ? '选择已有工作区，或添加一个专用目录。' : '还没有工作区，请先添加。');
       const confirm = async () => {
-        if (!workspace || workspaces.phase !== 'ready' || busy || adding) return;
+        if (!workspace || workspaces.phase !== 'ready' || busy || adding || (controller && (!snapshot || controllerError))) return;
         setBusy(true); setError('');
+        if (controller) {
+          try {
+            const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
+            if (result.kind !== 'opened') {
+              setError(`${result.reason}${result.sessionIds?.length ? ` 对话编号：${result.sessionIds.join('、')}` : ''}`);
+              if (result.code === 'controller_init_failed' || result.code === 'controller_init_required') setInspection({ workspaceId: inspectId, snapshot: { kind: 'incomplete', codex: snapshot.codex } });
+              if (result.code === 'controller_attach_failed') setInspection({ workspaceId: inspectId, snapshot: result });
+            } else {
+              setInspection({ workspaceId: inspectId, snapshot: { kind: 'existing', codex: snapshot.codex } });
+              await openControllerChat(result.sessionId, workspace.workspaceId);
+              closeTaskStart();
+              return;
+            }
+          } catch (failure) { setError(failure.message || '无法打开主控对话，请重试。'); }
+          setBusy(false);
+          return;
+        }
         let created;
         try { const result = await run(request.sessionId, { action: 'start', challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
           if (result.ok && result.sessionId) created = result.sessionId;
@@ -1633,16 +2085,16 @@ window.__ModuleLoader__.load({
         closeTaskStart();
         Promise.resolve(openTask(created)).catch((failure) => console.warn('Playground: failed to open the new task conversation', failure));
       };
-      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title: actionLabel,
+      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title,
         onClose: () => { if (!busy && !adding) closeTaskStart(); } },
       h('style', null, taskModalCss),
       h('header', { className: 'pg-task-header' },
-        h('h2', null, actionLabel),
-        h('p', { className: 'pg-task-subtitle' }, '选择任务文件的存放工作区'),
-        h('button', { type: 'button', className: 'pg-task-close', 'aria-label': '取消创建任务', disabled: busy || adding, onClick: closeTaskStart },
+        h('h2', null, title),
+        h('p', { className: 'pg-task-subtitle' }, controller ? '选择要协调工作的 DSH 工作区。' : '选择任务文件的存放工作区'),
+        h('button', { type: 'button', className: 'pg-task-close', 'aria-label': controller ? '关闭工作区主控' : '取消创建任务', disabled: busy || adding, onClick: closeTaskStart },
           h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 6 12 12M18 6 6 18' })))),
-      h('div', { className: 'pg-task-body', 'aria-busy': busy || adding || loading },
-        h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
+      h('div', { className: 'pg-task-body', 'aria-busy': busy || adding || loading || checking },
+        controller ? null : h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
           h('div', { className: 'pg-task-summary-top' },
             h('h3', { className: 'pg-task-title', title: request.title }, request.title),
             h('span', { className: 'pg-task-mode' }, request.mode === 'author' ? '出题' : '参赛')),
@@ -1651,28 +2103,33 @@ window.__ModuleLoader__.load({
           h('label', { htmlFor: 'pg-task-workspace' }, '目标工作区'),
           h('div', { className: 'pg-task-select-wrap' },
             h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18' })),
-            h('select', { id: 'pg-task-workspace', className: 'pg-task-select', 'aria-invalid': !!error,
-              'aria-describedby': `${workspace ? 'pg-task-path' : 'pg-task-hint'}${error ? ' pg-task-error' : ''}`, 'data-empty': !workspace, 'data-modal-autofocus': true,
+            h('select', { id: 'pg-task-workspace', className: 'pg-task-select', 'aria-invalid': Boolean(error || controllerError),
+              'aria-describedby': `${workspace ? 'pg-task-path' : 'pg-task-hint'}${error || controllerError ? ' pg-task-error' : ''}`, 'data-empty': !workspace, 'data-modal-autofocus': true,
               value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
-              onChange: (event) => { setSelectedId(event.target.value); setError(''); } },
+              onChange: (event) => { setSelectedId(event.target.value); setError(''); setInspection(null); } },
               h('option', { value: '' }, '请选择工作区'),
-              workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'))),
+              workspaceOptions(workspaces.items)),
             h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
           workspace ? h('p', { id: 'pg-task-path', className: 'pg-task-path' }, workspace.path)
             : h('p', { id: 'pg-task-hint', className: listError ? 'pg-task-error' : 'pg-task-hint', role: listError ? 'alert' : loading ? 'status' : undefined }, hint),
-          error ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error) : null,
+          checking ? h('p', { className: 'pg-task-hint', role: 'status' }, '正在核对工作区的主控对话…') : null,
+          (error || controllerError) ? h('p', { id: 'pg-task-error', className: 'pg-task-error', role: 'alert' }, error || controllerError) : null,
+          needsInitialization ? h('p', { className: 'pg-task-hint' }, '初始化会请当前 DSH 模型确认主控角色。') : null,
+          snapshot?.codex ? h('p', { className: 'pg-task-hint' }, snapshot.codex === 'registered'
+            ? '已检测到官方 Codex 子代理。执行结果会显示在主控对话中。' : '未检测到 Codex 子代理。要派发任务，请先在当前 DSH Profile 启用官方 Codex 子代理。') : null,
           h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: async () => {
             setAdding(true); setError('');
             try { const created = await addTaskWorkspace(); if (created) setSelectedId(created.workspaceId); }
             catch (failure) { setError(failure.message); } finally { setAdding(false); }
           } }, h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…'))),
       h('footer', { className: 'pg-task-footer' },
-        h('p', null, '将在所选目录创建独立对话并读写任务文件。'),
+        h('p', null, controller ? '主控可协调工作和派发 Codex 任务。赛题提交在独立任务对话中完成。' : '将在所选目录创建独立对话并读写任务文件。'),
         h('div', { className: 'pg-task-actions' },
           h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: closeTaskStart }, '取消'),
-          h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy, disabled: !workspace || workspaces.phase !== 'ready' || busy || adding, onClick: confirm },
+          h('button', { type: 'button', className: 'pg-task-button pg-task-create', 'data-busy': busy,
+            disabled: !workspace || workspaces.phase !== 'ready' || busy || adding || (controller && (!snapshot || Boolean(controllerError))), onClick: confirm },
             busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
-            busy ? '正在创建…' : actionLabel))));
+            busy ? (controller ? '正在打开…' : '正在创建…') : actionLabel))));
     }
 
     function commandFact(value) {
@@ -1799,11 +2256,30 @@ window.__ModuleLoader__.load({
         typeof result.sessionId === 'string' ? h('button', { className: 'pg-button', onClick: () => openTask(result.sessionId) }, '打开任务对话') : null);
     }
 
+    function ControllerWelcome({ node }) {
+      const ready = node.outcome?.kind === 'success';
+      return h('section', { className: 'pg-card' }, h('style', null, css),
+        h('h3', null, 'Playground 工作区主控'),
+        h('p', { className: 'pg-note' }, ready
+          ? '在下方输入你要协调的工作。试试「请让 Codex 只读检查这个工作区的 README，并告诉我怎么运行测试」。'
+          : '请从 Playground 工作台打开或创建工作区主控。'));
+    }
+
     return {
       inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
         const taskRequest = createSnapshotStore(null);
+        const controllerTarget = createSnapshotStore(null);
+        const controllerSelection = { workspaceId: '', sessionId: '' };
+        const requestHost = async (method, input, signal) => {
+          const result = await ctx.connection.rpc.call('/api', `playgroundQueries/${method}`, { args: { input } }, signal)
+            .catch(() => ({ ok: false, error: { code: 'transport' } }));
+          if (result.ok) return result.value;
+          throw new Error(queryFailure(result.error));
+        };
         const actions = {
+          controllerSelection,
+          clearControllerTarget: (target) => { if (controllerTarget.getSnapshot() === target) controllerTarget.set(null); },
           requestTask: (request) => taskRequest.set(request),
           closeTaskStart: () => taskRequest.set(null),
           addTaskWorkspace: async () => {
@@ -1811,6 +2287,18 @@ window.__ModuleLoader__.load({
             return path ? ctx.workspaces.create({ path }) : null;
           },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
+          openControllerChat: (sessionId, workspaceId) => {
+            if (workspaceId) controllerSelection.workspaceId = workspaceId;
+            if (workspaceId !== undefined) controllerTarget.set({ workspaceId, sessionId });
+            const opened = ctx.uiWorkspace.openSession(sessionId);
+            ctx.layout.selectPanel('playground');
+            return opened;
+          },
+          promoteController: (input) => requestHost('promoteController', input),
+          controllerTasks: (input, signal) => requestHost('controllerTasks', input, signal),
+          dispatchChallenge: (input, signal) => requestHost('dispatchChallenge', input, signal),
+          inspectController: (input, signal) => requestHost('inspectController', input, signal),
+          openController: (input) => requestHost('openController', input),
           // DSH's own archive, the one its sidebar uses. Running work is refused by the host, never stopped
           // from here. Both resolve to { ok } and report failures as a short message instead of throwing.
           archiveTask: (sessionId) => changeArchive(ctx.uiWorkspace, 'archiveSession', sessionId),
@@ -1821,12 +2309,7 @@ window.__ModuleLoader__.load({
             ctx.layout.selectPanel('playground');
           },
           refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
-          query: async (input, signal) => {
-            const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/query', { args: { input } }, signal)
-              .catch(() => ({ ok: false, error: { code: 'transport' } }));
-            if (result.ok) return result.value;
-            throw new Error(queryFailure(result.error));
-          },
+          query: (input, signal) => requestHost('query', input, signal),
           run: async (sessionId, input, confirm = false) => {
             const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${input}` : `/playground ${JSON.stringify(input)}`, []);
             if (!result.ok) throw new Error(result.error.message);
@@ -1872,8 +2355,11 @@ window.__ModuleLoader__.load({
           )]),
         )));
         ctx.slots.inject('main', () => ctx.slots.register({
-          name: 'main', key: 'playground', locale: 'playground', inject: () => actions,
-        }, PlaygroundWorkbench));
+          name: 'main', key: 'playground', locale: 'playground', inject: () => ({ ...actions, hooks: { controllerTarget } }),
+          children: { 'playground.controller.session': { kind: 'single', scope: 'session-maybe' }, 'playground.library': { kind: 'single', scope: 'root' } },
+        }, ControllerPanel));
+        ctx.slots.inject('playground.library', () => ctx.slots.register({ name: 'playground.library', locale: 'playground', inject: () => actions }, PlaygroundWorkbench));
+        ctx.slots.inject('playground.controller.session', () => ctx.slots.register({ name: 'playground.controller.session' }, ControllerSession));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist', id: 'playground', order: 20, label: () => 'Playground', locale: 'playground',
         }, PlaygroundPanelIcon));
@@ -1889,6 +2375,7 @@ window.__ModuleLoader__.load({
           for (const key of ['playground', 'playground-confirm', 'playground-auth-login']) {
             yield ctx.slots.register({ name: 'conversation.chat.commandview', key, inject: () => actions }, PlaygroundCommandCard);
           }
+          yield ctx.slots.register({ name: 'conversation.chat.commandview', key: 'playground-controller' }, ControllerWelcome);
         });
       },
     };

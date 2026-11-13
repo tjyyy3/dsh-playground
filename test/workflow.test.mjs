@@ -85,6 +85,79 @@ test('creating a task uses a new native session and preserves the exploration se
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
 });
 
+test('a workspace controller rejects material checks and task context but can start an independent task', async (t) => {
+  const cli = { precheck: t.mock.fn(async () => {}) };
+  const f = await fixture(cli, { isController: (agent) => agent.id === 'source' });
+  const readChallenge = t.mock.method(f.client, 'getChallenge');
+  const initial = f.states.get('source');
+  const args = { challenge_id: 'challenge-a' };
+  const command = (input) => f.ctx.commands.execute(f.exec.agent, `/playground ${JSON.stringify(input)}`, [], f.exec.signal);
+
+  const checked = await f.workflow.prepare(args, f.exec);
+  f.record(checked);
+  assert.deepEqual(f.states.get('source'), initial);
+  assert.equal(checked.error?.code, 'controller_conversation');
+  assert.match(checked.error.message, /独立的赛题任务对话/);
+  for (const input of [{ ...args, action: 'check' }, { action: 'context', task: { challengeId: args.challenge_id } }]) {
+    const { result } = await command(input);
+    assert.equal(result.kind, 'error');
+    assert.equal(JSON.parse(result.text).error.code, 'controller_conversation');
+    assert.deepEqual(f.states.get('source'), initial);
+  }
+  assert.equal(cli.precheck.mock.callCount(), 0);
+  assert.equal(readChallenge.mock.callCount(), 0);
+
+  const { result } = await command({ ...args, action: 'start', workspace_id: 'workspace' });
+  assert.equal(result.kind, 'success', result.text);
+  assert.equal(f.states.get('new-task').task.challengeId, args.challenge_id);
+  assert.deepEqual(f.states.get('source'), initial);
+});
+
+test('a workspace controller preserves legacy task records without confirming, tracking or updating them', async (t) => {
+  let marked = false;
+  const cli = { submit: t.mock.fn(async () => { throw Object.assign(new Error('CLI missing'), { code: 'ENOENT', started: false }); }) };
+  const f = await fixture(cli, { isController: () => marked });
+  const task = { challengeId: 'challenge-a', mode: 'participate' };
+  const receipt = { ok: true, attemptId: 77, challengeId: task.challengeId, status: 'submitted' };
+  f.states.set('source', { ...workflowProjection.init(), task, receipt, attemptIds: [77] });
+  const checked = await f.workflow.prepare({ challenge_id: task.challengeId }, f.exec);
+  assert.equal(checked.ok, true, checked.error?.message);
+  f.record(checked);
+  marked = true;
+  const existing = f.states.get('source');
+  const readAttempt = t.mock.method(f.client, 'getAttempt', async (id) => ({ id, challengeId: task.challengeId, authorId: 5, status: 'scored' }));
+  const approval = fakeApproval();
+
+  const confirmed = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
+  replay(f, confirmed);
+  assert.equal(confirmed.error?.code, 'controller_conversation');
+  assert.deepEqual(f.states.get('source'), existing);
+  const approved = await f.workflow.submitApproved({ approval_id: checked.approvalId }, f.exec, { approval, approvalPanel: true });
+  f.record(approved);
+  assert.equal(approved.error?.code, 'controller_conversation');
+  assert.deepEqual(f.states.get('source'), existing);
+  const tracked = await f.workflow.track({ attempt_id: 78 }, f.exec);
+  f.record(tracked);
+  assert.equal(tracked.error?.code, 'controller_conversation');
+  assert.deepEqual(f.states.get('source'), existing);
+  assert.deepEqual(approval.asked, []);
+  assert.equal(readAttempt.mock.callCount(), 0);
+  assert.equal(cli.submit.mock.callCount(), 0);
+  assert.deepEqual(f.calls, []);
+
+  for (const input of [{ action: 'mode', mode: 'author' }, { action: 'cancel' }]) {
+    const { result } = await f.ctx.commands.execute(f.exec.agent, `/playground ${JSON.stringify(input)}`, [], f.exec.signal);
+    assert.equal(result.kind, 'error');
+    assert.equal(JSON.parse(result.text).error.code, 'controller_conversation');
+    assert.deepEqual(f.states.get('source'), existing);
+  }
+  const result = await f.workflow.results({ attempt_id: 77 }, f.exec);
+  f.record(result);
+  assert.equal(result.status, 'scored');
+  assert.equal(readAttempt.mock.callCount(), 1);
+  assert.deepEqual(f.states.get('source'), existing);
+});
+
 // A long synthetic statement and resource list must never reach the first prompt.
 function longChallenge(f, extra = {}) {
   const statement = `SYNTHETIC-STATEMENT-BODY ${'lorem ipsum dolor sit amet '.repeat(400)}`;

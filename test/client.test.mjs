@@ -67,11 +67,11 @@ async function clientFixture(t, services = {}) {
   }
   const unmount = (Component) => states.delete(Component);
   // Render the workbench for one source session and return its panels.
-  function workbench(sessionId, access = true) {
-    const main = registrations.get('main');
+  function workbench(sessionId, access = true, handoff = { start: () => assert.fail('unexpected handoff') }) {
+    const main = registrations.get('playground.library');
     const tree = render(main.Component, { ...main.definition.inject(),
       useSessions: (select) => select({ ids: sessionId ? [sessionId] : [], byId: sessionId ? { [sessionId]: { id: sessionId } } : {}, projectionsBySession: {} }),
-      useSessionAccess: () => access, refreshProjections: async () => {} });
+      useSessionAccess: () => access, refreshProjections: async () => {}, handoff });
     return { auth: find(tree, (node) => node.type?.name === 'AuthStatusPanel'), catalog: find(tree, (node) => node.type?.name === 'CatalogPanel') };
   }
   // Fresh mount of a panel: discard its state, render, then run its mount effects.
@@ -88,7 +88,7 @@ async function clientFixture(t, services = {}) {
 
 test('F-01: opening a task drawer preserves confirmation actions and closes correctly', async (t) => {
   const { registrations, find, render } = await clientFixture(t);
-  const Main = registrations.get('main').Component;
+  const Main = registrations.get('playground.library').Component;
   const calls = [];
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
   const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
@@ -114,7 +114,7 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
 
 // Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
 function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
     useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
@@ -171,13 +171,13 @@ test('切回参赛 is disabled without session access or while the agent is runn
   }
 });
 
-test('the workbench usage help names only the participation start', async (t) => {
+test('the workbench usage help names controller handoff', async (t) => {
   const f = await clientFixture(t);
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const tree = f.render(main.Component, { ...main.definition.inject(),
     useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }), useSessionAccess: () => true, refreshProjections: async () => {} });
   const help = f.find(tree, (n) => n.type === 'details' && n.props.className === 'pg-help');
-  assert.match(text(help), /开始参赛任务/);
+  assert.match(text(help), /交给主控/);
   assert.doesNotMatch(text(help), /开始出题任务/);
 });
 
@@ -186,7 +186,7 @@ test('the workbench usage help names only the participation start', async (t) =>
 // `options.reject` and `options.throws` are read at call time, so a test can change the outcome between clicks.
 async function openTaskFixture(t, options = {}) {
   const f = await clientFixture(t);
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const opened = [];
   const openTask = (id) => {
     opened.push(id);
@@ -324,7 +324,7 @@ test('a successful navigation after a failure leaves no visible note', async (t)
 
 test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
   const { registrations, find, render, unmount } = await clientFixture(t);
-  const Main = registrations.get('main').Component;
+  const Main = registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
   const card = (args) => {
     const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
@@ -368,17 +368,11 @@ test('adding a task workspace uses the native picker and workspace registry; pic
   assert.deepEqual(calls, [['pick'], ['pick'], ['register', { path }]]);
 });
 
-test('task starts from catalog and chat cards request a workspace without creating a session', async (t) => {
+test('task starts from chat cards request a workspace without creating a session', async (t) => {
   const { registrations, find, render } = await clientFixture(t);
   const requests = [];
   const run = async () => { throw Error('must not run before confirmation'); };
   const props = { sessionId: 'source', allowed: true, run, requestTask: (value) => requests.push(value), openChat: () => {} };
-  const main = render(registrations.get('main').Component, {
-    useSessions: (select) => select({ ids: ['source'], byId: { source: { id: 'source' } }, projectionsBySession: {} }),
-    useSessionAccess: () => true, refreshProjections: async () => {}, ...props,
-  });
-  const catalog = find(main, (node) => node.type?.name === 'CatalogPanel');
-  assert.equal(catalog.props.requestTask, props.requestTask);
   const card = render(registrations.get('playground_get_challenge').Component, {
     ...props, phase: 'result', toolName: 'playground_get_challenge',
     block: { meta: { playground: { ok: true, id: 'challenge', title: 'Challenge' } } }, t: (key) => key,
@@ -476,6 +470,82 @@ test('a created task closes the dialog even when opening the new conversation fa
   assert.equal(warn.mock.callCount(), 1);
 });
 
+test('the controller dialog inspects the selected workspace and opens native chat only after confirmation', async (t) => {
+  const calls = [];
+  let inspection = { kind: 'absent', codex: 'unavailable' };
+  const { registrations, find, render, unmount, effects } = await clientFixture(t, {
+    connection: { rpc: { async call(path, method, { args: { input } }) {
+      calls.push([path, method, input]);
+      return { ok: true, value: method.endsWith('/inspectController') ? inspection : { kind: 'opened', sessionId: 'controller' } };
+    } } },
+    uiWorkspace: { async openSession(id) { calls.push(['native', id]); } },
+    layout: { selectPanel(panel) { calls.push(['panel', panel]); } },
+  });
+  const main = registrations.get('playground.library');
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  const useWorkspaces = (select) => select({ phase: 'ready', items: [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }] });
+  const workbench = render(main.Component, { ...main.definition.inject(), useWorkspaces,
+    useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }), useSessionAccess: () => false });
+  const entry = find(workbench, (node) => node.type === 'button' && node.props.children.includes('打开工作区主控'));
+  const props = { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()), useWorkspaces };
+  const button = (tree, label) => find(tree, (node) => node.type === 'button' && node.props.children.includes(label));
+  async function inspectSelected() {
+    entry.props.onClick();
+    const dialog = render(overlay.Component, props);
+    let tree = render(dialog.type, dialog.props);
+    assert.equal(button(tree, '打开主控对话').props.disabled, true);
+    effects.length = 0;
+    find(tree, (node) => node.type === 'select').props.onChange({ target: { value: 'b' } });
+    tree = render(dialog.type, dialog.props);
+    assert.match(text(tree), /正在核对工作区的主控对话/);
+    effects.splice(0).forEach((effect) => effect());
+    await settle();
+    return { dialog, tree: render(dialog.type, dialog.props) };
+  }
+  let { dialog, tree } = await inspectSelected();
+  assert.match(text(tree), /\/workspace-b/);
+  assert.match(text(tree), /启用官方 Codex 子代理/);
+  assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  assert.deepEqual(calls, [['/api', 'playgroundQueries/inspectController', { workspaceId: 'b' }]]);
+  await button(tree, '创建主控对话').props.onClick();
+  assert.deepEqual(calls.slice(1), [['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }], ['native', 'controller'], ['panel', 'playground']]);
+  assert.equal(render(overlay.Component, props), null);
+  unmount(dialog.type);
+
+  inspection = { kind: 'existing', sessionId: 'controller', archived: true, codex: 'registered' };
+  ({ dialog, tree } = await inspectSelected());
+  assert.match(text(tree), /请先在 DSH 中取消归档/);
+  assert.equal(button(tree, '打开主控对话').props.disabled, true);
+  await button(tree, '打开主控对话').props.onClick();
+  assert.equal(calls.length, 5);
+  actions.closeTaskStart();
+  unmount(dialog.type);
+
+  inspection = { ...inspection, archived: false };
+  ({ dialog, tree } = await inspectSelected());
+  assert.doesNotMatch(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  await button(tree, '打开主控对话').props.onClick();
+  assert.deepEqual(calls.at(-3), ['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: false }]);
+  assert.deepEqual(calls.at(-2), ['native', 'controller']);
+  unmount(dialog.type);
+
+  inspection = { kind: 'incomplete', sessionId: 'controller', codex: 'registered' };
+  ({ tree } = await inspectSelected());
+  assert.match(text(tree), /初始化会请当前 DSH 模型确认主控角色/);
+  assert.equal(calls.at(-1)[1], 'playgroundQueries/inspectController');
+  await button(tree, '初始化主控对话').props.onClick();
+  assert.deepEqual(calls.at(-3), ['/api', 'playgroundQueries/openController', { workspaceId: 'b', createIfMissing: true }]);
+  assert.deepEqual(calls.at(-2), ['native', 'controller']);
+});
+
+test('the native controller welcome offers a task the user can type without starting an agent turn', async (t) => {
+  const { registrations, render } = await clientFixture(t);
+  const { Component } = registrations.get('playground-controller');
+  const tree = render(Component, { node: { outcome: { kind: 'success' } } });
+  assert.match(text(tree), /在下方输入.*让 Codex 只读检查/);
+});
+
 test('workbench reads, re-entry, search, filters and source-session changes never execute a command', async (t) => {
   const calls = [];
   const f = await clientFixture(t, {
@@ -502,20 +572,19 @@ test('workbench reads, re-entry, search, filters and source-session changes neve
   assert.ok(calls.some(([, , payload]) => payload.args.input.search === 'synthetic'));
 });
 
-test('catalog browsing needs no conversation, but task starts need one with command access', async (t) => {
+test('catalog handoff is available without a source conversation or command access there', async (t) => {
   const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true,
     value: { competitions: { items: [] }, challenges: { items: [{ id: 'c1', title: 'Challenge' }] } } }) } } });
-  for (const [sessionId, access, hint] of [[undefined, true, /打开一个 DSH 对话/], ['A', false, /没有在此对话中创建任务的权限/], ['A', true, undefined]]) {
-    const panel = await f.mount(f.workbench(sessionId, access).catalog);
-    const starts = findAll(panel, (node) => node.type?.name === 'StartTaskButton');
-    // Author mode is not open yet: each challenge card offers only a participation start.
-    assert.equal(starts.length, 1);
-    assert.equal(starts[0].props.mode, 'participate');
-    assert.doesNotMatch(text(panel), /开始出题任务/);
-    assert.ok(starts.every((start) => start.props.disabled === Boolean(hint)));
-    if (hint) assert.match(text(panel), hint);
-    else assert.doesNotMatch(text(panel), /才能从目录创建任务|没有在此对话中创建任务/);
+  const requests = [];
+  for (const [sessionId, access] of [[undefined, true], ['A', false]]) {
+    const panel = await f.mount(f.workbench(sessionId, access, { start: (challenge) => requests.push(challenge) }).catalog);
+    const handoff = f.find(panel, (node) => node.type?.name === 'DispatchChallengeButton');
+    const button = f.render(handoff.type, handoff.props);
+    assert.equal(text(button), '交给主控');
+    assert.equal(button.props['aria-disabled'], undefined);
+    button.props.onClick();
   }
+  assert.deepEqual(requests, [{ id: 'c1', title: 'Challenge' }, { id: 'c1', title: 'Challenge' }]);
 });
 
 test('only the newest catalog request updates the panel; superseded requests are cancelled', async (t) => {
@@ -543,7 +612,7 @@ test('only the newest catalog request updates the panel; superseded requests are
 test('query failures name the cause without exposing raw transport errors', async (t) => {
   let reply;
   const f = await clientFixture(t, { connection: { rpc: { call: async () => reply() } } });
-  const { query } = f.registrations.get('main').definition.inject();
+  const { query } = f.registrations.get('playground.library').definition.inject();
   for (const [next, expected] of [
     [() => ({ ok: false, error: { code: 'remote-access/denied', message: 'Bearer secret-token' } }), /没有读取 Playground 数据的权限/],
     [() => ({ ok: false, error: { code: 'gateway/invocation-unavailable', message: 'secret-token' } }), /查询服务未加载/],
@@ -708,7 +777,7 @@ test('workbench login needs no conversation and keeps the password out of the ca
     },
     connection: { rpc: { call: async (...args) => { calls.push(['rpc', ...args]); return reply; } } },
   });
-  const { login } = f.registrations.get('main').definition.inject();
+  const { login } = f.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await login('a@example.test', 'synthetic-password'), { ok: true, authenticated: true });
   assert.deepEqual(calls[0], ['credential', 'PLAYGROUND_PASSWORD', 'synthetic-password']);
   assert.deepEqual(calls[1].slice(0, 4), ['rpc', '/api', 'playgroundQueries/login', { args: { input: { email: 'a@example.test' } } }]);
@@ -738,7 +807,7 @@ async function localizedFixture(t, services = {}) {
 // summary and the score line of the drawer's attempt card.
 function taskViews(f, playgroundTask, t, { running = false } = {}) {
   const session = { id: 's', displayTitle: 'Playground · Fixture', running, projectionValues: { playgroundTask } };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t };
   const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
@@ -944,11 +1013,11 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
     remote: { commands: { execute: () => assert.fail('the refresh reached command history') } },
     ...(uiWorkspace ? { uiWorkspace } : {}),
   });
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const task = (title) => ({ challengeId: 'fixture', title, mode: 'participate' });
   const sessions = receipts.map(([id, receipt]) => ({ id, displayTitle: `Playground · ${id}`,
     projectionValues: { playgroundTask: { task: task(id), prepared: null, receipt } } }));
-  const actions = f.registrations.get('main').definition.inject();
+  const actions = f.registrations.get('playground.library').definition.inject();
   const props = () => ({ ...actions, useSessions: (select) => select({ ids: sessions.map((item) => item.id), byId: Object.fromEntries(sessions.map((item) => [item.id, item])),
     projectionsBySession: Object.fromEntries(sessions.map((item) => [item.id, { state: 'ready', values: item.projectionValues }])) }),
   ...(archived ? { useWorkspaces: (select) => select({ phase: 'ready', items: [], archivedSessionIds: archived, pinnedSessionIds: [] }) } : {}),
@@ -1122,7 +1191,7 @@ test('a task with a pending submission can be archived, is not polled while arch
   };
   const platform = new Map([[61, queuedAttempt]]);
   const h = await refreshHarness(t, [['a', receiptOf(61)]], platform, { archived, uiWorkspace });
-  const actions = h.f.registrations.get('main').definition.inject();
+  const actions = h.f.registrations.get('playground.library').definition.inject();
   h.flush();
   assert.deepEqual(h.calls.map((call) => call.id), [61]);
   await h.settled();
@@ -1363,7 +1432,7 @@ async function historyFixture(t, respond, state, options) {
     connection: { rpc: { call: historyRpc(attemptsClient(respond, requests, options), calls) } },
     remote: { commands: { execute: () => assert.fail('submission history reached command history') } },
   });
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, projectionValues: { playgroundTask: state } };
   // The host's real zh translator, so rows render the same `progress.*` text as the task row and drawer.
   const props = { ...main.definition.inject(), t: f.zh, useSessionAccess: () => true, refreshProjections: async () => {},
@@ -1759,7 +1828,7 @@ test('catalog cards open the challenge web page in a new noopener window', async
 
 // Renders the main view with one task session, opens its drawer and returns the drawer's "在网页中打开" buttons.
 function drawerWebButtons(f) {
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   return async (task, { loadCatalog = false } = {}) => {
     f.unmount(main.Component);
     const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, projectionValues: { playgroundTask: { task, prepared: null, receipt: null } } };
@@ -1874,7 +1943,7 @@ const buttonLabelled = (label) => (node) => node.type === 'button' && (node.prop
 
 // The catalog panel with one card. Detail reads stay pending until a test resolves them, so each
 // test controls the order in which reads settle. `open` clicks "查看详情" and mounts the drawer.
-async function challengeDrawerHarness(t, { sessionId = 'source', access = true } = {}) {
+async function challengeDrawerHarness(t) {
   const reads = [];
   const call = (_path, _method, { args: { input } }, signal) => {
     if (input.action === 'catalog') return Promise.resolve({ ok: true, value: { webBase: 'https://play.bohrium.com', competitions: { items: [] }, challenges: { items: [challengeCard] } } });
@@ -1886,7 +1955,8 @@ async function challengeDrawerHarness(t, { sessionId = 'source', access = true }
   globalThis.document = { addEventListener: (type, listener) => { if (type === 'keydown') listeners.add(listener); },
     removeEventListener: (type, listener) => { if (type === 'keydown') listeners.delete(listener); } };
   t.after(() => { delete globalThis.document; });
-  const catalogElement = f.workbench(sessionId, access).catalog;
+  const handoffs = [];
+  const catalogElement = f.workbench(undefined, false, { start: (challenge) => handoffs.push(challenge) }).catalog;
   await f.mount(catalogElement);
   const catalog = () => f.render(catalogElement.type, catalogElement.props);
   const drawerElement = () => f.find(catalog(), (node) => node.type?.name === 'ChallengeDetailDrawer');
@@ -1907,7 +1977,7 @@ async function challengeDrawerHarness(t, { sessionId = 'source', access = true }
   // What React does when the drawer leaves the tree.
   const unmountDrawer = () => current.cleanups.forEach((cleanup) => cleanup?.());
   const respond = async (index, value) => { reads[index].resolve({ ok: true, value }); await settle(); };
-  return { f, reads, listeners, open, view, catalog, drawerElement, unmountDrawer, respond, escape: () => [...listeners].forEach((listener) => listener({ key: 'Escape' })) };
+  return { f, reads, listeners, handoffs, open, view, catalog, drawerElement, unmountDrawer, respond, escape: () => [...listeners].forEach((listener) => listener({ key: 'Escape' })) };
 }
 
 test('"查看详情" opens a challenge drawer that reads the detail once and shows facts, tags, resources and the web button', async (t) => {
@@ -2084,37 +2154,50 @@ test('a failed challenge read shows a fixed message and "重试" without tokens 
   assert.match(text(tree), /data\.csv/);
 });
 
-test('the drawer start button closes the drawer and opens the workspace dialog through requestTask', async (t) => {
+test('the drawer handoff closes the drawer and sends the same catalog challenge', async (t) => {
   const h = await challengeDrawerHarness(t);
   h.open();
   await h.respond(0, challengeDetail());
-  const start = h.f.find(h.view(), (node) => node.type?.name === 'StartTaskButton');
-  assert.equal(start.props.disabled, false);
-  assert.equal(start.props.sessionId, 'source');
+  const start = h.f.find(h.view(), (node) => node.type?.name === 'DispatchChallengeButton');
   const button = h.f.render(start.type, start.props);
-  assert.match(text(button), /^开始参赛任务/);
+  assert.equal(text(button), '交给主控');
   button.props.onClick();
   assert.equal(h.drawerElement(), undefined);
   const overlay = h.f.registrations.get('playground.task-start').definition.inject();
-  assert.deepEqual(overlay.hooks.taskRequest.getSnapshot(), { id: 'a b/c', title: '合成赛题', mode: 'participate', sessionId: 'source' });
+  assert.equal(overlay.hooks.taskRequest.getSnapshot(), null);
+  assert.deepEqual(h.handoffs, [{ id: 'a b/c', title: '合成赛题' }]);
 });
 
-test('the drawer start button follows the catalog card start rule', async (t) => {
-  for (const [sessionId, access, note] of [[null, true, '打开一个 DSH 对话后才能从目录创建任务。'], ['source', false, '当前连接没有在此对话中创建任务的权限。']]) {
-    const h = await challengeDrawerHarness(t, { sessionId, access });
-    // The card's start is blocked, but "查看详情" stays usable (calling onClick alone would pass on a disabled button).
-    const catalog = h.catalog();
-    assert.equal(h.f.find(catalog, (node) => node.type?.name === 'StartTaskButton').props.disabled, true, note);
-    assert.notEqual(h.f.find(catalog, buttonLabelled('查看详情')).props.disabled, true, note);
-    h.open();
-    await h.respond(0, challengeDetail());
-    const tree = h.view();
-    assert.equal(h.f.find(tree, (node) => node.type?.name === 'StartTaskButton').props.disabled, true);
-    assert.ok(text(tree).includes(note), note);
-    // Opening the web page needs no conversation.
-    assert.equal(findAll(tree, isOpenWeb).length, 1);
-    h.unmountDrawer();
-  }
+test('the card body and detail button open the drawer while web and handoff stay separate', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  const opened = [];
+  globalThis.window.open = (url) => opened.push(url);
+  const card = h.f.find(h.catalog(), (node) => node.type === 'article');
+  const details = h.f.find(card, buttonLabelled('查看详情'));
+  assert.equal(details.props['aria-haspopup'], 'dialog');
+  assert.equal(details.props.tabIndex, undefined);
+  const bodyClick = { target: { closest: () => null } };
+  const buttonClick = { target: { closest: (selector) => selector.includes('button') ? {} : null } };
+  globalThis.window.getSelection = () => 'selected challenge text';
+  card.props.onClick(bodyClick);
+  assert.equal(h.drawerElement(), undefined);
+  globalThis.window.getSelection = () => '';
+  card.props.onClick(bodyClick);
+  assert.ok(h.drawerElement());
+  const drawer = h.drawerElement();
+  const drawerTree = h.f.render(drawer.type, drawer.props);
+  h.f.find(drawerTree, (node) => node.props?.['aria-label'] === '关闭赛题详情').props.onClick();
+  h.f.find(card, isOpenWeb).props.onClick();
+  card.props.onClick(buttonClick);
+  assert.deepEqual(opened, [challengeCard.webUrl]);
+  assert.equal(h.drawerElement(), undefined);
+  const handoff = h.f.find(card, (node) => node.type?.name === 'DispatchChallengeButton');
+  h.f.render(handoff.type, handoff.props).props.onClick();
+  card.props.onClick(buttonClick);
+  assert.deepEqual(h.handoffs, [{ id: challengeCard.id, title: challengeCard.titleZh }]);
+  assert.equal(h.drawerElement(), undefined);
+  details.props.onClick();
+  assert.ok(h.drawerElement());
 });
 
 // Archive: tasks a, b and c in the workbench, with DSH's archive set on the workspace list snapshot. The
@@ -2127,7 +2210,7 @@ async function archiveFixture(t, { archived = ['b'], running, uiWorkspace, useWo
     unarchiveSession: async (...args) => { calls.push(['unarchive', ...args]); set.ids = set.ids.filter((id) => id !== args[0]); },
   };
   const f = await clientFixture(t, { uiWorkspace: ui });
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   const opened = [];
   const sessions = ['a', 'b', 'c'].map((id) => ({ id, displayTitle: `Playground · ${id}`, running: id === running,
     ...(id === mainView ? { retainedBy: { mainView: 1 } } : {}),
@@ -2295,10 +2378,10 @@ test('without DSH archive support nothing is archived, the controls are hidden, 
   a.controlButton().props.onClick();
   await settle();
   assert.equal(text(a.find(a.control(), (n) => n.props?.className === 'pg-note pg-error pg-archive-error')), '当前 DSH 版本不支持归档对话。');
-  const actions = a.registrations.get('main').definition.inject();
+  const actions = a.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '当前 DSH 版本不支持取消归档对话。' });
   const bare = await clientFixture(t);
-  assert.deepEqual(await bare.registrations.get('main').definition.inject().archiveTask('a'), { ok: false, message: '当前 DSH 版本不支持归档对话。' });
+  assert.deepEqual(await bare.registrations.get('playground.library').definition.inject().archiveTask('a'), { ok: false, message: '当前 DSH 版本不支持归档对话。' });
 });
 
 test('归档任务 is disabled with the reason for the conversation open in DSH\'s main view', async (t) => {
@@ -2403,7 +2486,7 @@ test('an unarchive failure in the host\'s own format shows only the generic mess
   assert.equal(a.announcement(), '取消归档未完成，请重试。');
   assert.doesNotMatch(text(a.tree()), /workspace session|storage\/failed|registry/);
   assert.equal(text(a.toggle()), '已归档 1 个', 'the task is still archived');
-  const actions = a.registrations.get('main').definition.inject();
+  const actions = a.registrations.get('playground.library').definition.inject();
   assert.deepEqual(await actions.unarchiveTask('b'), { ok: false, message: '取消归档未完成，请重试。' });
 });
 
@@ -2524,7 +2607,7 @@ test('choosing a competition sends its id, shows the info row and opens its page
   open.props.onClick();
   assert.deepEqual(opened, [['https://play.bohrium.com/competition/harness', '_blank', 'noopener,noreferrer']]);
   // The challenge card keeps its own start, detail and web buttons.
-  assert.equal(findAll(panel, (node) => node.type?.name === 'StartTaskButton').length, 1);
+  assert.equal(findAll(panel, (node) => node.type?.name === 'DispatchChallengeButton').length, 1);
   assert.equal(findAll(panel, (node) => node.type === 'button' && /^查看详情/.test(node.props['aria-label'] || '')).length, 1);
 });
 
@@ -3338,7 +3421,7 @@ test('#25: an ordinary conversation bound with playground_bind_task appears in t
   state = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: bound.workflow } } });
   const view = workflowProjection.wire.view(state);
   const f = await clientFixture(t);
-  const main = f.registrations.get('main');
+  const main = f.registrations.get('playground.library');
   // Neither conversation has a "Playground · " title: only the bound projection puts one in the list.
   const sessions = [{ id: 'bound', displayTitle: '普通对话', projectionValues: { playgroundTask: view } },
     { id: 'plain', displayTitle: '另一个普通对话', projectionValues: { playgroundTask: workflowProjection.wire.view(workflowProjection.init()) } }];
@@ -3414,7 +3497,7 @@ test('#12: an empty or malformed token is rejected in the Client and never store
   panel.tokenForm().props.onSubmit({ preventDefault() {} });
   await settle();
   assert.match(text(panel.rerender()), /请先粘贴 API 令牌/);
-  const { saveToken } = panel.f.registrations.get('main').definition.inject();
+  const { saveToken } = panel.f.registrations.get('playground.library').definition.inject();
   for (const [value, expected] of [['', /请先粘贴 API 令牌/], [' \n ', /请先粘贴 API 令牌/], [undefined, /请先粘贴 API 令牌/], ['asp_one two', /不能有空格或换行/]]) {
     await assert.rejects(saveToken(value), (error) => expected.test(error.message) && !error.message.includes('asp_'), String(value));
   }
@@ -3424,7 +3507,7 @@ test('#12: an empty or malformed token is rejected in the Client and never store
 test('#12: a credential store failure is reported without the token', async (t) => {
   const f = await clientFixture(t, { remote: { credentials: { set: async (_name, value) => { throw new Error(`cannot store ${value}`); },
     unset: async () => { throw new Error('denied'); } } } });
-  const { saveToken, clearToken } = f.registrations.get('main').definition.inject();
+  const { saveToken, clearToken } = f.registrations.get('playground.library').definition.inject();
   await assert.rejects(saveToken('asp_synthetic-token'), (error) => /无法把令牌保存到 DSH 凭据存储/.test(error.message) && !error.message.includes('asp_'));
   await assert.rejects(clearToken(), /无法清除 DSH 凭据存储中的令牌/);
 });
@@ -3523,7 +3606,7 @@ test('#12: email login removes the password from the DSH credential store after 
     },
     connection: { rpc: { call: async (...args) => { calls.push(['rpc', args[1]]); return reply; } } },
   });
-  const { login } = f.registrations.get('main').definition.inject();
+  const { login } = f.registrations.get('playground.library').definition.inject();
   await login('a@example.test', 'synthetic-password');
   assert.deepEqual(calls, [['set', 'PLAYGROUND_PASSWORD', 'synthetic-password'], ['rpc', 'playgroundQueries/login'], ['unset', 'PLAYGROUND_PASSWORD']]);
   for (const next of [{ ok: true, value: { ok: false, error: { code: 'login_failed', message: '未找到 Playground CLI。' } } }, { ok: false, error: { code: 'transport' } }]) {
@@ -3535,7 +3618,7 @@ test('#12: email login removes the password from the DSH credential store after 
   // A failing unset does not hide the login result.
   const g = await clientFixture(t, { remote: { credentials: { set: async () => {}, unset: async () => { throw new Error('denied'); } } },
     connection: { rpc: { call: async () => ({ ok: true, value: { ok: true, authenticated: true } }) } } });
-  assert.deepEqual(await g.registrations.get('main').definition.inject().login('a@example.test', 'pw'), { ok: true, authenticated: true });
+  assert.deepEqual(await g.registrations.get('playground.library').definition.inject().login('a@example.test', 'pw'), { ok: true, authenticated: true });
 });
 
 const BASE = 'https://play.bohrium.com/api';
@@ -3797,7 +3880,7 @@ test('#55: the challenge drawer moves focus to its title, keeps Tab inside and g
   }
 });
 
-test('#55: the challenge drawer falls back to the catalog heading, and starting a task gives focus back first', async (t) => {
+test('#55: the challenge drawer falls back to the catalog heading, and handoff gives focus back first', async (t) => {
   const h = await challengeDrawerHarness(t);
   const dom = focusDom(t);
   const heading = dom.node('选择比赛或赛题');
@@ -3820,17 +3903,15 @@ test('#55: the challenge drawer falls back to the catalog heading, and starting 
   press(h.listeners, 'Escape');
   assert.equal(dom.active(), '选择比赛或赛题');
   h.unmountDrawer();
-  // "开始参赛任务" gives focus back before the workspace dialog opens, so the dialog returns it there.
   const opener = dom.node('查看详情');
   dom.focus(opener);
   h.open(drawer.attach);
   await h.respond(1, challengeDetail());
-  const start = h.f.find(h.view(), (node) => node.type?.name === 'StartTaskButton');
+  const start = h.f.find(h.view(), (node) => node.type?.name === 'DispatchChallengeButton');
   h.f.render(start.type, start.props).props.onClick();
   assert.equal(h.drawerElement(), undefined);
   assert.equal(dom.active(), '查看详情');
-  const overlay = h.f.registrations.get('playground.task-start').definition.inject();
-  assert.deepEqual(overlay.hooks.taskRequest.getSnapshot(), { id: 'a b/c', title: '合成赛题', mode: 'participate', sessionId: 'source' });
+  assert.deepEqual(h.handoffs, [{ id: 'a b/c', title: '合成赛题' }]);
   h.unmountDrawer();
   // A drawer its parent removes while focus was inside gives focus back when it unmounts.
   dom.focus(opener);
@@ -4512,7 +4593,7 @@ test('#58: the material check card and the confirmation section show a compact b
     args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
     cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58, bundleWarning: '这个评测包与上次被拒收的完全相同（SHA-256 一致）。' };
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
@@ -4644,7 +4725,7 @@ test('#62: the material check card and the confirmation section show today\'s co
     args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
     cliPrecheck: { status: 'passed' }, submissionCounts: counts };
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('main').Component;
+  const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
     useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
@@ -4655,4 +4736,403 @@ test('#62: the material check card and the confirmation section show today\'s co
   const workflow = f.render(selected.type, selected.props);
   const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
   assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
+});
+
+
+test('the scoped controller renderer mounts native content only for the verified session', async (t) => {
+  const { registrations, render } = await clientFixture(t);
+  const main = registrations.get('main');
+  assert.deepEqual(main.definition.children['playground.controller.session'], { kind: 'single', scope: 'session-maybe' });
+  const child = registrations.get('playground.controller.session').Component;
+  const calls = [];
+  const props = { sessionId: 'other', expectedId: 'controller', useSession: (select) => select({ openState: 'open', blank: false, awaitingFirstTurn: false, running: false }),
+    useConversation: (select) => select({ activeTargets: new Set() }), useSessions: (select) => select({ byId: { other: { blank: false } } }),
+    renderFactorySlot: (...args) => { calls.push(args); return 'native'; } };
+  assert.notEqual(render(child, props), 'native');
+  assert.equal(calls.length, 0);
+  assert.equal(render(child, { ...props, sessionId: 'controller' }), 'native');
+  assert.deepEqual(calls, [['conversation.content', { variant: 'embedded', phase: 'active', hero: false }]]);
+  assert.notEqual(render(child, { ...props, sessionId: 'controller', useSession: (select) => select({ openState: 'error' }) }), 'native');
+});
+
+test('controller tabs keep the chat occurrence while routing separate library sections and resizing the task pane', async (t) => {
+  const f = await clientFixture(t);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const Main = f.registrations.get('main').Component;
+  const calls = [];
+  const selection = { workspaceId: 'one' };
+  const props = { controllerSelection: selection, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }),
+    useSessions: (fn) => fn({ ids: [], byId: {} }), inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    openControllerChat: async () => {}, controllerTasks: async () => ({ kind: 'ready', rows: [] }),
+    renderSlot: (name, data) => { calls.push([name, data]); return { type: 'slot', props: { name, data, children: [] } }; } };
+  let tree = f.render(Main, props);
+  f.effects.splice(0).forEach((effect) => cleanups.push(effect()));
+  await settle();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.type === 'slot' && node.props.name === 'playground.controller.session'));
+  const divider = f.find(tree, (node) => node.props?.role === 'separator');
+  divider.props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} });
+  assert.equal(selection.taskWidth, 390);
+  f.find(f.render(Main, props), (node) => node.type === 'button' && text(node) === '赛题').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.type === 'slot' && node.props.name === 'playground.controller.session'));
+  assert.ok(calls.some(([name, data]) => name === 'playground.library' && data.section === 'catalog'));
+  assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
+  f.find(tree, (node) => node.type === 'button' && text(node) === '提交').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(calls.some(([name, data]) => name === 'playground.library' && data.section === 'submissions'));
+  const catalog = f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog');
+  assert.equal(catalog.props.style.display, 'none');
+  assert.equal(f.find(catalog, (node) => node.type === 'slot').props.data.active, false);
+  assert.equal(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions').props.style.display, 'flex');
+  f.find(tree, (node) => node.props?.title === '连接设置').props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.tabIndex, 0);
+  assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
+  f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  tree = f.render(Main, props);
+  assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
+  assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
+  assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions'));
+});
+
+async function controllerHandoffHarness(t, { workspaceId = '', inspections = {}, dispatch, navigate, pickDirectory,
+  workspaceItems = [{ workspaceId: 'one', title: 'One', sessionIds: ['main-one'] }, { workspaceId: 'two', title: 'Two', sessionIds: ['main-two'] }],
+} = {}) {
+  const calls = [];
+  const f = await clientFixture(t, { uiWorkspace: { openSession: (id) => calls.push(['native', id]), pickDirectory },
+    workspaces: { create: async ({ path }) => {
+      calls.push(['register', path]);
+      const created = { workspaceId: 'registered', title: 'Registered', path };
+      workspaceItems = [...workspaceItems, created];
+      return created;
+    } },
+    layout: { selectPanel: (panel) => calls.push(['panel', panel]) }, connection: { rpc: { call: async (_route, endpoint, { args: { input } }) => {
+    if (endpoint === 'playgroundQueries/query') {
+      return { ok: true, value: { competitions: { items: [] }, challenges: { items: [challengeCard] } } };
+    }
+    calls.push([endpoint, input]);
+    return { ok: true, value: await dispatch(input) };
+  } } } });
+  const main = f.registrations.get('main');
+  const actions = main.definition.inject();
+  const selectedSession = { id: 'unrelated', retainedBy: { mainView: 1 } };
+  actions.controllerSelection.workspaceId = workspaceId;
+  const props = { ...actions, useControllerTarget: (select) => select(actions.hooks.controllerTarget.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'ready', items: workspaceItems }),
+    useSessions: (select) => select({ ids: [selectedSession.id], byId: { [selectedSession.id]: selectedSession } }),
+    inspectController: async ({ workspaceId }) => inspections[workspaceId],
+    openController: async (input) => { calls.push(['initialize', input]); return { kind: 'opened', sessionId: 'new-controller' }; },
+    openControllerChat: async (sessionId) => { calls.push(['open', sessionId]); return navigate?.(sessionId); },
+    controllerTasks: undefined,
+    renderSlot: (name, data) => ({ type: 'slot', props: { name, data } }),
+  };
+  const view = () => { f.effects.length = 0; return f.render(main.Component, props); };
+  const activeEffects = [];
+  t.after(() => activeEffects.forEach((effect) => effect?.cleanup?.()));
+  const runEffects = async () => {
+    f.effects.splice(0).forEach((effect, index) => {
+      const previous = activeEffects[index];
+      if (previous && effect.deps?.every((dep, i) => Object.is(dep, previous.deps[i]))) return;
+      previous?.cleanup?.();
+      activeEffects[index] = { deps: effect.deps, cleanup: effect() };
+    });
+    await settle();
+  };
+  view();
+  await runEffects();
+  f.find(view(), buttonLabelled('赛题')).props.onClick();
+  const catalogSlot = () => f.find(view(), (node) => node.props?.data?.section === 'catalog').props.data;
+  const library = f.registrations.get('playground.library');
+  const catalog = () => f.find(f.render(library.Component, { ...props, ...catalogSlot(), t: (key) => key }), (node) => node.type?.name === 'CatalogPanel');
+  await f.mount(catalog());
+  const cardButton = () => {
+    const panel = catalog();
+    const button = f.find(f.render(panel.type, panel.props), (node) => node.type?.name === 'DispatchChallengeButton');
+    return f.render(button.type, button.props);
+  };
+  const modal = () => {
+    const dialog = f.find(view(), (node) => node.type?.name === 'ControllerHandoffDialog');
+    return dialog ? f.render(dialog.type, dialog.props) : undefined;
+  };
+  const modalWorkspace = () => f.find(modal(), (node) => node.type === 'select');
+  const modalButton = (label) => f.find(modal(), buttonLabelled(label));
+  const refresh = async () => { view(); await runEffects(); };
+  const changeWorkspace = async (workspaceId) => {
+    f.find(view(), (node) => node.type === 'select' && node.props['aria-label'] === '工作区').props.onChange({ target: { value: workspaceId } });
+    await refresh();
+  };
+  const dispatchCalls = () => calls.filter(([name]) => name === 'playgroundQueries/dispatchChallenge').map(([, input]) => input);
+  calls.length = 0;
+  const remount = async () => {
+    activeEffects.splice(0).forEach((effect) => effect?.cleanup?.());
+    f.unmount(main.Component);
+    await refresh();
+  };
+  return { f, calls, view, cardButton, modal, modalWorkspace, modalButton, changeWorkspace, refresh, remount, dispatchCalls };
+}
+
+const existingController = (sessionId) => ({ kind: 'existing', sessionId, archived: false });
+const admittedController = ({ sessionId }) => ({ kind: 'accepted', sessionId });
+
+test('an explicit controller result changes the selected workspace in the mounted panel and after remount', async (t) => {
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one',
+    inspections: { one: existingController('main-one'), two: existingController('main-two') }, dispatch: admittedController });
+  const tool = h.f.registrations.get('playground_open_controller');
+  const props = { ...tool.definition.inject(), phase: 'result', toolName: 'playground_open_controller', t: (key) => key };
+  const openResult = (data) => h.f.find(h.f.render(tool.Component, { ...props, block: { meta: { playground: { ok: true, ...data } } } }),
+    buttonLabelled('打开主控对话')).props.onClick();
+  const selectedWorkspace = () => h.f.find(h.view(), (node) => node.props?.['aria-label'] === '工作区').props.value;
+  const expectedSession = () => h.f.find(h.view(), (node) => node.props?.name === 'playground.controller.session').props.data.expectedId;
+
+  openResult({ sessionId: 'main-two', workspaceId: 'two' });
+  assert.deepEqual(h.calls, [['native', 'main-two'], ['panel', 'playground']]);
+  await h.refresh();
+  await h.refresh();
+  assert.equal(selectedWorkspace(), 'two');
+  assert.equal(expectedSession(), 'main-two');
+  assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
+  await h.remount();
+  assert.equal(selectedWorkspace(), 'two');
+  assert.equal(expectedSession(), 'main-two');
+  assert.deepEqual(h.calls.filter(([name]) => name === 'open'), [['open', 'main-two'], ['open', 'main-two']]);
+
+  openResult({ sessionId: 'main-one' });
+  await h.refresh();
+  await h.refresh();
+  assert.equal(selectedWorkspace(), 'one');
+  assert.equal(expectedSession(), 'main-one');
+});
+
+test('catalog hands off directly to the selected workspace controller and shows the conversation tab', async (t) => {
+  let admit;
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    dispatch: (input) => new Promise((resolve) => { admit = () => resolve(admittedController(input)); }) });
+  const button = h.cardButton();
+  button.props.onClick();
+  assert.equal(h.modal(), undefined);
+  assert.equal(h.cardButton().props['aria-disabled'], true);
+  button.props.onClick();
+  assert.equal(h.dispatchCalls().length, 1);
+  const [input] = h.dispatchCalls();
+  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, requestId: input.requestId });
+  assert.match(input.requestId, /^[\da-f-]{36}$/);
+  admit();
+  await settle();
+  assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
+  assert.equal(h.modal(), undefined);
+  assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
+});
+
+test('handoff opens a cancellable native dialog with focus on its title and registered workspace options', async (t) => {
+  const h = await controllerHandoffHarness(t, { inspections: { two: { kind: 'absent' } }, dispatch: admittedController });
+  const dom = focusDom(t);
+  const opener = dom.node('交给主控');
+  h.cardButton().props.onClick({ currentTarget: opener });
+  assert.equal(dom.active(), '交给主控');
+  const modal = h.modal();
+  assert.equal(modal.type, 'native-modal');
+  assert.equal(modal.props.open, true);
+  assert.equal(modal.props.title, '交给工作区主控');
+  assert.match(text(modal), /合成赛题/);
+  const [initialFocus] = findAll(modal, (node) => node.props?.['data-modal-autofocus']);
+  assert.equal(initialFocus.type, 'h2');
+  assert.equal(initialFocus.props.tabIndex, -1);
+  assert.deepEqual(findAll(modal, (node) => node.type === 'option').map((node) => node.props.value), ['', 'one', 'two']);
+  assert.equal(h.modalButton('创建主控并交接'), undefined);
+  modal.props.onClose();
+  assert.equal(h.modal(), undefined);
+  assert.deepEqual(h.calls, []);
+  h.cardButton().props.onClick();
+  h.modalButton('取消').props.onClick();
+  assert.equal(h.modal(), undefined);
+  assert.deepEqual(h.calls, []);
+});
+
+test('handoff can register and select its first workspace without sending a challenge', async (t) => {
+  let picker = deferred();
+  let picks = 0;
+  let pickError;
+  const h = await controllerHandoffHarness(t, { workspaceItems: [], inspections: { registered: { kind: 'absent' } },
+    dispatch: admittedController, pickDirectory: () => {
+      picks += 1;
+      if (pickError) throw pickError;
+      return picker.promise;
+    } });
+  h.cardButton().props.onClick();
+  assert.equal(h.modalWorkspace().props.disabled, true);
+  const choose = h.modalButton('添加工作区…').props.onClick;
+  const cancelled = choose();
+  await choose();
+  assert.equal(picks, 1);
+  assert.equal(h.modalButton('正在选择目录…').props.disabled, true);
+  assert.equal(h.modalButton('取消').props.disabled, true);
+  h.modal().props.onClose();
+  assert.ok(h.modal());
+  picker.resolve(null);
+  await cancelled;
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.modalButton('添加工作区…').props.disabled, false);
+
+  pickError = new Error('directory picker failed');
+  await h.modalButton('添加工作区…').props.onClick();
+  assert.match(text(h.f.find(h.modal(), (node) => node.props?.role === 'alert')), /无法添加工作区/);
+
+  picker = deferred();
+  pickError = undefined;
+  const selected = h.modalButton('添加工作区…').props.onClick();
+  picker.resolve('/new-workspace');
+  await selected;
+  assert.equal(h.modalWorkspace().props.value, 'registered');
+  assert.equal(h.modalButton('创建主控并交接'), undefined);
+  await h.refresh();
+  assert.ok(h.modalButton('创建主控并交接'));
+  assert.deepEqual(h.calls, [['register', '/new-workspace']]);
+  assert.doesNotMatch(text(h.modal()), /无法添加工作区/);
+});
+
+for (const [kind, label] of [['absent', '创建主控并交接'], ['incomplete', '初始化并交接']]) {
+  test(`handoff requires confirmation when controller inspection returns ${kind}`, async (t) => {
+    const request = deferred();
+    const h = await controllerHandoffHarness(t, { inspections: { two: { kind } },
+      dispatch: async (input) => { await request.promise; return admittedController(input); } });
+    h.cardButton().props.onClick();
+    h.modalWorkspace().props.onChange({ target: { value: 'two' } });
+    assert.equal(h.modalButton(label), undefined);
+    await h.refresh();
+    assert.deepEqual(h.calls, []);
+    assert.equal(h.modalWorkspace().props.value, 'two');
+    assert.equal(h.f.find(h.view(), (node) => node.props?.['aria-label'] === '工作区').props.value, 'two');
+    const confirm = h.modalButton(label).props.onClick;
+    const sending = confirm();
+    await confirm();
+    assert.deepEqual(h.calls[0], ['initialize', { workspaceId: 'two', createIfMissing: true }]);
+    assert.equal(h.dispatchCalls().length, 1);
+    assert.equal(h.dispatchCalls()[0].workspaceId, 'two');
+    assert.equal(h.dispatchCalls()[0].sessionId, 'new-controller');
+    assert.equal(h.modalWorkspace().props.disabled, true);
+    h.modal().props.onClose();
+    assert.ok(h.modal());
+    request.resolve();
+    await sending;
+    assert.deepEqual(h.calls.at(-1), ['open', 'new-controller']);
+    assert.equal(h.modal(), undefined);
+  });
+}
+
+test('transport retry keeps its request identity and navigation retry does not dispatch again', async (t) => {
+  let connectionLost = true;
+  let navigationFailed = false;
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one'), two: existingController('main-two') },
+    dispatch: (input) => { if (connectionLost) throw Error('lost'); return admittedController(input); },
+    navigate: () => { if (navigationFailed) throw Error('cannot open'); } });
+  h.cardButton().props.onClick();
+  await settle();
+  assert.match(text(h.modal()), /无法连接 DSH 服务/);
+  connectionLost = false;
+  navigationFailed = true;
+  await h.modalButton('交给主控').props.onClick();
+  assert.deepEqual(h.dispatchCalls(), Array(2).fill(h.dispatchCalls()[0]));
+  assert.match(text(h.modal()), /已接收/);
+  await h.modalButton('打开主控对话').props.onClick();
+  assert.equal(h.dispatchCalls().length, 2);
+  navigationFailed = false;
+  h.modalButton('关闭').props.onClick();
+  await h.changeWorkspace('two');
+  h.cardButton().props.onClick();
+  await settle();
+  assert.equal(h.dispatchCalls().length, 3);
+  assert.equal(h.dispatchCalls()[2].sessionId, 'main-two');
+  assert.notEqual(h.dispatchCalls()[2].requestId, h.dispatchCalls()[0].requestId);
+});
+
+test('a stale controller refusal requires reinspection and confirmation before targeting its replacement', async (t) => {
+  let changed = false;
+  const inspections = { one: existingController('main-one') };
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections,
+    dispatch: (input) => changed ? admittedController(input) : { kind: 'blocked', code: 'controller_changed', reason: '主控已变更' } });
+  h.cardButton().props.onClick();
+  await settle();
+  assert.match(text(h.modal()), /主控已变更/);
+  h.cardButton().props.onClick();
+  assert.equal(h.dispatchCalls().length, 1);
+  changed = true;
+  inspections.one = existingController('replacement');
+  h.modalButton('重新核对').props.onClick();
+  await h.refresh();
+  assert.equal(h.dispatchCalls().length, 1);
+  await h.modalButton('交给主控').props.onClick();
+  assert.equal(h.dispatchCalls()[1].sessionId, 'replacement');
+  assert.notEqual(h.dispatchCalls()[1].requestId, h.dispatchCalls()[0].requestId);
+});
+
+test('the submission library registers the translator needed to render a receipt', async (t) => {
+  const f = await clientFixture(t);
+  assert.equal(f.registrations.get('playground.library').definition.locale, 'playground');
+});
+
+test('controller login indicator follows verified auth status and opens connection settings', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const props = { controllerSelection: {}, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
+    useSessions: (fn) => fn({ ids: [], byId: {} }), renderSlot: () => null };
+  const indicator = () => f.find(f.render(Main, props), (node) => node.props?.title === '连接设置');
+  assert.equal(text(indicator()).trim(), '检查中…');
+  for (const [answer, status, label] of [
+    [{ authenticated: true }, 'authenticated', '已登录'],
+    [{ authenticated: false, reason: 'missing' }, 'unauthenticated', '未登录'],
+    [{ authenticated: false, reason: 'rejected' }, 'unauthenticated', '未登录'],
+    [{ authenticated: false, reason: 'network' }, 'unavailable', '检测失败'],
+    [{ error: 'offline' }, 'unavailable', '检测失败'],
+  ]) {
+    const auth = f.find(f.render(Main, props), (node) => node.type?.name === 'AuthStatusPanel');
+    await f.mount({ ...auth, props: { ...auth.props, query: async () => answer } });
+    f.effects.at(-1)();
+    assert.equal(indicator().props['data-status'], status);
+    assert.equal(text(indicator()).trim(), label);
+  }
+  indicator().props.onClick();
+  assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
+});
+
+test('task detail renders recognized result text with a preserved raw notice and keeps unknown states honest', async (t) => {
+  const f = await clientFixture(t);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const Main = f.registrations.get('main').Component;
+  const raw = 'Background subagent child finished. It cannot receive follow-up messages.\nIts closing message:\n# Result\n- Complete';
+  const rows = [{ childId: 'child', label: 'Work', provider: 'codex', state: 'settled', terminalText: raw }, { childId: 'unknown', label: 'Pending', state: 'unknown' }, { childId: 'odd', label: 'Other', state: 'settled', terminalText: 'Unrecognized notification\nIts closing message:\nKeep everything' }, { childId: 'live', label: 'Live', state: 'settled', terminalText: raw, liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'Actual output' }] } }];
+  const factory = [];
+  const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }), useSessions: (fn) => fn({ ids: [], byId: {} }),
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    controllerTasks: async () => ({ kind: 'ready', rows }), renderSlot: () => null,
+    renderFactorySlot: (name, input, options) => { factory.push([name, input, options]); return { type: 'markdown', props: { children: [input.text] } }; } };
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  let tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Work')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, '# Result\n- Complete');
+  assert.equal(factory.at(-1)[2].fallback.type, 'pre');
+  assert.match(text(f.render(Main, { ...props, renderFactorySlot: undefined })), /# Result/);
+  assert.ok(f.find(tree, (node) => node.type === 'details' && text(node).includes(raw)));
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Pending')).props.onClick();
+  tree = f.render(Main, props);
+  assert.match(text(tree), /暂无执行回执/);
+  assert.match(text(tree), /不表示任务失败/);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Other')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, 'Unrecognized notification\nIts closing message:\nKeep everything');
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  tree = f.render(Main, props);
+  f.find(tree, (node) => node.type === 'button' && text(node).includes('Live')).props.onClick();
+  tree = f.render(Main, props);
+  assert.equal(factory.at(-1)[1].text, 'Actual output');
+  assert.match(text(tree), /运行出错/);
+  assert.ok(f.find(tree, (node) => node.type === 'details' && text(node).includes(raw)));
 });

@@ -3,6 +3,25 @@ import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 
+test('challenge dispatch admits only the exact workspace, session, challenge and request identities', async () => {
+  let service;
+  let invocations;
+  const calls = [];
+  registerWorkbenchQueries({ provide: (_name, value) => { service = value; }, typert: { register: (value) => { invocations = value.invocations; } } }, {}, {
+    dispatch: async (input, signal) => { calls.push([input, signal]); return { kind: 'accepted', sessionId: input.sessionId }; },
+  });
+  const descriptor = invocations.find(({ method }) => method === 'dispatchChallenge');
+  const schema = descriptor.parameters[0].codec.create();
+  const signal = new AbortController().signal;
+  const input = { workspaceId: 'workspace-a', sessionId: 'controller-a', challengeId: 'a b/c', requestId: '98bcdf27-3bfb-4120-8ad2-06c2eca5810d' };
+  assert.deepEqual(await service.dispatchChallenge(schema.parse(input), signal), { kind: 'accepted', sessionId: 'controller-a' });
+  assert.deepEqual(calls, [[input, signal]]);
+  for (const invalid of [{ ...input, title: 'other' }, { ...input, prompt: 'other' }, { ...input, workspaceId: '' },
+    { ...input, sessionId: undefined }, { ...input, challengeId: ' ' }, { ...input, requestId: 'random' }]) {
+    assert.equal(schema.safeParse(invalid).success, false);
+  }
+});
+
 // Client-side behavior of the workbench reads is covered in client.test.mjs.
 test('the session-free query contract admits only reads and forwards cancellation', async () => {
   const services = new Map();
@@ -99,6 +118,29 @@ test('session-free login accepts only the account email and never a password', a
   assert.deepEqual(calls, [['a@example.test', { signal }]]);
   for (const invalid of [{ email: 'a@example.test', password: 'x' }, { email: '' }, { email: '   ' }, {}, { email: 1 }]) {
     assert.equal(schema.safeParse(invalid).success, false);
+  }
+});
+
+test('controller RPCs separate inspection from explicit creation and name only the selected workspace', async () => {
+  let service;
+  let invocations;
+  const calls = [];
+  registerWorkbenchQueries({ provide: (_name, value) => { service = value; }, typert: { register: (value) => { invocations = value.invocations; } } }, {}, {
+    inspect: async (input, signal) => { calls.push(['inspect', input, signal]); return { kind: 'absent', codex: 'registered' }; },
+    open: async (input, signal) => { calls.push(['open', input, signal]); return { kind: 'opened', sessionId: 'c', created: true }; },
+  });
+  const [inspect, open] = ['inspectController', 'openController'].map((method) => invocations.find((item) => item.method === method).parameters[0].codec.create());
+  const input = { workspaceId: 'workspace' };
+  const selected = { ...input, createIfMissing: true };
+  const signal = new AbortController().signal;
+  assert.equal((await service.inspectController(inspect.parse(input), signal)).kind, 'absent');
+  assert.equal((await service.openController(open.parse(selected), signal)).sessionId, 'c');
+  assert.deepEqual(calls, [['inspect', input, signal], ['open', selected, signal]]);
+  assert.equal(inspect.safeParse(selected).success, false);
+  assert.equal(open.safeParse(input).success, false);
+  for (const target of [{ cwd: '/example' }, { workspaceId: '' }, { ...input, sessionId: 'foreign' }]) {
+    assert.equal(inspect.safeParse(target).success, false);
+    assert.equal(open.safeParse({ ...target, createIfMissing: true }).success, false);
   }
 });
 
@@ -206,4 +248,17 @@ test('the catalog query takes a period only as a slug of the chosen competition\
   assert.equal(periodMessage({ competition: 'bohr-product', period: '3' }), 'period must be one of 1, 2');
   assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', period: '1' }).success, false);
   assert.equal(calls.length, 2);
+});
+
+
+test('controller task and promotion RPCs accept only workspace and session identity', () => {
+  const invocations = [];
+  const services = new Map();
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (descriptor) => invocations.push(...descriptor.invocations) } }, {}, {});
+  for (const method of ['promoteController', 'controllerTasks']) {
+    const schema = invocations.find((item) => item.method === method).parameters[0].codec.create();
+    assert.deepEqual(schema.parse({ workspaceId: 'w', sessionId: 's' }), { workspaceId: 'w', sessionId: 's' });
+    assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', cwd: '/other' }).success, false);
+    assert.equal(schema.safeParse({ workspaceId: 'w' }).success, false);
+  }
 });
