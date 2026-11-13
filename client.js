@@ -528,7 +528,7 @@ window.__ModuleLoader__.load({
       return `CLI 登录成功，但插件仍在使用${what}，它优先于 CLI 凭据文件。${next}`;
     }
 
-    function AuthStatusPanel({ query, login, saveToken, clearToken }) {
+    function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }) {
       // `state` is the last auth answer (null until the first one). It stays rendered while a re-check runs,
       // so the controls keep their place; `checking` only marks the re-check.
       const [state, setState] = React.useState(null);
@@ -556,6 +556,10 @@ window.__ModuleLoader__.load({
         if (latest.refocus) { latest.refocus = false; latest.status?.focus?.(); }
       };
       React.useEffect(() => { check(); }, [query]);
+      React.useEffect(() => {
+        onStatusChange?.(!state || checking ? 'checking' : state.authenticated ? 'authenticated'
+          : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated');
+      }, [state, checking, onStatusChange]);
       const submitLogin = async () => {
         setLoginBusy(true); setLoginError(''); setLoginDone(false);
         try {
@@ -1544,6 +1548,10 @@ window.__ModuleLoader__.load({
       .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
       .pg-controller-spacer { flex:1; }
       .pg-controller-icon { display:grid; place-items:center; width:32px; height:32px; padding:6px; border:0; border-radius:5px; background:transparent; }
+      .pg-controller-connection { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; white-space:nowrap; font-size:12px!important; }
+      .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--dsw-alias-label-secondary); }
+      .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:#16a34a; }
+      .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
       .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
       .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
       .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
@@ -1606,12 +1614,13 @@ window.__ModuleLoader__.load({
       const sessions = useSessions((value) => value);
       const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
       const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-      const [workspaceId, setWorkspaceId] = React.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker.workspaceId : '') || '');
+      const [workspaceId, setWorkspaceId] = React.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : '') || '');
       const [inspection, setInspection] = React.useState(null);
       const [expectedId, setExpectedId] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
       const [view, setView] = React.useState('controller');
+      const [authStatus, setAuthStatus] = React.useState('checking');
       const [visited] = React.useState(() => new Set());
       if (view === 'catalog' || view === 'submissions') visited.add(view);
       const [preferences] = React.useState(() => {
@@ -1692,8 +1701,9 @@ window.__ModuleLoader__.load({
           h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': 'Playground 导航', onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; setView(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
             [['controller', '对话'], ['catalog', '赛题'], ['submissions', '提交']].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => setView(id) }, title))),
           h('span', { className: 'pg-controller-spacer' }),
-          h('button', { className: 'pg-controller-icon', title: '连接设置', 'aria-label': '连接设置', onClick: () => setView('settings') },
-            h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, 'aria-hidden': true }, h('circle', { cx: 12, cy: 12, r: 3 }), h('path', { d: 'M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2' }))),
+          h('button', { className: 'pg-controller-connection', title: '连接设置', 'data-status': authStatus, onClick: () => setView('settings') },
+            h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
+            { checking: '检查中…', authenticated: '已登录', unauthenticated: '未登录', unavailable: '检测失败' }[authStatus]),
           view === 'controller' ? h('button', { className: 'pg-controller-icon', ref: (node) => { pane.toggle = node; }, title: showTasks ? '隐藏任务侧栏' : '显示任务侧栏', 'aria-label': showTasks ? '隐藏任务侧栏' : '显示任务侧栏', 'aria-expanded': showTasks, 'aria-controls': 'pg-controller-tasks', onClick: toggleTasks },
             h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, 'aria-hidden': true }, h('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h('path', { d: 'M15 4v16' }))) : null),
         h('div', { className: 'pg-controller-body', ref: (node) => { pane.body = node; } },
@@ -1715,7 +1725,7 @@ window.__ModuleLoader__.load({
               } }),
               error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
               : renderSlot('playground.controller.session', { expectedId })),
-          view === 'settings' ? h('main', { className: 'pg-workbench', style: { padding: 24, overflow: 'auto' } }, h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, props)) : null,
+          h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } }, h('style', null, css), h('h1', null, '连接设置'), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus })),
           ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section })) : null),
           view === 'controller' && showTasks ? h(React.Fragment, null,
             h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': '调整任务侧栏宽度', 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,

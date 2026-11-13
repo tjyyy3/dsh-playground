@@ -4781,7 +4781,7 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.equal(catalog.props.style.display, 'none');
   assert.equal(f.find(catalog, (node) => node.type === 'slot').props.data.active, false);
   assert.equal(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions').props.style.display, 'flex');
-  f.find(tree, (node) => node.props?.['aria-label'] === '连接设置').props.onClick();
+  f.find(tree, (node) => node.props?.title === '连接设置').props.onClick();
   tree = f.render(Main, props);
   assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.tabIndex, 0);
   assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
@@ -4790,6 +4790,30 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions'));
+});
+
+test('controller login indicator follows verified auth status and opens connection settings', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const props = { controllerSelection: {}, useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
+    useSessions: (fn) => fn({ ids: [], byId: {} }), renderSlot: () => null };
+  const indicator = () => f.find(f.render(Main, props), (node) => node.props?.title === '连接设置');
+  assert.equal(text(indicator()).trim(), '检查中…');
+  for (const [answer, status, label] of [
+    [{ authenticated: true }, 'authenticated', '已登录'],
+    [{ authenticated: false, reason: 'missing' }, 'unauthenticated', '未登录'],
+    [{ authenticated: false, reason: 'rejected' }, 'unauthenticated', '未登录'],
+    [{ authenticated: false, reason: 'network' }, 'unavailable', '检测失败'],
+    [{ error: 'offline' }, 'unavailable', '检测失败'],
+  ]) {
+    const auth = f.find(f.render(Main, props), (node) => node.type?.name === 'AuthStatusPanel');
+    await f.mount({ ...auth, props: { ...auth.props, query: async () => answer } });
+    f.effects.at(-1)();
+    assert.equal(indicator().props['data-status'], status);
+    assert.equal(text(indicator()).trim(), label);
+  }
+  indicator().props.onClick();
+  assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
 });
 
 test('task detail renders recognized result text with a preserved raw notice and keeps unknown states honest', async (t) => {
