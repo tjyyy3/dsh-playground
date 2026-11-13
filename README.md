@@ -50,8 +50,9 @@ To delegate to Codex, enable the official Codex subagent in your DSH Profile and
 
 1. Open **Playground → 赛题** in DSH and click **交给主控** on a challenge. If the
    selected workspace has an initialized controller, Playground sends it the
-   challenge and opens its conversation. Otherwise, select a workspace and
-   confirm the handoff. Use **创建主控并交接** if the workspace needs a controller.
+   challenge and opens its conversation. If setup is needed, DSH opens a dialog
+   for the selected challenge. Choose a workspace or use **添加工作区…** to
+   register a directory. Use **创建主控并交接** or **初始化并交接** when prompted.
 2. To create a separate challenge task from a chat result card, click
    **开始参赛任务** and confirm the target workspace. **添加工作区…** uses DSH's
    native directory picker to register another directory. Click **创建参赛任务**
@@ -284,8 +285,10 @@ The plugin uses DSH's existing session catalog, workspace paths and persisted ta
 projections. It does not embed the website or create a separate conversation store.
 Click **交给主控** on a challenge card to ask the selected workspace's controller
 to read the challenge, delegate work, and report results in its conversation.
-If the workspace or controller still needs setup, confirm the handoff after
-selecting a workspace. **在网页中打开** on a challenge card opens the challenge's platform page,
+If the workspace or controller still needs setup, select a registered workspace
+in the handoff dialog and confirm. If the controller receives the request but
+its conversation fails to open, **打开主控对话** retries opening it.
+**在网页中打开** on a challenge card opens the challenge's platform page,
 `<site root>/challenge/<encoded challenge id>` (for example
 `https://play.bohrium.com/challenge/ai-github-98fdb6f0`). DSH desktop opens it
 in the system browser; in a browser profile it opens in a new tab. It needs no
@@ -435,6 +438,7 @@ then offers only 全部学科 and 其他. The workbench keeps the first choices 
 receives for as long as the panel is open.
 
 Click a challenge card or its **查看详情** button to open the detail drawer on the right.
+The card and each button have their own hover state.
 It closes with **关闭**, a click on the backdrop, or Escape. Both drawers
 (this one and the task drawer below) move keyboard focus to their title when
 they open and keep Tab and Shift+Tab inside the drawer, also from an element

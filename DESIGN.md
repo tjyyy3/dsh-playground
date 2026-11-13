@@ -44,12 +44,13 @@ distinguish it from the conversation underneath.
 
 ## Components
 
-Challenge cards open details across their non-action area. A real detail button
-provides keyboard access; the handoff and website buttons remain separate.
-The primary catalog action is 交给主控. It uses the selected workspace controller
-or gives inline setup guidance, retaining the selected challenge. Creation and
-initialization require an explicit action. A received request is distinct from
-a completed child task or permission to submit.
+Challenge cards open details across their non-action area. 查看详情 provides
+keyboard access. The card and its buttons have independent hover states.
+交给主控 sends directly to the selected workspace's verified controller. When
+setup is needed, a centered DSH dialog shows the selected challenge and lets
+the user choose a registered workspace and confirm. Creation and initialization
+require explicit confirmation. If the controller accepts the request and opening
+the conversation fails, the dialog offers to reopen it.
 
 Task rows show a title and observed execution state. Selecting one opens its
 details with a return action, formatted result, copy action and an expandable

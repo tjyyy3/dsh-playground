@@ -581,7 +581,7 @@ test('catalog handoff is available without a source conversation or command acce
     const handoff = f.find(panel, (node) => node.type?.name === 'DispatchChallengeButton');
     const button = f.render(handoff.type, handoff.props);
     assert.equal(text(button), '交给主控');
-    assert.equal(button.props.disabled, false);
+    assert.equal(button.props['aria-disabled'], undefined);
     button.props.onClick();
   }
   assert.deepEqual(requests, [{ id: 'c1', title: 'Challenge' }, { id: 'c1', title: 'Challenge' }]);
@@ -2168,19 +2168,32 @@ test('the drawer handoff closes the drawer and sends the same catalog challenge'
   assert.deepEqual(h.handoffs, [{ id: 'a b/c', title: '合成赛题' }]);
 });
 
-test('the catalog details, web and handoff buttons are separate actions', async (t) => {
+test('the card body and detail button open the drawer while web and handoff stay separate', async (t) => {
   const h = await challengeDrawerHarness(t);
   const opened = [];
   globalThis.window.open = (url) => opened.push(url);
   const card = h.f.find(h.catalog(), (node) => node.type === 'article');
   const details = h.f.find(card, buttonLabelled('查看详情'));
   assert.equal(details.props['aria-haspopup'], 'dialog');
-  assert.equal(details.props.className, 'pg-button pg-challenge-detail');
+  assert.equal(details.props.tabIndex, undefined);
+  const bodyClick = { target: { closest: () => null } };
+  const buttonClick = { target: { closest: (selector) => selector.includes('button') ? {} : null } };
+  globalThis.window.getSelection = () => 'selected challenge text';
+  card.props.onClick(bodyClick);
+  assert.equal(h.drawerElement(), undefined);
+  globalThis.window.getSelection = () => '';
+  card.props.onClick(bodyClick);
+  assert.ok(h.drawerElement());
+  const drawer = h.drawerElement();
+  const drawerTree = h.f.render(drawer.type, drawer.props);
+  h.f.find(drawerTree, (node) => node.props?.['aria-label'] === '关闭赛题详情').props.onClick();
   h.f.find(card, isOpenWeb).props.onClick();
+  card.props.onClick(buttonClick);
   assert.deepEqual(opened, [challengeCard.webUrl]);
   assert.equal(h.drawerElement(), undefined);
   const handoff = h.f.find(card, (node) => node.type?.name === 'DispatchChallengeButton');
   h.f.render(handoff.type, handoff.props).props.onClick();
+  card.props.onClick(buttonClick);
   assert.deepEqual(h.handoffs, [{ id: challengeCard.id, title: challengeCard.titleZh }]);
   assert.equal(h.drawerElement(), undefined);
   details.props.onClick();
@@ -4749,7 +4762,7 @@ test('controller tabs keep the chat occurrence while routing separate library se
   const Main = f.registrations.get('main').Component;
   const calls = [];
   const selection = { workspaceId: 'one' };
-  const props = { controllerSelection: selection, useWorkspaces: (fn) => fn({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }),
+  const props = { controllerSelection: selection, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }),
     useSessions: (fn) => fn({ ids: [], byId: {} }), inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
     openControllerChat: async () => {}, controllerTasks: async () => ({ kind: 'ready', rows: [] }),
     renderSlot: (name, data) => { calls.push([name, data]); return { type: 'slot', props: { name, data, children: [] } }; } };
@@ -4784,16 +4797,30 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions'));
 });
 
-async function controllerHandoffHarness(t, { workspaceId = '', inspections = {}, dispatch, navigate } = {}) {
+async function controllerHandoffHarness(t, { workspaceId = '', inspections = {}, dispatch, navigate, pickDirectory,
+  workspaceItems = [{ workspaceId: 'one', title: 'One', sessionIds: ['main-one'] }, { workspaceId: 'two', title: 'Two', sessionIds: ['main-two'] }],
+} = {}) {
   const calls = [];
-  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, endpoint, { args: { input } }) => {
+  const f = await clientFixture(t, { uiWorkspace: { openSession: (id) => calls.push(['native', id]), pickDirectory },
+    workspaces: { create: async ({ path }) => {
+      calls.push(['register', path]);
+      const created = { workspaceId: 'registered', title: 'Registered', path };
+      workspaceItems = [...workspaceItems, created];
+      return created;
+    } },
+    layout: { selectPanel: (panel) => calls.push(['panel', panel]) }, connection: { rpc: { call: async (_route, endpoint, { args: { input } }) => {
+    if (endpoint === 'playgroundQueries/query') {
+      return { ok: true, value: { competitions: { items: [] }, challenges: { items: [challengeCard] } } };
+    }
     calls.push([endpoint, input]);
     return { ok: true, value: await dispatch(input) };
   } } } });
   const main = f.registrations.get('main');
+  const actions = main.definition.inject();
   const selectedSession = { id: 'unrelated', retainedBy: { mainView: 1 } };
-  const props = { ...main.definition.inject(), controllerSelection: { workspaceId },
-    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }, { workspaceId: 'two', title: 'Two' }] }),
+  actions.controllerSelection.workspaceId = workspaceId;
+  const props = { ...actions, useControllerTarget: (select) => select(actions.hooks.controllerTarget.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'ready', items: workspaceItems }),
     useSessions: (select) => select({ ids: [selectedSession.id], byId: { [selectedSession.id]: selectedSession } }),
     inspectController: async ({ workspaceId }) => inspections[workspaceId],
     openController: async (input) => { calls.push(['initialize', input]); return { kind: 'opened', sessionId: 'new-controller' }; },
@@ -4801,65 +4828,198 @@ async function controllerHandoffHarness(t, { workspaceId = '', inspections = {},
     controllerTasks: undefined,
     renderSlot: (name, data) => ({ type: 'slot', props: { name, data } }),
   };
-  const view = () => f.render(main.Component, props);
+  const view = () => { f.effects.length = 0; return f.render(main.Component, props); };
+  const activeEffects = [];
+  t.after(() => activeEffects.forEach((effect) => effect?.cleanup?.()));
   const runEffects = async () => {
-    const cleanups = f.effects.splice(0).map((effect) => effect());
-    t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+    f.effects.splice(0).forEach((effect, index) => {
+      const previous = activeEffects[index];
+      if (previous && effect.deps?.every((dep, i) => Object.is(dep, previous.deps[i]))) return;
+      previous?.cleanup?.();
+      activeEffects[index] = { deps: effect.deps, cleanup: effect() };
+    });
     await settle();
   };
   view();
   await runEffects();
   f.find(view(), buttonLabelled('赛题')).props.onClick();
-  const handoff = () => f.find(view(), (node) => node.props?.data?.section === 'catalog').props.data.handoff;
+  const catalogSlot = () => f.find(view(), (node) => node.props?.data?.section === 'catalog').props.data;
+  const library = f.registrations.get('playground.library');
+  const catalog = () => f.find(f.render(library.Component, { ...props, ...catalogSlot(), t: (key) => key }), (node) => node.type?.name === 'CatalogPanel');
+  await f.mount(catalog());
+  const cardButton = () => {
+    const panel = catalog();
+    const button = f.find(f.render(panel.type, panel.props), (node) => node.type?.name === 'DispatchChallengeButton');
+    return f.render(button.type, button.props);
+  };
+  const modal = () => {
+    const dialog = f.find(view(), (node) => node.type?.name === 'ControllerHandoffDialog');
+    return dialog ? f.render(dialog.type, dialog.props) : undefined;
+  };
+  const modalWorkspace = () => f.find(modal(), (node) => node.type === 'select');
+  const modalButton = (label) => f.find(modal(), buttonLabelled(label));
+  const refresh = async () => { view(); await runEffects(); };
   const changeWorkspace = async (workspaceId) => {
     f.find(view(), (node) => node.type === 'select' && node.props['aria-label'] === '工作区').props.onChange({ target: { value: workspaceId } });
-    f.effects.length = 0;
-    view();
-    await runEffects();
+    await refresh();
   };
   const dispatchCalls = () => calls.filter(([name]) => name === 'playgroundQueries/dispatchChallenge').map(([, input]) => input);
   calls.length = 0;
-  return { f, calls, view, handoff, changeWorkspace, dispatchCalls };
+  const remount = async () => {
+    activeEffects.splice(0).forEach((effect) => effect?.cleanup?.());
+    f.unmount(main.Component);
+    await refresh();
+  };
+  return { f, calls, view, cardButton, modal, modalWorkspace, modalButton, changeWorkspace, refresh, remount, dispatchCalls };
 }
 
-const fixtureChallenge = { id: 'a b/c', title: '合成赛题' };
 const existingController = (sessionId) => ({ kind: 'existing', sessionId, archived: false });
 const admittedController = ({ sessionId }) => ({ kind: 'accepted', sessionId });
+
+test('an explicit controller result changes the selected workspace in the mounted panel and after remount', async (t) => {
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one',
+    inspections: { one: existingController('main-one'), two: existingController('main-two') }, dispatch: admittedController });
+  const tool = h.f.registrations.get('playground_open_controller');
+  const props = { ...tool.definition.inject(), phase: 'result', toolName: 'playground_open_controller', t: (key) => key };
+  const openResult = (data) => h.f.find(h.f.render(tool.Component, { ...props, block: { meta: { playground: { ok: true, ...data } } } }),
+    buttonLabelled('打开主控对话')).props.onClick();
+  const selectedWorkspace = () => h.f.find(h.view(), (node) => node.props?.['aria-label'] === '工作区').props.value;
+  const expectedSession = () => h.f.find(h.view(), (node) => node.props?.name === 'playground.controller.session').props.data.expectedId;
+
+  openResult({ sessionId: 'main-two', workspaceId: 'two' });
+  assert.deepEqual(h.calls, [['native', 'main-two'], ['panel', 'playground']]);
+  await h.refresh();
+  await h.refresh();
+  assert.equal(selectedWorkspace(), 'two');
+  assert.equal(expectedSession(), 'main-two');
+  assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
+  await h.remount();
+  assert.equal(selectedWorkspace(), 'two');
+  assert.equal(expectedSession(), 'main-two');
+  assert.deepEqual(h.calls.filter(([name]) => name === 'open'), [['open', 'main-two'], ['open', 'main-two']]);
+
+  openResult({ sessionId: 'main-one' });
+  await h.refresh();
+  await h.refresh();
+  assert.equal(selectedWorkspace(), 'one');
+  assert.equal(expectedSession(), 'main-one');
+});
 
 test('catalog hands off directly to the selected workspace controller and shows the conversation tab', async (t) => {
   let admit;
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
     dispatch: (input) => new Promise((resolve) => { admit = () => resolve(admittedController(input)); }) });
-  const handoff = h.handoff();
-  const sending = handoff.start(fixtureChallenge);
-  assert.equal(h.handoff().state.phase, 'sending');
-  await handoff.start(fixtureChallenge);
+  const button = h.cardButton();
+  button.props.onClick();
+  assert.equal(h.modal(), undefined);
+  assert.equal(h.cardButton().props['aria-disabled'], true);
+  button.props.onClick();
   assert.equal(h.dispatchCalls().length, 1);
   const [input] = h.dispatchCalls();
-  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: fixtureChallenge.id, requestId: input.requestId });
+  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, requestId: input.requestId });
   assert.match(input.requestId, /^[\da-f-]{36}$/);
   admit();
-  await sending;
+  await settle();
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
-  assert.equal(h.handoff().state, null);
+  assert.equal(h.modal(), undefined);
   assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
 });
 
-test('handoff guides a new workspace choice and confirms initialization before dispatch', async (t) => {
+test('handoff opens a cancellable native dialog with focus on its title and registered workspace options', async (t) => {
   const h = await controllerHandoffHarness(t, { inspections: { two: { kind: 'absent' } }, dispatch: admittedController });
-  await h.handoff().start(fixtureChallenge);
-  assert.equal(h.handoff().state.phase, 'guide');
-  assert.equal(h.handoff().action.label, '选择工作区');
+  const dom = focusDom(t);
+  const opener = dom.node('交给主控');
+  h.cardButton().props.onClick({ currentTarget: opener });
+  assert.equal(dom.active(), '交给主控');
+  const modal = h.modal();
+  assert.equal(modal.type, 'native-modal');
+  assert.equal(modal.props.open, true);
+  assert.equal(modal.props.title, '交给工作区主控');
+  assert.match(text(modal), /合成赛题/);
+  const [initialFocus] = findAll(modal, (node) => node.props?.['data-modal-autofocus']);
+  assert.equal(initialFocus.type, 'h2');
+  assert.equal(initialFocus.props.tabIndex, -1);
+  assert.deepEqual(findAll(modal, (node) => node.type === 'option').map((node) => node.props.value), ['', 'one', 'two']);
+  assert.equal(h.modalButton('创建主控并交接'), undefined);
+  modal.props.onClose();
+  assert.equal(h.modal(), undefined);
   assert.deepEqual(h.calls, []);
-  await h.changeWorkspace('two');
+  h.cardButton().props.onClick();
+  h.modalButton('取消').props.onClick();
+  assert.equal(h.modal(), undefined);
   assert.deepEqual(h.calls, []);
-  assert.equal(h.handoff().action.label, '创建主控并交接');
-  await h.handoff().action.run();
-  assert.deepEqual(h.calls[0], ['initialize', { workspaceId: 'two', createIfMissing: true }]);
-  assert.equal(h.dispatchCalls()[0].workspaceId, 'two');
-  assert.equal(h.dispatchCalls()[0].sessionId, 'new-controller');
-  assert.deepEqual(h.calls.at(-1), ['open', 'new-controller']);
 });
+
+test('handoff can register and select its first workspace without sending a challenge', async (t) => {
+  let picker = deferred();
+  let picks = 0;
+  let pickError;
+  const h = await controllerHandoffHarness(t, { workspaceItems: [], inspections: { registered: { kind: 'absent' } },
+    dispatch: admittedController, pickDirectory: () => {
+      picks += 1;
+      if (pickError) throw pickError;
+      return picker.promise;
+    } });
+  h.cardButton().props.onClick();
+  assert.equal(h.modalWorkspace().props.disabled, true);
+  const choose = h.modalButton('添加工作区…').props.onClick;
+  const cancelled = choose();
+  await choose();
+  assert.equal(picks, 1);
+  assert.equal(h.modalButton('正在选择目录…').props.disabled, true);
+  assert.equal(h.modalButton('取消').props.disabled, true);
+  h.modal().props.onClose();
+  assert.ok(h.modal());
+  picker.resolve(null);
+  await cancelled;
+  assert.deepEqual(h.calls, []);
+  assert.equal(h.modalButton('添加工作区…').props.disabled, false);
+
+  pickError = new Error('directory picker failed');
+  await h.modalButton('添加工作区…').props.onClick();
+  assert.match(text(h.f.find(h.modal(), (node) => node.props?.role === 'alert')), /无法添加工作区/);
+
+  picker = deferred();
+  pickError = undefined;
+  const selected = h.modalButton('添加工作区…').props.onClick();
+  picker.resolve('/new-workspace');
+  await selected;
+  assert.equal(h.modalWorkspace().props.value, 'registered');
+  assert.equal(h.modalButton('创建主控并交接'), undefined);
+  await h.refresh();
+  assert.ok(h.modalButton('创建主控并交接'));
+  assert.deepEqual(h.calls, [['register', '/new-workspace']]);
+  assert.doesNotMatch(text(h.modal()), /无法添加工作区/);
+});
+
+for (const [kind, label] of [['absent', '创建主控并交接'], ['incomplete', '初始化并交接']]) {
+  test(`handoff requires confirmation when controller inspection returns ${kind}`, async (t) => {
+    const request = deferred();
+    const h = await controllerHandoffHarness(t, { inspections: { two: { kind } },
+      dispatch: async (input) => { await request.promise; return admittedController(input); } });
+    h.cardButton().props.onClick();
+    h.modalWorkspace().props.onChange({ target: { value: 'two' } });
+    assert.equal(h.modalButton(label), undefined);
+    await h.refresh();
+    assert.deepEqual(h.calls, []);
+    assert.equal(h.modalWorkspace().props.value, 'two');
+    assert.equal(h.f.find(h.view(), (node) => node.props?.['aria-label'] === '工作区').props.value, 'two');
+    const confirm = h.modalButton(label).props.onClick;
+    const sending = confirm();
+    await confirm();
+    assert.deepEqual(h.calls[0], ['initialize', { workspaceId: 'two', createIfMissing: true }]);
+    assert.equal(h.dispatchCalls().length, 1);
+    assert.equal(h.dispatchCalls()[0].workspaceId, 'two');
+    assert.equal(h.dispatchCalls()[0].sessionId, 'new-controller');
+    assert.equal(h.modalWorkspace().props.disabled, true);
+    h.modal().props.onClose();
+    assert.ok(h.modal());
+    request.resolve();
+    await sending;
+    assert.deepEqual(h.calls.at(-1), ['open', 'new-controller']);
+    assert.equal(h.modal(), undefined);
+  });
+}
 
 test('transport retry keeps its request identity and navigation retry does not dispatch again', async (t) => {
   let connectionLost = true;
@@ -4867,19 +5027,21 @@ test('transport retry keeps its request identity and navigation retry does not d
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one'), two: existingController('main-two') },
     dispatch: (input) => { if (connectionLost) throw Error('lost'); return admittedController(input); },
     navigate: () => { if (navigationFailed) throw Error('cannot open'); } });
-  await h.handoff().start(fixtureChallenge);
-  assert.equal(h.handoff().state.phase, 'error');
+  h.cardButton().props.onClick();
+  await settle();
+  assert.match(text(h.modal()), /无法连接 DSH 服务/);
   connectionLost = false;
   navigationFailed = true;
-  await h.handoff().action.run();
+  await h.modalButton('交给主控').props.onClick();
   assert.deepEqual(h.dispatchCalls(), Array(2).fill(h.dispatchCalls()[0]));
-  assert.equal(h.handoff().state.phase, 'accepted');
-  assert.match(h.handoff().message, /已接收/);
-  await h.handoff().action.run();
+  assert.match(text(h.modal()), /已接收/);
+  await h.modalButton('打开主控对话').props.onClick();
   assert.equal(h.dispatchCalls().length, 2);
   navigationFailed = false;
+  h.modalButton('关闭').props.onClick();
   await h.changeWorkspace('two');
-  await h.handoff().start(fixtureChallenge);
+  h.cardButton().props.onClick();
+  await settle();
   assert.equal(h.dispatchCalls().length, 3);
   assert.equal(h.dispatchCalls()[2].sessionId, 'main-two');
   assert.notEqual(h.dispatchCalls()[2].requestId, h.dispatchCalls()[0].requestId);
@@ -4890,17 +5052,17 @@ test('a stale controller refusal requires reinspection and confirmation before t
   const inspections = { one: existingController('main-one') };
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections,
     dispatch: (input) => changed ? admittedController(input) : { kind: 'blocked', code: 'controller_changed', reason: '主控已变更' } });
-  await h.handoff().start(fixtureChallenge);
-  assert.equal(h.handoff().state.phase, 'error');
-  assert.equal(h.handoff().action.label, '重新核对');
-  await h.handoff().start(fixtureChallenge);
+  h.cardButton().props.onClick();
+  await settle();
+  assert.match(text(h.modal()), /主控已变更/);
+  h.cardButton().props.onClick();
   assert.equal(h.dispatchCalls().length, 1);
   changed = true;
   inspections.one = existingController('replacement');
-  h.handoff().action.run();
-  await h.changeWorkspace('one');
+  h.modalButton('重新核对').props.onClick();
+  await h.refresh();
   assert.equal(h.dispatchCalls().length, 1);
-  await h.handoff().action.run();
+  await h.modalButton('交给主控').props.onClick();
   assert.equal(h.dispatchCalls()[1].sessionId, 'replacement');
   assert.notEqual(h.dispatchCalls()[1].requestId, h.dispatchCalls()[0].requestId);
 });
@@ -4913,7 +5075,7 @@ test('the submission library registers the translator needed to render a receipt
 test('controller login indicator follows verified auth status and opens connection settings', async (t) => {
   const f = await clientFixture(t);
   const Main = f.registrations.get('main').Component;
-  const props = { controllerSelection: {}, useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
+  const props = { controllerSelection: {}, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
     useSessions: (fn) => fn({ ids: [], byId: {} }), renderSlot: () => null };
   const indicator = () => f.find(f.render(Main, props), (node) => node.props?.title === '连接设置');
   assert.equal(text(indicator()).trim(), '检查中…');
@@ -4942,7 +5104,7 @@ test('task detail renders recognized result text with a preserved raw notice and
   const raw = 'Background subagent child finished. It cannot receive follow-up messages.\nIts closing message:\n# Result\n- Complete';
   const rows = [{ childId: 'child', label: 'Work', provider: 'codex', state: 'settled', terminalText: raw }, { childId: 'unknown', label: 'Pending', state: 'unknown' }, { childId: 'odd', label: 'Other', state: 'settled', terminalText: 'Unrecognized notification\nIts closing message:\nKeep everything' }, { childId: 'live', label: 'Live', state: 'settled', terminalText: raw, liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'Actual output' }] } }];
   const factory = [];
-  const props = { controllerSelection: { workspaceId: 'one' }, useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }), useSessions: (fn) => fn({ ids: [], byId: {} }),
+  const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }), useSessions: (fn) => fn({ ids: [], byId: {} }),
     inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
     controllerTasks: async () => ({ kind: 'ready', rows }), renderSlot: () => null,
     renderFactorySlot: (name, input, options) => { factory.push([name, input, options]); return { type: 'markdown', props: { children: [input.text] } }; } };

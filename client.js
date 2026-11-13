@@ -746,11 +746,6 @@ window.__ModuleLoader__.load({
       const [latest] = React.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: new Map(), refocus: null }));
       // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
       const [detail, setDetail] = React.useState(null);
-      const [handoffFocus] = React.useState(() => ({ node: null }));
-      const handoffPhase = handoff?.state?.phase;
-      React.useEffect(() => {
-        if (handoffPhase === 'guide' || handoffPhase === 'error' || handoffPhase === 'accepted') handoffFocus.node?.focus();
-      }, [handoffPhase]);
       const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
       // Page 1 for the current filters with `changes` applied; it replaces the list. Any read still running,
       // an appended page included, is aborted and can no longer change the panel.
@@ -869,15 +864,6 @@ window.__ModuleLoader__.load({
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '选择比赛或赛题'),
           h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load() }, busy === 'load' ? '正在刷新…' : '刷新目录')),
-        handoff?.state ? h('div', { className: 'pg-handoff', ref: (node) => { handoffFocus.node = node; }, tabIndex: -1 },
-          h('strong', null, handoff.state.challenge.title),
-          h('p', { className: 'pg-note', role: handoffPhase === 'error' ? 'alert' : 'status' }, handoff.message),
-          handoff.action || handoffPhase !== 'sending' ? h('div', { className: 'pg-actions' },
-            handoff.action ? h('button', { type: 'button', className: 'pg-button pg-primary', onClick: handoff.action.run }, handoff.action.label) : null,
-            handoffPhase !== 'sending' ? h('button', { type: 'button', className: 'pg-button', onClick: () => {
-              (latest.details.get(handoff.state.challenge.id) || latest.heading)?.focus?.();
-              handoff.clear();
-            } }, handoffPhase === 'accepted' ? '关闭' : '取消') : null) : null) : null,
         h('div', { className: 'pg-search' },
           h('input', { className: 'pg-input', 'aria-label': '搜索 Playground 赛题', placeholder: '按题目名称、方向或关键词搜索', value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
           h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => {
@@ -945,7 +931,8 @@ window.__ModuleLoader__.load({
         shownList && loaded.length && !challenges.length ? h('p', { className: 'pg-note' }, `已加载的赛题中没有开放的题。${canLoadMore ? '可以点“加载更多”继续查找。' : ''}`) : null,
         otherPending ? h('p', { className: 'pg-note pg-catalog-hint' }, '输入学科后按回车筛选') : null,
         countLine ? h('p', { className: 'pg-note pg-catalog-count', tabIndex: -1, ref: (node) => { latest.count = node; } }, countLine) : null,
-        h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id },
+        h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => h('article', { className: 'pg-card pg-challenge', key: item.id,
+          onClick: (event) => { if (!event.target.closest('button, a[href]') && !window.getSelection?.()?.toString()) setDetail(item); } },
           h('div', { className: 'pg-head' }, h('h3', null, item.titleZh || item.title || item.id), item.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
           h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? `难度 ${item.difficulty}` : null].filter(Boolean).join(' · ') || 'Playground 赛题'),
           h('p', { className: 'pg-note' }, `题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`),
@@ -965,8 +952,10 @@ window.__ModuleLoader__.load({
     }
 
     function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
-      const busy = handoff.state?.phase === 'sending';
-      return h('button', { type: 'button', className: 'pg-button pg-primary', disabled: busy, onClick: () => {
+      const busy = handoff.state?.phase === 'sending' || handoff.state?.phase === 'opening';
+      return h('button', { type: 'button', className: 'pg-button pg-primary', 'aria-disabled': busy || undefined, onClick: (event) => {
+        if (busy) return;
+        event?.currentTarget?.focus();
         beforeDispatch?.();
         handoff.start({ id: String(challenge.id), title: challenge.titleZh || challenge.title || String(challenge.id) });
       } }, busy && handoff.state.challenge.id === String(challenge.id) ? '正在交接…' : '交给主控');
@@ -1496,7 +1485,7 @@ window.__ModuleLoader__.load({
         });
       };
       return h('main', { className: 'pg-workbench', 'aria-label': 'Playground 工作台' },
-        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-handoff{margin-top:12px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px}.pg-handoff strong{overflow-wrap:anywhere}.pg-handoff:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.pg-challenge{position:relative;margin-top:8px}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge-detail::after{position:absolute;inset:0;content:"";border-radius:inherit}.pg-challenge-detail:focus-visible::after{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.pg-challenge .pg-actions>.pg-button:not(.pg-challenge-detail){position:relative;z-index:1}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}'),
+        h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}'),
         h('div', { className: 'pg-workbench-inner' },
           section ? null : h('header', { className: 'pg-head' },
             h('h1', null, 'Playground 主控面板'),
@@ -1621,9 +1610,10 @@ window.__ModuleLoader__.load({
     }
 
     function ControllerPanel(props) {
-      const { useWorkspaces, useSessions, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, promoteController, controllerTasks, dispatchChallenge } = props;
+      const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, promoteController, controllerTasks, dispatchChallenge } = props;
       const workspaces = useWorkspaces((value) => value);
       const sessions = useSessions((value) => value);
+      const controllerTarget = useControllerTarget((value) => value);
       const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
       const selectedMarker = selectedSession?.projectionValues?.playgroundController;
       const [workspaceId, setWorkspaceId] = React.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : '') || '');
@@ -1633,7 +1623,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('');
       const [view, setView] = React.useState('controller');
       const [dispatchState, setDispatchState] = React.useState(null);
-      const [dispatchControls] = React.useState(() => ({ busy: false, workspacePicker: null }));
+      const [dispatchControls] = React.useState(() => ({ busy: false }));
       const [authStatus, setAuthStatus] = React.useState('checking');
       const [visited] = React.useState(() => new Set());
       if (view === 'catalog' || view === 'submissions') visited.add(view);
@@ -1653,6 +1643,25 @@ window.__ModuleLoader__.load({
       const [tasks, setTasks] = React.useState(null);
       const [retry, setRetry] = React.useState(0);
       const [taskRetry, setTaskRetry] = React.useState(0);
+      const selectWorkspace = (id) => {
+        if (id === workspaceId) return;
+        props.controllerSelection.workspaceId = id;
+        props.controllerSelection.sessionId = '';
+        setExpectedId('');
+        setInspection(null);
+        setError('');
+        setSelectedTask('');
+        setWorkspaceId(id);
+      };
+      const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId ||
+        workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
+      React.useEffect(() => {
+        if (!targetWorkspaceId) return;
+        setView('controller');
+        if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
+        else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
+        props.clearControllerTarget(controllerTarget);
+      }, [controllerTarget, targetWorkspaceId]);
       React.useEffect(() => {
         const media = window.matchMedia?.('(max-width: 600px)');
         if (!media) return;
@@ -1708,7 +1717,7 @@ window.__ModuleLoader__.load({
         } catch (failure) { setError(failure.message); }
         finally { setBusy(false); }
       };
-      const selectedWorkspace = workspaces.items.find((item) => item.workspaceId === workspaceId);
+      const selectedWorkspace = workspaces.phase === 'ready' && workspaces.items.find((item) => item.workspaceId === workspaceId);
       const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
       const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
       const needsRecheck = dispatchState?.phase === 'error' && dispatchState.workspaceId === workspaceId &&
@@ -1727,6 +1736,13 @@ window.__ModuleLoader__.load({
         } catch {
           setDispatchState({ ...state, phase: 'accepted' });
         }
+      };
+      const retryOpenAfterDispatch = async (state) => {
+        if (dispatchControls.busy) return;
+        dispatchControls.busy = true;
+        setDispatchState({ ...state, phase: 'opening' });
+        try { await openAfterDispatch(state); }
+        finally { dispatchControls.busy = false; }
       };
       const sendChallenge = async (state, target, initialize = false) => {
         if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
@@ -1758,40 +1774,45 @@ window.__ModuleLoader__.load({
       };
       const startHandoff = (challenge) => {
         if (busy || dispatchControls.busy) return;
-        if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return openAfterDispatch(dispatchState);
+        if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
         const retry = dispatchState?.phase === 'error' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
         const state = retry ? dispatchState : { challenge };
         if (retry && needsRecheck) return;
         if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry && state.sessionId || selectedController });
-        setDispatchState({ ...state, phase: 'guide' });
+        setDispatchState({ ...state, phase: 'guide', showDialog: true });
       };
-      const handoff = { state: dispatchState, start: startHandoff, clear: () => setDispatchState(null) };
-      if (dispatchState) {
-        if (dispatchState.phase === 'sending') {
-          handoff.message = '正在交给主控…';
+      const handoff = { state: dispatchState, start: startHandoff };
+      const handoffBusy = dispatchState?.phase === 'sending' || dispatchState?.phase === 'opening';
+      const showHandoffDialog = dispatchState && (dispatchState.phase !== 'sending' || dispatchState.showDialog);
+      let handoffMessage;
+      let handoffAction;
+      if (showHandoffDialog) {
+        if (handoffBusy) {
+          handoffMessage = dispatchState.phase === 'sending' ? '正在交给主控…' : '正在打开主控对话…';
         } else if (dispatchState.phase === 'accepted') {
-          handoff.message = '主控已接收请求，无法打开对话。';
-          if (dispatchState.workspaceId === workspaceId) handoff.action = { label: '打开主控对话', run: () => openAfterDispatch(dispatchState) };
+          handoffMessage = '主控已接收请求，无法打开对话。';
+          if (dispatchState.workspaceId === workspaceId) handoffAction = { label: '打开主控对话', run: () => retryOpenAfterDispatch(dispatchState) };
         } else if (!selectedWorkspace) {
-          handoff.message = workspaces.state === 'error' ? '无法读取 DSH 工作区，请重启 DSH 后重试。' : '请先选择赛题工作所在的工作区。';
-          handoff.action = { label: '选择工作区', run: () => dispatchControls.workspacePicker?.focus() };
+          handoffMessage = workspaces.state === 'error' ? '无法读取 DSH 工作区，请重启 DSH 后重试。'
+            : workspaces.phase !== 'ready' ? '正在读取 DSH 工作区…'
+            : workspaces.items.length ? '请选择赛题工作所在的工作区。' : '还没有工作区。请选择一个目录添加为工作区。';
         } else if (inspection?.kind === 'blocked' || inspection?.archived) {
-          handoff.message = inspection.reason || '主控对话已归档，请先取消归档。';
-          handoff.action = { label: '重新核对', run: () => setRetry(retry + 1) };
+          handoffMessage = inspection.reason || '主控对话已归档，请先取消归档。';
+          handoffAction = { label: '重新核对', run: () => setRetry(retry + 1) };
         } else if (needsRecheck) {
-          handoff.message = dispatchState.message;
-          handoff.action = { label: '重新核对', run: recheckHandoff };
+          handoffMessage = dispatchState.message;
+          handoffAction = { label: '重新核对', run: recheckHandoff };
         } else if (selectedController || canInitialize) {
           const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId
             ? { challenge: dispatchState.challenge } : dispatchState;
           const sessionId = state.sessionId || selectedController;
-          handoff.message = dispatchState.phase === 'error' && state === dispatchState ? dispatchState.message
-            : selectedController ? `交给「${selectedWorkspace.title || '所选工作区'}」的主控。` : `为「${selectedWorkspace.title || '所选工作区'}」${inspection.kind === 'incomplete' ? '初始化' : '创建'}主控后交接。`;
-          handoff.action = { label: selectedController ? '交给主控' : inspection.kind === 'incomplete' ? '初始化并交接' : '创建主控并交接',
-            run: () => sendChallenge(state, { workspaceId, sessionId }, !selectedController) };
+          handoffMessage = dispatchState.phase === 'error' && state === dispatchState ? dispatchState.message
+            : canInitialize ? 'DSH 会发送一条初始化消息，再把赛题交给主控。' : undefined;
+          handoffAction = { label: selectedController ? '交给主控' : inspection.kind === 'incomplete' ? '初始化并交接' : '创建主控并交接',
+            run: () => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController) };
         } else {
-          handoff.message = error || '正在核对工作区的主控对话…';
-          if (error) handoff.action = { label: '重新核对', run: () => setRetry(retry + 1) };
+          handoffMessage = error || '正在核对工作区的主控对话…';
+          if (error) handoffAction = { label: '重新核对', run: () => setRetry(retry + 1) };
         }
       }
       const row = tasks?.rows?.find((item) => item.childId === selectedTask);
@@ -1799,11 +1820,11 @@ window.__ModuleLoader__.load({
         h('strong', null, item.label || '未命名任务'), h('span', null, [item.provider, taskState(item)].filter(Boolean).join(' · ')));
       return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
         h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
-          h('select', { 'aria-label': '工作区', value: workspaceId, disabled: busy || dispatchState?.phase === 'sending', ref: (node) => { dispatchControls.workspacePicker = node; }, onChange: async (event) => {
+          h('select', { 'aria-label': '工作区', value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
             if (dispatchControls.busy) return;
             if (event.target.value === '__add_workspace__') { setBusy(true); setError(''); try { await props.addTaskWorkspace(); } catch { setError('无法添加工作区，请重试。'); } finally { setBusy(false); } return; }
-            props.controllerSelection.workspaceId = event.target.value; props.controllerSelection.sessionId = ''; setExpectedId(''); setInspection(null); setError(''); setSelectedTask(''); setWorkspaceId(event.target.value);
-          } }, h('option', { value: '' }, '选择工作区'), workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区')), h('option', { value: '__add_workspace__', disabled: busy }, '添加工作区…')),
+            selectWorkspace(event.target.value);
+          } }, h('option', { value: '' }, '选择工作区'), workspaceOptions(workspaces.items), h('option', { value: '__add_workspace__', disabled: busy }, '添加工作区…')),
           h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': 'Playground 导航', onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; setView(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
             [['controller', '对话'], ['catalog', '赛题'], ['submissions', '提交']].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => setView(id) }, title))),
           h('span', { className: 'pg-controller-spacer' }),
@@ -1853,7 +1874,10 @@ window.__ModuleLoader__.load({
                     row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, '原始通知'), h('pre', null, row.terminalText)) : null)
                   : !tasks.rows.length ? h('p', null, '还没有派发任务。') : h(React.Fragment, null,
                     tasks.rows.filter((item) => item.category !== 'maintenance').map(listRow),
-                    tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, `后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null));
+                    tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, `后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),
+        showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: selectedWorkspace, busy: handoffBusy,
+          selectWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
+          close: () => { if (!dispatchControls.busy) setDispatchState(null); } }) : null);
 
     }
 
@@ -1891,7 +1915,8 @@ window.__ModuleLoader__.load({
         phase === 'result' && data?.ok && requestTask && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
           ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
         data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
-          ? h('button', { className: 'pg-button', onClick: () => (toolName === 'playground_open_controller' ? openControllerChat : openTask)(data.sessionId) },
+          ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
+            ? openControllerChat(data.sessionId, data.workspaceId || '') : openTask(data.sessionId) },
             toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
         data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         data ? h(React.Fragment, null,
@@ -1936,6 +1961,66 @@ window.__ModuleLoader__.load({
     function TaskStartOverlay(props) {
       const request = props.useTaskRequest((value) => value);
       return request ? h(TaskStartDialog, { key: request.kind === 'controller' ? 'controller' : `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
+    }
+
+    function workspaceOptions(items) {
+      return items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'));
+    }
+
+    function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
+      const [picker] = React.useState(() => ({ pending: false }));
+      const [adding, setAdding] = React.useState(false);
+      const [addError, setAddError] = React.useState('');
+      const title = '交给工作区主控';
+      const accepted = state.phase === 'accepted' || state.phase === 'opening';
+      const canAdd = workspaces.phase === 'ready' && !accepted;
+      const canSelect = canAdd && workspaces.items.length > 0 && !busy && !adding;
+      const failed = state.phase === 'error' || state.phase === 'accepted' || workspaces.state === 'error';
+      const dismiss = () => { if (!picker.pending) close(); };
+      const addWorkspace = async () => {
+        if (busy || picker.pending) return;
+        picker.pending = true;
+        setAdding(true);
+        setAddError('');
+        try {
+          const created = await addTaskWorkspace();
+          if (created?.workspaceId) selectWorkspace(created.workspaceId);
+        } catch {
+          setAddError('无法添加工作区，请重试。');
+        } finally {
+          picker.pending = false;
+          setAdding(false);
+        }
+      };
+      return h(Modal, { open: true, headless: true, backdropBlur: false, className: 'pg-task-modal', title, onClose: dismiss },
+        h('style', null, taskModalCss),
+        h('header', { className: 'pg-task-header' }, h('h2', { tabIndex: -1, 'data-modal-autofocus': true }, title),
+          h('button', { type: 'button', className: 'pg-task-close', 'aria-label': '关闭交接弹窗', disabled: busy || adding, onClick: dismiss },
+            h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 6 12 12M18 6 6 18' })))),
+        h('div', { className: 'pg-task-body' },
+          h('section', { className: 'pg-task-summary', 'aria-label': '目标赛题' },
+            h('h3', { className: 'pg-task-title', title: state.challenge.title }, state.challenge.title),
+            h('p', { className: 'pg-task-id' }, state.challenge.id)),
+          h('div', { className: 'pg-task-field' },
+            h('label', { htmlFor: 'pg-handoff-workspace' }, '目标工作区'),
+            h('div', { className: 'pg-task-select-wrap' },
+              h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18' })),
+              h('select', { id: 'pg-handoff-workspace', className: 'pg-task-select', value: workspace?.workspaceId || '', disabled: !canSelect,
+                'data-empty': !workspace,
+                'aria-describedby': message ? 'pg-handoff-status' : undefined,
+                onChange: (event) => { setAddError(''); selectWorkspace(event.target.value); } },
+                h('option', { value: '' }, '请选择工作区'), workspaceOptions(workspaces.items)),
+              h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
+            message ? h('p', { id: 'pg-handoff-status', className: failed ? 'pg-task-error' : 'pg-task-hint', role: failed ? 'alert' : 'status' }, message) : null,
+            addError ? h('p', { className: 'pg-task-error', role: 'alert' }, addError) : null,
+            canAdd ? h('button', { type: 'button', className: 'pg-task-add', disabled: busy || adding, onClick: addWorkspace },
+              h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M12 5v14M5 12h14' })), adding ? '正在选择目录…' : '添加工作区…') : null)),
+        h('footer', { className: 'pg-task-footer' },
+          h('div', { className: 'pg-task-actions' },
+            h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: dismiss }, accepted ? '关闭' : '取消'),
+            action || busy ? h('button', { type: 'button', className: 'pg-task-button pg-task-create', disabled: busy || adding, 'data-busy': busy, onClick: action?.run },
+              busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
+              busy ? state.phase === 'opening' ? '正在打开…' : '正在交接…' : action.label) : null)));
     }
 
     function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
@@ -2023,7 +2108,7 @@ window.__ModuleLoader__.load({
               value: workspace ? selectedId : '', disabled: workspaces.phase !== 'ready' || busy || adding,
               onChange: (event) => { setSelectedId(event.target.value); setError(''); setInspection(null); } },
               h('option', { value: '' }, '请选择工作区'),
-              workspaces.items.map((item) => h('option', { key: item.workspaceId, value: item.workspaceId }, item.title || '未命名工作区'))),
+              workspaceOptions(workspaces.items)),
             h('svg', { className: 'pg-task-chevron', viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'm6 9 6 6 6-6' }))),
           workspace ? h('p', { id: 'pg-task-path', className: 'pg-task-path' }, workspace.path)
             : h('p', { id: 'pg-task-hint', className: listError ? 'pg-task-error' : 'pg-task-hint', role: listError ? 'alert' : loading ? 'status' : undefined }, hint),
@@ -2184,6 +2269,7 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
       apply(ctx) {
         const taskRequest = createSnapshotStore(null);
+        const controllerTarget = createSnapshotStore(null);
         const controllerSelection = { workspaceId: '', sessionId: '' };
         const requestHost = async (method, input, signal) => {
           const result = await ctx.connection.rpc.call('/api', `playgroundQueries/${method}`, { args: { input } }, signal)
@@ -2193,6 +2279,7 @@ window.__ModuleLoader__.load({
         };
         const actions = {
           controllerSelection,
+          clearControllerTarget: (target) => { if (controllerTarget.getSnapshot() === target) controllerTarget.set(null); },
           requestTask: (request) => taskRequest.set(request),
           closeTaskStart: () => taskRequest.set(null),
           addTaskWorkspace: async () => {
@@ -2201,7 +2288,8 @@ window.__ModuleLoader__.load({
           },
           openTask: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
           openControllerChat: (sessionId, workspaceId) => {
-            if (workspaceId) { controllerSelection.workspaceId = workspaceId; controllerSelection.sessionId = sessionId; }
+            if (workspaceId) controllerSelection.workspaceId = workspaceId;
+            if (workspaceId !== undefined) controllerTarget.set({ workspaceId, sessionId });
             const opened = ctx.uiWorkspace.openSession(sessionId);
             ctx.layout.selectPanel('playground');
             return opened;
@@ -2267,7 +2355,7 @@ window.__ModuleLoader__.load({
           )]),
         )));
         ctx.slots.inject('main', () => ctx.slots.register({
-          name: 'main', key: 'playground', locale: 'playground', inject: () => actions,
+          name: 'main', key: 'playground', locale: 'playground', inject: () => ({ ...actions, hooks: { controllerTarget } }),
           children: { 'playground.controller.session': { kind: 'single', scope: 'session-maybe' }, 'playground.library': { kind: 'single', scope: 'root' } },
         }, ControllerPanel));
         ctx.slots.inject('playground.library', () => ctx.slots.register({ name: 'playground.library', locale: 'playground', inject: () => actions }, PlaygroundWorkbench));

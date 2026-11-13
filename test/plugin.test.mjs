@@ -565,8 +565,10 @@ test('the controller tool offers the native session of the explicitly named work
   const tool = tools.find((item) => item.name === 'playground_open_controller');
   assert.equal((await tool.execute({ cwd: 'relative' }, exec)).error.code, 'workspace_missing');
   const result = await tool.execute({ cwd }, exec);
-  assert.deepEqual(result, { ok: true, sessionId: 'controller-session', created: false });
-  assert.equal(tool.output.presentationMeta({ cwd }, result).playground.sessionId, 'controller-session');
+  assert.deepEqual(result, { ok: true, sessionId: 'controller-session', workspaceId: workspace.id, created: false });
+  const { playground } = tool.output.presentationMeta({ cwd }, result);
+  assert.equal(playground.sessionId, 'controller-session');
+  assert.equal(playground.workspaceId, workspace.id);
 });
 
 const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';

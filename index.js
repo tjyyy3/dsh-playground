@@ -284,6 +284,7 @@ export function presentationMeta(_args, value) {
     scoringState: value.scoringState,
     traceCount: value.traceCount,
     sessionId: value.sessionId,
+    workspaceId: value.workspaceId,
     workflow: value.workflow,
     total: value.total,
     page: value.page,
@@ -1237,7 +1238,7 @@ export function apply(ctx, config) {
         const workspace = cwd && isAbsolute(cwd) ? await scope.workspaceRegistry.resolveByPath(cwd).catch(() => undefined) : undefined;
         if (!workspace) return { ok: false, error: { code: 'workspace_missing', message: '请指定一个已添加的 DSH 工作区，或在 Playground 工作台中选择。' } };
         const result = await controller.open({ workspaceId: workspace.id, createIfMissing: args.create_if_missing === true }, exec.signal);
-        return result.kind === 'opened' ? { ok: true, sessionId: result.sessionId, created: result.created }
+        return result.kind === 'opened' ? { ok: true, sessionId: result.sessionId, workspaceId: workspace.id, created: result.created }
           : { ok: false, error: { code: result.code, message: result.reason }, sessionIds: result.sessionIds };
       } });
     scope.tools.register({ name: 'playground_set_controller', description: 'Only on the user’s explicit request, make THIS conversation the Playground workspace controller. Preserves the conversation and reuses an existing controller. An empty conversation receives one initialization message. Takes no directory.',
