@@ -90,14 +90,16 @@ A confirmed code behavior is not automatically a confirmed exploit. Findings bel
 - **Required behavior:** reconstruct task state from durable DSH session events / projections where possible. Represent unknown as unknown; never silently convert it to failed or completed. Before retrying an unknown task, inspect its session and artifacts.
 - **Acceptance tests:** restart while child is running; restart after child completes but before notice delivery; restart after failure/cancellation; archived child; missing or inaccessible session. Verify the UI distinguishes running, settled, failed, cancelled and unknown only when evidence is insufficient.
 
-### AUD-007 — CLI timeout and cancellation still has an open tracking issue
+### AUD-007 — Windows may leave a descendant process after the CLI root exits
 
 - **Severity:** P1
-- **Status:** Open repository issue; current implementation contains substantial process-tree handling, but the remaining acceptance criteria have not been demonstrated by this static review.
-- **Area:** `lib/cli.js`; [Issue #17](https://github.com/tjyyy3/dsh-playground/issues/17).
-- **Evidence:** current code uses process groups and SIGTERM/SIGKILL on POSIX, and `taskkill /T /F` on Windows. Issue #17 remains open and describes remaining edge cases involving descendant processes, cmd fallback and already-aborted signals.
-- **Required behavior:** bounded shutdown of the CLI and descendants; do not spawn if the signal is already aborted; preserve enough output to classify whether the platform may have accepted the submission; never retry an ambiguous create operation automatically.
-- **Acceptance tests:** child process ignores SIGTERM; descendant holds stdout open; already-aborted signal; cancellation during upload; Windows cmd fallback; verify bounded return time and no orphan process.
+- **Status:** Residual platform-specific limitation; the current code already addresses several cases and has corresponding tests. [Issue #17](https://github.com/tjyyy3/dsh-playground/issues/17) remains open.
+- **Area:** `lib/cli.js` — `terminate`, `trackGroup`, `run`; `test/cli.test.mjs`.
+- **Evidence:** the current runner checks an already-aborted signal before spawning. POSIX uses a detached process group and escalates SIGTERM to SIGKILL; tests cover a CLI that ignores SIGTERM. Windows uses `taskkill /T /F` while the root process is alive. The Windows test comments explicitly note that Windows cannot end a grandchild after the CLI root has already exited while the grandchild still holds output pipes open.
+- **Impact:** a descendant may outlive the timed-out operation on Windows in this edge case. The plugin can return after destroying its output streams, but that alone does not prove the descendant has stopped.
+- **Required behavior:** establish a Windows process-tree strategy that can also identify and terminate descendants after the root exits, or document the residual limitation and avoid claiming complete descendant cleanup. Preserve bounded return time and ambiguous-submission safeguards.
+- **Already covered:** pre-aborted signal does not spawn; POSIX SIGTERM-ignoring process is escalated; POSIX process-group cleanup handles a grandchild that holds output open.
+- **Remaining acceptance tests:** Windows CLI exits cleanly while a grandchild holds stdout/stderr open; Windows cmd fallback with descendants; cancellation during upload; verify no orphan process using an OS-level process check.
 
 ### AUD-008 — API response bodies are read without a byte ceiling
 
