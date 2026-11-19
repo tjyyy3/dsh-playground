@@ -1192,7 +1192,8 @@ The row accepts:
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
 The same protocol rule applies to both sources. The plugin rejects remote HTTP
-API bases before making a request. HTTP is supported only for `localhost`,
+API bases before making a request; with such a base the plugin fails to load
+and reports `invalid_config`. HTTP is supported only for `localhost`,
 `127.0.0.1`, or `[::1]`, including explicit ports. LAN addresses and similar
 hostnames such as `localhost.example.test` require HTTPS. The plugin's API client
 does not follow redirects and reports `redirect_refused` when the API answers
