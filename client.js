@@ -1583,6 +1583,9 @@ window.__ModuleLoader__.load({
       .pg-controller-bar button:hover, .pg-controller-action:hover:not(:disabled), .pg-controller-row:hover, .pg-controller-back:hover { background:var(--dsw-alias-interactive-bg-hover); }
       .pg-controller-bar :is(button,select):focus-visible, .pg-controller-action:focus-visible, .pg-controller-row:focus-visible, .pg-controller-back:focus-visible, .pg-controller-resize:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:-2px; }
       .pg-controller-tabs { display:flex; align-self:stretch; gap:4px; }
+      .pg-controller-challenge { border-bottom:1px solid var(--dsw-alias-border-l3); padding:8px 0; }
+      .pg-controller-challenge > summary { cursor:pointer; overflow-wrap:anywhere; }
+      .pg-controller-challenge > summary small { display:block; padding-left:16px; color:var(--dsw-alias-label-secondary); font-size:11px; }
       .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
       .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
       .pg-controller-spacer { flex:1; }
@@ -1597,7 +1600,7 @@ window.__ModuleLoader__.load({
       .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
       .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
       .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; background:var(--dsw-alias-bg-base); }
-      .pg-controller-tasks header { padding:14px 16px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); }
+      .pg-controller-tasks header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); }
       .pg-controller-tasks h2 { font-size:14px; margin:0; }
       .pg-controller-task-content { overflow:auto; min-height:0; padding:8px 12px 20px; }
       .pg-controller-tasks p { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.5; }
@@ -1682,13 +1685,15 @@ window.__ModuleLoader__.load({
       const [taskWidth, setTaskWidth] = React.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
       const [selectedTask, setSelectedTask] = React.useState('');
       const [showMaintenance, setShowMaintenance] = React.useState(false);
+      const [closedChallenges, setClosedChallenges] = React.useState(() => new Set());
       const [taskActionStatus, setTaskActionStatus] = React.useState('');
       const [pane] = React.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: new Map(), focus: '', drag: null }));
       const savePane = (change) => { Object.assign(preferences, change); try { window.localStorage?.setItem('playground.controller.pane', JSON.stringify(preferences)); } catch {} };
       const resize = (width) => { const next = Math.min(520, Math.max(300, width)); props.controllerSelection.taskWidth = next; savePane({ width: next }); setTaskWidth(next); };
       const toggleTasks = () => { if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = 'heading'; props.controllerSelection.showTasks = !showTasks; savePane({ open: !showTasks }); setShowTasks(!showTasks); };
       React.useEffect(() => { if (pane.focus === 'heading') pane.heading?.focus(); else if (pane.focus === 'back') pane.back?.focus(); else if (pane.focus) pane.rows.get(pane.focus)?.focus(); pane.focus = ''; }, [selectedTask, showTasks]);
-      const [tasks, setTasks] = React.useState(null);
+      const [taskSnapshot, setTaskSnapshot] = React.useState(null);
+      const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
       const [retry, setRetry] = React.useState(0);
       const [taskRetry, setTaskRetry] = React.useState(0);
       const selectWorkspace = (id) => {
@@ -1699,6 +1704,8 @@ window.__ModuleLoader__.load({
         setInspection(null);
         setError('');
         setSelectedTask('');
+        setTaskSnapshot(null);
+        setClosedChallenges(new Set());
         setWorkspaceId(id);
       };
       const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId ||
@@ -1735,7 +1742,7 @@ window.__ModuleLoader__.load({
         return () => abort.abort();
       }, [workspaceId, retry]);
       React.useEffect(() => {
-        setTasks(null);
+        setTaskSnapshot(null);
         if (!workspaceId || !expectedId || !controllerTasks) return;
         const abort = new AbortController();
         let inFlight = false;
@@ -1743,8 +1750,8 @@ window.__ModuleLoader__.load({
           if (inFlight) return;
           inFlight = true;
           void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal)
-            .then((value) => { if (!abort.signal.aborted) setTasks(value); })
-            .catch(() => { if (!abort.signal.aborted) setTasks({ kind: 'unavailable' }); })
+            .then((value) => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value }); })
+            .catch(() => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: 'unavailable' } }); })
             .finally(() => { inFlight = false; });
         };
         void refresh();
@@ -1808,7 +1815,7 @@ window.__ModuleLoader__.load({
             setInspection({ kind: 'existing', sessionId: opened.sessionId, archived: false });
           }
           const result = await dispatchChallenge({ workspaceId: attempt.workspaceId, sessionId: attempt.sessionId,
-            challengeId: attempt.challenge.id, requestId: attempt.requestId });
+            challengeId: attempt.challenge.id, challengeTitle: attempt.challenge.title?.slice(0, 500), requestId: attempt.requestId });
           if (result.kind === 'accepted' && result.sessionId === attempt.sessionId) {
             await openAfterDispatch(attempt);
           } else {
@@ -1864,6 +1871,14 @@ window.__ModuleLoader__.load({
         }
       }
       const row = tasks?.rows?.find((item) => item.childId === selectedTask);
+      const challengeGroups = new Map();
+      for (const item of tasks?.rows || []) {
+        if (item.category === 'maintenance') continue;
+        const challenge = item.challenge;
+        const groupKey = challenge ? JSON.stringify([challenge.baseUrl, challenge.id]) : 'unassociated';
+        if (!challengeGroups.has(groupKey)) challengeGroups.set(groupKey, { challenge, rows: [] });
+        challengeGroups.get(groupKey).rows.push(item);
+      }
       const childAddress = expectedId && (row?.mode === 'continuable' || row?.mode === 'one-shot')
         ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
       const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
@@ -1910,13 +1925,15 @@ window.__ModuleLoader__.load({
               onPointerDown: (event) => { pane.drag = { x: event.clientX, width: taskWidth }; event.currentTarget.setPointerCapture(event.pointerId); },
               onPointerMove: (event) => { if (pane.drag) resize(pane.drag.width + pane.drag.x - event.clientX); }, onPointerUp: () => { pane.drag = null; }, onPointerCancel: () => { pane.drag = null; } }),
             h('aside', { id: 'pg-controller-tasks', className: 'pg-controller-tasks', 'aria-label': '主控任务', style: { width: taskWidth }, onKeyDown: (event) => { if (event.key === 'Escape' && pane.body?.clientWidth <= 720) { toggleTasks(); pane.toggle?.focus(); } } },
-              h('header', null, h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, '任务')),
+              h('header', null, h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, '任务'),
+                h('button', { className: 'pg-controller-back', disabled: !expectedId, onClick: () => setTaskRetry(taskRetry + 1) }, '刷新任务')),
               h('div', { className: 'pg-controller-task-content' },
                 !expectedId ? h('p', null, '打开主控后查看其派发的任务。') : !tasks ? h('p', { role: 'status' }, '正在读取任务…')
                   : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, '无法读取任务。', h('button', { onClick: () => setTaskRetry(taskRetry + 1) }, '重试'))
                   : row ? h('div', { className: 'pg-controller-detail' },
                     h('button', { className: 'pg-controller-back', ref: (node) => { pane.back = node; }, onClick: () => { pane.focus = row.childId; setSelectedTask(''); } }, '返回任务'),
                     h('h3', null, row.label || '未命名任务'), h('p', null, [row.provider, taskState(row)].filter(Boolean).join(' · ')),
+                    h('p', null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === 'maintenance' ? '后台维护' : '未关联赛题'),
                     childAddress ? h('button', { className: 'pg-controller-back', onClick: async () => {
                       setTaskActionStatus('');
                       try { await openTask(childAddress); }
@@ -1931,7 +1948,11 @@ window.__ModuleLoader__.load({
                     taskActionStatus ? h('p', { role: 'status' }, taskActionStatus) : null,
                     row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, row.state !== 'ended' ? '历史原始通知' : '原始通知'), h('pre', null, row.terminalText)) : null)
                   : !tasks.rows.length ? h('p', null, '还没有派发任务。') : h(React.Fragment, null,
-                    tasks.rows.filter((item) => item.category !== 'maintenance').map(listRow),
+                    [...challengeGroups].map(([groupKey, group]) => h('details', { key: groupKey, className: 'pg-controller-challenge', open: !closedChallenges.has(groupKey),
+                      onToggle: (event) => { const closed = !event.currentTarget.open; if (closed === closedChallenges.has(groupKey)) return; const next = new Set(closedChallenges); if (closed) next.add(groupKey); else next.delete(groupKey); setClosedChallenges(next); } },
+                    h('summary', null, `${group.challenge?.title || group.challenge?.id || '未关联赛题'}（${group.rows.length}）`,
+                      group.challenge ? h('small', null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h('small', null, '缺少明确的赛题关联，保留原任务和结果。')),
+                    group.rows.map(listRow))),
                     tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, `后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),
         showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: selectedWorkspace, busy: handoffBusy,
           selectWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,

@@ -9,6 +9,7 @@ import { displayCredentialsPath } from '../lib/cli.js';
 import { PlaygroundApiError } from '../lib/api.js';
 import { workflowProjection } from '../lib/workflow.js';
 import { createMaterialAccess } from '../lib/material-access.js';
+import { controllerProjection } from '../lib/controller.js';
 
 function mount(config = {}) {
   const registered = [];
@@ -308,6 +309,37 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
   return { tools, contexts, scope, session, exec, commands, services };
 }
+
+test('controller association tool saves checked child identity through presentation metadata only', async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'playground-association-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const sessionId = 'synthetic-agent';
+  const marker = { workspaceId: 'workspace', sessionId };
+  const config = { baseUrl: 'https://association.example.test' };
+  const { tools, scope, exec, services } = mountWorkflowScope({ task: null }, { cwd, config, controllerMarker: marker });
+  const workspace = { id: 'workspace', path: cwd, sessionIds: [sessionId] };
+  scope.workspaceRegistry = { list: () => [workspace], archivedSessionIds: [], resolveByPath: async () => workspace };
+  scope.agents = { get: (id) => id === sessionId ? exec.agent : undefined };
+  scope.sessionController = { projections: async () => ({ kind: 'sequenced', values: {
+    playgroundController: marker, playgroundTask: { task: null }, playgroundControllerNotices: [],
+  } }), create: () => { throw Error('must not create'); }, prompt: () => { throw Error('must not prompt'); } };
+  services.subagents = { listChildren: async () => [{ id: 'actual-child', mode: 'external', createdAt: 1 }] };
+  const tool = tools.find((item) => item.name === 'playground_controller_link_task');
+  const input = { child_id: 'actual-child', challenge_id: 'challenge', base_url: 'https://association.example.test/api', title: 'Challenge title' };
+  const result = await tool.execute(input, exec);
+  assert.equal(result.ok, true);
+  const meta = tool.output.presentationMeta(input, result);
+  let state = controllerProjection.apply(controllerProjection.init({ id: sessionId }, 0), {
+    seq: 0, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: marker }) },
+  });
+  state = controllerProjection.apply(state, { seq: 1, type: 'tool/result', data: { meta } });
+  assert.deepEqual(controllerProjection.wire.view(state).taskChallenges, {
+    'actual-child': { baseUrl: input.base_url, id: input.challenge_id, title: input.title },
+  });
+  const refused = await tool.execute({ ...input, child_id: 'not-a-child' }, exec);
+  assert.equal(refused.error.code, 'child_not_found');
+  assert.deepEqual(tool.output.presentationMeta(input, refused), {});
+});
 
 test('a workspace controller cannot bind a challenge or change task state', async () => {
   const state = workflowProjection.init();

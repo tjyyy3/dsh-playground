@@ -34,14 +34,16 @@ async function fixture(t) {
         const value = disk.get(sessionId)?.values;
         if (!workspace || !value) return { error: new Error('not found') };
         const agent = { id: sessionId, session: { id: sessionId, cwd: options.resumeCwd || workspace.path } };
-        live.set(sessionId, { agent, marker: { marker: value.playgroundController }, blank: value.sessionListMetadata.blank, task: value.playgroundTask });
+        live.set(sessionId, { agent, marker: { ...controllerProjection.init({ id: sessionId }, 0),
+          marker: value.playgroundController && { workspaceId: value.playgroundController.workspaceId, sessionId },
+          ...(value.playgroundController?.taskChallenges ? { taskChallenges: value.playgroundController.taskChallenges } : {}) }, blank: value.sessionListMetadata.blank, task: value.playgroundTask });
         return { agent };
       },
       async projections({ sessionId }, signal) {
         signal.throwIfAborted();
         if (options.brokenRead === sessionId) throw Error('projection unreadable');
         const found = live.get(sessionId);
-        return found ? snapshot(found.marker && 'marker' in found.marker ? found.marker.marker : found.marker, undefined, found.blank) : disk.get(sessionId) ?? null;
+        return found ? snapshot(found.marker && 'marker' in found.marker ? controllerProjection.wire.view(found.marker) : found.marker, undefined, found.blank) : disk.get(sessionId) ?? null;
       },
       async create(request) {
         createRequests.push(request);
@@ -90,13 +92,13 @@ async function fixture(t) {
         options.enteredFlush?.();
         if (options.flushGate) await options.flushGate;
         const entry = live.get(session.id);
-        disk.set(session.id, snapshot(entry.marker && 'marker' in entry.marker ? entry.marker.marker : entry.marker, undefined, entry.blank));
+        disk.set(session.id, snapshot(entry.marker && 'marker' in entry.marker ? controllerProjection.wire.view(entry.marker) : entry.marker, undefined, entry.blank));
         return true;
       } },
       subagents: options.codex ? { getProvider: (id) => id === 'codex' && { id } } : undefined,
     })[name],
   };
-  const restart = () => { live.clear(); controller = createController(ctx); return controller; };
+  const restart = () => { live.clear(); controller = createController(ctx, undefined, 'https://playground.example.test/api'); return controller; };
   return { controller: restart(), restart, ctx, archived, live, disk, workspaces, createRequests, promptRequests, admitted, options, task, snapshot, put };
 }
 
@@ -321,7 +323,7 @@ test('projection replays only the current session marker after its inherited pre
   state = controllerProjection.apply(state, marker(0, 'ancestor'));
   state = controllerProjection.apply(state, marker(2, 'fork'));
   assert.deepEqual(controllerProjection.wire.view(state), { workspaceId: 'one', sessionId: 'fork' });
-  assert.equal(controllerProjection.stateVersion, 2);
+  assert.equal(controllerProjection.stateVersion, 3);
 });
 
 test('promotion preserves a nonblank conversation and is idempotent', async (t) => {
@@ -538,4 +540,82 @@ test('only owned first user input with the exact Mnemon marker is grouped as mai
   result = await f.controller.tasks({ workspaceId: 'one', sessionId });
   assert.equal(result.rows.length, 5);
   assert.deepEqual(reads.sort(), ['inherited', 'lookalike', 'marked', 'missing']);
+});
+
+test('handoff names explicit association parameters for every delegated child', async (t) => {
+  const f = await fixture(t);
+  f.put('one', 'controller', f.snapshot({ workspaceId: 'one', sessionId: 'controller' }));
+  await f.controller.dispatch({ ...handoff, challengeTitle: 'Same title' });
+  const text = f.promptRequests[0].content[0].text;
+  assert.match(text, /playground_controller_link_task/);
+  assert.match(text, /每个子任务都单独登记/);
+  assert.deepEqual(JSON.parse(text.split('登记参数：')[1]), {
+    base_url: 'https://playground.example.test/api', challenge_id: handoff.challengeId, title: 'Same title',
+  });
+});
+
+test('explicit child associations and separate results survive cold rereads without dispatching', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const children = ['first', 'second', 'other', 'legacy', 'external'].map((id, index) => ({
+    id, createdAt: index, mode: id === 'external' ? 'external' : 'continuable', label: 'Same task title',
+  }));
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children } : previous(name);
+  const entry = f.live.get(sessionId);
+  const exec = { agent: entry.agent, signal: new AbortController().signal };
+  const link = async (child_id, challenge_id) => {
+    const result = await f.controller.linkTask({ child_id, challenge_id, base_url: 'https://playground.example.test/api', title: 'Same title' }, exec);
+    assert.equal(result.kind, 'associated');
+    entry.marker = controllerProjection.apply(entry.marker, { seq: 1, type: 'tool/result',
+      data: { meta: { playgroundControllerAssociation: result.association } } });
+  };
+  await link('first', 'challenge-a');
+  await link('second', 'challenge-a');
+  await link('other', 'challenge-b');
+  await link('external', 'challenge-a');
+  const conflict = await f.controller.linkTask({ child_id: 'first', challenge_id: 'challenge-b', base_url: 'https://playground.example.test/api' }, exec);
+  assert.equal(conflict.code, 'association_conflict');
+  assert.equal((await f.controller.linkTask({ child_id: 'unrelated-top-level-task', challenge_id: 'challenge-a', base_url: 'https://playground.example.test/api' }, exec)).code, 'child_not_found');
+  assert.equal((await f.controller.linkTask({ child_id: 'first', challenge_id: 'challenge-a', base_url: 'https://other.example.test/api' }, exec)).code, 'platform_changed');
+  assert.equal((await f.controller.linkTask({ child_id: 'first', challenge_id: 'challenge-a' }, exec)).code, 'invalid_association');
+  const repeated = await f.controller.linkTask({ child_id: 'first', challenge_id: 'challenge-a', base_url: 'https://playground.example.test/api' }, exec);
+  const before = entry.marker;
+  assert.equal(controllerProjection.apply(before, { seq: 2, type: 'tool/result', data: { meta: { playgroundControllerAssociation: repeated.association } } }), before);
+  await f.ctx.get('sessions').flush(entry.agent.session);
+  f.disk.get(sessionId).values.playgroundControllerNotices = children.map((child) => ({ childId: child.id, text: `${child.id} result`, stopReason: child.id === 'other' ? 'error' : 'completed' }));
+  const result = await f.restart().tasks({ workspaceId: 'one', sessionId });
+  assert.deepEqual(result.rows.map((row) => row.challenge?.id), ['challenge-a', 'challenge-a', 'challenge-b', undefined, 'challenge-a']);
+  assert.deepEqual(result.rows.map((row) => row.terminalText), children.map((child) => `${child.id} result`));
+  assert.ok(result.rows.every((row) => row.state === 'settled' && row.noticeIsHistorical && !row.liveEnd));
+  assert.equal(result.rows[2].noticeStopReason, 'error');
+  assert.deepEqual((await f.controller.tasks({ workspaceId: 'one', sessionId })).rows, result.rows);
+  assert.deepEqual(await f.controller.tasks({ workspaceId: 'two', sessionId }), { kind: 'unavailable' });
+  assert.equal(f.live.has(sessionId), false);
+  assert.equal(f.createRequests.length, 1);
+  assert.equal(f.promptRequests.length, 1);
+});
+
+test('association replay rejects inherited, foreign and malformed records and never relinks a child', () => {
+  const marker = { workspaceId: 'one', sessionId: 'controller' };
+  let state = controllerProjection.apply(controllerProjection.init({ id: 'controller' }, 3), {
+    seq: 3, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: marker }) },
+  });
+  const challenge = { baseUrl: 'https://one.example.test/api', id: 'same-id', title: 'Same title' };
+  const event = (association, seq = 4) => ({ seq, type: 'tool/result', data: { meta: { playgroundControllerAssociation: association } } });
+  const association = { ...marker, childId: 'first', challenge };
+  for (const invalid of [event(association, 2), event({ ...association, sessionId: 'another' }),
+    event({ ...association, workspaceId: 'two' }), event({ ...association, challenge: { title: 'Same title' } })]) {
+    assert.equal(controllerProjection.apply(state, invalid), state);
+  }
+  state = controllerProjection.apply(state, event(association));
+  const before = state;
+  assert.equal(controllerProjection.apply(state, event({ ...association, challenge: { ...challenge, id: 'later-challenge' } })), before);
+  state = controllerProjection.apply(state, event({ ...association, childId: 'second', challenge: { ...challenge, baseUrl: 'https://two.example.test/api' } }));
+  assert.deepEqual(controllerProjection.wire.view(state), { ...marker, taskChallenges: {
+    first: challenge, second: { ...challenge, baseUrl: 'https://two.example.test/api' },
+  } });
+  assert.equal(controllerProjection.stateSchema.safeParse(JSON.parse(JSON.stringify(state))).success, true);
+  assert.equal(controllerProjection.wire.viewSchema.safeParse(controllerProjection.wire.view(state)).success, true);
+  assert.equal(controllerProjection.wire.viewSchema.safeParse(marker).success, true);
 });

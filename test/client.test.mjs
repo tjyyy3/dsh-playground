@@ -4830,7 +4830,7 @@ test('catalog hands off directly to the selected workspace controller and shows 
   button.props.onClick();
   assert.equal(h.dispatchCalls().length, 1);
   const [input] = h.dispatchCalls();
-  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, requestId: input.requestId });
+  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, challengeTitle: challengeCard.titleZh, requestId: input.requestId });
   assert.match(input.requestId, /^[\da-f-]{36}$/);
   admit();
   await settle();
@@ -5110,4 +5110,111 @@ test('controller stop reasons describe historical notices and never override a n
     if (row.noticeStopReason === 'provider-specific') assert.match(text(tree), /provider-specific/);
     f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
   }
+});
+
+test('controller groups use platform and challenge ids while retaining every child and result', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const challenge = { baseUrl: 'https://one.example.test/api', id: 'challenge-a', title: 'Same title' };
+  const rows = [
+    { childId: 'first', label: 'First agent', provider: 'dsh', mode: 'continuable', state: 'ended', challenge, liveEnd: { stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'First result' }] } },
+    { childId: 'second', label: 'Second agent', provider: 'codex', mode: 'external', state: 'settled', challenge, terminalText: 'Second result', noticeStopReason: 'error', noticeIsHistorical: true },
+    { childId: 'different-id', label: 'Different id', state: 'unknown', challenge: { ...challenge, id: 'challenge-b' } },
+    { childId: 'different-platform', label: 'Different platform', state: 'unknown', challenge: { ...challenge, baseUrl: 'https://two.example.test/api' } },
+    { childId: 'legacy', label: 'Legacy task', state: 'settled', terminalText: 'Legacy result' },
+    { childId: 'maintenance', label: 'Maintenance task', category: 'maintenance', state: 'settled', terminalText: 'Maintenance result' },
+  ];
+  const reads = [];
+  const opened = [];
+  const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }), useSessions: (select) => select({ ids: [], byId: {} }),
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    controllerTasks: async (input) => { reads.push(input); return { kind: 'ready', rows }; }, renderSlot: () => null,
+    openTask: async (address) => opened.push(address), openController: () => assert.fail('created a session'), dispatchChallenge: () => assert.fail('dispatched work'),
+    run: () => assert.fail('ran a task command'), submission: () => assert.fail('submitted') };
+  const render = () => f.render(Main, props);
+  render(); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  let tree = render();
+  const groups = findAll(tree, (node) => node.props?.className === 'pg-controller-challenge');
+  assert.equal(groups.length, 4);
+  const children = (group) => findAll(group, (node) => node.props?.className === 'pg-controller-row').map((node) => node.props.key);
+  assert.deepEqual(groups.map(children), [['first', 'second'], ['different-id'], ['different-platform'], ['legacy']]);
+  assert.match(text(groups[0]), /Same title（2）.*challenge-a.*https:\/\/one.example.test\/api/);
+  assert.match(text(groups[1]), /challenge-b/);
+  assert.match(text(groups[2]), /https:\/\/two.example.test\/api/);
+  assert.match(text(groups[3]), /未关联赛题.*缺少明确的赛题关联/);
+  const maintenance = f.find(tree, (node) => node.props?.className === 'pg-controller-maintenance');
+  assert.match(text(maintenance), /后台维护（1）.*Maintenance task/);
+  assert.deepEqual(findAll(tree, (node) => node.props?.className === 'pg-controller-row').map((node) => node.props.key).sort(), rows.map((row) => row.childId).sort());
+  groups[0].props.onToggle({ currentTarget: { open: false } });
+  assert.equal(findAll(render(), (node) => node.props?.className === 'pg-controller-challenge')[0].props.open, false);
+  findAll(render(), (node) => node.props?.className === 'pg-controller-challenge')[0].props.onToggle({ currentTarget: { open: true } });
+  assert.equal(findAll(render(), (node) => node.props?.className === 'pg-controller-challenge')[0].props.open, true);
+  const button = (label) => f.find(render(), (node) => node.type === 'button' && text(node) === label);
+  const task = (id) => f.find(render(), (node) => node.props?.className === 'pg-controller-row' && node.props.key === id);
+  task('first').props.onClick();
+  assert.match(text(render()), /First result/);
+  assert.doesNotMatch(text(render()), /Second result/);
+  await button('打开子智能体对话').props.onClick();
+  assert.deepEqual(opened, [{ parentSessionId: 'controller', childSessionId: 'first', mode: 'continuable' }]);
+  button('返回任务').props.onClick();
+  task('second').props.onClick();
+  assert.match(text(render()), /Second result/);
+  assert.match(text(render()), /当前执行状态未知.*历史通知的结束原因：出错/);
+  assert.equal(button('打开子智能体对话'), undefined);
+  button('返回任务').props.onClick();
+  task('legacy').props.onClick();
+  assert.match(text(render()), /未关联赛题.*Legacy result/);
+  button('返回任务').props.onClick();
+  task('maintenance').props.onClick();
+  assert.match(text(render()), /后台维护.*Maintenance result/);
+  button('返回任务').props.onClick();
+  const readsBefore = reads.length;
+  assert.equal(readsBefore, 1, 'browsing and toggling only use existing task data');
+  button('刷新任务').props.onClick();
+  f.effects.length = 0;
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  assert.equal(reads.length, readsBefore + 1);
+  assert.deepEqual(reads.at(-1), { workspaceId: 'one', sessionId: 'controller' });
+  assert.deepEqual(findAll(render(), (node) => node.props?.className === 'pg-controller-challenge').map(children), [['first', 'second'], ['different-id'], ['different-platform'], ['legacy']]);
+});
+
+test('workspace selection hides old controller tasks immediately and ignores a late read', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  let finishOldRead;
+  let oldReads = 0;
+  const rows = (id) => [{ childId: id, label: id, state: 'settled', terminalText: `${id} result`, challenge: { baseUrl: 'https://one.example.test/api', id: 'same-challenge', title: 'Same title' } }];
+  const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }, { workspaceId: 'two', title: 'Two' }] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), inspectController: async ({ workspaceId }) => ({ kind: 'existing', sessionId: `controller-${workspaceId}` }),
+    openControllerChat: async () => {}, renderSlot: () => null,
+    controllerTasks: async ({ workspaceId }) => {
+      if (workspaceId === 'one' && ++oldReads === 2) return new Promise((resolve) => { finishOldRead = resolve; });
+      return { kind: 'ready', rows: rows(`${workspaceId}-task`) };
+    } };
+  const render = () => f.render(Main, props);
+  render(); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  assert.match(text(render()), /one-task/);
+  f.find(render(), (node) => node.type === 'button' && text(node) === '刷新任务').props.onClick();
+  f.effects.length = 0;
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect()));
+  assert.equal(typeof finishOldRead, 'function');
+  await f.find(render(), (node) => node.props?.['aria-label'] === '工作区').props.onChange({ target: { value: 'two' } });
+  assert.doesNotMatch(text(render()), /one-task/);
+  finishOldRead({ kind: 'ready', rows: rows('one-task') });
+  await settle();
+  assert.doesNotMatch(text(render()), /one-task/);
+  f.effects.length = 0;
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.length === 2 && effect.deps[0] === 'two').forEach((effect) => cleanups.push(effect())); await settle();
+  f.effects.length = 0;
+  render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  assert.match(text(render()), /two-task/);
+  assert.doesNotMatch(text(render()), /one-task/);
 });
