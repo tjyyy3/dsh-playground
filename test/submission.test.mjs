@@ -227,6 +227,67 @@ test('#74: unknown dispatch or Agent outcomes cannot blindly dispatch another re
   assert.equal(f.state().receipt, null);
 });
 
+test('#74 r1: browser cancellation resets stranded handoffs and keeps attempts for reconciliation', async (t) => {
+  for (const status of ['dispatched', 'created', 'unknown']) {
+    const f = await fixture(t);
+    if (status === 'unknown') f.ctx.sessionController.prompt = async (request) => { f.calls.push(request); throw new Error('timeout'); };
+    await f.submit();
+    if (status === 'created') f.record(await f.workflow.track({ attempt_id: 41, submission_state: 'created' }, f.exec));
+    if (status === 'unknown') f.record(await f.workflow.reportSubmission({ submission_state: 'unknown', message: 'Agent cannot confirm the result.' }, f.exec));
+    assert.equal(f.state().submission.status, status);
+    const receipt = f.state().receipt;
+    const attemptIds = f.state().attemptIds;
+    const input = { action: 'cancel', requestId: f.state().submission.requestId };
+    f.ctx.invocation = { peer: { principal: { kind: 'owner' } } };
+    assert.equal((await f.submit(input)).error.code, 'user_action_required');
+    assert.equal(f.state().submission.status, status);
+    f.ctx.invocation = { peer: f.browserPeer };
+    const cancelled = await f.submit(input);
+    assert.equal(cancelled.ok, true, status);
+    assert.equal(f.state().submission.status, 'not_created');
+    assert.equal(f.state().submission.reportedBy, 'workbench');
+    assert.match(cancelled.submission.message, /不.*撤回.*服务器/);
+    assert.equal(f.state().receipt, receipt);
+    assert.deepEqual(f.state().attemptIds, attemptIds);
+    if (status === 'created') assert.equal(cancelled.submission.attemptId, 41);
+    assert.equal(f.calls.length, 1, 'cancellation must not dispatch or write');
+    f.ctx.sessionController.prompt = async (request) => { f.calls.push(request); return { accepted: true }; };
+    const next = await f.submit();
+    assert.equal(next.status, 'dispatched');
+    assert.deepEqual(next.submission.attemptIds, attemptIds);
+    assert.match(f.calls[1].content[0].text, /先核对上次请求是否已在服务器创建提交/);
+    if (status === 'created') assert.match(f.calls[1].content[0].text, /"attemptIds":\[41\]/);
+  }
+});
+
+test('#74 r1: cancellation cannot reset a request still dispatching or a different request', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  const requestId = f.state().submission.requestId;
+  assert.equal((await f.submit({ action: 'cancel', requestId: 'another-request' })).error.code, 'request_not_pending');
+  f.setState({ ...f.state(), submission: { ...f.state().submission, status: 'dispatching' } });
+  assert.equal((await f.submit({ action: 'cancel', requestId })).error.code, 'request_not_pending');
+  assert.equal(f.state().submission.status, 'dispatching');
+  assert.equal(f.calls.length, 1);
+});
+
+test('#74 r1: binding ignores a legacy card for another challenge and preserves matching receipts', async (t) => {
+  for (const receipt of [null, { attemptId: 41, challengeId: 'challenge-a', ok: true }]) {
+    const f = await fixture(t);
+    f.setState({ ...workflowProjection.init(), prepared: { challenge: { id: 'challenge-b' }, checkId: 'legacy-card' },
+      receipt, attemptIds: receipt ? [41] : [] });
+    const bound = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+    assert.equal(bound.ok, true, bound.error?.message);
+    f.record(bound);
+    assert.equal(f.state().task.challengeId, 'challenge-a');
+    assert.equal(f.state().prepared, null);
+    assert.equal(f.state().receipt, receipt);
+    assert.deepEqual(f.state().attemptIds, receipt ? [41] : []);
+    assert.equal(f.calls.length, 0);
+    assert.doesNotMatch(bound.note, /待确认|检查卡/);
+  }
+});
+
 test('#74: missing task, workspace, login or readable statement blocks before handoff', async (t) => {
   for (const issue of ['task', 'workspace', 'login', 'statement']) {
     const f = await fixture(t);

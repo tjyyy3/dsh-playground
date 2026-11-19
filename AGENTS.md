@@ -43,11 +43,14 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
   chooses official CLI or API steps from the current challenge requirements.
   The plugin never uploads, forces a dry-run, or reads material content.
   Retired `playground_submit`, `playground_submit_attempt`,
-  `playground_check_materials` and `/playground-confirm` are not registered.
+  `playground_check_materials` and `/playground-confirm` have no executable
+  Host tool or command handler. Keep historical client renderers for safe display.
 - Before executing a submission, read `playground_task status` and announce
   `submitPolicy.announcement`. A statement limit, a counted submission today
   across self and confirmed Agent accounts in Beijing time, or a recorded
-  platform 429 requires an additional user answer. The workbench verifies its
+  platform 429 requires an additional user answer. For a chat-requested
+  submission, an explicit user answer in that conversation also counts.
+  The workbench verifies its
   browser Peer before accepting the answer for the current request. Refusal,
   cancellation, unavailable interaction or an unverified automatic approval
   never dispatches. Do not treat a model boolean as user consent. An existing

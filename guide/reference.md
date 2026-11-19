@@ -659,8 +659,7 @@ signed-in account and confirmed Agent accounts, using the Beijing day.
 Counts can be partial when private Agent submissions are not visible.
 
 A statement limit, an already counted submission today or a recorded HTTP 429
-requires an additional user answer. The workbench keeps the request pending
-until the user chooses to continue or cancel. The confirmation belongs only to
+requires an additional user answer. For workbench requests, the workbench waits until the user chooses to continue or cancel. For a submission requested in the conversation, an explicit additional user answer in that conversation also counts. The Agent must not invent that answer. The confirmation belongs only to
 that task, account, material references and quota snapshot; changed context
 requires a new answer. A still-valid answer is not requested again.
 
@@ -698,7 +697,7 @@ Agent reports until a platform result provides further evidence.
 Always retain an attempt ID obtained before upload failed. On a timeout or
 unknown result, query the known attempt or the submission list before creating
 another. A retry follows the official protocol for the verified original
-attempt. Cancellation cannot withdraw a server write that already happened.
+attempt. Cancellation cannot withdraw a server write that already happened. A dispatched, created or unknown handoff can be cancelled from the task drawer to clear the plugin request state. This does not stop the Agent. Known attempt IDs remain visible and tracked, and the next handoff explicitly requires reconciliation of the previous request before any new creation.
 
 ## Configuration
 
@@ -727,8 +726,7 @@ Use a Playground token for authentication. Query strings and fragments are
 discarded during normalization. Invalid-base errors do not echo the input.
 
 Every API response body has an 8 MiB byte budget, including challenge details,
-paged lists, identity checks, submission records, scorecards, and upload
-receipts. The client counts decoded body bytes as it reads the stream, including
+paged lists, identity checks, submission records, and scorecards. The client counts decoded body bytes as it reads the stream, including
 HTTP error bodies, independently of `Content-Length`. Above the budget it
 cancels the reader and reports `response_too_large` with the known HTTP status.
 It returns no partial data. A failed result read does not create a submission.

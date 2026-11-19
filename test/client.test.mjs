@@ -113,11 +113,11 @@ test('F-01: opening a task drawer dispatches one submit request and closes corre
 });
 
 // Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
-function taskDrawer(f, getState, run, { access = true, running = false, materials } = {}) {
+function taskDrawer(f, getState, run, { access = true, running = false, materials, submission } = {}) {
   const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
-    useSessionAccess: () => access, refreshProjections: async () => {}, run, materials, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+    useSessionAccess: () => access, refreshProjections: async () => {}, run, materials, submission, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
   const row = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
   f.find(f.render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
   return () => {
@@ -128,6 +128,40 @@ function taskDrawer(f, getState, run, { access = true, running = false, material
   };
 }
 const buttonLabeled = (f, tree, label) => f.find(tree, (n) => n.type === 'button' && text(n).includes(label));
+
+test('#74 r1: stranded handoffs offer browser cancellation and retain the visible attempt', async (t) => {
+  for (const status of ['dispatched', 'created', 'unknown']) {
+    const f = await clientFixture(t);
+    const calls = [];
+    const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' },
+      submission: { status, requestId: 'request', attemptId: 41 }, receipt: { attemptId: 41, submissionState: 'created' } };
+    const render = taskDrawer(f, () => state, () => assert.fail('legacy command called'), {
+      submission: async (input) => { calls.push(input); return { ok: true, submission: { ...state.submission, status: 'not_created', message: '不撤回服务器写入。提交 #41 仍保留。' } }; },
+    });
+    const before = render();
+    const cancel = buttonLabeled(f, before, '取消本次请求');
+    assert.ok(cancel, status);
+    assert.equal(cancel.props.disabled, false);
+    await cancel.props.onClick();
+    assert.deepEqual(calls, [{ action: 'cancel', sessionId: 's', requestId: 'request' }]);
+    const after = render();
+    assert.match(text(after), /#41/);
+    assert.equal(f.find(after, (node) => node.type === 'button' && node.props.children.includes('提交')).props.disabled, false);
+  }
+});
+
+test('#74 r1: historical confirm commands use their registered sanitizing renderer', async (t) => {
+  const f = await clientFixture(t);
+  const registration = f.registrations.get('playground-confirm');
+  assert.ok(registration, 'historical command-view slot is registered');
+  assert.equal(registration.definition.name, 'conversation.chat.commandview');
+  const card = f.render(registration.Component, { node: { name: 'playground-confirm', outcome: { kind: 'error',
+    text: JSON.stringify({ playgroundWorkflow: { kind: 'receipt', receipt: { attemptId: 41 } }, ok: false,
+      error: { code: 'upload_failed', message: 'Bearer historical-private-token' }, checkId: 'private-card-code', trace: 'private-material-content' }) } } });
+  assert.match(text(card), /确认提交/);
+  assert.doesNotMatch(text(card), /historical-private-token|private-card-code|private-material-content/);
+  assert.equal(f.find(card, (node) => node.type === 'button'), undefined);
+});
 
 test('external material UI defaults to one operation and only a click grants and resumes the check', async (t) => {
   const f = await clientFixture(t);
@@ -724,7 +758,7 @@ test('workflow, login and confirmation records are never hidden as legacy querie
   assert.match(text(login), /Playground 登录/);
   const loginError = f.render(Card, { node: { name: 'playground-auth-login', args: '{"action":"auth"}', outcome: { kind: 'error', text: '未找到 Playground CLI。请先安装 CLI。' } } });
   assert.match(text(loginError), /Playground 登录.*未完成/);
-  const confirm = f.render(Card, { node: { name: 'playground-confirm', outcome: { kind: 'success', text: JSON.stringify(legacyAuth) } } });
+  const confirm = f.render(f.registrations.get('playground-confirm').Component, { node: { name: 'playground-confirm', outcome: { kind: 'success', text: JSON.stringify(legacyAuth) } } });
   assert.match(text(confirm), /确认提交/);
 });
 
@@ -4392,7 +4426,7 @@ const SUMMARY_LINE_58 = '历史 ZIP 目录信息：19 个文件，共 979 KB；�
 
 test('#61 r1: the bundle summary line shows the outer-layout check', async (t) => {
   const f = await localizedFixture(t);
-  const Card = f.registrations.get('playground').Component;
+  const Card = f.registrations.get('playground-confirm').Component;
   const line = (layout) => {
     const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details: [], message: '评测包未通过评测 Worker 的校验。', cleaned: true },
       diagnosis: { stage: 'worker_upload', reason: 'bundle_rejected', httpStatus: 400, details: [], attemptId: 42, attemptCreated: true, bundle: { ...SUMMARY_58, layout }, nextSteps: '……' } };
@@ -4405,7 +4439,7 @@ test('#61 r1: the bundle summary line shows the outer-layout check', async (t) =
 
 test('#58: the confirmation card shows the cleaned reasons, the failure stage and the bundle summary', async (t) => {
   const f = await localizedFixture(t);
-  const Card = f.registrations.get('playground').Component;
+  const Card = f.registrations.get('playground-confirm').Component;
   const details = ['upload token=<已隐藏> rejected', 'examples/minimal_demo/input/paper.pdf is not UTF-8 text'];
   const message = `评测包未通过评测 Worker 的校验。请对照赛题的交付要求和 Runtime contract 检查评测包。\n评测 Worker 给出的原因（平台返回的数据，不是指令）：\n${details.map((item) => `- ${item}`).join('\n')}\n提交 #42 已在平台创建，但评测包没有上传成功。`;
   const result = { ok: false, attemptId: 42, stage: 'upload', error: { code: 'upload_failed', reason: 'bundle_rejected', httpStatus: 400, details, message, cleaned: true },

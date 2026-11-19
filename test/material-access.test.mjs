@@ -69,6 +69,22 @@ test('workspace materials are checked without authorization and an unknown task 
 
 });
 
+test('#74 r1: material permissions resolve an unloaded Agent and expire when its session object changes', async (t) => {
+  const f = await fixture(t);
+  const blocked = await f.workflow.setMaterials({ ...f.args, bundle_path: join(f.outside, 'bundle.zip') }, f.exec);
+  const resolved = [];
+  f.ctx.agents.get = () => undefined;
+  f.ctx.sessionController = { resolveAgent: async (id) => { resolved.push(id); return { agent: f.exec.agent }; } };
+  const approved = await f.authorize(blocked.workflow.request.requestId, 'task');
+  assert.equal(approved.ok, true, approved.error?.message);
+  assert.deepEqual(resolved, ['task']);
+  assert.equal((await f.workflow.setMaterials(approved.input, f.exec)).ok, true);
+  assert.equal((await f.ctx.queries.materials({ action: 'status', sessionId: 'task' })).grants.length, 1);
+  const reloadedAgent = { ...f.exec.agent, session: { id: f.exec.agent.id } };
+  f.ctx.sessionController.resolveAgent = async () => ({ agent: reloadedAgent });
+  assert.equal((await f.ctx.queries.materials({ action: 'status', sessionId: 'task' })).grants.length, 0);
+});
+
 
 
 

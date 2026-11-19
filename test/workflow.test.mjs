@@ -482,7 +482,6 @@ test('login never records CLI output, credentials or a duplicate identity copy',
 // The drawer keys its submission history on receipt.confirmedAt, so a same-id retry must get a new stamp
 // and a results query must keep it.
 
-// cli.submit() receives an option object; buildSubmitArgs() turns it into the CLI argv.
 const NEW_FIELD_FLAGS = ['--manifest', '--outcome', '--detail', '--author-name'];
 
 // CLI 0.1.43 prints the update notice on every run, then `error: <cleaned reason>` on stderr.
@@ -1473,7 +1472,7 @@ test('#25: the projection replays bind mutations, and logs written before bind s
   const replay = (events, from = workflowProjection.init()) => events.reduce((state, event) => workflowProjection.apply(state, event), from);
   const work = [logged({ kind: 'prepared', prepared }), logged({ kind: 'receipt', receipt }), logged({ kind: 'prepared', prepared })];
   const bound = replay([...work, logged({ kind: 'bind', task: task('challenge-a') })]);
-  assert.deepEqual(bound, { task: task('challenge-a'), prepared, receipt, attemptIds: [7] });
+  assert.deepEqual(bound, { task: task('challenge-a'), prepared: null, receipt, attemptIds: [7] });
   assert.equal(workflowProjection.stateSchema.safeParse(bound).success, true);
   // Another challenge's work is never attached to the bound task, nor dropped: the bind is ignored.
   assert.deepEqual(replay([...work, logged({ kind: 'bind', task: task('challenge-b') })]),
@@ -1490,7 +1489,7 @@ test('#25: the projection replays bind mutations, and logs written before bind s
     { task: task('challenge-a'), prepared: null, receipt: null, attemptIds: [] });
 });
 
-test('#25: the projection keeps the first logged bind, and ignores a bind over another challenge\'s card', () => {
+test('#25: the projection keeps the first logged bind and retires legacy cards', () => {
   const logged = (workflow) => ({ type: 'tool/result', data: { meta: { playgroundWorkflow: workflow } } });
   const task = (challengeId) => ({ challengeId, title: 'Synthetic challenge', mode: 'participate' });
   const receipt = { attemptId: 7, ok: true, challengeId: 'challenge-a', args: { challenge_id: 'CHALLENGE-A' } };
@@ -1499,10 +1498,11 @@ test('#25: the projection keeps the first logged bind, and ignores a bind over a
   const first = replay([logged({ kind: 'receipt', receipt }), logged({ kind: 'bind', task: task('challenge-a') })]);
   assert.deepEqual(first, { task: task('challenge-a'), prepared: null, receipt, attemptIds: [7] });
   assert.equal(replay([logged({ kind: 'bind', task: task('challenge-b') })], first), first);
-  // A card for B logged after bind()'s last state read and before its result: the bind is ignored, the card stays.
+  // A legacy card does not constrain a bind logged after it.
   const card = { checkId: 'card-b', challenge: { id: 'challenge-b', title: 'Other challenge' }, args: { challenge_id: 'challenge-b' } };
   const pending = replay([logged({ kind: 'prepared', prepared: card })]);
-  assert.equal(replay([logged({ kind: 'bind', task: task('challenge-a') })], pending), pending);
+  assert.deepEqual(replay([logged({ kind: 'bind', task: task('challenge-a') })], pending),
+    { task: task('challenge-a'), prepared: null, receipt: null, attemptIds: [] });
   assert.equal(pending.prepared, card);
 });
 
@@ -2212,16 +2212,13 @@ test('#62: a time without an offset is read as UTC before the Beijing shift', ()
 // #63: direct submission on the user's request, terminal submissions tracked into the task, ask first for limits.
 import { submitPolicy, SUBMIT_RULE } from '../lib/workflow.js';
 
-test('#63: submitPolicy names the identity, never asks for a retry, and lists every reason', () => {
+test('#63: submitPolicy names the identity and lists every reason', () => {
   const challenge = { id: 'challenge-a', title: 'Synthetic\nchallenge' };
   const counts = { total: 2, counted: 1, partial: false, limits: [{ source: 'statement', limit: 3 }, { source: 'platform' }] };
   const all = submitPolicy({ counts, challenge, user: { userType: 'agent' } });
   assert.equal(all.askFirst, true);
   assert.deepEqual(all.reasons, ['statement_limit', 'quota_used_today', 'platform_limit']);
   assert.equal(all.announcement, '将以Agent 账号向「Synthetic challenge」（challenge-a）新建提交（今天已提交 2 次，占名额 1 次；题面写了次数限制）');
-  const retry = submitPolicy({ counts, challenge, retryAttemptId: 7 });
-  assert.equal(retry.askFirst, false);
-  assert.match(retry.announcement, /重传原提交 #7，不新建提交/);
   // Recorded limits without counts still ask first.
   assert.deepEqual(submitPolicy({ limits: [{ source: 'platform' }], challenge }).reasons, ['platform_limit']);
 });

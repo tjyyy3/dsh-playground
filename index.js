@@ -37,7 +37,7 @@ import {
   formatError,
   formatList,
   formatMyAttempts,
-  } from './lib/format.js';
+} from './lib/format.js';
 
 export const name = 'playground-competition';
 export const inject = ['tools'];
@@ -414,7 +414,7 @@ function submissionCountsView(state) {
     }) };
 }
 
-const SUBMIT_POLICY_KEYS = ['askFirst', 'reasons', 'reasonText', 'announcement', 'retry'];
+const SUBMIT_POLICY_KEYS = ['askFirst', 'reasons', 'reasonText', 'announcement'];
 function taskStatus(state, submitPolicy) {
   const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
   if (receipt?.diagnosis !== undefined) receipt.diagnosis = diagnosisView(receipt.diagnosis);
@@ -774,7 +774,7 @@ function createGetAttemptTool(client) {
 /**
  * Mount the tools in the scope that loaded this plugin.
  * @param ctx Cordis context carrying the `tools` registry.
- * @param config Optional patch config: { baseUrl?, token?, timeoutMs?, uploadTimeoutMs? }.
+ * @param config Optional patch config: { baseUrl?, token?, timeoutMs? }.
  */
 export function apply(ctx, config) {
   const settings = normalizeSettings(config);
@@ -865,7 +865,7 @@ export function apply(ctx, config) {
     scope.tools.register({ name: 'playground_bind_task', description: 'Bind the CURRENT conversation to an explicitly selected Playground challenge, so this conversation becomes its task conversation: it then appears in the Playground task list, and result queries work here. Call it only when the user explicitly asks to work on, solve or submit a specific challenge in this conversation; reading, browsing, explaining or comparing challenges must not bind. A binding cannot be undone, so never call this tool without such a request. Creates no conversation, sends no prompt and writes nothing to the platform, so it needs no confirmation. The workspace is always this conversation\'s own working directory, which must be a registered DSH workspace; the tool takes no directory. If this conversation already has a Playground task, binding the same challenge again changes nothing (receipts and submissions stay), and a different challenge is refused: continue the existing task, or use playground_start_task only when the user explicitly asks for a new task. A conversation without a task keeps its receipts for the bound challenge; if they belong to another challenge, binding is refused. If binding is refused because this conversation has no registered workspace, explain that to the user and wait; do not create a task conversation on your own. After binding, read the statement with playground_get_challenge.',
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, mode: { type: 'string', enum: ['participate', 'author'], description: 'Working mode; defaults to participate.' } }, required: ['challenge_id'] }, output,
       execute: (args, exec) => workflow.bind(args, exec).then(toToolValue).catch(errorValue) });
-    scope.tools.register({ name: 'playground_task', description: 'Read this task, its current submission policy and results. On an explicit user submission request, the Agent chooses official CLI or API steps from the current challenge requirements. The plugin has no upload tool. Before execution announce submitPolicy.announcement; quota-sensitive cases wait for an additional user reply in the workbench. Model assertions and automatic approval results are not verified user consent. Action materials records only known authorized material paths, without reading content. Action track immediately records a real official attempt ID, including after upload failure, after checking challenge and signed-in or confirmed Agent-account ownership; repeated IDs are idempotent. Action progress reports not_created or unknown without an ID, or updates reported upload progress for a verified attempt_id without duplicating its association. Unknown outcomes must be reconciled using existing attempts before creating another. Mode is not an account role.',
+    scope.tools.register({ name: 'playground_task', description: 'Read this task, its current submission policy and results. On an explicit user submission request, the Agent chooses official CLI or API steps from the current challenge requirements. The plugin has no upload tool. Before execution announce submitPolicy.announcement; quota-sensitive workbench requests wait for a verified workbench reply. For a submission requested in the conversation, an explicit additional user answer in that conversation also counts. Model assertions and automatic approval results are not verified user consent. Action materials records only known authorized material paths, without reading content. Action track immediately records a real official attempt ID, including after upload failure, after checking challenge and signed-in or confirmed Agent-account ownership; repeated IDs are idempotent. Action progress reports not_created or unknown without an ID, or updates reported upload progress for a verified attempt_id without duplicating its association. Unknown outcomes must be reconciled using existing attempts before creating another. Mode is not an account role.',
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'mode', 'results', 'track', 'materials', 'progress'] }, mode: { type: 'string', enum: ['participate', 'author'] }, attempt_id: { type: 'integer', description: 'For track: the real attempt ID returned by the official CLI or API, including when an upload later fails.' }, outputs_path: { type: 'string' }, bundle_path: { type: 'string' }, trace_path: { type: 'string' }, manifest_path: { type: 'string' }, material_request_id: { type: 'string' }, submission_state: { type: 'string', enum: ['not_created', 'created', 'uploaded', 'upload_failed', 'unknown'] }, message: { type: 'string', description: 'Short actual failure or progress, without credentials or material content.' }, http_status: { type: 'integer' } }, required: ['action'] }, output,
       execute: async (args, exec) => {
         if (args.action === 'status') {

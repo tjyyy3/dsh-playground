@@ -455,6 +455,7 @@ window.__ModuleLoader__.load({
       };
       const disabled = busy || running || !allowed;
       const active = ['dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
+      const canCancel = ['awaiting_user', 'dispatched', 'created', 'unknown'].includes(request?.status);
       const stages = { awaiting_user: '等待配额答复，尚未派发', dispatching: '正在交接', dispatched: '已派发给 Agent，尚未取得新编号',
         not_created: '未创建新提交', created: '已创建，上传状态未确认', uploaded: 'Agent 报告已上传', upload_failed: '已创建，Agent 报告上传失败',
         unknown: '结果未知，先核对已有提交', running: '平台已接收，处理中', final: '平台已返回最终结果' };
@@ -479,15 +480,15 @@ window.__ModuleLoader__.load({
             h('button', { className: 'pg-button pg-primary', disabled: disabled || active || request?.status === 'awaiting_user', onClick: () => act({ action: 'request', ...files }) }, '提交'),
             receipt?.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'results' }) }, `查询结果 #${receipt.attemptId}`) : null)) : null,
         request ? h('div', { className: 'pg-confirm', role: 'status' },
-          h('p', { className: 'pg-note' }, stages[request.status] || request.status),
+          h('p', { className: 'pg-note' }, request.status === 'not_created' && request.recovery ? '已解除交接状态，服务器结果待核对' : stages[request.status] || request.status),
           request.policy?.announcement ? h('p', { className: 'pg-note' }, request.policy.announcement) : null,
           submissionCountsLine(request.counts) ? h('p', { className: 'pg-note' }, submissionCountsLine(request.counts)) : null,
           request.message ? h('p', { className: 'pg-note' }, request.reportedBy === 'agent' ? `Agent 报告：${request.message}` : request.message) : null,
           request.status === 'awaiting_user' ? h(React.Fragment, null,
             h('p', { className: 'pg-confirm-impact' }, `${request.policy?.reasonText || '本次提交有配额风险'}。继续可能消耗提交名额。`),
             h('div', { className: 'pg-actions' },
-              h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act({ action: 'confirm_quota', requestId: request.requestId }) }, '知悉配额风险，继续本次提交'),
-              h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'cancel', requestId: request.requestId }) }, '取消本次请求'))) : null) : null,
+              h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act({ action: 'confirm_quota', requestId: request.requestId }) }, '知悉配额风险，继续本次提交'))) : null,
+          canCancel ? h('button', { className: 'pg-button', disabled: busy || !allowed, onClick: () => act({ action: 'cancel', requestId: request.requestId }) }, '取消本次请求') : null) : null,
         receipt ? h('details', { className: 'pg-raw' },
           h('summary', null, `${t('progress.attempt')} #${receipt.attemptId ?? '—'} · ${progress.badgeText} · ${progress.stageText} · ${progress.scoreText}`),
           h(PlaygroundToolCard, { phase: 'result', block: { meta: { playground: receipt } }, toolName: 'playground_get_attempt', t })) : null,
@@ -2425,7 +2426,7 @@ window.__ModuleLoader__.load({
           }
         });
         ctx.slots.inject('conversation.chat.commandview', function* () {
-          for (const key of ['playground', 'playground-auth-login']) {
+          for (const key of ['playground', 'playground-confirm', 'playground-auth-login']) {
             yield ctx.slots.register({ name: 'conversation.chat.commandview', key, inject: () => actions }, PlaygroundCommandCard);
           }
           yield ctx.slots.register({ name: 'conversation.chat.commandview', key: 'playground-controller' }, ControllerWelcome);
