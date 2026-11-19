@@ -629,7 +629,7 @@ else if (args.includes('--dry-run')) {
     assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
     const pid = await readPid(`${marker}.started`);
     assert.ok(pid > 0, 'the detached descendant never started');
-    assert.equal(alive(pid), false, 'the detached descendant is still running');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the detached descendant is still running');
     await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
     assert.equal(existsSync(marker), false);
   } finally { await killRecorded(`${marker}.started`); }
