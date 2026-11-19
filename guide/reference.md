@@ -1195,7 +1195,8 @@ The same protocol rule applies to both sources. The plugin rejects remote HTTP
 API bases before making a request. HTTP is supported only for `localhost`,
 `127.0.0.1`, or `[::1]`, including explicit ports. LAN addresses and similar
 hostnames such as `localhost.example.test` require HTTPS. The plugin's API client
-does not follow redirects. Configure the final API endpoint.
+does not follow redirects and reports `redirect_refused` when the API answers
+with one. Configure the final HTTPS API endpoint.
 
 ## Develop and verify
 

@@ -134,7 +134,10 @@ test('#76: native fetch refuses every redirect without requesting its target', a
       ]) {
         await assert.rejects(read, (error) => {
           assert.ok(error instanceof PlaygroundApiError);
-          assert.equal(error.code, 'network_error');
+          assert.equal(error.code, 'redirect_refused');
+          assert.match(error.message, /API answered with a redirect/);
+          assert.match(error.message, /does not follow/);
+          assert.match(error.message, /final HTTPS API endpoint/);
           assert.doesNotMatch(String(error) + JSON.stringify(error), new RegExp(token));
           return true;
         });
