@@ -81,6 +81,17 @@ for (const route of ['CLI', 'API']) test('#74/#75: one click dispatches referenc
   assert.equal(f.calls.length, 1);
 });
 
+test('#74: an unloaded task resolves its existing Agent without creating a session or requiring another click', async (t) => {
+  const f = await fixture(t);
+  f.ctx.agents.get = () => undefined;
+  const resolved = [];
+  f.ctx.sessionController.resolveAgent = async (id) => { resolved.push(id); return { agent: f.exec.agent }; };
+  assert.equal((await f.submit()).status, 'dispatched');
+  assert.deepEqual(resolved, ['task']);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].sessionId, 'task');
+});
+
 test('#74: statement limits, used quota and recorded 429 wait for the verified browser answer', async (t) => {
   for (const setup of [
     { content: '每天最多提交 3 次' },
