@@ -468,10 +468,7 @@ ${HANG}`),
     }
   });
 
-// On Windows taskkill /T finds descendants through a live root, so a grandchild that outlives a
-// clean CLI exit cannot be ended there. Process groups cover it on macOS and Linux.
-test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open',
-  { skip: process.platform === 'win32' && 'Windows cannot end a grandchild after the CLI has exited' }, async () => {
+test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open', async () => {
     const pidFile = join(markers, 'held.pid');
     const timeout = 3000;
     // The grandchild ignores SIGTERM, so the pipes are only released by SIGKILL or the end of the
@@ -481,7 +478,7 @@ test('a CLI that exited cleanly is not rewritten when a grandchild holds its out
     const cli = createPlaygroundCli({
       command: await fakeCli(join(root, 'held', 'held.mjs'), `import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit' }).unref();
+spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit', detached: ${process.platform === 'win32'} }).unref();
 const wait = setInterval(() => {
   if (!existsSync(${quote(pidFile)})) return;
   clearInterval(wait);
@@ -495,7 +492,9 @@ const wait = setInterval(() => {
       const output = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
       const elapsed = Date.now() - begin;
       assert.deepEqual(output, ['done']);
-      assert.ok(elapsed >= timeout + GRACE - 100, `run() returned after ${elapsed} ms, before the grace period ended`);
+      if (process.platform !== 'win32') {
+        assert.ok(elapsed >= timeout + GRACE - 100, `run() returned after ${elapsed} ms, before the grace period ended`);
+      }
       assert.ok(elapsed < timeout + GRACE + 1500, `run() took ${elapsed} ms`);
       const pid = await readPid(pidFile);
       assert.ok(pid > 0, 'the grandchild never started');
