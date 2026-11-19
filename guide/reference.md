@@ -1002,10 +1002,11 @@ refused from then on, even before the session log has dropped it. A
 confirmation of a different card while one is running is refused with
 `submission_in_progress`, so a call never reports another card's receipt.
 
-If the CLI could not start (not found, Node.js missing, arguments that cmd
-would interpret, invalid arguments), nothing was submitted: the result is
-`cli_not_started` and the same confirmation card can be confirmed again after
-fixing the configuration.
+If the CLI could not start (not found, Node.js missing, a Windows process job
+unavailable, arguments that cmd would interpret, invalid arguments), or was
+stopped (cancelled or timed out) before the CLI started, nothing was submitted.
+The result is `cli_not_started` and the same confirmation card can be confirmed
+again after fixing the problem or choosing to retry.
 
 Once the CLI has started, a failure, timeout or cancellation always invalidates
 the confirmation card. If the CLI names the created submission (its

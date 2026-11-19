@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, rmdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
 import { windowsJobLaunch } from '../lib/windows-process.js';
+
+// Polling and watchdogs must keep real time while CLI deadlines are mocked.
+const realSetTimeout = setTimeout;
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -127,6 +130,9 @@ console.error('synthetic Add-Type compiler failure'); process.exit(1);`);
   await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'), (error) => {
     assert.equal(error.code, 'cli_job_unavailable');
     assert.equal(error.started, false);
+    assert.equal(error.jobState, 'nostart_marker');
+    assert.match(error.stderr, /synthetic Add-Type compiler failure/);
+    assert.doesNotMatch(JSON.stringify(error), /synthetic Add-Type compiler failure|nostart_marker/);
     assert.match(error.message, /Windows PowerShell.*Add-Type/);
     assert.doesNotMatch(error.message, /synthetic|not found|Install.*CLI/);
     return true;
@@ -143,15 +149,151 @@ writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
     ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
   }) });
   await assert.rejects(() => cli.authLogin('synthetic@example.test', 'password'),
-    (error) => error.code === 'cli_job_unavailable' && error.started === false);
+    (error) => error.code === 'cli_job_unavailable' && error.started === false && error.jobState === 'missing_started_marker');
   assert.equal(existsSync(marker), false);
+});
+
+test('Windows: a recorded supervisor failure survives a later stop', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'failed-then-stopped.txt');
+  const helperPid = `${marker}.helper`;
+  const command = await fakeCli(join(root, 'failed-then-stopped', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'failed-then-stopped', 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+const launch = JSON.parse(process.env.PLAYGROUND_CLI_LAUNCH);
+writeFileSync(launch.receipt + '.nostart', '');
+console.error('synthetic Add-Type compiler failure');
+writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(() => {}, 1000);`);
+  const cli = createPlaygroundCli({ command, killGraceMs: 1000, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  const controller = new AbortController();
+  const outcome = cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal }).then(
+    () => assert.fail('expected the failed helper to reject'), (error) => error,
+  );
+  try {
+    assert.equal(await waitUntil(() => existsSync(helperPid), 10000), true, 'the helper never started');
+    controller.abort();
+    const error = await outcome;
+    assert.equal(error.code, 'cli_job_unavailable');
+    assert.equal(error.started, false);
+    assert.equal(error.jobState, 'nostart_marker');
+    assert.match(error.message, /Windows PowerShell.*Add-Type/);
+    assert.match(error.stderr, /synthetic Add-Type compiler failure/);
+    assert.doesNotMatch(JSON.stringify(error), /synthetic Add-Type compiler failure|nostart_marker/);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    controller.abort();
+    await killRecorded(helperPid);
+  }
+});
+
+for (const reason of ['cancelled', 'timed out']) {
+  test(`Windows: stopping a preparing helper is ${reason} before the CLI starts`, { skip: process.platform !== 'win32', timeout: 20000 }, async (t) => {
+    const marker = join(markers, `startup-${reason}.txt`);
+    const helperPid = `${marker}.helper`;
+    const command = await fakeCli(join(root, `startup-${reason}`, 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+    const helper = await fakeCli(join(root, `startup-${reason}`, 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(() => {}, 1000);`);
+    const options = { command, timeoutMs: 300, submitTimeoutMs: 300, killGraceMs: 1000 };
+    const cli = createPlaygroundCli({ ...options, launchWindowsJob: async (launch) => ({
+      ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+    }) });
+    const controller = new AbortController();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const outcome = (reason === 'cancelled'
+        ? cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal })
+        : cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: controller.signal })).then(
+        () => assert.fail('expected the preparing helper to be stopped'), (error) => error,
+      );
+      assert.equal(await waitUntil(() => existsSync(helperPid), 10000), true, 'the helper never started');
+      if (reason === 'cancelled') controller.abort();
+      else t.mock.timers.tick(options.timeoutMs);
+      await sleep(50);
+      t.mock.timers.tick(options.killGraceMs);
+      const error = await outcome;
+      assert.equal(error.code, 'cli_terminated');
+      assert.equal(error.started, false);
+      assert.match(error.message, reason === 'cancelled' ? /was cancelled before it started/ : /was stopped at its timeout before it started/);
+      assert.doesNotMatch(error.message, /PowerShell|Add-Type/);
+      assert.equal(existsSync(marker), false);
+    } finally {
+      controller.abort();
+      t.mock.timers.reset();
+      await killRecorded(helperPid);
+    }
+  });
+}
+
+test('Windows: a supervisor failure after the CLI starts keeps its stack out of the public message', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'after-start.pid');
+  const release = `${marker}.release`;
+  const command = await fakeCli(join(root, 'after-start', 'cli.mjs'), `import { existsSync, writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+const ready = setInterval(() => {
+  if (!existsSync(${JSON.stringify(release)})) return;
+  clearInterval(ready); console.log('[]');
+}, 20);`);
+  let receipt;
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => {
+    const job = await windowsJobLaunch(launch);
+    receipt = JSON.parse(job.env.PLAYGROUND_CLI_LAUNCH).receipt;
+    return job;
+  } });
+  const outcome = cli.authLogin('synthetic@example.test', 'password').then(
+    () => assert.fail('expected the supervisor receipt write to fail'), (error) => error,
+  );
+  try {
+    assert.equal(await waitUntil(() => existsSync(marker), 10000), true, 'the CLI never started');
+    await mkdir(`${receipt}.tmp`);
+    await writeFile(release, 'done');
+    const error = await outcome;
+    assert.equal(error.code, 'cli_error');
+    assert.equal(error.started, true);
+    assert.match(error.message, /Windows process job/);
+    assert.doesNotMatch(error.message, /Exception|PlaygroundCliJob|playground-cli-job-/);
+    assert.doesNotMatch(error.stderr, /Exception|PlaygroundCliJob|playground-cli-job-/);
+  } finally {
+    await killRecorded(marker);
+  }
 });
 
 test('Windows: an invalid executable fails before the CLI starts', { skip: process.platform !== 'win32' }, async () => {
   const command = join(root, 'invalid.exe');
   await writeFile(command, 'This is not a Windows executable.');
   await assert.rejects(() => createPlaygroundCli({ command }).authLogin('synthetic@example.test', 'synthetic-password'),
-    (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+    (error) => {
+      assert.equal(error.code, 'cli_job_unavailable');
+      assert.equal(error.started, false);
+      assert.equal(error.jobState, 'nostart_marker');
+      assert.match(error.message, /Windows PowerShell.*Add-Type/);
+      assert.match(error.stderr, /Win32Exception/);
+      assert.doesNotMatch(JSON.stringify(error), /Win32Exception|nostart_marker/);
+      return true;
+    });
+});
+
+test('Windows: supervisor exceptions retain Unicode diagnostic paths', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'unicode-helper.txt');
+  const tempRoot = join(root, 'helper 诊断路径');
+  await mkdir(tempRoot);
+  const command = await fakeCli(join(root, 'unicode-helper', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => {
+    const job = await windowsJobLaunch(launch, { tempRoot });
+    await rmdir(dirname(JSON.parse(job.env.PLAYGROUND_CLI_LAUNCH).receipt));
+    return job;
+  } });
+  await assert.rejects(() => cli.authLogin('synthetic@example.test', 'password'), (error) => {
+    assert.equal(error.code, 'cli_job_unavailable');
+    assert.equal(error.started, false);
+    assert.match(error.stderr, /DirectoryNotFoundException/);
+    assert.ok(error.stderr.includes('诊断路径'), error.stderr);
+    assert.doesNotMatch(JSON.stringify(error), /诊断路径|DirectoryNotFoundException/);
+    return true;
+  });
+  assert.equal(existsSync(marker), false);
 });
 
 test('Windows: a missing PowerShell or unusable helper temp directory is not a missing CLI', { skip: process.platform !== 'win32' }, async () => {
@@ -226,10 +368,15 @@ test('a relative cliPath runs from the CLI working directory, not the host direc
 });
 
 // The explicit timeout makes a hang (a login that is never ended) fail the test instead of the CI job.
-test('errors say whether the CLI process started', { timeout: 60000 }, async () => {
+test('errors say whether the CLI process started', { timeout: 60000 }, async (t) => {
   const bin = join(root, 'started');
   const notStarted = (error) => error.started === false;
-  const started = (code) => (error) => error.started === true && error.code === code;
+  const started = (code) => (error) => {
+    const diagnostic = JSON.stringify({ code: error.code, message: error.message, jobState: error.jobState, stderr: error.stderr });
+    assert.equal(error.started, true, diagnostic);
+    assert.equal(error.code, code, diagnostic);
+    return true;
+  };
   const cli = createPlaygroundCli({ command: await fakeCli(join(bin, 'argv.mjs')) });
   // The working directory does not exist, so spawning fails before a process exists.
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd: join(bin, 'no such dir') }), notStarted);
@@ -237,34 +384,41 @@ test('errors say whether the CLI process started', { timeout: 60000 }, async () 
   await assert.rejects(() => failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started('cli_error'));
   const text = createPlaygroundCli({ command: await fakeCli(join(bin, 'text.mjs'), "console.log('not json');") });
   await assert.rejects(() => text.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started(undefined));
-  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes. A CLI that
-  // finishes while it is being ended is a success, not a termination, and ending a process tree on
-  // Windows (taskkill) can take seconds on a slow runner. So the login CLI never exits on its own:
-  // only the kill ends it. The kill must come well before submitTimeoutMs: a login that waits for
-  // submitTimeoutMs, or has no timeout at all, fails at loginBoundMs instead of passing late or hanging.
-  const options = { timeoutMs: 300, submitTimeoutMs: 30000 };
+  // The Windows helper compiles before the CLI starts. Advance only the parent's deadline after
+  // the CLI records its PID, so startup speed cannot change the expected `started` value.
+  const options = { timeoutMs: 300, submitTimeoutMs: 30000, killGraceMs: 1000 };
   const loginBoundMs = 10000;
   const pidFile = join(markers, 'started-login.pid');
+  const submitPidFile = join(markers, 'started-submit.pid');
   const hanging = createPlaygroundCli({ ...options,
     command: await fakeCli(join(bin, 'hang.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`) });
-  const begun = Date.now();
-  let bound;
-  try {
-    const unbounded = new Promise((_, reject) => { bound = setTimeout(() => reject(new Error(`login was not ended within ${loginBoundMs} ms`)), loginBoundMs); });
-    await assert.rejects(() => Promise.race([hanging.authLogin('name@example.test', 'synthetic-password'), unbounded]), started('cli_terminated'));
-    assert.ok(Date.now() - begun < loginBoundMs, `login ended after ${Date.now() - begun} ms`);
-  } finally {
-    clearTimeout(bound);
-    await killRecorded(pidFile);
-  }
-  // The submit CLI exits on its own after 3 s: ten times timeoutMs and a tenth of submitTimeoutMs.
-  // A submit that wrongly used timeoutMs is ended at 300 ms. On macOS SIGTERM to the process group
-  // ends it at once, so the cli_terminated failure is certain there. On Windows it is caught as long
-  // as taskkill ends the tree within about 2.7 s; a slower taskkill lets the CLI print and exit 0,
-  // which counts as a success, and only the macOS legs then catch the regression.
   const slow = createPlaygroundCli({ ...options,
-    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 3000);") });
-  assert.deepEqual(await slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), ['done']);
+    command: await fakeCli(join(bin, 'slow.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(submitPidFile)}, String(process.pid)); setTimeout(() => console.log(JSON.stringify(['done'])), 3000);`) });
+  let watchdog;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const login = hanging.authLogin('name@example.test', 'synthetic-password');
+    await assert.rejects(async () => {
+      assert.equal(await Promise.race([waitUntil(() => existsSync(pidFile), loginBoundMs), login]), true, 'the login CLI never started');
+      const unbounded = new Promise((_, reject) => {
+        watchdog = realSetTimeout(() => reject(new Error(`login did not settle after its ${options.timeoutMs} ms deadline and ${options.killGraceMs} ms kill grace period within ${loginBoundMs} ms of real time`)), loginBoundMs);
+      });
+      t.mock.timers.tick(options.timeoutMs);
+      await sleep(50);
+      t.mock.timers.tick(options.killGraceMs);
+      return Promise.race([login, unbounded]);
+    }, started('cli_terminated'));
+    const submission = slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
+    assert.equal(await Promise.race([waitUntil(() => existsSync(submitPidFile), loginBoundMs), submission]), true, 'the submit CLI never started');
+    t.mock.timers.tick(options.timeoutMs);
+    await sleep(50);
+    t.mock.timers.tick(options.killGraceMs);
+    assert.deepEqual(await submission, ['done']);
+  } finally {
+    t.mock.timers.reset();
+    clearTimeout(watchdog);
+    await killRecorded(pidFile, submitPidFile);
+  }
 });
 
 test('a failed CLI keeps its output streams for classification but hides them from serialization', async () => {
@@ -423,7 +577,7 @@ test('Windows: the cmd fallback refuses arguments cmd would interpret', { skip: 
   assert.equal(existsSync(join(bin, 'started.txt')), false);
 });
 
-const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const sleep = (ms) => new Promise((done) => realSetTimeout(done, ms));
 const alive = (pid) => {
   try { return process.kill(pid, 0); } catch { return false; }
 };
