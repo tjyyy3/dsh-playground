@@ -127,6 +127,9 @@ console.error('synthetic Add-Type compiler failure'); process.exit(1);`);
   await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'), (error) => {
     assert.equal(error.code, 'cli_job_unavailable');
     assert.equal(error.started, false);
+    assert.equal(error.jobState, 'nostart_marker');
+    assert.match(error.stderr, /synthetic Add-Type compiler failure/);
+    assert.doesNotMatch(JSON.stringify(error), /synthetic Add-Type compiler failure|nostart_marker/);
     assert.match(error.message, /Windows PowerShell.*Add-Type/);
     assert.doesNotMatch(error.message, /synthetic|not found|Install.*CLI/);
     return true;
@@ -143,7 +146,7 @@ writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
     ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
   }) });
   await assert.rejects(() => cli.authLogin('synthetic@example.test', 'password'),
-    (error) => error.code === 'cli_job_unavailable' && error.started === false);
+    (error) => error.code === 'cli_job_unavailable' && error.started === false && error.jobState === 'missing_started_marker');
   assert.equal(existsSync(marker), false);
 });
 
@@ -151,7 +154,15 @@ test('Windows: an invalid executable fails before the CLI starts', { skip: proce
   const command = join(root, 'invalid.exe');
   await writeFile(command, 'This is not a Windows executable.');
   await assert.rejects(() => createPlaygroundCli({ command }).authLogin('synthetic@example.test', 'synthetic-password'),
-    (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+    (error) => {
+      assert.equal(error.code, 'cli_job_unavailable');
+      assert.equal(error.started, false);
+      assert.equal(error.jobState, 'nostart_marker');
+      assert.match(error.message, /Windows PowerShell.*Add-Type/);
+      assert.match(error.stderr, /Win32Exception/);
+      assert.doesNotMatch(JSON.stringify(error), /Win32Exception|nostart_marker/);
+      return true;
+    });
 });
 
 test('Windows: a missing PowerShell or unusable helper temp directory is not a missing CLI', { skip: process.platform !== 'win32' }, async () => {
