@@ -1629,13 +1629,23 @@ window.__ModuleLoader__.load({
       @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
     `;
 
+    const stopReasonLabels = {
+      completed: { detail: '完成' }, aborted: { detail: '已中止', state: '已中止' },
+      'max-tokens': { detail: '达到输出上限', state: '达到输出上限' },
+      refusal: { detail: '拒绝', state: '拒绝执行' }, error: { detail: '出错', state: '运行出错' },
+    };
+
     function taskState(row) {
-      if (row.liveEnd?.stopReason === 'error') return '运行出错';
-      if (row.liveEnd?.stopReason === 'aborted') return '已中止';
-      return { running: '运行中', settled: '已收到结果', unknown: '暂无执行回执' }[row.state];
+      if (row.state === 'running') return '运行中';
+      const reason = stopReasonLabels[row.liveEnd?.stopReason || (row.state === 'settled' ? row.noticeStopReason : undefined)];
+      if (reason?.state) return `${row.state === 'settled' ? '上次' : ''}${reason.state}`;
+      if (row.state === 'settled') return '已收到历史结果';
+      if (row.state === 'ended' && row.terminalText) return '本次运行已结束 · 已收到结果';
+      return { ended: '本次运行已结束', unknown: '暂无执行回执' }[row.state];
     }
 
     function taskOutput(row) {
+      if (row.state === 'running') return '';
       const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === 'text').map((part) => part.text).join('\n');
       if (live) return live;
       const text = row.terminalText || '';
@@ -1926,12 +1936,14 @@ window.__ModuleLoader__.load({
                       try { await openTask(childAddress); }
                       catch { setTaskActionStatus('无法打开子智能体对话，请重试。'); }
                     } }, '打开子智能体对话') : null,
-                    row.state === 'unknown' && !row.liveEnd ? h('p', null, '未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。') : null,
-                    row.liveEnd ? h('p', null, `本次运行结束：${({ completed: '完成', aborted: '已中止', 'max-tokens': '达到输出上限', refusal: '拒绝', error: '出错' })[row.liveEnd.stopReason] || row.liveEnd.stopReason}`) : null,
+                    row.state === 'unknown' ? h('p', null, '未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。') : null,
+                    row.liveEnd ? h('p', null, `${row.state === 'running' ? '上次' : '本次'}运行结束：${stopReasonLabels[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || '未知'}`) : null,
+                    row.state === 'settled' && row.terminalText ? h('p', null, `当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === 'string' ? `历史通知的结束原因：${stopReasonLabels[row.noticeStopReason]?.detail || row.noticeStopReason}` : ''}`) : null,
+                    row.state === 'running' && row.terminalText ? h('p', null, '正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。') : null,
                     taskOutput(row) ? h('div', { className: 'pg-controller-markdown' }, typeof renderFactorySlot === 'function' ? renderFactorySlot('conversation.chat.reasoning.content', { text: taskOutput(row), running: false }, { fallback: h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row)) }) : h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row))) : null,
                     taskOutput(row) ? h('button', { className: 'pg-controller-back', onClick: async () => { try { await navigator.clipboard.writeText(taskOutput(row)); setTaskActionStatus('已复制结果'); } catch { setTaskActionStatus('无法复制，请选择文本后复制。'); } } }, '复制结果') : null,
                     taskActionStatus ? h('p', { role: 'status' }, taskActionStatus) : null,
-                    row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, '原始通知'), h('pre', null, row.terminalText)) : null)
+                    row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, row.state !== 'ended' ? '历史原始通知' : '原始通知'), h('pre', null, row.terminalText)) : null)
                   : !tasks.rows.length ? h('p', null, '还没有派发任务。') : h(React.Fragment, null,
                     tasks.rows.filter((item) => item.category !== 'maintenance').map(listRow),
                     tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, `后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),

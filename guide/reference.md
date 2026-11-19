@@ -33,7 +33,11 @@ and can consume a platform submission slot.
 
 ## Try a workspace controller
 
-Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation. If DSH has no execution receipt for a task, the pane shows **暂无执行回执**. Use **赛题** for challenges, **提交** for task submissions, and **连接设置** for authentication.
+Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation. Use **赛题** for challenges, **提交** for task submissions, and **连接设置** for authentication.
+
+**运行中** means a live run is observed. **本次运行已结束** means the plugin observed its end; **已收到结果** also appears when a notice is available. **已收到历史结果** and labels starting with **上次** describe saved history when the current execution state is unknown. A running task's old notice appears under **历史原始通知**, without a current result or copy button. If DSH has no execution receipt for a task, the pane shows **暂无执行回执**, which does not mean failure.
+
+The installed DSH 0.2.1-rc.5 does not persist `stopReason` in `subagent-settled` notices, so after a restart those rows have an unknown end reason; newer hosts that persist the field show the saved reason.
 
 To keep working in an ordinary conversation, open Playground from it, select its workspace, and click **把当前对话设为主控**. The conversation and its history stay in place. If the workspace already has a controller, Playground opens that controller instead. Challenge task conversations cannot be promoted. An empty conversation receives one initialization message so DSH keeps it as a distinct session.
 
