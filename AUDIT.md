@@ -1,159 +1,153 @@
 # Security and Reliability Audit
 
-> Audit snapshot: 2026-11-16  
-> Reviewed revision: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf` (`main`, 0.5.0-preview.7)  
-> Scope: static review of the plugin source, tests, README and current CI configuration. This is not a penetration test and does not claim that every finding has been reproduced in a live DSH host.
+> Original source review: 2026-11-16; decisions and issue alignment updated: 2026-11-19.  
+> Source baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`.  
+> Status: AUD-001 through AUD-009 have a recorded review disposition. Implementation and outstanding host validation remain open; this document does not implement the fixes.
 
-## 1. Product and security decisions
+The baseline observations come from source and test inspection. AUD-003 additionally includes a local Codex investigation supplied by the user. That report used fake submissions in an isolated host; it does not establish a complete production-session bypass. No real competition submission or production memory/crash test was performed during this review.
 
-The following decisions were confirmed during review and are treated as requirements:
+## 1. Confirmed product and authorization decisions
 
-1. **File access:** workspace files are allowed by default. Files outside the workspace may be used only after explicit user authorization for the specific file and purpose.
-2. **Submission authorization:** an explicit user request in the conversation authorizes an ordinary submission. If the challenge states a submission limit, today's quota has already been used, or the platform has returned a quota limit, the user must give an additional confirmation.
-3. **Product direction:** Playground competition workflows remain the product centre: participant, author and organizer workflows. Agent orchestration is an enabling capability, not a separate generic agent manager.
-4. **Review scope:** security, reliability, product and engineering roadmap are all in scope.
+1. **Submission is a handoff.** One workbench click or an explicit conversation request sends the submission intent to the existing Agent conversation for the current task. The Agent follows the challenge and platform's official requirements, choosing CLI or API and any necessary preparation/checks. The plugin passes context, tracks the real attempt ID and presents results.
+2. **Ordinary submission needs one explicit action.** Finishing a solution or checking materials is not submission intent. Only the already-agreed quota-sensitive cases need an additional user answer. Do not add a universal second confirmation, mandatory dry-run or separate check-card stage.
+3. **The old plugin uploader is retired.** Remove legacy prepare/confirm cards, independent CLI/API upload and fallback paths, including reachable tools and commands. Do not submit once through the Agent and again through the plugin. Agent use of the official API does not reactivate the old uploader.
+4. **External materials use hybrid authorization.** Workspace materials are the default. External files/directories need a scoped user grant: one logical operation by default, with optional task-session reuse explicitly chosen by the user. Grants identify scope and purpose, can be revoked and expire at task end, workspace change or host restart. Reading permission is not submission permission.
+5. **Material references are sufficient for handoff.** Do not fully read, parse, hash, copy or snapshot trace, manifest or ZIP just to dispatch submission. Remove the plugin's old 200 MiB ZIP gate rather than replacing it with another competition-material limit. The Agent still follows official requirements and reports official errors.
+6. **Keep the capability boundary honest.** These rules govern plugin-controlled operations and instructions to the task Agent. The plugin is not a sandbox for all terminal/HTTP tools. Model-authored consent and generic automatic approval outcomes do not prove that a human approved this particular operation.
+7. **Playground workflows remain the product centre.** Participant, author and organizer work remain the wider direction. Additional product features and structural refactors are proposals until separately reviewed, not prerequisites for these issue fixes.
 
-## 2. Severity and evidence labels
+## 2. Evidence labels and implementation tracking
 
-- **P0 / Critical:** a trust-boundary or data-integrity issue that should block release until addressed or explicitly accepted.
-- **P1 / High:** a material reliability or security weakness with a practical mitigation.
-- **P2 / Medium:** meaningful quality or maintainability improvement.
-- **Confirmed from code:** the relevant behavior is directly visible in the reviewed revision.
-- **Needs host validation:** the source shows a dependency on DSH behavior that cannot be established from this repository alone.
-- **Defense-in-depth:** a risk whose final exploitability depends on the external platform or runtime.
+- **Confirmed from code:** the relevant branch or data flow is visible at the baseline.
+- **Reported local validation:** a user-supplied investigation describes its environment and results; this review did not independently rerun it.
+- **Needs host validation:** behavior depends on the installed DSH version, provider or lifecycle.
+- **Capability limitation:** a component provides less than complete validation; this alone is not proof of an exploit.
 
-A confirmed code behavior is not automatically a confirmed exploit. Findings below distinguish those cases.
+Priorities below describe the original concern. The current disposition and linked issue define the work; a retiring mechanism is not a new feature that must be rebuilt.
+
+| Finding | Current disposition | Tracking |
+|---|---|---|
+| AUD-001 | Hybrid grants for retained plugin operations and material references | [#73](https://github.com/tjyyy3/dsh-playground/issues/73) |
+| AUD-002 | Retire the stale check-card/upload contract through Agent handoff | [#74](https://github.com/tjyyy3/dsh-playground/issues/74) |
+| AUD-003 | Apply local investigation results to authorization migration | [#74](https://github.com/tjyyy3/dsh-playground/issues/74) |
+| AUD-004 | Remove redundant full material reads and plugin material gates | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) |
+| AUD-005 | Require remote HTTPS, preserving the documented local HTTP path | [#76](https://github.com/tjyyy3/dsh-playground/issues/76) |
+| AUD-006 | Preserve settlement reasons and reuse supported DSH state evidence | [#77](https://github.com/tjyyy3/dsh-playground/issues/77) |
+| AUD-007 | Address the remaining Windows descendant-cleanup boundary | [#17](https://github.com/tjyyy3/dsh-playground/issues/17) |
+| AUD-008 | Bound the API response bodies the plugin actually consumes | [#78](https://github.com/tjyyy3/dsh-playground/issues/78) |
+| AUD-009 | Retire ZIP inspection with the old material-preparation path | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) |
+
+These are reviewed requirements, not merged fixes.
 
 ## 3. Findings
 
-### AUD-001 — File reads are not confined to the selected workspace
+### AUD-001 — External materials need scoped authorization
 
-- **Severity:** P0
-- **Status:** Confirmed from code; intended product policy now clarified.
-- **Areas:** `index.js` — `resolveToolPath`, `readBundle`, `readTrace`, `readManifest`; `lib/workflow.js` — `inspect`.
-- **Evidence:** absolute paths are accepted directly; relative paths are resolved against the working directory without rejecting paths that escape it. The readers then open the resolved path. There is no workspace-root containment check in this path-resolution helper.
-- **Impact:** an agent that is induced by untrusted challenge content or other context to select an unintended local file may cause that file to be read and potentially included in a platform upload. The confirmation card displays file metadata, but that is not equivalent to an explicit external-file authorization step.
-- **Required behavior:** workspace-contained files are the default. For an external file, require a user-originated authorization bound to the canonical real path, operation purpose (read/check/upload), and preferably file fingerprint. Agent-supplied tool arguments alone must not create this authorization.
-- **Implementation notes:** canonicalize both workspace root and target with `realpath`; compare path components using platform-aware semantics; reject traversal and symlink escapes; handle missing files safely; revalidate before use. Do not use naive string-prefix checks (for example, `/work/project-evil` starts with `/work/project`).
-- **Acceptance tests:** `../` traversal rejected; absolute path outside root rejected by default; symlink to outside rejected; symlink within root accepted if policy permits; explicitly authorized external file accepted; authorization for one file cannot authorize another file or another purpose.
+- **Priority:** P0. **Status:** baseline behavior confirmed; hybrid policy agreed, implementation pending.
+- **Evidence:** legacy path resolution accepts absolute paths and relative paths without a workspace-containment check before material reads. See [path resolution and readers](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/index.js#L399-L440).
+- **Required behavior:** apply #73 to retained plugin file operations and material-reference scope. A single-operation grant covers one logical operation, not one low-level read; task-session reuse requires the user's choice. Neither silently expands to another task, path or purpose.
+- **Implementation boundary:** handle canonical paths, traversal, symlinks, Windows junctions and case semantics; avoid naive string prefixes. Resolve the registered workspace and revalidate before actual use. Do not retain obsolete readers or require a full-file fingerprint solely for grants.
+- **Acceptance:** normal workspace use needs no unnecessary prompts; external scope is checked before retained content access; grant reuse, expiry and revocation work. Credential-store reads remain a separate purpose and do not authorize uploading credentials as materials. Do not claim enforcement over all Agent terminal access.
 
-### AUD-002 — File contents can change between final check and CLI upload
+### AUD-002 — The legacy check/upload path has a material-consistency gap
 
-- **Severity:** P0
-- **Status:** Confirmed TOCTOU window in the CLI submission path.
-- **Areas:** `lib/workflow.js` — `inspect`, `confirmOnce`; `index.js` — `readBundle`, `readTrace`, `readManifest`; `lib/cli.js` — `submit`.
-- **Evidence:** confirmation re-runs inspection and compares recorded file metadata including SHA-256. The CLI is then invoked with file paths and independently reads the files. A writer can modify a file after the last hash check but before the CLI reads it.
-- **Impact:** the bytes uploaded may differ from the bytes the user approved. This undermines the integrity promise of the confirmation card.
-- **Required behavior:** upload exactly the immutable bytes that were checked and approved.
-- **Preferred implementation:** create a protected temporary snapshot during inspection, hash the snapshot, show its fingerprint in the approval UI, and pass the snapshot path to the CLI. Verify the snapshot fingerprint immediately before invocation and clean it up after the operation. If the CLI can accept streams or file descriptors in a future version, prefer that interface.
-- **Acceptance tests:** mutate the original file after inspection and after confirmation; verify the approved snapshot is still uploaded; tampering with the snapshot itself must fail closed; cleanup must occur on success, failure, cancellation and DSH shutdown.
+- **Priority:** P0. **Status:** confirmed in the baseline path; addressed by retiring that path under #74.
+- **Evidence:** `confirmOnce` inspects and compares hashes, then passes paths to a CLI that reads later, leaving a window for file changes. See [legacy confirmation](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/workflow.js#L1561-L1587).
+- **Current disposition:** remove the old checked-card/second-confirmation/uploader contract. Send one request to the correct existing task Agent with intended account, workspace, material references and known attempt context. No new plugin snapshot, whole-file hash or upload-copy requirement is introduced.
+- **Acceptance:** no stale card or independent uploader continues after migration; duplicate clicks do not create parallel requests. Any retained claim that a particular file version was checked still needs corresponding evidence.
+- **Boundary:** delegation does not prove that every official tool's internal file race is solved. State the retired plugin contract and external execution boundary accurately.
 
-### AUD-003 — Submission authorization depends partly on model-provided assertions
+### AUD-003 — Model declarations and generic approvals do not prove human consent
 
-- **Severity:** P0
-- **Status:** Confirmed trust-boundary limitation; exact exploitability depends on DSH tool-call provenance.
-- **Areas:** `lib/workflow.js` — `submitApproved`, `submitPolicy`, `confirm`; `index.js` — tool registration and submission guidance.
-- **Evidence:** the quota exception is represented by the tool argument `user_confirmed_limit: true`. The plugin checks the Boolean value, but the reviewed code does not bind it to a verifiable DSH user-approval event. Ordinary submission intent is also conveyed through agent instructions that say the user must explicitly request submission.
-- **Impact:** a model can potentially assert that the user agreed without the plugin independently proving that the required user message or approval event occurred. Prompt rules reduce accidental misuse but are not a security boundary.
-- **Required behavior:** preserve the agreed policy: ordinary submission requires explicit user intent in the conversation; quota-sensitive submission additionally requires user confirmation. The program must not treat a model-authored Boolean as proof of that confirmation.
-- **Implementation options:** use a DSH-originated user-message / approval event with provenance if the host exposes one; otherwise use a host approval panel or workbench confirmation for quota-sensitive writes. Bind authorization to session, challenge, account identity, operation (new submission vs retry), and approved file hashes; make it one-time and expire it. A retry into an existing attempt must remain distinguishable from creating a new attempt.
-- **Host validation required:** determine whether DSH tool execution metadata can distinguish a user-originated event from an agent-generated tool call, and whether agents can invoke user-only commands. Do not claim a hard guarantee until tested.
-- **Acceptance tests:** agent-only tool call cannot manufacture quota consent; a real user confirmation permits exactly one matching operation; changed challenge, identity, files or operation invalidates authorization; replay is rejected.
+- **Priority:** P0. **Status:** plugin-entry gap demonstrated in reported local tests; production end-to-end bypass unverified.
+- **Local investigation:** the user supplied results for DSH `0.2.1-rc.5` / official revision `b830ec9`, installed plugin `0.5.0-preview.7` and repository tests `0.5.0-preview.8`. Nine targeted offline tests passed. With a valid legacy card, supplying only `user_confirmed_limit: true` reached a fake submission without a new user answer or host approval record.
+- **Host evidence:** command IDs and service-written `source.kind=user` support tracing but do not prove a physical click at the plugin handler. Generic `allowed-once` can come from an automatic answerer; the recorded ID/outcome does not identify a human response. Web reply permissions still exist, so this is not a claim that arbitrary callers can answer approvals. See [#74's investigation and sources](https://github.com/tjyyy3/dsh-playground/issues/74).
+- **Required migration:** remove legacy Boolean-dependent upload entry points, not merely the button. Preserve one ordinary user action and the existing quota exceptions. Use supported user-interaction evidence for plugin-controlled sensitive actions; do not record model assertions or unattributed automatic approval as verified human consent.
+- **Acceptance:** rejected, cancelled, unavailable or unverifiable confirmation does not continue the protected plugin action. Record the tested host channel and distinguish enforceable checks from Agent behavior rules outside plugin control.
+- **Still unknown:** production Desktop routing, Agent reachability of the same command entry and binding of a human message to a production submission. Investigation success is not a completed fix.
 
-### AUD-004 — Trace and manifest reads have no explicit size limits
+### AUD-004 — Submission handoff should not fully read materials
 
-- **Severity:** P1
-- **Status:** Confirmed from code.
-- **Areas:** `index.js` — `readTrace`, `readManifest`; compare with `readBundle` and `MAX_BUNDLE_BYTES` in `lib/api.js`.
-- **Evidence:** bundle reads enforce a 200 MiB limit, while trace and manifest are read as complete UTF-8 strings without corresponding byte limits. Trace parsing and conversion can allocate additional copies.
-- **Impact:** unexpectedly large or hostile files can cause excessive memory use, long event-loop stalls or process termination.
-- **Required behavior:** enforce documented byte limits before reading; validate JSONL incrementally where practical; avoid unnecessary full-size copies; make limits configurable only within safe upper bounds.
-- **Acceptance tests:** files exactly at and just above each limit; multibyte UTF-8 boundaries; very long JSONL line; malformed final line; cancellation during reading.
+- **Priority:** P1. **Status:** redundant reads confirmed; removal planned in #75.
+- **Evidence:** legacy readers load trace and manifest in full; `inspect` loads ZIP, repeats hashes/parsing and counts trace entries. The ZIP 200 MiB ceiling is a local plugin value, not a universal official-platform rule. See [legacy preparation](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/workflow.js#L1314-L1347).
+- **Required behavior:** hand off context and references without material loading, conversion, hashing or size gates. Remove obsolete API-fallback preparation and summary work. Do not add trace/manifest caps or replace the ZIP threshold with a different hardcoded competition limit.
+- **Acceptance:** fake filesystem/dispatch tests show that clicking or retrying handoff does not read trace/manifest/ZIP contents. The Agent may choose official CLI or API; report official failures and preserve attempt IDs.
+- **Retained processing:** identify and test any actual remaining content-processing feature separately. Do not truncate or rewrite competition materials to avoid errors. API response budgets belong to AUD-008.
 
-### AUD-005 — API credentials may be sent over cleartext HTTP for custom API bases
+### AUD-005 — Custom remote HTTP endpoints expose credential-bearing requests
 
-- **Severity:** P1
-- **Status:** Confirmed from code; custom HTTP use may be intentional for local development.
-- **Areas:** `lib/api.js` — `normalizeApiBase`, `request`; `index.js` — `normalizeSettings`.
-- **Evidence:** `normalizeApiBase` accepts both `http:` and `https:`; `request` attaches the Bearer token whenever a token is available.
-- **Impact:** when a non-local HTTP base URL is configured, the Authorization header can be observed or modified in transit.
-- **Required behavior:** require HTTPS for non-loopback hosts. If local HTTP is needed for development, restrict it to loopback addresses or require a conspicuous explicit unsafe-development override. Never silently downgrade HTTPS.
-- **Acceptance tests:** HTTPS accepted; loopback HTTP accepted only under the documented development policy; non-loopback HTTP rejected by default; no token attached to a rejected destination.
+- **Priority:** P1. **Status:** conditional configuration issue confirmed; #76 pending.
+- **Evidence:** the default base uses HTTPS, but arbitrary HTTP bases are accepted and requests attach an available token. See [#76](https://github.com/tjyyy3/dsh-playground/issues/76).
+- **Required behavior:** require HTTPS for remote hosts. Preserve local-development HTTP for `localhost`, `127.0.0.1` and `[::1]`; do not add a general unsafe-remote override. Reject disallowed destinations before fetching and prevent silent downgrade through redirects.
+- **Acceptance:** fake-token tests cover remote HTTPS, permitted local HTTP, rejected remote HTTP and the chosen redirect policy; existing local demo/CI use remains possible.
+- **Boundary:** this governs plugin requests, including retained read-only APIs. It is not a default credential leak or a guarantee about all Agent/CLI traffic.
 
-### AUD-006 — Controller running-state evidence is partly process-local
+### AUD-006 — Settlement reasons should survive controller recreation
 
-- **Severity:** P1
-- **Status:** Confirmed from code; recovery behavior needs real-host validation.
-- **Areas:** `lib/controller.js` — `lifecycle` Map, `observeStart`, `observeEnd`, `tasks`; `controllerNoticesProjection`.
-- **Evidence:** child start/end facts are held in an in-memory `Map`; settled inbox notices are persisted through a projection. After a host restart, the in-memory lifecycle map is empty. A child with no persisted settled notice can be shown as `unknown`, even if it was running or finished before restart.
-- **Impact:** users may lose confidence in whether delegated work is still running, completed, failed or cancelled. Retrying an unknown task can duplicate work.
-- **Required behavior:** reconstruct task state from durable DSH session events / projections where possible. Represent unknown as unknown; never silently convert it to failed or completed. Before retrying an unknown task, inspect its session and artifacts.
-- **Acceptance tests:** restart while child is running; restart after child completes but before notice delivery; restart after failure/cancellation; archived child; missing or inaccessible session. Verify the UI distinguishes running, settled, failed, cancelled and unknown only when evidence is insufficient.
+- **Priority:** P1. **Status:** a small persistence omission is confirmed; further recovery depends on actual DSH capabilities.
+- **Evidence:** the Host-side lifecycle map is process-local, but settled notifications already have a persistent projection and a cold-controller test. The projection stores child ID/text and drops the structured stop reason when supplied. See [the projection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L25-L39) and [#77](https://github.com/tjyyy3/dsh-playground/issues/77).
+- **Required behavior:** preserve the optional reason in existing records, compatibly with old notices. Use supported passive host reads where available; querying must not wake the Agent. No new task database or mandatory recovery button is required.
+- **Acceptance:** supplied error/aborted reasons survive recreation; old notices remain readable; insufficient evidence stays unknown. Old results do not prove a new run completed, and `running: false` alone does not prove task success.
+- **Host boundaries:** distinguish frontend refresh, plugin recreation and Host restart. Native sessions and external providers have different evidence. Do not parse prose into guaranteed state, auto-redispatch unknown work or equate Agent completion with platform acceptance/scoring.
 
-### AUD-007 — Windows may leave a descendant process after the CLI root exits
+### AUD-007 — Windows may leave descendants after the CLI root exits
 
-- **Severity:** P1
-- **Status:** Residual platform-specific limitation; the current code already addresses several cases and has corresponding tests. [Issue #17](https://github.com/tjyyy3/dsh-playground/issues/17) remains open.
-- **Area:** `lib/cli.js` — `terminate`, `trackGroup`, `run`; `test/cli.test.mjs`.
-- **Evidence:** the current runner checks an already-aborted signal before spawning. POSIX uses a detached process group and escalates SIGTERM to SIGKILL; tests cover a CLI that ignores SIGTERM. Windows uses `taskkill /T /F` while the root process is alive. The Windows test comments explicitly note that Windows cannot end a grandchild after the CLI root has already exited while the grandchild still holds output pipes open.
-- **Impact:** a descendant may outlive the timed-out operation on Windows in this edge case. The plugin can return after destroying its output streams, but that alone does not prove the descendant has stopped.
-- **Required behavior:** establish a Windows process-tree strategy that can also identify and terminate descendants after the root exits, or document the residual limitation and avoid claiming complete descendant cleanup. Preserve bounded return time and ambiguous-submission safeguards.
-- **Already covered:** pre-aborted signal does not spawn; POSIX SIGTERM-ignoring process is escalated; POSIX process-group cleanup handles a grandchild that holds output open.
-- **Remaining acceptance tests:** Windows CLI exits cleanly while a grandchild holds stdout/stderr open; Windows cmd fallback with descendants; cancellation during upload; verify no orphan process using an OS-level process check.
+- **Priority:** P1. **Status:** remaining platform-specific gap; tracked in updated #17.
+- **Already present:** pre-aborted signals do not spawn; POSIX groups escalate SIGTERM to SIGKILL; Windows uses `taskkill /T /F` while the root is alive; waits are bounded and normal exit results are preserved.
+- **Evidence:** after a Windows root exits, `terminate()` returns without cleaning surviving descendants. Closing pipes and ending the wait does not prove those descendants stopped. The root-exited test is skipped on Windows. See [cleanup](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/cli.js#L85-L123) and [the test](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/test/cli.test.mjs#L471-L506).
+- **Required scope:** inventory plugin-created processes after #74/#75. Login and shared CLI update/version checks still use the runner. The shared update check has its own timeout, not necessarily one UI request's cancellation. Agent-created terminal processes belong to their actual host/tool.
+- **Acceptance:** use benign Windows fixtures and OS-level process checks; preserve POSIX behavior and bounded returns. Verify applicable real-DSH lifecycle behavior separately. Unresolved cleanup remains explicitly tracked, not marked fixed by closing output streams.
+- **Submission results:** #74 owns attempt retention and ambiguous-result queries. Local cancellation cannot retract an already-completed platform write.
 
-### AUD-008 — API response bodies are read without a byte ceiling
+### AUD-008 — API responses need a byte budget during reading
 
-- **Severity:** P2
-- **Status:** Confirmed from code.
-- **Area:** `lib/api.js` — `request`.
-- **Evidence:** `response.text()` reads the complete response before JSON parsing. There is no explicit response-size ceiling.
-- **Impact:** oversized responses can consume excessive memory. Public challenge content and scorecards are platform-controlled input.
-- **Required behavior:** enforce a response-body ceiling, with endpoint-specific limits if necessary. Keep error-body parsing bounded too.
-- **Acceptance tests:** oversized success response, oversized error response, normal large challenge within the documented limit.
+- **Priority:** P2. **Status:** unbounded body reading confirmed; tracked in #78.
+- **Evidence:** `response.text()` consumes the entire success/error body before JSON parsing. Timeout/cancellation already cover reading; display truncation happens later. See [request handling](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/api.js#L470-L545) and [existing tests](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/test/api.test.mjs#L37-L87).
+- **Required behavior:** count actual bytes while reading in chunks; stop and release resources on overflow. Cover error bodies as well as successes. Content-Length may help early rejection but cannot be the sole check.
+- **Budget selection:** justify defaults from legitimate response needs, using endpoint-specific budgets when necessary. Do not reuse upload thresholds or UI character limits. This is a plugin-response resource safeguard, not a material rule.
+- **Acceptance:** small fake streams cover exact/over-budget boundaries, multibyte text, missing/inaccurate length headers, cleanup and existing timeout/cancel/network errors. Do not return partial JSON as success or turn a result-query failure into a new submission.
 
-### AUD-009 — ZIP metadata summary is not a complete archive safety validator
+### AUD-009 — Retire ZIP inspection instead of expanding it into a scanner
 
-- **Severity:** P2 / defense-in-depth
-- **Status:** Confirmed limitation, not a demonstrated platform exploit.
-- **Area:** `lib/bundle.js` — `summarizeZip`, `bundleLayout`.
-- **Evidence:** the plugin reads central-directory metadata only; it does not decompress entries or validate the full archive contents. The summary reports uncompressed sizes and symlinks but does not establish that every entry is safe to extract.
-- **Impact:** archive path traversal, duplicate entries, extreme compression ratios and malformed ZIP edge cases must ultimately be handled by the platform Worker / CLI. The plugin's summary must not be presented as a complete security validation.
-- **Required behavior:** retain the current honest wording that the plugin checks only outer layout. Consider warnings for extreme total uncompressed size or compression ratio. Confirm that the official CLI / Worker rejects traversal paths, duplicate names, unsupported symlinks and ZIP bombs.
-- **Acceptance tests:** crafted archives for each case against the supported CLI and, where available, a safe staging Worker. Do not extract untrusted archives in the DSH host process.
+- **Priority:** P2 / capability limitation. **Status:** folded into #75 with AUD-004.
+- **Evidence:** `summarizeZip` and `bundleLayout` inspect central-directory metadata without decompressing contents. Their production calls are in legacy `inspect`, after the whole ZIP is loaded. Existing wording already describes directory/layout checks, not complete security validation. See [helpers](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/bundle.js#L113-L190) and [call site](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/workflow.js#L1317-L1331).
+- **Required behavior:** remove ZIP loading, summaries and layout gates from retired submission preparation. Do not add compression-ratio, expanded-size or complete archive-scanning requirements to the thin handoff.
+- **Acceptance:** migration tests show no such scan is triggered. Historical summaries can remain informational or be removed compatibly, without rereading files or implying the current archive was checked. Official failures are relayed under #74.
+- **External boundary:** Worker internals were not validated. Do not claim the platform rejects every unsafe archive, or require an external Worker test campaign before this plugin migration. Future plugin extraction/rewriting capabilities need their own review.
 
-## 4. Existing protections to preserve
+## 4. Behavior guarantees to preserve
 
-The following are valuable and should not be weakened during refactoring:
+- Correct registered workspace, task/session, challenge, expected identity and material scope.
+- One explicit ordinary request; additional confirmation only for the agreed sensitive cases.
+- No parallel legacy upload or duplicate dispatch from repeated clicks.
+- Real attempt IDs, ownership checks, idempotent tracking and truthful progress/results.
+- Query unknown outcomes before considering another create; do not describe accepted writes as undone by cancellation.
+- Label/sanitize untrusted platform text; keep secrets and private local paths out of public logs.
+- Supported invocation and cleanup of processes the plugin actually starts.
+- Existing durable notices, controller ownership checks and conservative unknown states.
 
-- Confirmation cards bind to checked material hashes and platform identity.
-- Re-check occurs before confirmation; a changed file or base URL invalidates the card.
-- Approval IDs are derived from a process-local HMAC key; stale approvals do not survive a DSH restart.
-- In-flight confirmation is deduplicated per conversation.
-- Ambiguous submission outcomes are not blindly retried.
-- Failed bundle uploads retain the attempt ID for safe retry where the platform still accepts the attempt.
-- Platform-provided error text is cleaned and labelled as untrusted data.
-- CLI execution avoids shell invocation by default and includes platform-specific process cleanup.
-- Controller dispatch verifies workspace/session ownership and serializes operations per workspace.
+Legacy cards, approval-ID machinery, whole-material checks and the uploader are retiring mechanisms, not preservation requirements.
 
-## 5. Release gates
+## 5. Acceptance and release tracking
 
-Before calling the next release production-ready, require:
+For the affected implementation scope, apply the linked issue criteria:
 
-- [ ] AUD-001 external file authorization and workspace containment tests.
-- [ ] AUD-002 immutable upload snapshot or a documented equivalent.
-- [ ] AUD-003 DSH provenance / quota confirmation design verified in the real host.
-- [ ] AUD-004 bounded trace and manifest reads.
-- [ ] AUD-005 safe HTTP policy.
-- [ ] AUD-006 restart recovery behavior tested in real DSH.
-- [ ] AUD-007 Issue #17 acceptance tests completed or residual risk explicitly documented.
-- [ ] AUD-008 response-body bounds.
-- [ ] AUD-009 official CLI / Worker archive validation behavior documented.
+- [ ] #73: hybrid scope, lifetime, path semantics and tested host boundaries.
+- [ ] #74: existing-Agent handoff, retired entry points, quota-consent migration and verified result tracking.
+- [ ] #75: no redundant material/ZIP reads or plugin material gates; historical-data compatibility.
+- [ ] #76: remote HTTPS and the documented local-development exception.
+- [ ] #77: settlement reasons, compatible notices and evidence-based state recovery.
+- [ ] #17: Windows cleanup and host limits verified and accurately reported; unresolved behavior tracked.
+- [ ] #78: bounded API response reading with correct errors and cleanup.
 
-## 6. Review limitations and next evidence needed
+Documentation review, issue creation and investigation-test success do not check these implementation boxes. Old snapshot, trace/manifest-cap and external Worker-audit gates are superseded by the current scope.
 
-This review did not execute the plugin in a real DSH installation, inspect the external Playground Worker implementation, or verify every supported Playground CLI version. The following evidence is still needed:
+## 6. Remaining evidence and document status
 
-1. DSH's actual authorization provenance and user-only command semantics.
-2. The official CLI / Worker archive extraction and validation behavior.
-3. Real Windows and macOS cancellation behavior inside DSH, not only GitHub Actions.
-4. The expected product rule for explicitly authorized files outside the workspace, including whether authorization is per operation or can be remembered for a session.
+1. Validate installed DSH/provider capabilities for user-interaction provenance and state recovery. Generic IDs or approval outcomes alone do not prove human consent.
+2. Run focused Windows/macOS and real-DSH checks for changed behavior; the supplied isolated AUD-003 tests do not replace production-path evidence.
+3. Follow official challenge requirements at execution time. This review did not certify every CLI/API version or Worker internals.
+4. Keep issue status, this audit and the implementation plan aligned as fixes land. Later product and refactoring proposals still need their own review.
+
+The documentation PR does not have to merge before a clear independent issue can be implemented.
+

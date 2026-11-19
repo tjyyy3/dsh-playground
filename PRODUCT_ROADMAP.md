@@ -1,98 +1,128 @@
 # Playground Product Roadmap
 
-> Updated: 2026-11-16  
-> Product centre: Playground competitions and the workflows around participating, authoring and organizing them.
+> Decisions synchronized: 2026-11-19  
+> Source-review baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`  
+> Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
+> Status: the near-term direction below is agreed, but implementation and required verification remain open. Later product items are candidates for separate review, not commitments or prerequisites for the submission redesign.
+
+Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17) and [#78](https://github.com/tjyyy3/dsh-playground/issues/78). Updating this roadmap does not mean those changes have shipped.
 
 ## 1. Product direction
 
-The plugin should make Playground workflows usable from DSH without turning into a generic agent-management product.
+The plugin should make Playground workflows usable from DSH while keeping its responsibilities tied to competition tasks.
+
+The agreed participant submission entry point is a button, or an explicit request in the current task conversation. It sends one submission request to that task's existing Agent. The Agent follows the challenge and platform's official requirements, chooses a supported CLI or API route, and performs the necessary material preparation and checks. The plugin passes task context and material references, associates a real attempt ID with the task, and shows platform progress and results.
 
 The primary user journeys are:
 
-1. **Participant:** discover a challenge → understand requirements → work with one or more agents → validate deliverables → inspect materials → explicitly authorize submission → follow scoring and history.
-2. **Author:** prepare a task package → validate task metadata and evaluation assets → preview the package → authorize upload → inspect the published task.
-3. **Organizer:** create and configure a competition → manage seasons and challenge membership → monitor participation and results → manage lifecycle within platform permissions.
+1. **Participant:** discover a challenge → understand requirements → work with one or more agents → explicitly request submission → the current task Agent follows the official submission process → associate the attempt ID → follow scoring and history.
+2. **Author, candidate direction:** prepare a task package → validate task metadata and evaluation assets → preview the package → authorize upload → inspect the published task.
+3. **Organizer, candidate direction:** create and configure a competition → manage seasons and challenge membership → monitor participation and results → manage lifecycle within platform permissions.
 
-Agent orchestration supports all three journeys. It should be designed as reusable infrastructure but remain grounded in a Playground task or competition context.
+Agent orchestration supports these journeys through existing DSH capabilities. It should remain grounded in a Playground task or competition context. Author and organizer workflows require their own product review and verified platform contracts.
 
 ## 2. Product principles
 
-- **User control:** preparation is not submission authorization. External writes and uploads must have clear targets and understandable confirmation.
-- **Evidence over claims:** an agent saying "done" is not proof. Preserve test output, Git diff, artifacts and platform receipts.
-- **One task, one durable identity:** tasks and child sessions must be traceable across restarts.
-- **Safe workspace access:** workspace files are the default boundary; external files require explicit user authorization.
+- **User control:** an ordinary submission needs one explicit user request or button action. Only the already-agreed quota-sensitive cases need additional confirmation. Preparing materials or finishing a solution does not authorize submission. A model-provided Boolean or an approval result without a verified human source must not be labelled as verified user consent.
+- **Official submission requirements:** the current task Agent chooses the official CLI/API route and necessary preparation, packaging and checks. The plugin does not impose a separate mandatory dry-run, check card, material snapshot or second ordinary confirmation.
+- **Evidence over claims:** use evidence appropriate to the operation, including platform receipts and, where relevant, tests, diffs and artifacts. An Agent execution ending does not establish that a submission was accepted or scored successfully.
+- **Task continuity:** preserve the correct task, workspace, account, material references and existing attempt information. Reuse the existing task conversation. Preserve known evidence across restarts and show unknown when reliable evidence is unavailable.
+- **Safe workspace access:** ordinary task materials inside the workspace are the default. External-file grants use the agreed hybrid policy: one logical operation by default, with optional user-selected reuse within the task, scoped by path and purpose and subject to revocation and expiry. Reading permission does not authorize upload. This policy governs the plugin's actual retained file handling and handoff; it does not make the plugin a sandbox for every Agent tool.
+- **Proportionate resource protection:** remove redundant whole-file loading from submission handoff. Protect the API responses the plugin still reads with an appropriate byte budget before full decoding/parsing, as scoped in #78. This is a client resource safeguard, not a competition-material size rule.
 - **Competition-native concepts:** distinguish competition, season, challenge, task, child task, artifact, submission and score.
-- **Incremental delivery:** add one independently testable workflow at a time; do not build every organizer feature before participant workflows are reliable.
+- **Incremental delivery:** deliver independently reviewable changes with evidence for the affected behavior. Later authoring, organizer and collaboration features do not block the agreed submission redesign.
 
 ## 3. Product areas
 
 ### A. Participant experience
 
-**Existing foundation**
+**Existing foundation at the review baseline**
+
 - Challenge discovery, filtering and detail.
 - Competition / season discovery.
 - Personal and public submission lookup.
-- Task conversations, material checking, confirmation, submission and score tracking.
+- Task conversations, attempt association and score tracking.
+- Legacy material checks, confirmation cards and plugin-operated submission paths. These are being replaced under #74/#75; they are not requirements to preserve in the new participant flow.
 
-**Next improvements**
-- Clear participant workflow stages: Discover → Working → Validate → Awaiting confirmation → Submitted → Scoring → Final.
+**Agreed near-term changes**
+
+- One submission request goes to the correct existing task Agent, with the task, workspace, account, material references and known attempt context. Repeated clicks must not create parallel duplicate requests.
+- The Agent follows official CLI or API requirements. The plugin's old uploader and fallback must not also submit in parallel.
+- Submission handoff does not load or parse trace, manifest or ZIP contents, create material hashes/snapshots, or run ZIP summary/layout inspection. Do not restore those reads merely to populate UI statistics. Use official receipt data when it supplies the needed information.
+- Remove the plugin's old 200 MiB ZIP gate from handoff and do not replace it with new universal trace/manifest limits. Report actual official errors and preserve any attempt ID already obtained.
+- Distinguish request dispatched, attempt created, upload/result uncertainty, scoring and final platform result. Query an ambiguous outcome before another create operation; cancellation does not undo a platform write that already happened.
+
+**Candidate follow-ups**
+
 - Submission history grouped by challenge and task, with explicit distinction between new submission and retry.
-- Explain scoring states and whether a score is provisional or final.
-- Surface missing bundle / closed attempt states and safe next actions.
+- Clear explanations of provisional/final scores and missing-bundle or closed-attempt states.
 - Compare multiple attempts and show scorecard changes over time.
 - Keep challenge rules, submission limits and resource requirements visible while working.
 
+The participant flow has no mandatory plugin-owned "Validate → Awaiting confirmation" stage between a user's ordinary submit request and Agent execution. An Agent may still perform checks required by the official workflow or needed to diagnose a concrete problem.
+
 ### B. Agent-assisted execution
 
-**Existing foundation**
+**Existing foundation at the review baseline**
+
 - Workspace controller and challenge handoff.
 - Native Codex delegation with DSH subagent fallback guidance.
-- Child session observation and result notices.
+- Child session observation and persisted result notices.
 - Separate challenge task conversations and controller conversations.
 
-**Next improvements**
-1. Durable task lifecycle and restart recovery.
-2. Task board grouped by challenge and status.
-3. Child session deep links and task-to-session association.
-4. Explicit cancel / retry / reassign controls, subject to DSH host support.
-5. Task dependencies and bounded parallelism.
-6. Artifact collection and provenance.
-7. Evidence-based completion review: Git diff, tests, lint, type checks and required output files.
-8. Human review before merging code or submitting a competition attempt.
+**Agreed near-term reliability work**
 
-**Suggested task lifecycle**
+- Under #77, preserve the structured end reason supplied by DSH in existing result projections, with compatibility for historical notices that lack it.
+- Reuse existing DSH records and supported passive state reads where available. Distinguish frontend refresh, plugin recreation and Host restart, and verify the target DSH version's capabilities.
+- Treat an old result as historical evidence when it cannot be reliably associated with the current execution. A missing notification or a non-running process is not proof of success or failure.
+- Preserve unknown when evidence is insufficient. State inspection must not wake the Agent or automatically repeat its work. No new task database or recovery action is required for this change.
+
+**Candidate follow-ups**
+
+1. Task board grouped by challenge and status.
+2. Improved child-session links and task-to-session association where the provider exposes a usable session address.
+3. Explicit cancel / retry / reassign controls, subject to DSH host support and verified semantics.
+4. Task dependencies and bounded parallelism.
+5. Artifact collection and provenance.
+6. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
+7. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
+
+**Suggested task lifecycle, pending product review**
 
 `created → queued → running → awaiting_review → completed`
 
-Alternative terminal states: `failed`, `cancelled`, `blocked`, `unknown`.
+Alternative states: `failed`, `cancelled`, `blocked`, `unknown`.
 
-Do not infer `completed` from a missing process or a missing notification. Unknown is a valid state requiring reconciliation.
+`awaiting_review` is optional for tasks that need a separate review; it is not a required stage for every submission. Completion labels must describe the verified task outcome, rather than being inferred from a missing process or notification. An Agent's execution status and the platform's submission/scoring status remain separate.
 
 ### C. Author workflow
 
-The author workflow should be separate from participant submission. It may reuse generic file inspection, confirmation, receipt and audit primitives, but must have its own domain rules and UI.
+The author workflow is a candidate direction separate from participant submission. It may reuse retained identity, file-access authorization and receipt capabilities, but its domain rules and UI need their own review. Do not assume that participant check cards, ZIP inspection or an immutable snapshot service will be available as shared infrastructure.
 
 **Proposed first release**
+
 - Author task creation / selection.
 - Local task-package preflight.
 - Metadata and required-file validation.
 - Package generation and preview.
-- Evaluation-set upload where the official CLI supports it.
+- Evaluation-set upload where official tooling supports it.
 - Explicit upload confirmation and receipt.
 - Published task status lookup.
 
 **Later**
+
 - Task revisions and version history.
 - Evaluation-set management.
 - Batch task creation.
 - Dry-run / preview of grader configuration.
 - Regression checks against sample solutions.
 
-Before implementation, verify exact supported CLI commands and server API contracts against the target Playground CLI version. Do not infer undocumented write endpoints from website behavior.
+Before implementation, verify supported official CLI/API operations, versions and permissions. Do not infer undocumented write endpoints from website behavior. These candidate authoring checks are not prerequisites for participant submission.
 
 ### D. Organizer workflow
 
 **Proposed first release**
+
 - List competitions owned or manageable by the current account.
 - Read competition details and lifecycle.
 - Create a competition if supported by an official API / CLI.
@@ -101,6 +131,7 @@ Before implementation, verify exact supported CLI commands and server API contra
 - View competition challenge list and public results.
 
 **Later**
+
 - Season and round management.
 - Participant / team overview.
 - Leaderboards by competition type.
@@ -108,34 +139,36 @@ Before implementation, verify exact supported CLI commands and server API contra
 - Co-organizer permissions.
 - Start / end / archive actions with explicit permission checks and confirmation.
 
-Permission-sensitive lifecycle actions should not be implemented until the platform's authorization model is documented.
+These remain candidate workflows. Permission-sensitive lifecycle actions require a documented platform authorization model before implementation.
 
 ### E. Discussion and community
 
 Later opportunities:
+
 - Browse topic discussions.
 - Search community posts.
 - Create a post or reply with explicit confirmation.
 - Challenge comments, once official API support is verified.
 - Skills and solution sharing.
 
-Discussion is lower priority than participant, author and organizer workflows.
+Discussion is lower priority than participant, author and organizer workflows. No community feature is included in the current submission and reliability issues.
 
 ## 4. Shared platform capabilities
 
-These should be shared primitives, not separate copies in each business workflow:
+Reuse existing capabilities where they meet the actual workflow's needs. This table does not require a separate service or new persistence layer for every row.
 
-| Capability | Responsibility |
+| Capability | Responsibility and scope |
 |---|---|
-| Identity provider | Resolve one account identity consistently for API and CLI |
-| Authorization service | Verify user intent and any additional approval |
-| File access service | Enforce workspace boundary and external-file grants |
-| Immutable material snapshot | Ensure reviewed bytes equal uploaded bytes |
-| CLI runner | Version checks, safe arguments, timeout and cancellation |
-| Task store | Persist task, child session and lifecycle facts |
-| Artifact registry | Record file path, hash, producing task and review state |
-| Receipt service | Normalize write outcomes and reconcile ambiguous operations |
-| Audit log | Record actor, target, operation, time and outcome without secrets |
+| Identity and task context | Keep the intended account, challenge, workspace and existing task conversation consistent; verify returned attempt ownership through the retained tracking path |
+| Authorization integration | Apply file-use and submission-intent rules within plugin-controlled actions; describe what the target host can verify and do not equate automatic approval with human consent |
+| File access and references | Apply #73 hybrid grants to actual retained file handling and material references; do not restore full-file preparation removed by #75 |
+| Submission handoff | Send one request to the current task Agent, which chooses the official CLI/API process; retire the parallel plugin uploader under #74 |
+| API client | Keep plugin read/query operations; enforce remote HTTPS with the documented local-development exception (#76), and bounded response consumption (#78) |
+| CLI runner | Handle arguments, timeouts and cancellation for processes the plugin itself starts, including retained login and version/update checks; track the Windows limitation in #17 without claiming control over all Agent terminal processes |
+| Task projections and observation | Reuse DSH identity, persisted notices and supported state information; preserve end reasons and retain unknown where appropriate (#77) |
+| Artifact registry, candidate | Record producing task, references and review evidence if separately approved; do not make whole-file hashing or a registry a prerequisite for submission |
+| Receipts and result tracking | Associate actual attempt IDs, report platform state and preserve evidence needed to investigate ambiguous outcomes (#74) |
+| Audit evidence | Reuse appropriate host events and operation records without secrets; distinguish observed user interaction, configured approval outcomes and unverified claims |
 
 ## 5. Suggested workbench information architecture
 
@@ -148,32 +181,37 @@ Keep the existing top-level Playground areas, but clarify the task context:
 - **比赛管理:** organizer workflows.
 - **连接设置:** account identity, CLI status and connection configuration.
 
-Do not add every tab immediately. Add authoring and organizer navigation only when their first complete workflows are ready.
+This remains a proposed information architecture. Add authoring, organizer or other new navigation only when its workflow has been reviewed and is ready; do not add every tab as part of the current issue set.
 
 ## 6. Prioritization
 
-| Priority | Capability | Why |
+The linked issues define agreed near-term scope and acceptance. Candidate priorities below remain proposals, not instructions to implement the entire roadmap. #74 and #75 may be delivered together with separate acceptance evidence; no material-snapshot project is a prerequisite.
+
+| Priority | Capability | Status / purpose |
 |---|---|---|
-| P0 | File boundary, authorization, immutable upload | Protect local data and user intent |
-| P0 | Submission outcome reconciliation | Prevent duplicate or ambiguous writes |
-| P1 | Durable task lifecycle and restart recovery | Make delegated work dependable |
-| P1 | Participant workflow stage and history clarity | Improve the core Playground journey |
-| P1 | Task board, session links, cancel / retry | Improve agent-assisted participation |
-| P1 | Evidence-based completion review | Reduce false completion claims |
-| P2 | Artifact registry and Worktree isolation | Improve parallel work and review |
-| P2 | Author workflow MVP | Expand beyond participation |
-| P3 | Organizer workflow MVP | Complete competition management |
-| P3 | Discussion, sharing and advanced reports | Broaden community features |
+| P0 | File-use authorization and explicit submission handoff | Agreed: #73 / #74; protect the intended scope and user request |
+| P1 | Retire redundant material processing and ZIP inspection | Agreed: #75, coordinated with #74 |
+| P1 | HTTPS for the plugin's remote API requests | Agreed: #76; preserve supported local development |
+| P1 | Preserve end reasons and recover supported task evidence | Agreed: #77; keep unknown honest |
+| P1 | Remaining Windows CLI cleanup and host cancellation boundaries | Agreed: #17; limited to retained plugin-launched processes |
+| P2 | Bounded API response consumption | Agreed: #78; protect plugin resources without setting material limits |
+| P1 | Participant history and workflow-state clarity | Core receipts in #74; further history UI remains a candidate |
+| P1 | Task board, session links, cancel / retry | Candidate; confirm host-supported operations before adding controls |
+| P1 | Evidence-based completion review | Candidate; match evidence to the task |
+| P2 | Artifact registry and Worktree isolation | Candidate; improve parallel work and review |
+| P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |
+| P3 | Organizer workflow MVP | Candidate; verify permissions and lifecycle contracts |
+| P3 | Discussion, sharing and advanced reports | Candidate; lower-priority community features |
 
 ## 7. Success measures
 
 Measure product outcomes rather than number of tools:
 
-- Percentage of participant workflows completed without leaving DSH.
-- Submission duplicate rate and ambiguous-outcome recovery rate.
-- Percentage of delegated tasks with a durable terminal state.
-- Percentage of agent completion claims backed by test / diff / artifact evidence.
-- Time from challenge selection to first validated deliverable.
-- Author package preflight pass rate.
-- Organizer actions completed without permission or lifecycle errors.
+- Percentage of ordinary submission requests handed to the correct existing task conversation with one user action.
+- Submission duplicate rate and ambiguous-outcome recovery rate, with actual platform receipts as evidence.
+- Percentage of task status displays supported by available DSH evidence, and preservation of known end reasons across reload/restart.
+- Unknown task states reported separately and accurately; do not improve a completion metric by guessing a terminal state.
+- Percentage of Agent completion claims backed by the appropriate test / diff / artifact / platform evidence when those review capabilities are available.
+- Time from challenge selection to a usable deliverable and to a traceable submission.
+- For future authoring and organizer features: package-preflight outcomes and actions completed without permission or lifecycle errors.
 - User-reported confusion around task state, identity and submission authorization.
