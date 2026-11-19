@@ -4710,6 +4710,14 @@ test('#57: the playground_submit card shows the receipt, a refused approval and 
   assert.ok(checkFailedButton);
   checkFailedButton.props.onClick();
   assert.deepEqual(opened, ['task-1', 'task-1', 'task-1', 'task-1']);
+  const oversizedMessage = '没有提交：检查登录状态时 Playground 回复过大，无法完整读取，没有写入平台。确认卡仍然有效。';
+  const oversized = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
+    block: { content: [], meta: { playground: { ok: false, error: { code: 'response_too_large', message: oversizedMessage } } } } });
+  assert.equal(text(f.find(oversized, (node) => node.props?.role === 'alert')), oversizedMessage);
+  const oversizedButton = f.find(oversized, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
+  assert.ok(oversizedButton);
+  oversizedButton.props.onClick();
+  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1', 'task-1', 'task-1']);
   // A refusal that cleared the card (another login) offers no confirmation in the workbench.
   const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
     block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });
