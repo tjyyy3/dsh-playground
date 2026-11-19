@@ -3,8 +3,7 @@
 ## Project
 
 This repository contains the `@playground/dsh-playground` Host/Client plugin. It
-adds Playground challenge discovery, task sessions, material checks, confirmed
-submission, and result cards to DSH. The product name is Playground Workbench.
+adds Playground challenge discovery, task sessions, Agent submission requests, and result cards to DSH. The product name is Playground Workbench.
 
 ## Run and verify
 
@@ -39,23 +38,33 @@ submission, and result cards to DSH. The product name is Playground Workbench.
 - Workspace materials need no new permission. External paths require a user grant
   from the browser workbench, for this operation by default or for the task.
   A material read grant is not a submission grant.
-- Playground writes require an explicit user request (#63): the user asks in
-  the conversation to submit, or clicks the workbench button
-  (`/playground-confirm`). On such a request the agent may submit directly with
-  `playground_submit` (no DSH approval panel by default; the #57 panel path
-  stays behind the internal `approvalPanel` option) or with a terminal
-  `playground submit` (no `--dry-run`), and then must call `playground_task`
-  `track` with the attempt id. Checking materials, a passed precheck or a
-  finished solution is not a request. Before submitting, the agent states in
-  one line the identity, the target and today's counts (`submitPolicy`
-  `announcement`). It asks the user in text and waits when the statement
-  states a submission limit, today (self plus Agent accounts, Beijing day)
-  already has a submission counted toward the quota, or the platform answered
-  429 (`submitPolicy.askFirst`); `playground_submit` then refuses with
-  `ask_first` unless the call passes `user_confirmed_limit: true` after the user
-  agreed. All plugin submit paths run the same `confirm()` checks. Keep the
-  card's `checkId` (what `/playground-confirm` accepts) out of model-visible
-  text; the agent gets only the keyed `approvalId`.
+- Playground writes require an explicit user request. The task's **提交**
+  button sends one request to that task's existing Agent session. The Agent
+  chooses official CLI or API steps from the current challenge requirements.
+  The plugin never uploads, forces a dry-run, or reads material content.
+  Retired `playground_submit`, `playground_submit_attempt`,
+  `playground_check_materials` and `/playground-confirm` are not registered.
+- Before executing a submission, read `playground_task status` and announce
+  `submitPolicy.announcement`. A statement limit, a counted submission today
+  across self and confirmed Agent accounts in Beijing time, or a recorded
+  platform 429 requires an additional user answer. The workbench verifies its
+  browser Peer before accepting the answer for the current request. Refusal,
+  cancellation, unavailable interaction or an unverified automatic approval
+  never dispatches. Do not treat a model boolean as user consent. An existing
+  confirmation remains valid only for its task, account, references and counts.
+  Terminal and HTTP tools are outside this plugin's enforcement boundary.
+- Register known material paths with `playground_task materials`; external
+  paths reuse the workbench material authorization. This records references,
+  without reading, hashing, counting, packing or checking content. Never reuse
+  an old check card's material selection for a new submission.
+- Immediately record every real official attempt ID through
+  `playground_task track`, even if uploading later fails. Track verifies
+  challenge and self or confirmed Agent-account ownership and is idempotent.
+  Report created, uploaded, upload_failed or unknown accurately. Without an ID,
+  use `playground_task progress` for not_created or unknown and explain the
+  blocker. Unknown outcomes require querying existing attempts before retrying;
+  never blindly switch routes to create another. Cancellation cannot undo a
+  server write. Do not fabricate materials, execution traces or results.
 - Task creation must explicitly name a registered DSH workspace and never
   create sessions in unregistered directories. UI starts (workbench and chat
   cards) must show the workspace selection and confirmation dialog and send the
@@ -72,7 +81,7 @@ submission, and result cards to DSH. The product name is Playground Workbench.
   binding is refused. It writes nothing to the platform. A bound conversation
   keeps its task: the same challenge is a no-op that leaves receipts and
   `attemptIds` untouched, and another challenge is refused. Binding a
-  conversation without a task keeps its pending card, receipt and `attemptIds`
+  conversation without a task keeps its historical receipt and `attemptIds`
   for the bound challenge and is refused when they belong to another one. Bind
   only on an explicit request to work on or submit a challenge in this
   conversation; a refused bind is reported to the user, never followed by an

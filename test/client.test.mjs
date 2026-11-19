@@ -86,7 +86,7 @@ async function clientFixture(t, services = {}) {
   return { registrations, find, render, unmount, effects, workbench, mount };
 }
 
-test('F-01: opening a task drawer preserves confirmation actions and closes correctly', async (t) => {
+test('F-01: opening a task drawer dispatches one submit request and closes correctly', async (t) => {
   const { registrations, find, render } = await clientFixture(t);
   const Main = registrations.get('playground.library').Component;
   const calls = [];
@@ -95,7 +95,7 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
     checkId: 'checked', challenge: { id: 'fixture', title: 'Fixture' }, args: {}, files: [],
   }, receipt: null };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: state } } } }),
-    useSessionAccess: () => true, refreshProjections: async () => {}, run: async (...args) => { calls.push(args); return { ok: true }; }, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+    useSessionAccess: () => true, refreshProjections: async () => {}, submission: async (...args) => { calls.push(args); return { ok: true }; }, run: async () => assert.fail('old command executed'), openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
   const tree = render(Main, props);
   assert.equal(find(tree, (n) => n.type?.name === 'TaskDetailDrawer'), undefined);
   const row = find(tree, (n) => n.type?.name === 'TaskSummaryRow');
@@ -105,9 +105,9 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
   const selected = find(drawerTree, (n) => n.type?.name === 'SelectedTask');
   const task = render(selected.type, selected.props);
   const taskTree = render(task.type, task.props);
-  const button = find(taskTree, (n) => n.type === 'button' && n.props.children.includes('确认目标并提交'));
+  const button = find(taskTree, (n) => n.type === 'button' && n.props.children.includes('提交'));
   await button.props.onClick();
-  assert.deepEqual(calls, [['s', 'checked', true]]);
+  assert.deepEqual(calls, [[{ action: 'request', sessionId: 's' }]]);
   find(drawerTree, (n) => n.type === 'button' && n.props['aria-label'] === '关闭任务详情').props.onClick();
   assert.equal(find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer'), undefined);
 });
@@ -140,7 +140,7 @@ test('external material UI defaults to one operation and only a click grants and
     calls.push(input);
     if (input.action === 'status') return { ok: true, requests: pending ? [request] : [], grants: [] };
     pending = false;
-    return { ok: true, operation: 'check', input: { action: 'check', challenge_id: 'fixture', material_request_id: request.requestId } };
+    return { ok: true, operation: 'check', input: { action: 'materials', challenge_id: 'fixture', material_request_id: request.requestId } };
   };
   const run = async (...args) => { calls.push(args); return { ok: true }; };
   const workflow = taskDrawer(f, () => state, run, { materials });
@@ -151,9 +151,9 @@ test('external material UI defaults to one operation and only a click grants and
   assert.match(text(view), /仅直接文件.*仅本次操作允许/s);
   assert.match(text(view), /此授权不代表同意提交/);
   assert.deepEqual(calls, [{ action: 'status', sessionId: 's' }]);
-  await buttonLabeled(f, view, '允许读取并继续检查').props.onClick();
+  await buttonLabeled(f, view, '允许引用并继续记录').props.onClick();
   assert.deepEqual(calls[1], { action: 'authorize', requestId: request.requestId, scope: 'operation', recursive: false, sessionId: 's' });
-  assert.deepEqual(calls[2], ['s', { action: 'check', challenge_id: 'fixture', material_request_id: request.requestId }, false]);
+  assert.deepEqual(calls[2], ['s', { action: 'materials', challenge_id: 'fixture', material_request_id: request.requestId }]);
 });
 
 test('external material UI names recursive task scope and lets the user revoke it', async (t) => {
@@ -171,7 +171,7 @@ test('external material UI names recursive task scope and lets the user revoke i
   f.find(view, (node) => node.type === 'select').props.onChange({ target: { value: 'task' } });
   f.find(view, (node) => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } });
   view = f.render(panel.type, panel.props);
-  await buttonLabeled(f, view, '允许读取并继续检查').props.onClick();
+  await buttonLabeled(f, view, '允许引用并继续记录').props.onClick();
   assert.equal(calls[1].scope, 'task');
   assert.equal(calls[1].recursive, true);
   assert.match(text(view), /目录（含子目录）/);
@@ -185,7 +185,7 @@ test('task details offer no working-mode selector for a participation task', asy
   const tree = taskDrawer(f, () => state, async () => ({ ok: true }))();
   assert.equal(f.find(tree, (n) => n.type === 'select'), undefined);
   assert.doesNotMatch(text(tree), /工作模式|切回参赛/);
-  assert.ok(buttonLabeled(f, tree, '准备提交 / 检查材料'));
+  assert.ok(buttonLabeled(f, tree, '提交'));
 });
 
 test('an author-mode task shows its note and switches back to participation through the mode action', async (t) => {
@@ -196,13 +196,13 @@ test('an author-mode task shows its note and switches back to participation thro
   const workflow = taskDrawer(f, () => state, run);
   let tree = workflow();
   assert.equal(f.find(tree, (n) => n.type === 'select'), undefined);
-  assert.match(text(tree), /尚未接入平台出题修改与发布/);
-  assert.equal(buttonLabeled(f, tree, '准备提交 / 检查材料'), undefined);
+  assert.match(text(tree), /出题模式目前只支持本地准备/);
+  assert.equal(buttonLabeled(f, tree, '提交'), undefined);
   await buttonLabeled(f, tree, '切回参赛').props.onClick();
-  assert.deepEqual(calls, [['s', { action: 'mode', mode: 'participate' }, false]]);
+  assert.deepEqual(calls, [['s', { action: 'mode', mode: 'participate' }]]);
   tree = workflow();
   assert.equal(buttonLabeled(f, tree, '切回参赛'), undefined);
-  assert.ok(buttonLabeled(f, tree, '准备提交 / 检查材料'));
+  assert.ok(buttonLabeled(f, tree, '提交'));
 });
 
 test('切回参赛 is disabled without session access or while the agent is running', async (t) => {
@@ -372,36 +372,7 @@ test('a successful navigation after a failure leaves no visible note', async (t)
   assert.deepEqual(opened, ['s', 's']);
 });
 
-test('the confirmation card lists declared outcome, detail and author only for a new submission', async (t) => {
-  const { registrations, find, render, unmount } = await clientFixture(t);
-  const Main = registrations.get('playground.library').Component;
-  const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 } };
-  const card = (args) => {
-    const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared: {
-      checkId: 'checked', challenge: { id: 'fixture', title: 'Fixture' }, args, files: [],
-    }, receipt: null };
-    const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: state } } } }),
-      useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
-    unmount(Main);
-    const row = find(render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
-    find(render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
-    const drawer = find(render(Main, props), (n) => n.type?.name === 'TaskDetailDrawer');
-    const selected = find(render(drawer.type, drawer.props), (n) => n.type?.name === 'SelectedTask');
-    const task = render(selected.type, selected.props);
-    unmount(task.type);
-    return find(render(task.type, task.props), (n) => n.props?.['aria-label'] === 'Playground 提交确认');
-  };
-  const declared = { outcome: 'success', detail: ' Run notes ', author_name: 'Agent A' };
-  assert.ok(text(card(declared)).includes('声明结果：success · 说明：Run notes · 署名：Agent A'));
-  assert.ok(text(card({ detail: '--- notes' })).includes('说明：--- notes'));
-  assert.doesNotMatch(text(card({ detail: '--- notes' })), /声明结果|署名/);
-  assert.doesNotMatch(text(card({ ...declared, attempt_id: 7 })), /声明结果|说明：|署名/);
-  assert.doesNotMatch(text(card({ detail: '  ' })), /声明结果|说明：|署名/);
-  // A newline in an agent-supplied value must not render as a separate, fake card line.
-  const line = find(card({ detail: 'x\n工作区：D:\\other' }), (n) => n.type === 'p' && n.props.children.some((child) => typeof child === 'string' && child.startsWith('说明：')));
-  assert.deepEqual(line.props.children, ['说明：x 工作区：D:\\other']);
-  assert.doesNotMatch(text(line), /[\r\n]/);
-});
+
 
 test('adding a task workspace uses the native picker and workspace registry; picker cancellation registers nothing', async (t) => {
   const calls = [];
@@ -811,9 +782,9 @@ test('interrupted records, missing details and confirmation actions remain under
     outcome: { kind: 'success', text: JSON.stringify({ playgroundWorkflow: { kind: 'prepared', prepared: { challenge: { title: 'Synthetic' }, files: [{ path: 'private-path' }] } } }) },
   } });
   const button = f.find(prepared, (node) => node.type === 'button');
-  assert.equal(text(button), '前往工作台确认提交');
-  button.props.onClick();
-  assert.equal(opened, 'A');
+  assert.equal(button, undefined);
+  assert.equal(opened, undefined);
+  assert.match(text(prepared), /历史.*已退役/);
   assert.doesNotMatch(text(prepared), /private-path/);
 });
 
@@ -1302,7 +1273,7 @@ test('a refreshed final score reaches the task row and the drawer summary withou
   const drawer = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
   const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
   const workflow = h.f.render(selected.type, selected.props);
-  const summary = h.f.find(h.f.render(workflow.type, workflow.props), (node) => node.type === 'summary');
+  const summary = h.f.find(h.f.render(workflow.type, workflow.props), (node) => node.type === 'summary' && text(node).startsWith('提交 #'));
   assert.equal(text(summary), '提交 #61 · 评分完成 · 已出最终分 · 80 分');
   assert.equal(JSON.stringify(h.sessions), before);
 });
@@ -2465,7 +2436,7 @@ test('an archived task\'s drawer is read-only and nothing navigates to its conve
   await settle();
   assert.ok(!drawerButtons().includes('打开任务对话'), 'no 打开任务对话 for an archived task');
   assert.equal(a.find(a.drawer(), (n) => n.type?.name === 'SelectedTask'), undefined, 'no check or confirm controls');
-  assert.match(text(a.drawer()), /此任务已归档。DSH 不会打开已归档的对话；撤销后才能继续检查材料和确认提交。/);
+  assert.match(text(a.drawer()), /此任务已归档。DSH 不会打开已归档的对话；撤销后才能向任务 Agent 请求提交。/);
   assert.ok(a.find(a.drawer(), (n) => n.type?.name === 'AttemptHistory'), 'the submission history is still shown');
   assert.match(text(a.control()), /已归档/);
   // The header skips the archived selection.
@@ -2542,21 +2513,7 @@ test('an unarchive failure in the host\'s own format shows only the generic mess
 
 const CLI_WARNING = 'Playground CLI 版本过旧（0.1.43，最新 0.1.47），可能影响评分。请用官方安装脚本 https://play.bohrium.com/install.sh 更新。';
 
-test('#45: the confirmation card shows the CLI precheck result and an outdated-CLI warning', async (t) => {
-  const f = await clientFixture(t);
-  const base = { checkId: 'checked', challenge: { id: 'fixture', title: 'Fixture' }, args: { method: 'm' }, files: [], traceCount: 1 };
-  for (const [prepared, expected, warned] of [
-    [{ ...base, cliPrecheck: { status: 'passed' }, cliUpdate: { current: '0.1.43', latest: '0.1.47', warning: CLI_WARNING } }, /本地文件检查和 Playground CLI 预检均已通过/, true],
-    [{ ...base, cliPrecheck: { status: 'skipped', note: '未找到 Playground CLI，未经 CLI 预检。' } }, /本地文件检查通过；未找到 Playground CLI，未经 CLI 预检。/, false],
-    [base, /本地文件检查通过；最终协议/, false],
-  ]) {
-    const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' }, prepared, receipt: null };
-    const content = text(taskDrawer(f, () => state, async () => ({ ok: true }))());
-    assert.match(content, expected);
-    assert.equal(content.includes(CLI_WARNING), warned);
-    assert.equal(/CLI 需更新/.test(content), warned);
-  }
-});
+
 
 test('#45: the login area shows the outdated-CLI warning from the auth query', async (t) => {
   let value = { authenticated: true, user: { name: 'Test user' }, cliUpdate: { current: '0.1.43', latest: '0.1.47', warning: CLI_WARNING } };
@@ -4431,7 +4388,7 @@ test('#58: history rows of submissions without a bundle show "评测包未上传
 const SUMMARY_58 = { files: 19, totalBytes: 1003000, nonTextCount: 1, symlinkCount: 0, symlinks: [],
   largest: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }, { name: 'scripts/structure.py', bytes: 31321 }],
   nonText: [{ name: 'examples/minimal_demo/input/paper.pdf', bytes: 819383 }] };
-const SUMMARY_LINE_58 = '评测包：19 个文件，共 979 KB；最大：paper.pdf（800 KB）、structure.py（31 KB）；非文本文件（按扩展名）1 个：paper.pdf（800 KB）';
+const SUMMARY_LINE_58 = '历史 ZIP 目录信息：19 个文件，共 979 KB；最大：paper.pdf（800 KB）、structure.py（31 KB）；非文本文件（按扩展名）1 个：paper.pdf（800 KB）';
 
 test('#61 r1: the bundle summary line shows the outer-layout check', async (t) => {
   const f = await localizedFixture(t);
@@ -4504,32 +4461,7 @@ test('#58: a submission the platform closed as "bundle missing" shows "未收到
     'Submission #63116 · Bundle not received, submit again · Submission incomplete · —');
 });
 
-test('#58: the drawer offers no re-upload into a submission the platform closed as "bundle missing", only a check for a new one', async (t) => {
-  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const args = { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: 63116 };
-  const closedState = { args, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true };
-  for (const [name, receipt, closed] of [['open', uploadFailed(63116, { args }), false], ['closed', uploadFailed(63116, closedState), true]]) {
-    const f = await clientFixture(t);
-    const calls = [];
-    const workflow = taskDrawer(f, () => ({ task, prepared: null, receipt }), async (...input) => { calls.push(input); return { ok: true }; });
-    buttonLabeled(f, workflow(), '准备提交 / 检查材料').props.onClick();
-    const tree = workflow();
-    const retry = buttonLabeled(f, tree, '检查后重传原提交 #63116');
-    const note = f.find(tree, (node) => node.props?.className === 'pg-note pg-closed-note');
-    if (closed) {
-      assert.equal(retry, undefined, name);
-      assert.equal(text(note), '平台已关闭提交 #63116（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。', name);
-    } else {
-      assert.equal(note, undefined, name);
-      await retry.props.onClick();
-      assert.equal(calls.at(-1)[1].attempt_id, 63116, name);
-    }
-    // The check for a new submission stays and sends no attempt_id.
-    await buttonLabeled(f, tree, '检查并生成确认卡').props.onClick();
-    assert.equal(calls.at(-1)[1].action, 'check', name);
-    assert.equal('attempt_id' in calls.at(-1)[1], false, name);
-  }
-});
+
 
 test('#58: the history row of the task\'s submission the platform closed agrees with the task row; a submission made elsewhere shows the platform\'s failure', async (t) => {
   const closed = confirmedReceipt(63116, '2026-11-05T04:03:30.000Z', { ok: false, status: 'pending_review', bundleStatus: undefined, stage: 'upload', score: 0,
@@ -4564,33 +4496,7 @@ test('#58: an earlier submission of the task the platform closed keeps its histo
   assert.match(rows[1], /提交 #63116 .* · 提交未完成 · — 未收到评测包，需重新提交 本对话/);
 });
 
-test('#58: the drawer hides the re-upload button once polling, through the workbench store, shows the platform closed the submission', async (t) => {
-  const args = { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: 63167 };
-  const platform = new Map([[63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }]]);
-  const h = await refreshHarness(t, [['a', uploadFailed(63167, { args })]], platform);
-  h.flush();
-  await h.settled();
-  const row = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow');
-  h.f.find(h.f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
-  const workflow = () => {
-    const drawer = h.f.find(h.flush(), (node) => node.type?.name === 'TaskDetailDrawer');
-    const selected = h.f.find(h.f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
-    const task = h.f.render(selected.type, selected.props);
-    return h.f.render(task.type, task.props);
-  };
-  buttonLabeled(h.f, workflow(), '准备提交 / 检查材料').props.onClick();
-  assert.ok(buttonLabeled(h.f, workflow(), '检查后重传原提交 #63167'));
-  platform.set(63167, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true });
-  h.tick(twoMinutes);
-  await h.settled();
-  const tree = workflow();
-  assert.equal(buttonLabeled(h.f, tree, '检查后重传原提交 #63167'), undefined);
-  assert.equal(text(h.f.find(tree, (node) => node.props?.className === 'pg-note pg-closed-note')),
-    '平台已关闭提交 #63167（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。');
-  // Only the store holds the closure: the task's own receipt never carried the flag.
-  assert.equal(h.sessions[0].projectionValues.playgroundTask.receipt.bundleNotReceived, undefined);
-  assert.ok(buttonLabeled(h.f, tree, '检查并生成确认卡'));
-});
+
 
 test('#58: a submission whose upload failed is polled until the platform closes it as "bundle missing" or scores it', async (t) => {
   const awaitingReceipt = { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } };
@@ -4619,118 +4525,12 @@ test('#58: a submission whose upload failed is polled until the platform closes 
   assert.equal(h.calls.length, 6);
 });
 
-test('#58: the material check card warns when the bundle is the one the Worker refused', async (t) => {
-  const f = await localizedFixture(t);
-  const Card = f.registrations.get('playground_check_materials').Component;
-  const warning = '这个评测包与上次被拒收的完全相同（SHA-256 一致）：评测 Worker 会以同样的原因再次拒收，请先修改评测包再检查。';
-  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
-    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58, bundleWarning: warning } } } });
-  const line = f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-warning');
-  assert.equal(line.props.role, 'status');
-  assert.equal(text(line).replace(/\s+/g, ' '), `评测包未改动 ${warning}`);
-  const plain = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
-    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: SUMMARY_58 } } } });
-  assert.equal(f.find(plain, (node) => node.props?.className === 'pg-note pg-bundle-warning'), undefined);
-});
 
-test('#58: the material check card and the confirmation section show a compact bundle summary', async (t) => {
-  const f = await localizedFixture(t);
-  const Card = f.registrations.get('playground_check_materials').Component;
-  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
-    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', bundleSummary: { ...SUMMARY_58, symlinkCount: 2, symlinks: ['a', 'b'] } } } } });
-  assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-bundle-summary')), `${SUMMARY_LINE_58}；符号链接 2 个`);
-  const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
-    args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
-    cliPrecheck: { status: 'passed' }, bundleSummary: SUMMARY_58, bundleWarning: '这个评测包与上次被拒收的完全相同（SHA-256 一致）。' };
-  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('playground.library').Component;
-  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
-  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
-    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
-  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
-  f.find(f.render(rowElement.type, rowElement.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
-  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
-  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
-  const workflow = f.render(selected.type, selected.props);
-  const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
-  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-summary')), SUMMARY_LINE_58);
-  // The check's warning that this bundle is the one the Worker refused sits next to it.
-  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-bundle-warning')).replace(/\s+/g, ' '),
-    '评测包未改动 这个评测包与上次被拒收的完全相同（SHA-256 一致）。');
-});
+
+
 
 // #57: playground_submit gets its own tool card; an approved submission shows its receipt like the 确认提交 card.
-test('#57: the playground_submit card shows the receipt, a refused approval and the waiting state', async (t) => {
-  const opened = [];
-  const f = await localizedFixture(t);
-  const registration = f.registrations.get('playground_submit');
-  assert.ok(registration, 'the tool card is registered');
-  const Card = registration.Component;
-  assert.equal(f.zh('tools.playground_submit'), '提交到 Playground');
-  assert.equal(f.en('tools.playground_submit'), 'Submit to Playground');
-  const openWorkbench = (sessionId) => opened.push(sessionId);
-  const receipt = { attemptId: 42, challengeId: 'challenge-a', scoringState: { state: 'queued', scoreIsFinal: false }, status: 'submitted' };
-  const approved = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [{ type: 'text', text: '## Submission 42 confirmed' }], meta: { playground: { ok: true, attemptId: 42, status: 'submitted',
-      scoringState: { state: 'queued', scoreIsFinal: false }, workflow: { kind: 'receipt', receipt } } } } });
-  assert.equal(text(f.find(approved, (node) => node.props?.className === 'pg-note pg-receipt')), '提交 #42 · 排队中');
-  assert.match(text(approved), /提交编号: 42/);
-  assert.equal(f.find(approved, (node) => node.props?.role === 'alert'), undefined);
-  assert.equal(f.find(approved, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'), undefined);
-  // A refused approval keeps the card: the message and a way to the workbench.
-  const message = '没有提交：审批面板中选择了拒绝（或本会话的审批策略为不询问、直接拒绝），没有写入平台。确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”。';
-  const refused = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'approval_rejected', message } } } } });
-  assert.equal(text(f.find(refused, (node) => node.props?.role === 'alert')), message);
-  assert.equal(f.find(refused, (node) => node.props?.className === 'pg-note pg-receipt'), undefined);
-  const button = f.find(refused, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
-  assert.ok(button);
-  button.props.onClick();
-  assert.deepEqual(opened, ['task-1']);
-  // A login refused before asking keeps the card too: the user logs in and confirms in the workbench.
-  const loggedOut = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'authentication_required', message: '请先登录 Playground' } } } } });
-  const loginButton = f.find(loggedOut, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
-  assert.ok(loginButton);
-  loginButton.props.onClick();
-  assert.deepEqual(opened, ['task-1', 'task-1']);
-  // So does a platform the login check could not reach.
-  const offlineMessage = '没有提交：检查登录状态时无法连接 Playground，没有写入平台。确认卡仍然有效，可以在 Playground 工作台的任务详情里点“确认目标并提交”。';
-  const offline = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'network_error', message: offlineMessage } } } } });
-  assert.equal(text(f.find(offline, (node) => node.props?.role === 'alert')), offlineMessage);
-  const offlineButton = f.find(offline, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
-  assert.ok(offlineButton);
-  offlineButton.props.onClick();
-  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1']);
-  // And a login check the platform answered with an error.
-  const checkFailed = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'login_check_failed', message: '没有提交：检查登录状态时 Playground 没有给出可用的回复，没有写入平台。' } } } } });
-  const checkFailedButton = f.find(checkFailed, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
-  assert.ok(checkFailedButton);
-  checkFailedButton.props.onClick();
-  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1', 'task-1']);
-  const oversizedMessage = '没有提交：检查登录状态时 Playground 回复过大，无法完整读取，没有写入平台。确认卡仍然有效。';
-  const oversized = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'response_too_large', message: oversizedMessage } } } } });
-  assert.equal(text(f.find(oversized, (node) => node.props?.role === 'alert')), oversizedMessage);
-  const oversizedButton = f.find(oversized, (node) => node.type === 'button' && text(node) === '前往工作台确认提交');
-  assert.ok(oversizedButton);
-  oversizedButton.props.onClick();
-  assert.deepEqual(opened, ['task-1', 'task-1', 'task-1', 'task-1', 'task-1']);
-  // A refusal that cleared the card (another login) offers no confirmation in the workbench.
-  const cleared = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'identity_changed', message: '身份已变化' }, workflow: { kind: 'clear' } } } } });
-  assert.equal(f.find(cleared, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'), undefined);
-  // #63: an ask-first refusal keeps the card, so the user can still confirm in the workbench.
-  const askFirst = f.render(Card, { phase: 'result', toolName: 'playground_submit', t: f.zh, sessionId: 'task-1', openWorkbench,
-    block: { content: [], meta: { playground: { ok: false, error: { code: 'ask_first', message: '没有提交：题面写了提交次数限制。' } } } } });
-  assert.ok(f.find(askFirst, (node) => node.type === 'button' && text(node) === '前往工作台确认提交'));
-  // While the submission runs (no approval panel by default, #63).
-  const waiting = f.render(Card, { phase: 'start', toolName: 'playground_submit', t: f.zh, block: {} });
-  assert.match(text(waiting), /正在提交…/);
-  assert.doesNotMatch(text(waiting), /允许一次/);
-});
+
 
 // #62: the drawer's history lists the Agent accounts' submissions from the public list, labelled, with today's counts.
 test('#62: the task history labels own and Agent-account submissions and shows today\'s counts with the recorded limits', async (t) => {
@@ -4766,35 +4566,7 @@ test('#62: a failed Agent list leaves the own submissions and the history says o
   assert.match(text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-history-partial')), /无法读取名下 Agent 账号列表，只列出本人的提交/);
 });
 
-test('#62: the material check card and the confirmation section show today\'s counts and the limit sources', async (t) => {
-  const f = await localizedFixture(t);
-  const counts = { date: '2026-11-06', total: 3, counted: 2, partial: false,
-    limits: [{ source: 'statement', limit: 3, period: 'day', excerpt: '每天最多提交 3 次' }, { source: 'platform', limit: 5 }] };
-  const expected = '今天（北京时间 2026-11-06）已提交 3 次，其中占名额 2 次，本人与名下 Agent 账号合计。次数上限：题面写明每天最多 3 次（原文：每天最多提交 3 次）；平台曾返回上限 5 次。';
-  const Card = f.registrations.get('playground_check_materials').Component;
-  const card = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
-    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', submissionCounts: counts } } } });
-  assert.equal(text(f.find(card, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
-  const plain = f.render(Card, { phase: 'result', toolName: 'playground_check_materials', t: f.zh,
-    block: { meta: { playground: { ok: true, status: 'awaiting_confirmation', submissionCounts: { ...counts, limits: [], partial: true } } } } });
-  assert.equal(text(f.find(plain, (node) => node.props?.className === 'pg-note pg-submission-counts')),
-    '今天（北京时间 2026-11-06）已提交 3 次，其中占名额 2 次，本人与名下 Agent 账号合计（可能不完整）。未查到次数上限。');
-  const prepared = { checkId: 'synthetic-check', challenge: { id: 'fixture', title: 'Fixture' }, baseUrl: 'http://127.0.0.1:15000/api', cwd: '/synthetic',
-    args: { challenge_id: 'fixture', method: 'DSH Playground plugin' }, traceCount: 1, files: [{ kind: 'bundle', path: '/synthetic/bundle.zip', bytes: 1, sha256: 'abc' }],
-    cliPrecheck: { status: 'passed' }, submissionCounts: counts };
-  const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
-  const Main = f.registrations.get('playground.library').Component;
-  const session = { id: 's', displayTitle: 'Playground · Fixture', projectionValues: { playgroundTask: { task, prepared, receipt: null } } };
-  const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: { task, prepared, receipt: null } } } } }),
-    useSessionAccess: () => true, refreshProjections: async () => {}, run: async () => ({ ok: true }), openTask: () => {}, openChat: () => {}, login: async () => {}, t: f.zh };
-  const rowElement = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskSummaryRow');
-  f.find(f.render(rowElement.type, rowElement.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
-  const drawer = f.find(f.render(Main, props), (node) => node.type?.name === 'TaskDetailDrawer');
-  const selected = f.find(f.render(drawer.type, drawer.props), (node) => node.type?.name === 'SelectedTask');
-  const workflow = f.render(selected.type, selected.props);
-  const confirmSection = f.find(f.render(workflow.type, workflow.props), (node) => node.props?.['aria-label'] === 'Playground 提交确认');
-  assert.equal(text(f.find(confirmSection, (node) => node.props?.className === 'pg-note pg-submission-counts')), expected);
-});
+
 
 
 test('the scoped controller renderer mounts native content only for the verified session', async (t) => {

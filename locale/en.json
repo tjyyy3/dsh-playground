@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Playground Competitions",
-    "description": "Start native DSH challenge tasks, check materials, confirm the exact submission target, and inspect receipts and evaluation results."
+    "description": "Browse challenges, dispatch submission requests to the current task Agent, and inspect verified attempt results."
   }
 }

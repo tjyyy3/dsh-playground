@@ -5,7 +5,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, rmdir, utimes, wri
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
-import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
+import { compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
 import { windowsJobLaunch } from '../lib/windows-process.js';
 
 // Polling and watchdogs must keep real time while CLI deadlines are mocked.
@@ -56,15 +56,9 @@ async function placeNode(path) {
 
 const TRICKY = ['DSH Playground plugin', 'a & b', 'a | b', 'a ^ b', '%PATH%', 'say "hi" now', '中文 参数',
   'C:\\dir with space\\', '(paren) ok', '!PATH!', 'a < b > c'];
-const submitArgv = (value) => ['submit', '--challenge-id', 'demo', '--bundle', value, '--trace', 'trace.jsonl',
-  '--harness', value, '--method', 'DSH Playground plugin'];
-
+const loginArgv = (value) => ['auth', 'login', '--email', value];
 async function expectArgv(cli, values, { drop = 0, cwd } = {}) {
-  for (const value of values) {
-    const argv = await cli.submit({ challengeId: 'demo', bundlePath: value, tracePath: 'trace.jsonl',
-      harness: value, method: 'DSH Playground plugin', cwd });
-    assert.deepEqual(argv, submitArgv(value).slice(drop), `argument ${JSON.stringify(value)}`);
-  }
+  for (const value of values) assert.deepEqual(await cli.authLogin(value, 'synthetic-password', { cwd }), loginArgv(value).slice(drop));
 }
 
 const npmShim = (entry) => [
@@ -92,8 +86,8 @@ test('an argument with & does not run another command', async () => {
   const cli = createPlaygroundCli({ command: await fakeCli(join(root, 'marker', 'fake-cli.mjs')) });
   const marker = join(markers, 'direct.txt');
   const method = `x & echo marker> ${marker}`;
-  const argv = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', method });
-  assert.deepEqual(argv, ['submit', '--challenge-id', 'demo', '--bundle', 'b.zip', '--method', method]);
+  const argv = await cli.authLogin(method, 'synthetic-password');
+  assert.deepEqual(argv, ['auth', 'login', '--email', method]);
   assert.equal(existsSync(marker), false);
 });
 
@@ -111,7 +105,7 @@ writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`),
 test('a missing CLI is still reported as before', async () => {
   const command = `playground-missing-${process.pid}`;
   const cli = createPlaygroundCli({ command });
-  await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
+  await assert.rejects(() => cli.authLogin('demo', 'synthetic-password', {}),
     (error) => error.code === (process.platform === 'win32' ? 'cli_not_found' : 'ENOENT') && error.started === false
       && (process.platform !== 'win32' || !error.message.includes(command)));
 });
@@ -195,16 +189,14 @@ for (const reason of ['cancelled', 'timed out']) {
 writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
     const helper = await fakeCli(join(root, `startup-${reason}`, 'helper.mjs'), `import { writeFileSync } from 'node:fs';
 writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(() => {}, 1000);`);
-    const options = { command, timeoutMs: 300, submitTimeoutMs: 300, killGraceMs: 1000 };
+    const options = { command, timeoutMs: 300, killGraceMs: 1000 };
     const cli = createPlaygroundCli({ ...options, launchWindowsJob: async (launch) => ({
       ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
     }) });
     const controller = new AbortController();
     t.mock.timers.enable({ apis: ['setTimeout'] });
     try {
-      const outcome = (reason === 'cancelled'
-        ? cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal })
-        : cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: controller.signal })).then(
+      const outcome = cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal }).then(
         () => assert.fail('expected the preparing helper to be stopped'), (error) => error,
       );
       assert.equal(await waitUntil(() => existsSync(helperPid), 10000), true, 'the helper never started');
@@ -325,27 +317,9 @@ test('stale Windows job directories are removed without deleting recent or unrel
   } finally { await launch.dispose(); }
 });
 
-test('Windows: material checks contain the dry run while version, help and update checks start directly', { skip: process.platform !== 'win32' }, async () => {
-  const command = await fakeCli(join(root, 'direct-probes', 'cli.mjs'), `const args = process.argv.slice(2);
-if (args[0] === '--version') console.log('0.1.43');
-else if (args.includes('--help')) console.log('--dry-run');
-else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));
-else if (args[0] === 'update-check') console.log(JSON.stringify({ current: '0.1.43', latest: '0.1.44', update_available: true }));`);
-  const launches = [];
-  const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => {
-    launches.push(launch.args);
-    return windowsJobLaunch(launch);
-  } });
-  assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
-  assert.equal(launches.length, 1);
-  assert.ok(launches[0].includes('--dry-run'));
-  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.44' });
-  assert.equal(launches.length, 1);
-});
-
 test('Windows: a missing CLI path is cli_not_found, not ENOENT', { skip: process.platform !== 'win32' }, async () => {
   for (const command of [join(root, 'missing', 'playground.cmd'), join(root, 'missing', 'cli.js'), join(root, 'missing', 'playground')]) {
-    await assert.rejects(() => createPlaygroundCli({ command }).submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
+    await assert.rejects(() => createPlaygroundCli({ command }).authLogin('demo', 'synthetic-password', {}),
       (error) => error.code === 'cli_not_found' && error.started === false && !error.message.includes(root), command);
   }
 });
@@ -359,9 +333,9 @@ test('a relative cliPath runs from the CLI working directory, not the host direc
   process.chdir(host);
   try {
     const cli = createPlaygroundCli({ command: 'tools/cli.mjs' });
-    assert.deepEqual(await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd: workspace }), ['workspace']);
+    assert.deepEqual(await cli.authLogin('demo', 'synthetic-password', { cwd: workspace }), ['workspace']);
     // The same instance follows the working directory instead of reusing the first resolution.
-    assert.deepEqual(await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd: host }), ['host']);
+    assert.deepEqual(await cli.authLogin('demo', 'synthetic-password', { cwd: host }), ['host']);
   } finally {
     process.chdir(previous);
   }
@@ -379,21 +353,21 @@ test('errors say whether the CLI process started', { timeout: 60000 }, async (t)
   };
   const cli = createPlaygroundCli({ command: await fakeCli(join(bin, 'argv.mjs')) });
   // The working directory does not exist, so spawning fails before a process exists.
-  await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd: join(bin, 'no such dir') }), notStarted);
+  await assert.rejects(() => cli.authLogin('demo', 'synthetic-password', { cwd: join(bin, 'no such dir') }), notStarted);
   const failing = createPlaygroundCli({ command: await fakeCli(join(bin, 'fail.mjs'), "console.error('rejected'); process.exit(3);") });
-  await assert.rejects(() => failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started('cli_error'));
+  await assert.rejects(() => failing.authLogin('demo', 'synthetic-password', {}), started('cli_error'));
   const text = createPlaygroundCli({ command: await fakeCli(join(bin, 'text.mjs'), "console.log('not json');") });
-  await assert.rejects(() => text.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started(undefined));
+  await assert.rejects(() => text.authLogin('demo', 'synthetic-password'), started(undefined));
   // The Windows helper compiles before the CLI starts. Advance only the parent's deadline after
   // the CLI records its PID, so startup speed cannot change the expected `started` value.
-  const options = { timeoutMs: 300, submitTimeoutMs: 30000, killGraceMs: 1000 };
+  const options = { timeoutMs: 300, killGraceMs: 1000 };
   const loginBoundMs = 10000;
   const pidFile = join(markers, 'started-login.pid');
-  const submitPidFile = join(markers, 'started-submit.pid');
+  const slowPidFile = join(markers, 'started-slow-login.pid');
   const hanging = createPlaygroundCli({ ...options,
     command: await fakeCli(join(bin, 'hang.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`) });
-  const slow = createPlaygroundCli({ ...options,
-    command: await fakeCli(join(bin, 'slow.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(submitPidFile)}, String(process.pid)); setTimeout(() => console.log(JSON.stringify(['done'])), 3000);`) });
+  const slow = createPlaygroundCli({ ...options, timeoutMs: 30000,
+    command: await fakeCli(join(bin, 'slow.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(slowPidFile)}, String(process.pid)); setTimeout(() => console.log(JSON.stringify(['done'])), 3000);`) });
   let watchdog;
   t.mock.timers.enable({ apis: ['setTimeout'] });
   try {
@@ -408,16 +382,16 @@ test('errors say whether the CLI process started', { timeout: 60000 }, async (t)
       t.mock.timers.tick(options.killGraceMs);
       return Promise.race([login, unbounded]);
     }, started('cli_terminated'));
-    const submission = slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
-    assert.equal(await Promise.race([waitUntil(() => existsSync(submitPidFile), loginBoundMs), submission]), true, 'the submit CLI never started');
+    const slowLogin = slow.authLogin('name@example.test', 'synthetic-password');
+    assert.equal(await Promise.race([waitUntil(() => existsSync(slowPidFile), loginBoundMs), slowLogin]), true, 'the slower login CLI never started');
     t.mock.timers.tick(options.timeoutMs);
     await sleep(50);
     t.mock.timers.tick(options.killGraceMs);
-    assert.deepEqual(await submission, ['done']);
+    assert.deepEqual(await slowLogin, ['done']);
   } finally {
     t.mock.timers.reset();
     clearTimeout(watchdog);
-    await killRecorded(pidFile, submitPidFile);
+    await killRecorded(pidFile, slowPidFile);
   }
 });
 
@@ -425,7 +399,7 @@ test('a failed CLI keeps its output streams for classification but hides them fr
   const failing = createPlaygroundCli({
     command: await fakeCli(join(root, 'streams', 'fail.mjs'), "console.log('stub-stdout'); console.error('error: stub-stderr'); process.exit(1);"),
   });
-  const error = await failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }).then(
+  const error = await failing.authLogin('demo', 'synthetic-password', {}).then(
     () => assert.fail('expected the stub CLI to fail'),
     (failure) => failure,
   );
@@ -446,7 +420,7 @@ test('Windows: the current directory is never searched for the CLI or node', { s
     await writeFile(join(cwd, name), `@echo planted> "${marker}"\r\n`);
   }
   // Only the planted copy exists, so the lookup fails without running it.
-  await assert.rejects(() => createPlaygroundCli({ command: 'fakeplanted' }).submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd }),
+  await assert.rejects(() => createPlaygroundCli({ command: 'fakeplanted' }).authLogin('demo', 'synthetic-password', { cwd }),
     (error) => error.code === 'cli_not_found');
   const bin = join(root, 'planted bin');
   const entry = await fakeCli(join(bin, 'node_modules', '@fake', 'cli', 'dist', 'index.js'));
@@ -471,7 +445,7 @@ test('Windows: a missing Node.js is cli_node_missing for a .js cliPath and a rec
   await mkdir(empty, { recursive: true });
   await withEnv({ PATH: empty }, async () => {
     for (const command of [script, shim]) {
-      await assert.rejects(() => createPlaygroundCli({ command }).submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
+      await assert.rejects(() => createPlaygroundCli({ command }).authLogin('demo', 'synthetic-password', {}),
         (error) => error.code === 'cli_node_missing' && error.started === false && !error.message.includes(root), command);
     }
   });
@@ -491,7 +465,7 @@ test('Windows: one CLI instance follows PATH changes', { skip: process.platform 
     const bin = join(root, `cache ${name}`);
     await fakeCli(join(bin, 'node_modules', '@fake', 'cli', 'dist', 'index.js'), `console.log(JSON.stringify(['${name}']));`);
     await writeFile(join(bin, 'fakecache.cmd'), npmShim('node_modules\\@fake\\cli\\dist\\index.js'));
-    assert.deepEqual(await withPath(bin, () => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' })), [name]);
+    assert.deepEqual(await withPath(bin, () => cli.authLogin('demo', 'synthetic-password', {})), [name]);
   }
 });
 
@@ -516,7 +490,7 @@ test('Windows: a shim directory node.exe is preferred over PATH node', { skip: p
   await fakeCli(join(bin, 'node_modules', '@fake', 'cli', 'dist', 'index.js'), 'console.log(JSON.stringify([process.execPath]));');
   await writeFile(join(bin, 'fakeplayground.cmd'), npmShim('node_modules\\@fake\\cli\\dist\\index.js'));
   const node = await placeNode(join(bin, 'node.exe'));
-  const [execPath] = await createPlaygroundCli({ command: join(bin, 'fakeplayground.cmd') }).submit({ challengeId: 'demo', bundlePath: 'b.zip' });
+  const [execPath] = await createPlaygroundCli({ command: join(bin, 'fakeplayground.cmd') }).authLogin('demo', 'synthetic-password', {});
   assert.equal(execPath.toLowerCase(), node.toLowerCase());
 });
 
@@ -532,19 +506,19 @@ test('Windows: a wrapper that adds its own arguments is not parsed as a shim', {
   await fakeCli(join(bin, 'entry.js'));
   await writeFile(join(bin, 'fakewrapper.cmd'), '@set PLAYGROUND_X=1\r\n@node "%~dp0entry.js" --profile lab %*\r\n');
   const cli = createPlaygroundCli({ command: join(bin, 'fakewrapper.cmd') });
-  assert.deepEqual(await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
-    ['--profile', 'lab', 'submit', '--challenge-id', 'demo', '--bundle', 'b.zip']);
+  assert.deepEqual(await cli.authLogin('demo', 'synthetic-password', {}),
+    ['--profile', 'lab', 'auth', 'login', '--email', 'demo']);
   // The guarded cmd fallback handles it, so cmd metacharacters are refused.
-  await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', method: 'a & b' }),
+  await assert.rejects(() => cli.authLogin('a & b', 'synthetic-password'),
     (error) => error.code === 'cli_unsafe_argument');
 });
 
 test('Windows: an .exe found on PATH is started directly', { skip: process.platform !== 'win32' }, async () => {
   const bin = join(root, 'exe 目录');
   await placeNode(join(bin, 'fakeexe.exe'));
-  // The renamed node runs ./submit from cwd, so argv starts after the subcommand.
+  // The renamed node runs ./auth from cwd, so argv starts after the subcommand.
   const cwd = join(root, 'exe 工作区');
-  await fakeCli(join(cwd, 'submit'));
+  await fakeCli(join(cwd, 'auth'));
   await withPath(bin, () => expectArgv(createPlaygroundCli({ command: 'fakeexe' }), TRICKY, { drop: 1, cwd }));
 });
 
@@ -556,8 +530,8 @@ test('Windows: an unrecognized shim falls back to cmd and still passes safe argu
   await expectArgv(cli, ['DSH Playground plugin', '中文 参数', '(paren) ok', 'C:\\dir with space\\', 'C:\\a\\b']);
   assert.deepEqual(await cli.authLogin('name+tag@example.test', 'synthetic-password'), ['auth', 'login', '--email', 'name+tag@example.test']);
   for (const value of ['', ',', ';', '=', 'a,b;c=d', ' , ; = ']) {
-    assert.deepEqual(await cli.submit({ challengeId: value, bundlePath: value }),
-      ['submit', '--challenge-id', value, '--bundle', value], JSON.stringify(value));
+    assert.deepEqual(await cli.authLogin(value, 'synthetic-password'),
+      ['auth', 'login', '--email', value], JSON.stringify(value));
   }
 });
 
@@ -568,7 +542,7 @@ test('Windows: the cmd fallback refuses arguments cmd would interpret', { skip: 
   const cli = createPlaygroundCli({ command: join(bin, 'fakeother.cmd') });
   const marker = join(markers, 'fallback.txt');
   for (const value of [`x & echo marker> ${marker}`, 'a|b', 'a^b', '%PATH%', '!PATH!', 'say "hi"', 'a<b', 'a>b', 'a\nb', 'a\rb']) {
-    await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', method: value }),
+    await assert.rejects(() => cli.authLogin(value, 'synthetic-password'),
       (error) => error.code === 'cli_unsafe_argument' && error.started === false && /cliPath/.test(error.message)
         && !error.message.includes(root), JSON.stringify(value));
   }
@@ -618,7 +592,7 @@ const delayedMarker = (marker) => `const fs = require('node:fs'); fs.writeFileSy
 // Cancels the CLI once it has really started; whatever it started must be gone before the marker is due.
 async function expectTreeEnded(cli, marker) {
   const controller = new AbortController();
-  const outcome = cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: controller.signal }).then(
+  const outcome = cli.authLogin('demo', 'synthetic-password', { signal: controller.signal }).then(
     () => assert.fail('expected the CLI to be cancelled'),
     (failure) => failure,
   );
@@ -669,11 +643,11 @@ test('a timeout ends a hanging CLI within the grace period', async () => {
   const cli = createPlaygroundCli({
     command: await fakeCli(join(root, 'hang', 'hang.mjs'),
       `import { writeFileSync } from 'node:fs'; writeFileSync(${quote(pidFile)}, String(process.pid)); ${HANG}`),
-    submitTimeoutMs: TIMEOUT,
+    timeoutMs: TIMEOUT,
     killGraceMs: GRACE,
   });
   const begin = Date.now();
-  const error = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }).then(
+  const error = await cli.authLogin('demo', 'synthetic-password', {}).then(
     () => assert.fail('expected the CLI to be terminated'),
     (failure) => failure,
   );
@@ -693,101 +667,7 @@ test('a timeout ends a hanging CLI within the grace period', async () => {
 // SIGTERM does not exist on Windows, where the CLI is always ended with taskkill /F, so this
 // only runs on macOS and Linux. SIGTERM is ignored, so SIGKILL and the end of the wait both
 // come at TIMEOUT + GRACE; the bound leaves 1500 ms for timer jitter and process start-up.
-test('a CLI that ignores SIGTERM is ended after the grace period and keeps its output on the error',
-  { skip: process.platform === 'win32' && 'Windows has no SIGTERM: the CLI is ended with taskkill /F' }, async () => {
-    const pidFile = join(markers, 'stubborn.pid');
-    const cli = createPlaygroundCli({
-      command: await fakeCli(join(root, 'stubborn', 'stubborn.mjs'), `import { writeFileSync } from 'node:fs';
-process.on('SIGTERM', () => {});
-writeFileSync(${quote(pidFile)}, String(process.pid));
-console.log('partial-out'); console.error('partial-err');
-${HANG}`),
-      submitTimeoutMs: TIMEOUT,
-      killGraceMs: GRACE,
-    });
-    const begin = Date.now();
-    const error = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }).then(
-      () => assert.fail('expected the CLI to be terminated'),
-      (failure) => failure,
-    );
-    const elapsed = Date.now() - begin;
-    try {
-      assert.equal(error.code, 'cli_terminated');
-      assert.equal(error.started, true);
-      assert.ok(elapsed < TIMEOUT + GRACE + 1500, `run() took ${elapsed} ms`);
-      assert.match(error.stdout, /partial-out/);
-      assert.match(error.stderr, /partial-err/);
-      assert.equal(Object.keys(error).includes('stdout'), false);
-      const pid = await readPid(pidFile);
-      assert.ok(pid > 0, 'the CLI never started');
-      assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the CLI is still running');
-    } finally {
-      await killRecorded(pidFile);
-    }
-  });
 
-test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open', async () => {
-    const pidFile = join(markers, 'held.pid');
-    const timeout = 3000;
-    // On POSIX the grandchild ignores SIGTERM until SIGKILL at timeout + GRACE. Windows closes
-    // its job on cancellation. The pid is recorded before the CLI prints and exits.
-    const grandchild = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${quote(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
-    const cli = createPlaygroundCli({
-      command: await fakeCli(join(root, 'held', 'held.mjs'), `import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit', detached: ${process.platform === 'win32'} }).unref();
-const wait = setInterval(() => {
-  if (!existsSync(${quote(pidFile)})) return;
-  clearInterval(wait);
-  console.log(JSON.stringify(['done']));
-}, 20);`),
-      submitTimeoutMs: timeout,
-      killGraceMs: GRACE,
-    });
-    try {
-      const begin = Date.now();
-      const output = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
-      const elapsed = Date.now() - begin;
-      assert.deepEqual(output, ['done']);
-      if (process.platform !== 'win32') {
-        assert.ok(elapsed >= timeout + GRACE - 100, `run() returned after ${elapsed} ms, before the grace period ended`);
-      }
-      assert.ok(elapsed < timeout + GRACE + 1500, `run() took ${elapsed} ms`);
-      const pid = await readPid(pidFile);
-      assert.ok(pid > 0, 'the grandchild never started');
-      assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the grandchild is still running');
-    } finally {
-      await killRecorded(pidFile);
-    }
-  });
-
-test('Windows: a dry-run precheck ends detached descendants after the CLI root exits', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
-  const marker = join(markers, 'precheck-orphan.txt');
-  const cli = createPlaygroundCli({
-    command: await fakeCli(join(root, 'precheck-orphan', 'cli.mjs'), `import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-const args = process.argv.slice(2);
-if (args[0] === '--version') console.log('0.1.43');
-else if (args.includes('--help')) console.log('--dry-run');
-else if (args.includes('--dry-run')) {
-  spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'inherit', detached: true }).unref();
-  const ready = setInterval(() => {
-    if (!existsSync(${quote(`${marker}.started`)})) return;
-    clearInterval(ready); console.log(JSON.stringify({ status: 'dry_run' }));
-  }, 20);
-}`),
-    timeoutMs: 3000,
-    killGraceMs: GRACE,
-  });
-  try {
-    assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
-    const pid = await readPid(`${marker}.started`);
-    assert.ok(pid > 0, 'the detached descendant never started');
-    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the detached descendant is still running');
-    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
-    assert.equal(existsSync(marker), false);
-  } finally { await killRecorded(`${marker}.started`); }
-});
 
 test('Windows: a login ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
   const marker = join(markers, 'orphaned-login.txt');
@@ -907,13 +787,13 @@ test('an abort signal stops the CLI, and an already aborted signal never starts 
   });
   const cancelled = new AbortController();
   cancelled.abort();
-  await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: cancelled.signal }),
+  await assert.rejects(() => cli.authLogin('demo', 'synthetic-password', { signal: cancelled.signal }),
     (error) => error.code === 'cli_terminated' && error.started === false);
   await sleep(300);
   assert.equal(existsSync(pidFile), false);
   // Abort only once the CLI has written its pid, then check that this process is really gone.
   const running = new AbortController();
-  const outcome = cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: running.signal }).then(
+  const outcome = cli.authLogin('demo', 'synthetic-password', { signal: running.signal }).then(
     () => assert.fail('expected the CLI to be cancelled'),
     (failure) => failure,
   );
@@ -938,186 +818,8 @@ test('starting the CLI emits no shell deprecation warning', () => {
   assert.deepEqual(warnings.filter((warning) => warning.code === 'DEP0190').map(String), []);
 });
 
-const required = { challengeId: 'challenge-a', bundlePath: 'bundle.zip' };
-const NEW_FIELD_FLAGS = ['--manifest', '--outcome', '--detail', '--author-name'];
-const hasFlag = (args, flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
-
-test('submit arguments include every given submission field', () => {
-  assert.deepEqual(buildSubmitArgs({
-    ...required, tracePath: 'trace.jsonl', model: 'model-a', harness: 'harness-a', method: 'method-a',
-    manifestPath: 'arm_manifest.json', outcome: 'success', detail: 'Run notes', authorName: 'Agent A',
-  }), [
-    'submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl',
-    '--model', 'model-a', '--harness', 'harness-a', '--method', 'method-a',
-    '--manifest=arm_manifest.json', '--outcome', 'success', '--detail=Run notes', '--author-name=Agent A',
-  ]);
-});
-
-test('free-text values that start with "--" stay attached to their flag', () => {
-  const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', manifestPath: '--odd/arm_manifest.json', detail: '--- notes', authorName: '--agent=a' });
-  assert.deepEqual(args.slice(-3), ['--manifest=--odd/arm_manifest.json', '--detail=--- notes', '--author-name=--agent=a']);
-});
-
-test('submit arguments omit fields that were not given so the CLI keeps its defaults', () => {
-  for (const blank of [undefined, '', '   ']) {
-    const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', manifestPath: blank, outcome: blank, detail: blank, authorName: blank });
-    assert.deepEqual(args, ['submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl']);
-  }
-});
-
-test('a retry into an existing attempt re-uploads only the bundle', () => {
-  const args = buildSubmitArgs({
-    ...required, attemptId: 7, tracePath: 'trace.jsonl', manifestPath: 'arm_manifest.json',
-    outcome: 'failed', detail: 'Run notes', authorName: 'Agent A',
-  });
-  assert.deepEqual(args, ['submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--attempt-id', '7']);
-});
-
-test('submit arguments accept only declarable outcomes', () => {
-  assert.throws(() => buildSubmitArgs({ ...required, outcome: 'excellent' }), (error) => error.code === 'invalid_argument' && error.started === false);
-});
-
-test('a retry built from confirm() options carries none of the new attempt fields', () => {
-  // The same option object confirm() hands to cli.submit() for a retry with every field set.
-  const args = buildSubmitArgs({
-    challengeId: 'challenge-a', bundlePath: 'bundle.zip', tracePath: undefined, attemptId: 7, model: 'model-a',
-    harness: 'harness-a', method: 'method-a', manifestPath: '/abs/arm_manifest.json', outcome: 'success', detail: 'Run notes', authorName: 'Agent A',
-  });
-  for (const flag of NEW_FIELD_FLAGS) assert.equal(hasFlag(args, flag), false, flag);
-});
-
-test('createPlaygroundCli().submit() runs the CLI with the built arguments, including spaces and a leading "--"', async () => {
-  const cli = createPlaygroundCli({ command: await fakeCli(join(root, 'fields', 'fake-cli.mjs')), baseUrl: 'http://127.0.0.1:9/api' });
-  const withFields = await cli.submit({
-    ...required, tracePath: 'trace.jsonl', manifestPath: 'arm manifest.json', outcome: 'stuck', detail: '--- run & notes', authorName: 'agent a',
-  });
-  assert.deepEqual(withFields, [
-    'submit', '--challenge-id', 'challenge-a', '--bundle', 'bundle.zip', '--trace', 'trace.jsonl',
-    '--manifest=arm manifest.json', '--outcome', 'stuck', '--detail=--- run & notes', '--author-name=agent a',
-    '--api-base', 'http://127.0.0.1:9',
-  ]);
-  const withoutFields = await cli.submit({ ...required, tracePath: 'trace.jsonl' });
-  for (const flag of NEW_FIELD_FLAGS) assert.equal(hasFlag(withoutFields, flag), false, flag);
-});
-
-// The update notice and trace error Playground CLI 0.1.47 prints on stderr (maybePrintUpdateNotice,
-// loadTraceSteps and the start of TRACE_REQUIRED_HELP).
 const UPDATE_NOTICE = 'Playground CLI 0.1.43 is outdated; latest is 0.1.47.\nPlease update as soon as possible; otherwise, your score may be affected.\n请尽快更新，否则会影响评分。\nUpgrade with / 更新命令：\n  curl -fsSL https://play.bohrium.com/install.sh | bash\n';
-const TRACE_ERROR = 'error: could not derive normalized trace steps from C:\\fake-root\\trace.jsonl\nA trajectory is REQUIRED for every agent submission. Pass one with --trace PATH or --raw-messages PATH.\n';
-const DRY_RUN = JSON.stringify({ status: 'dry_run', bundle: 'bundle.zip', bundle_sha256: 'a'.repeat(64), manifest: {}, trace_steps: [{ content: 'TRACE-STEP-TEXT' }] }, null, 2);
-
-// Fake CLI for the precheck: logs each argv as a JSON line, answers --version and update-check, and
-// prints `stderr`, `stdout` and exits with `exit` for submit.
-const SUBMIT_HELP = 'playground submit --challenge-id ID --bundle PATH [--dry-run]\n  --dry-run   Build and validate the bundle without submitting\n';
-// `big` appends that many characters to the stdout of submit, as a long trace does; the process ends
-// by itself so the output is flushed.
-function precheckSource(log, { version = '0.1.43', stderr = '', stdout = DRY_RUN, exit = 0, help = SUBMIT_HELP, helpExit = 0, big = 0, update = { current: '0.1.43', latest: '0.1.47', checked: true, update_available: true } } = {}) {
-  return `import { appendFileSync } from 'node:fs';
-const argv = process.argv.slice(2);
-appendFileSync(${quote(log)}, JSON.stringify(argv) + '\\n');
-if (argv[0] === '--version') { console.log(${quote(version)}); process.exit(0); }
-if (argv[0] === 'update-check') { console.log(${quote(JSON.stringify(update, null, 2))}); process.exit(0); }
-if (argv[0] === 'submit' && argv.includes('--help')) { console.log(${quote(help)}); process.exit(${helpExit}); }
-process.stderr.write(${quote(stderr)});
-console.log(${quote(stdout)} + 'x'.repeat(${big}));
-process.exitCode = ${exit};`;
-}
 const loggedCalls = async (log) => (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-
-async function precheckCli(name, options, cliOptions = {}) {
-  const log = join(root, `precheck ${name}`, 'calls.log');
-  const command = await fakeCli(join(root, `precheck ${name}`, 'cli.mjs'), precheckSource(log, options));
-  return { log, cli: createPlaygroundCli({ command, ...cliOptions }) };
-}
-
-test('precheck runs submit with the same arguments plus --dry-run and returns only its status and versions', async () => {
-  const { log, cli } = await precheckCli('ok', { stderr: UPDATE_NOTICE }, { baseUrl: 'http://127.0.0.1:9/api' });
-  const options = { ...required, tracePath: 'trace.jsonl', method: 'a & b 中文', manifestPath: 'arm manifest.json', detail: '--- notes', model: 'model-a' };
-  const result = await cli.precheck(options);
-  assert.deepEqual(result, { status: 'dry_run', version: '0.1.43', update: { current: '0.1.43', latest: '0.1.47' } });
-  assert.doesNotMatch(JSON.stringify(result), /TRACE-STEP|bundle_sha256|outdated/);
-  await cli.submit(options);
-  const calls = await loggedCalls(log);
-  assert.deepEqual(calls[0], ['--version']);
-  assert.deepEqual(calls[1], ['submit', '--help']);
-  assert.deepEqual(calls[2], [...buildSubmitArgs(options), '--dry-run', '--api-base', 'http://127.0.0.1:9']);
-  // The confirmed submission sends exactly the dry-run arguments without --dry-run.
-  assert.deepEqual(calls[3], calls[2].filter((arg) => arg !== '--dry-run'));
-  // The help probe runs once per command and version.
-  await cli.precheck(options);
-  assert.equal((await loggedCalls(log)).filter((call) => call.includes('--help')).length, 1);
-  // The notice the precheck saw serves the login area. The precheck's own --version just confirmed
-  // the installed version, so no further process is needed.
-  const before = (await loggedCalls(log)).length;
-  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.equal((await loggedCalls(log)).length, before);
-  assert.equal((await loggedCalls(log)).some((call) => call[0] === 'update-check'), false);
-});
-
-test('precheck never asks a CLI older than 0.1.43, or of unknown version, to dry-run', async () => {
-  for (const [name, version, expected, reason] of [['old', '0.1.42', '0.1.42', 'old_version'], ['odd', 'playground (custom build)', undefined, 'unknown_version']]) {
-    const { log, cli } = await precheckCli(name, { version });
-    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
-      (error) => error.code === 'cli_precheck_unsupported' && error.version === expected && error.reason === reason, name);
-    assert.deepEqual(await loggedCalls(log), [['--version']], name);
-  }
-});
-
-test('precheck marks a failing --version, so the caller does not blame the materials', async () => {
-  const broken = createPlaygroundCli({ command: await fakeCli(join(root, 'precheck broken version', 'cli.mjs'), 'process.exit(2);') });
-  const error = await broken.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
-  assert.equal(error.code, 'cli_error');
-  assert.equal(error.precheckStage, 'version');
-  // A dry run that fails is a materials failure and carries no such mark.
-  const { cli } = await precheckCli('materials fail', { stderr: TRACE_ERROR, stdout: '', exit: 1 });
-  const rejected = await cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
-  assert.equal(rejected.code, 'cli_error');
-  assert.equal(rejected.precheckStage, undefined);
-});
-
-test('precheck never dry-runs a CLI whose submit help does not list --dry-run, even at an allowed version', async () => {
-  for (const [name, options] of [
-    ['no flag', { help: 'playground submit --challenge-id ID --bundle PATH\n' }],
-    ['similar flag', { help: 'playground submit [--dry-run-extra] [--no-dry-run]\n' }],
-    ['help fails', { helpExit: 2 }],
-  ]) {
-    const { log, cli } = await precheckCli(name, options);
-    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
-      (error) => error.code === 'cli_precheck_unsupported' && error.reason === 'no_dry_run' && error.version === '0.1.43' && error.started === true, name);
-    assert.deepEqual(await loggedCalls(log), [['--version'], ['submit', '--help']], name);
-  }
-  // A definite answer is cached per version; a failing probe is not.
-  const { log, cli } = await precheckCli('cached', { help: 'playground submit\n' });
-  for (let round = 0; round < 2; round += 1) await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { reason: 'no_dry_run' });
-  assert.equal((await loggedCalls(log)).filter((call) => call.includes('--help')).length, 1);
-  const failing = await precheckCli('uncached', { helpExit: 2 });
-  for (let round = 0; round < 2; round += 1) await assert.rejects(() => failing.cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { reason: 'no_dry_run' });
-  assert.equal((await loggedCalls(failing.log)).filter((call) => call.includes('--help')).length, 2);
-});
-
-test('precheck keeps only the head of a long dry-run output', async () => {
-  // The head carries the status; the rest is a 5 MB trace that is not valid JSON, so only the
-  // head can have been used.
-  const head = '{\n  "status": "dry_run",\n  "trace_steps": [\n    "';
-  const { cli } = await precheckCli('big ok', { stdout: head, big: 5_000_000 });
-  assert.equal((await cli.precheck({ ...required, tracePath: 'trace.jsonl' })).status, 'dry_run');
-  // Streams of a failed run stay bounded too, and stderr is untouched.
-  const failing = await precheckCli('big fail', { stdout: head, big: 5_000_000, stderr: UPDATE_NOTICE + TRACE_ERROR, exit: 1 });
-  const error = await failing.cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
-  assert.ok(error.stdout.length <= 65536, `stdout kept ${error.stdout.length} characters`);
-  assert.match(error.stderr, /could not derive normalized trace steps/);
-  // A head without a status is still not a dry-run result.
-  const noStatus = await precheckCli('big no status', { stdout: '{\n  "trace_steps": [\n    "', big: 5_000_000 });
-  await assert.rejects(() => noStatus.cli.precheck({ ...required, tracePath: 'trace.jsonl' }), { code: 'cli_invalid_output' });
-});
-
-test('buildSubmitArgs never emits --cite, which would make a dry run use the network', () => {
-  const args = buildSubmitArgs({ ...required, tracePath: 'trace.jsonl', model: 'm', harness: 'h', method: 'x', manifestPath: 'a.json', outcome: 'stuck', detail: '--cite', authorName: '--cite' });
-  assert.equal(args.includes('--cite'), false);
-  // A user value that looks like the flag stays inside its own `--flag=value` argument.
-  assert.ok(args.includes('--detail=--cite'));
-  assert.equal(buildSubmitArgs({ ...required, attemptId: 7 }).includes('--cite'), false);
-});
 
 test('compareVersions orders dotted versions numerically and puts a pre-release before its release', () => {
   for (const [a, b, expected] of [
@@ -1127,45 +829,6 @@ test('compareVersions orders dotted versions numerically and puts a pre-release 
     assert.equal(compareVersions(a, b), expected, `${a} vs ${b}`);
     assert.equal(compareVersions(b, a), -expected || 0, `${b} vs ${a}`);
   }
-});
-
-test('a trace the CLI rejects fails the precheck with the update notice and hidden output streams', async () => {
-  const { cli } = await precheckCli('bad trace', { stderr: UPDATE_NOTICE + TRACE_ERROR, stdout: '', exit: 1 });
-  const error = await cli.precheck({ ...required, tracePath: 'trace.jsonl' }).then(() => assert.fail('expected a rejection'), (failure) => failure);
-  assert.equal(error.code, 'cli_error');
-  assert.equal(error.started, true);
-  assert.deepEqual(error.update, { current: '0.1.43', latest: '0.1.47' });
-  assert.match(error.stderr, /could not derive normalized trace steps/);
-  assert.equal(Object.keys(error).includes('stderr'), false);
-  assert.doesNotMatch(JSON.stringify(error), /could not derive|outdated/);
-});
-
-test('precheck refuses a CLI that exits cleanly without a dry-run result', async () => {
-  for (const [name, stdout] of [['text', 'submitted'], ['other json', JSON.stringify({ attempt_id: 7 })]]) {
-    const { cli } = await precheckCli(name, { stdout });
-    await assert.rejects(() => cli.precheck({ ...required, tracePath: 'trace.jsonl' }),
-      (error) => error.code === 'cli_invalid_output' && error.started === true && !Object.keys(error).includes('stdout'), name);
-  }
-});
-
-test('updateStatus runs the read-only update-check once and reports only a newer release', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 });
-  const { log, cli } = await precheckCli('update', {});
-  assert.deepEqual(await Promise.all([cli.updateStatus(), cli.updateStatus()]), [{ current: '0.1.43', latest: '0.1.47' }, { current: '0.1.43', latest: '0.1.47' }]);
-  // Concurrent callers shared one update-check; a call within 30 s starts no process at all.
-  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.deepEqual(await loggedCalls(log), [['update-check']]);
-  // A later call only confirms the installed version.
-  t.mock.timers.tick(31_000);
-  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.47' });
-  assert.deepEqual(await loggedCalls(log), [['update-check'], ['--version']]);
-  const current = await precheckCli('current', { update: { current: '0.1.47', latest: '0.1.47', checked: true, update_available: false } });
-  assert.equal(await current.cli.updateStatus(), null);
-  const hostile = await precheckCli('hostile', { update: { current: '0.1.43; rm -rf /', latest: '<b>9</b>', update_available: true } });
-  assert.equal(await hostile.cli.updateStatus(), null);
-  const failing = createPlaygroundCli({ command: await fakeCli(join(root, 'precheck failing', 'cli.mjs'), 'process.exit(2);') });
-  assert.equal(await failing.updateStatus(), null);
-  assert.equal(await createPlaygroundCli({ command: `playground-missing-${process.pid}` }).updateStatus(), null);
 });
 
 // A fake whose answers come from a state file, so a test can "update the CLI" between calls.
@@ -1287,7 +950,7 @@ test('updateStatus: a failed check, including one the CLI reports itself, is ret
 });
 
 test('parseCliUpdate keeps only the two version numbers of the outdated notice', () => {
-  assert.deepEqual(parseCliUpdate(`${UPDATE_NOTICE}${TRACE_ERROR}`), { current: '0.1.43', latest: '0.1.47' });
+  assert.deepEqual(parseCliUpdate(`${UPDATE_NOTICE}error: synthetic diagnostic`), { current: '0.1.43', latest: '0.1.47' });
   assert.deepEqual(parseCliUpdate('Playground CLI 0.1.43 is outdated; latest is 0.2.0-beta.1.'), { current: '0.1.43', latest: '0.2.0-beta.1' });
   for (const text of ['', undefined, 'error: could not derive normalized trace steps', 'Playground CLI $(whoami) is outdated; latest is 0.1.47.',
     'Playground CLI 0.1.43 is outdated; latest is <script>.']) {
@@ -1303,101 +966,8 @@ const token = process.env.PLAYGROUND_TOKEN ?? null;
 const worker = process.env.PLAYGROUND_WORKER_TOKEN ?? null;
 console.log(JSON.stringify(argv.includes('--dry-run') ? { status: 'dry_run', argv, token, worker } : { argv, token, worker }));`;
 
-test('#12: submit and the dry-run precheck hand the resolved token to the CLI as PLAYGROUND_TOKEN, never as an argument', async () => {
-  // The developer's own PLAYGROUND_TOKEN is removed for this test, so a failing assertion can only ever
-  // print a synthetic value.
-  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: 'synthetic-worker-token' }, async () => {
-    const command = await fakeCli(join(root, 'token env', 'cli.mjs'), PRINT_TOKEN);
-    let resolved = '  synthetic-dsh-token  ';
-    const cli = createPlaygroundCli({ command, resolveToken: async () => (resolved instanceof Error ? Promise.reject(resolved) : resolved) });
-    const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
-    const submitted = await cli.submit(options);
-    assert.equal(submitted.token, 'synthetic-dsh-token');
-    assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')));
-    // The CLI is told to read both the platform and the worker token from PLAYGROUND_TOKEN, so a tokenEnv or
-    // workerTokenEnv in its own config cannot choose another; an inherited worker token is removed.
-    const flags = submitted.argv.indexOf('--token-env');
-    assert.deepEqual(submitted.argv.slice(flags, flags + 4), ['--token-env', 'PLAYGROUND_TOKEN', '--worker-token-env', 'PLAYGROUND_TOKEN']);
-    assert.equal(submitted.worker, null);
-    // The precheck's dry run sees the same token; its result carries neither the token nor the CLI output.
-    const prechecked = await cli.precheck(options);
-    assert.deepEqual(prechecked, { status: 'dry_run', version: '0.1.47' });
-    // A token the resolver cannot give leaves the CLI's own lookup (environment, then its file) alone:
-    // no flags, and the inherited worker token stays.
-    for (const value of ['', '   ', new Error('store unavailable')]) {
-      resolved = value;
-      const result = await cli.submit(options);
-      assert.equal(result.token, null, String(value));
-      assert.equal(result.argv.includes('--token-env'), false, String(value));
-      assert.equal(result.worker, 'synthetic-worker-token', String(value));
-    }
-    // Without a resolver the CLI keeps the earlier behaviour.
-    const plain = await createPlaygroundCli({ command }).submit(options);
-    assert.equal(plain.token, null);
-    assert.equal(plain.argv.includes('--token-env'), false);
-  });
-});
-
-test('#12: the dry run itself carries the resolved token', async () => {
-  const log = join(root, 'token precheck', 'calls.log');
-  const source = `import { appendFileSync } from 'node:fs';
-const argv = process.argv.slice(2);
-if (argv[0] === '--version') { console.log('0.1.47'); process.exit(0); }
-if (argv.includes('--help')) { console.log('playground submit [--dry-run]'); process.exit(0); }
-appendFileSync(${quote(log)}, JSON.stringify({ argv, token: process.env.PLAYGROUND_TOKEN ?? null }) + '\\n');
-console.log(JSON.stringify({ status: 'dry_run' }));`;
-  const command = await fakeCli(join(root, 'token precheck', 'cli.mjs'), source);
-  const cli = createPlaygroundCli({ command, resolveToken: async () => 'synthetic-dsh-token' });
-  await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' });
-  const [call] = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
-  assert.equal(call.token, 'synthetic-dsh-token');
-  assert.ok(call.argv.includes('--dry-run'));
-  assert.ok(call.argv.includes('--token-env') && call.argv.includes('--worker-token-env'));
-  assert.ok(!call.argv.some((arg) => arg.includes('synthetic-')));
-});
-
-test('#12: a token the caller already resolved replaces the lookup for submit and the dry run', async () => {
-  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: 'synthetic-worker-token' }, async () => {
-    const command = await fakeCli(join(root, 'token preset', 'cli.mjs'), PRINT_TOKEN);
-    let lookups = 0;
-    const cli = createPlaygroundCli({ command, resolveToken: async () => { lookups += 1; return 'synthetic-later-token'; } });
-    const options = { challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' };
-    const submitted = await cli.submit({ ...options, token: ' synthetic-checked-token ' });
-    assert.equal(submitted.token, 'synthetic-checked-token');
-    assert.equal(submitted.worker, null);
-    assert.ok(!submitted.argv.some((arg) => arg.includes('synthetic-')), 'the token is not an argument');
-    await cli.precheck({ ...options, token: 'synthetic-checked-token' });
-    assert.equal(lookups, 0, 'no second lookup');
-    // An empty resolved token means the plugin has none: the CLI keeps its own lookup.
-    const empty = await cli.submit({ ...options, token: '' });
-    assert.equal(empty.token, null);
-    assert.equal(empty.argv.includes('--token-env'), false);
-    assert.equal(lookups, 0);
-  });
-});
-
 // Windows names are case-insensitive, and a child given two spellings of one name sees whichever sorts first.
-test('#12: on Windows the child sees no case variant of the worker token and only the plugin token', { skip: process.platform !== 'win32' }, async () => {
-  const source = `const argv = process.argv.slice(2);
-const names = Object.keys(process.env).filter((name) => /^playground_(worker_)?token$/i.test(name));
-console.log(JSON.stringify({ argv, names, token: process.env.PLAYGROUND_TOKEN ?? null, worker: process.env.PLAYGROUND_WORKER_TOKEN ?? null }));`;
-  await withEnv({ PLAYGROUND_TOKEN: undefined, PLAYGROUND_WORKER_TOKEN: undefined }, async () => {
-    process.env.Playground_Worker_Token = 'synthetic-variant-worker';
-    process.env.Playground_Token = 'synthetic-variant-token';
-    try {
-      assert.ok(Object.keys(process.env).includes('Playground_Worker_Token'), 'the variant spelling is kept by the parent');
-      const command = await fakeCli(join(root, 'token case', 'cli.mjs'), source);
-      const cli = createPlaygroundCli({ command, resolveToken: async () => 'synthetic-dsh-token' });
-      const result = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', tracePath: 'trace.jsonl' });
-      assert.equal(result.worker, null, 'no spelling of PLAYGROUND_WORKER_TOKEN reaches the child');
-      assert.equal(result.token, 'synthetic-dsh-token');
-      assert.deepEqual(result.names, ['PLAYGROUND_TOKEN'], 'one spelling of the token, none of the worker token');
-    } finally {
-      delete process.env.Playground_Worker_Token;
-      delete process.env.Playground_Token;
-    }
-  });
-});
+
 
 test('#12: the credentials file path is shown with ~ for the home directory', () => {
   const home = process.platform === 'win32' ? 'C:\\Users\\Someone' : '/home/someone';
