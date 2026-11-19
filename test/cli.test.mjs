@@ -153,6 +153,40 @@ writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
   assert.equal(existsSync(marker), false);
 });
 
+test('Windows: a recorded supervisor failure survives a later stop', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'failed-then-stopped.txt');
+  const helperPid = `${marker}.helper`;
+  const command = await fakeCli(join(root, 'failed-then-stopped', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'failed-then-stopped', 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+const launch = JSON.parse(process.env.PLAYGROUND_CLI_LAUNCH);
+writeFileSync(launch.receipt + '.nostart', '');
+console.error('synthetic Add-Type compiler failure');
+writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(() => {}, 1000);`);
+  const cli = createPlaygroundCli({ command, killGraceMs: 1000, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  const controller = new AbortController();
+  const outcome = cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal }).then(
+    () => assert.fail('expected the failed helper to reject'), (error) => error,
+  );
+  try {
+    assert.equal(await waitUntil(() => existsSync(helperPid), 10000), true, 'the helper never started');
+    controller.abort();
+    const error = await outcome;
+    assert.equal(error.code, 'cli_job_unavailable');
+    assert.equal(error.started, false);
+    assert.equal(error.jobState, 'nostart_marker');
+    assert.match(error.message, /Windows PowerShell.*Add-Type/);
+    assert.match(error.stderr, /synthetic Add-Type compiler failure/);
+    assert.doesNotMatch(JSON.stringify(error), /synthetic Add-Type compiler failure|nostart_marker/);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    controller.abort();
+    await killRecorded(helperPid);
+  }
+});
+
 for (const reason of ['cancelled', 'timed out']) {
   test(`Windows: stopping a preparing helper is ${reason} before the CLI starts`, { skip: process.platform !== 'win32', timeout: 20000 }, async (t) => {
     const marker = join(markers, `startup-${reason}.txt`);
@@ -181,7 +215,7 @@ writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(()
       const error = await outcome;
       assert.equal(error.code, 'cli_terminated');
       assert.equal(error.started, false);
-      assert.match(error.message, new RegExp(`${reason} before it started`));
+      assert.match(error.message, reason === 'cancelled' ? /was cancelled before it started/ : /was stopped at its timeout before it started/);
       assert.doesNotMatch(error.message, /PowerShell|Add-Type/);
       assert.equal(existsSync(marker), false);
     } finally {
