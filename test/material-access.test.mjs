@@ -46,7 +46,7 @@ async function fixture(t) {
     cli: { precheck: async () => { calls.push('precheck'); }, submit: async () => { calls.push('submit'); return { attempt_id: 7 }; } },
     readBundle: (...args) => { calls.push('readBundle'); return readBundle(...args); }, readTrace, readManifest });
   registerWorkbenchQueries(ctx, workflow);
-  return { root, cwd, outside, ctx, exec, events, calls, workflow, browserPeer,
+  return { root, cwd, outside, ctx, exec, events, calls, workflow, browserPeer, client,
     args: { challenge_id: 'challenge-a' },
     record: (value) => { state = workflowProjection.apply(state, { type: 'tool/result', data: { meta: presentationMeta({}, value) } }); },
     setState: (value) => { state = value; }, setDirectory: (value) => { directory = value; },
@@ -97,6 +97,20 @@ test('#73 r1: an unreadable discovery directory does not block workspace materia
   assert.deepEqual(f.calls, ['readBundle', 'precheck']);
 });
 
+test('#73 r2: explicit workspace materials do not request access to an unused external discovery junction', async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.cwd, 'arm_manifest.json'), '{}');
+  try { await symlink(f.outside, join(f.cwd, '.playground'), process.platform === 'win32' ? 'junction' : 'dir'); }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') { t.skip('Windows junction privilege is unavailable.'); return; }
+    throw error;
+  }
+  const result = await f.workflow.prepare({ ...f.args, bundle_path: 'bundle.zip', trace_path: 'trace.json', manifest_path: 'arm_manifest.json' }, f.exec);
+  assert.equal(result.ok, true, result.error?.message);
+  assert.deepEqual(f.calls, ['readBundle', 'precheck']);
+  assert.deepEqual((await f.workflow.materialAccess.status(f.exec)).requests, []);
+});
+
 test('absolute and .. external paths stop before content reads, hashes and CLI precheck', async (t) => {
   const f = await fixture(t);
   for (const bundle_path of [join(f.outside, 'bundle.zip'), relative(f.cwd, join(f.outside, 'bundle.zip'))]) {
@@ -136,6 +150,23 @@ test('an operation grant cannot change the input, purpose, session or become a d
   assert.equal((await operation.readFile(args.bundle_path)).length > 0, true);
   assert.equal((await operation.readFile(args.bundle_path)).length > 0, true);
   await assert.rejects(operation.readFile(join(f.outside, 'trace.json')), { code: 'material_authorization_required' });
+});
+
+test('#73 r2: a later request for the same operation expires an authorized grant whose resume failed', async (t) => {
+  const f = await fixture(t);
+  const args = { ...f.args, bundle_path: join(f.outside, 'bundle.zip') };
+  const blocked = await f.workflow.prepare(args, f.exec);
+  const approved = await f.authorize(blocked.workflow.request.requestId);
+  const getChallenge = f.client.getChallenge;
+  f.client.getChallenge = async () => { throw new Error('Synthetic network failure'); };
+  const failed = await f.workflow.prepare(approved.input, f.exec);
+  assert.equal(failed.ok, false);
+  f.client.getChallenge = getChallenge;
+  const next = await f.workflow.prepare(args, f.exec);
+  assert.equal(next.error.code, 'material_authorization_required');
+  assert.notEqual(next.workflow.request.requestId, blocked.workflow.request.requestId);
+  await assert.rejects(f.workflow.materialAccess.begin(f.exec, approved.input), { code: 'material_authorization_expired' });
+  assert.deepEqual(f.calls, []);
 });
 
 test('task grants are reusable and revoke, workspace changes, task end and restart invalidate them', async (t) => {
