@@ -17,6 +17,7 @@ import {
   formatSubmission,
 } from '../lib/format.js';
 import { createSubmitTool } from '../index.js';
+import { createMaterialAccess } from '../lib/material-access.js';
 
 const requests = [];
 const uploads = [];
@@ -198,7 +199,13 @@ try {
 
   console.log('\n=== 5. 提交评测（本地 mock，不访问真实平台） ===');
   const submitTool = createSubmitTool(client);
-  const submitted = await submitTool.execute({
+  const exec = { agent: { id: 'demo-task', session: { id: 'demo-task' } }, signal: new AbortController().signal };
+  const access = createMaterialAccess({
+    workingDirectory: { get: () => dir },
+    sessionProjections: { stateOf: () => ({ task: { cwd: dir, challengeId: 'demo-challenge' } }) },
+    workspaceRegistry: { resolveByPath: async () => ({ id: 'demo-workspace', path: dir }) },
+  });
+  const args = {
     challenge_id: 'demo-challenge',
     bundle_path: bundlePath,
     trace_path: tracePath,
@@ -206,7 +213,8 @@ try {
     model: 'local-model',
     harness: 'Local Harness',
     detail: 'Demonstration submission against the local mock.',
-  }, { signal: new AbortController().signal });
+  };
+  const submitted = await submitTool.execute(args, exec, { access: await access.begin(exec, args, 'confirm') });
   console.log(formatSubmission(submitted));
 
   console.log('\n=== mock 收到的 multipart（这就是真实平台会收到的内容） ===');
