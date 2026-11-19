@@ -1227,7 +1227,7 @@ export function apply(ctx, config) {
         return result.kind === 'opened' ? { ok: true, sessionId: result.sessionId, created: false }
           : { ok: false, error: { code: result.code, message: result.reason }, sessionIds: result.sessionIds };
       } });
-    scope.tools.register({ name: 'playground_controller_tasks', description: 'Read the current controller conversation’s direct delegated tasks and observed results.',
+    scope.tools.register({ name: 'playground_controller_tasks', description: 'Read the current controller conversation’s direct delegated tasks and observed results. When noticeIsHistorical is true, terminalText and noticeStopReason describe a historical notice and do not prove the current run has ended.',
       parameters: { type: 'object', properties: {}, additionalProperties: false }, output,
       execute: async (_args, exec) => {
         const marker = scope.sessionProjections.stateOf(exec.agent.session, 'playgroundController')?.marker;

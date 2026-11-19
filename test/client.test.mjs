@@ -5256,6 +5256,7 @@ test('controller stop reasons describe historical notices and never override a n
     let tree = f.render(Main, props);
     const button = f.find(tree, (node) => node.type === 'button' && text(node).includes(row.childId));
     assert.ok(text(button).includes(label), `${row.childId} shows ${label}`);
+    if (row.terminalText === '') assert.doesNotMatch(text(button), /已收到结果/);
     button.props.onClick();
     tree = f.render(Main, props);
     if (row.state === 'settled') {

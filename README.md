@@ -6,7 +6,7 @@
 
 Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者按题目要求完成任务，提交产物和执行记录，由平台评测。例如，知识管理赛题要求把整理科研资料的方法做成可复用的 Skill，并用实际案例验证效果。[Playground 官网](https://play.bohrium.com/) · [知识管理 Skill 赛题](https://play.bohrium.com/challenge/skill-a03257ca)
 
-![Playground 主控界面，左侧是对话，右侧是已收到历史结果的任务列表](assets/playground-controller.png)
+![Playground 主控界面，左侧是对话，右侧是已派发的任务列表](assets/playground-controller.png)
 
 ## 安装插件
 
