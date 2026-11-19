@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
+import { windowsJobLaunch } from '../lib/windows-process.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -110,6 +111,74 @@ test('a missing CLI is still reported as before', async () => {
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
     (error) => error.code === (process.platform === 'win32' ? 'cli_not_found' : 'ENOENT') && error.started === false
       && (process.platform !== 'win32' || !error.message.includes(command)));
+});
+
+test('Windows: a helper failure before the CLI starts is reported as unavailable', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-failure.txt');
+  const command = await fakeCli(join(root, 'helper-failure', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'helper-failure', 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+const launch = JSON.parse(process.env.PLAYGROUND_CLI_LAUNCH);
+writeFileSync(launch.receipt + '.nostart', '');
+console.error('synthetic Add-Type compiler failure'); process.exit(1);`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'), (error) => {
+    assert.equal(error.code, 'cli_job_unavailable');
+    assert.equal(error.started, false);
+    assert.match(error.message, /Windows PowerShell.*Add-Type/);
+    assert.doesNotMatch(error.message, /synthetic|not found|Install.*CLI/);
+    return true;
+  });
+  assert.equal(existsSync(marker), false);
+});
+
+test('Windows: an invalid executable fails before the CLI starts', { skip: process.platform !== 'win32' }, async () => {
+  const command = join(root, 'invalid.exe');
+  await writeFile(command, 'This is not a Windows executable.');
+  await assert.rejects(() => createPlaygroundCli({ command }).authLogin('synthetic@example.test', 'synthetic-password'),
+    (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+});
+
+test('Windows: a missing PowerShell or unusable helper temp directory is not a missing CLI', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-unavailable.txt');
+  const command = await fakeCli(join(root, 'helper-unavailable', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  for (const options of [{ powerShell: join(root, 'missing', 'powershell.exe') }, { tempRoot: join(root, 'missing-temp') }]) {
+    const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => windowsJobLaunch(launch, options) });
+    await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'),
+      (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+  }
+  assert.equal(existsSync(marker), false);
+});
+
+test('stale Windows job directories are removed without deleting recent or unrelated temp entries', async () => {
+  const tempRoot = await mkdtemp(join(root, 'job-sweep-'));
+  const stale = join(tempRoot, 'playground-cli-job-stale');
+  const recent = join(tempRoot, 'playground-cli-job-recent');
+  const unrelated = join(tempRoot, 'other-stale');
+  const file = join(tempRoot, 'playground-cli-job-file');
+  await Promise.all([stale, recent, unrelated].map((path) => mkdir(path)));
+  await writeFile(file, 'keep');
+  const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  await Promise.all([stale, unrelated, file].map((path) => utimes(path, old, old)));
+  const launch = await windowsJobLaunch({ file: process.execPath, args: [] }, { tempRoot });
+  try {
+    assert.equal(existsSync(stale), false);
+    for (const path of [recent, unrelated, file]) assert.equal(existsSync(path), true, path);
+  } finally { await launch.dispose(); }
+});
+
+test('Windows: version, help, dry-run and update checks do not need the Job helper', { skip: process.platform !== 'win32' }, async () => {
+  const command = await fakeCli(join(root, 'direct-probes', 'cli.mjs'), `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));
+else if (args[0] === 'update-check') console.log(JSON.stringify({ current: '0.1.43', latest: '0.1.44', update_available: true }));`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: () => { assert.fail('a short call used the Job helper'); } });
+  assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.44' });
 });
 
 test('Windows: a missing CLI path is cli_not_found, not ENOENT', { skip: process.platform !== 'win32' }, async () => {
@@ -518,7 +587,7 @@ const wait = setInterval(() => {
     }
   });
 
-test('Windows: a login timeout ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32' }, async () => {
+test('Windows: a login ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
   const marker = join(markers, 'orphaned-login.txt');
   const intermediatePidFile = `${marker}.parent`;
   const rootPidFile = `${marker}.root`;
@@ -537,7 +606,7 @@ writeFileSync(${quote(rootPidFile)}, String(process.pid));
 const intermediate = spawn(process.execPath, ['-e', ${quote(intermediate)}], { stdio: 'inherit', detached: true });
 intermediate.once('exit', () => console.log(JSON.stringify({ status: 'authenticated' })));`),
     killGraceMs: GRACE,
-    timeoutMs: TIMEOUT,
+    timeoutMs: 8000,
   });
   // This process belongs to the host, outside the CLI's job, and must survive its cleanup.
   const unrelated = spawn(process.execPath, ['-e', HANG], { stdio: 'ignore', windowsHide: true });
@@ -567,7 +636,31 @@ spawn(process.execPath, ['-e', "setTimeout(() => console.log(JSON.stringify(['wo
   assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), ['worker-result']);
 });
 
-test('Windows: cancellation after the CLI root exits ends its job and keeps the successful result', { skip: process.platform !== 'win32' }, async () => {
+test('Windows: a successful CLI does not wait for the call timeout when a background worker remains', { skip: process.platform !== 'win32', timeout: 15000 }, async () => {
+  const marker = join(markers, 'background-worker.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'background-worker', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'ignore', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready); console.log(JSON.stringify(['done']));
+}, 20);`),
+    timeoutMs: 30000,
+  });
+  const begin = Date.now();
+  try {
+    assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), ['done']);
+    assert.ok(Date.now() - begin < 10000, 'the successful CLI waited for its call timeout');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the background worker never started');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the background worker is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally { await killRecorded(`${marker}.started`); }
+});
+
+test('Windows: cancellation after the CLI root exits ends its job and keeps the successful result', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
   const marker = join(markers, 'cancelled-orphan.txt');
   const rootPidFile = `${marker}.root`;
   const cli = createPlaygroundCli({

@@ -1168,14 +1168,17 @@ CLI output. On a timeout or cancellation, the plugin requests termination of
 the CLI process tree and waits up to 5 seconds before releasing its output
 streams. A slow Windows `taskkill` can finish after that wait ends.
 
-On Windows, plugin CLI calls require Windows PowerShell and permission to run
-its `Add-Type` compiler. A helper assigns the CLI to a Windows Job before it
-executes. The helper waits for the whole Job, including workers that finish
-after their parent exits. Terminating the helper ends the remaining descendants
-without looking up old process IDs. A private receipt keeps the CLI's original
-exit code, including 0. This supervision covers the plugin's CLI
-calls, including login and the shared update refresh. It does not supervise
-commands the Agent starts through a terminal or another host tool.
+On Windows, plugin login and submission calls require Windows PowerShell and
+permission to run its `Add-Type` compiler. A helper assigns the CLI to a Windows
+Job before it executes. After the CLI exits, the helper allows up to 2 seconds
+for workers to finish, then ends any remaining descendants. Terminating the
+helper also ends the descendants without looking up old process IDs. A private
+receipt keeps the CLI's original exit code, including 0. If the helper is
+unavailable, the plugin reports that the CLI did not start and keeps an existing
+submission confirmation valid. Version, help, update and dry-run checks start
+directly. Commands the Agent starts through a terminal or another host tool are
+outside this supervision. Whether the real official CLI starts such descendants
+in these operations remains unverified.
 
 On macOS and Linux, a Node exit hook sends SIGTERM to tracked process groups.
 That hook does not establish cleanup after a crash or forced termination.
