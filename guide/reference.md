@@ -1219,6 +1219,26 @@ hostnames such as `localhost.example.test` require HTTPS. The plugin's API clien
 does not follow redirects and reports `redirect_refused` when the API answers
 with one. Configure the final HTTPS API endpoint.
 
+API bases containing a username or password are refused with `invalid_config`.
+Use a Playground token for authentication. Query strings and fragments are
+discarded during normalization. Invalid-base errors do not echo the input.
+
+Every API response body has an 8 MiB byte budget, including challenge details,
+paged lists, identity checks, submission records, scorecards, and upload
+receipts. The client counts decoded body bytes as it reads the stream, including
+HTTP error bodies, independently of `Content-Length`. Above the budget it
+cancels the reader and reports `response_too_large` with the known HTTP status.
+It returns no partial data. A failed result read does not create a submission.
+
+The budget leaves room for long statements and scorecards. An anonymous sample
+on 2026-11-19 covered four challenge list pages of up to 50 items and 40 public
+challenge details. The largest list was 155,040 bytes and the largest detail was
+114,872 bytes. The budget is over 50 times the largest sampled response. Tests
+also read synthetic statements and scorecard bodies over 1 MiB. Scorecard sizes
+were not surveyed on the platform. This is an API response budget, independent
+of submission material limits. Direct `createPlaygroundClient` callers can
+inject a positive integer `maxResponseBytes`, including a small budget in tests.
+
 ## Develop and verify
 
 Development and tests require Node.js 24 or newer, the same major version DSH

@@ -5364,6 +5364,34 @@ test('#63: playground_submit submits through the workbench confirmation without 
   assert.equal((await plain.f.workflow.submitApproved({ approval_id: plain.approvalId }, plain.exec)).ok, true);
 });
 
+for (const approvalPanel of [false, true]) {
+  test(`#78: an oversized identity reply keeps the submit card and writes nothing with approvalPanel ${approvalPanel}`, async () => {
+    const { f, exec, submits, checkId, approvalId } = await approvalCase();
+    const online = f.client.getCurrentUser;
+    for (const status of [200, 401, 403]) {
+      const client = createPlaygroundClient({
+        baseUrl: f.client.baseUrl, token: 'synthetic-token', maxResponseBytes: 1,
+        fetchImpl: async () => new Response(JSON.stringify({ error: 'oversized identity' }), { status }),
+      });
+      f.client.getCurrentUser = client.getCurrentUser;
+      const approval = fakeApproval();
+      const result = await f.workflow.submitApproved({ approval_id: approvalId }, exec, { approval, approvalPanel });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.code, 'response_too_large');
+      assert.match(result.error.message, /^没有提交：检查登录状态时.*回复过大.*无法完整读取.*没有写入平台。确认卡仍然有效/);
+      assert.equal(result.workflow, undefined);
+      assert.equal(approval.asked.length, 0);
+      assert.equal(submits.length, 0);
+      assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
+      f.record(result);
+      assert.equal(f.states.get('source').prepared.checkId, checkId);
+    }
+    f.client.getCurrentUser = online;
+    assert.equal((await f.workflow.submitApproved({ approval_id: approvalId }, exec)).ok, true);
+    assert.equal(submits.length, 1);
+  });
+}
+
 test('#63: without a limit the card gives the one-line announcement and lets the agent submit without waiting', async () => {
   const f = await materialFixture();
   quotaClient(f, { own: [{ id: 10, createdAt: nowIso(1000) }], agents: AGENTS, publicItems: [], quota: { 10: false } });
