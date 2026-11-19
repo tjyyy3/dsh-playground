@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -89,6 +90,17 @@ test('an argument with & does not run another command', async () => {
   const method = `x & echo marker> ${marker}`;
   const argv = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', method });
   assert.deepEqual(argv, ['submit', '--challenge-id', 'demo', '--bundle', 'b.zip', '--method', method]);
+  assert.equal(existsSync(marker), false);
+});
+
+test('a null byte in CLI arguments is refused before any process starts', async () => {
+  const marker = join(markers, 'null-argument.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'null-argument', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`),
+  });
+  await assert.rejects(() => cli.authLogin('synthetic\0@example.test', 'synthetic-password'),
+    (error) => error.code === 'ERR_INVALID_ARG_VALUE' && error.started === false);
   assert.equal(existsSync(marker), false);
 });
 
@@ -373,6 +385,9 @@ async function expectTreeEnded(cli, marker) {
     const error = await outcome;
     assert.equal(error.code, 'cli_terminated');
     assert.equal(error.started, true);
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the descendant never recorded its pid');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the descendant is still running');
     // Wait until the marker would have been written, counted from when the process really started.
     await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
     assert.equal(existsSync(marker), false);
@@ -471,9 +486,8 @@ ${HANG}`),
 test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open', async () => {
     const pidFile = join(markers, 'held.pid');
     const timeout = 3000;
-    // The grandchild ignores SIGTERM, so the pipes are only released by SIGKILL or the end of the
-    // wait, both at timeout + GRACE. It writes its pid once the handler is installed, and the CLI
-    // prints its JSON and exits only after that, so the timeout cannot hit a running CLI.
+    // On POSIX the grandchild ignores SIGTERM until SIGKILL at timeout + GRACE. Windows closes
+    // its job on cancellation. The pid is recorded before the CLI prints and exits.
     const grandchild = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${quote(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
     const cli = createPlaygroundCli({
       command: await fakeCli(join(root, 'held', 'held.mjs'), `import { spawn } from 'node:child_process';
@@ -503,6 +517,91 @@ const wait = setInterval(() => {
       await killRecorded(pidFile);
     }
   });
+
+test('Windows: a login timeout ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'orphaned-login.txt');
+  const intermediatePidFile = `${marker}.parent`;
+  const rootPidFile = `${marker}.root`;
+  const grandchild = delayedMarker(marker);
+  const intermediate = `const { spawn } = require('node:child_process'); const fs = require('node:fs');
+fs.writeFileSync(${quote(intermediatePidFile)}, String(process.pid));
+spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!fs.existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready);
+}, 20);`;
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'orphaned-login', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+writeFileSync(${quote(rootPidFile)}, String(process.pid));
+const intermediate = spawn(process.execPath, ['-e', ${quote(intermediate)}], { stdio: 'inherit', detached: true });
+intermediate.once('exit', () => console.log(JSON.stringify({ status: 'authenticated' })));`),
+    killGraceMs: GRACE,
+    timeoutMs: TIMEOUT,
+  });
+  // This process belongs to the host, outside the CLI's job, and must survive its cleanup.
+  const unrelated = spawn(process.execPath, ['-e', HANG], { stdio: 'ignore', windowsHide: true });
+  try {
+    assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), { status: 'authenticated' });
+    assert.equal(alive(await readPid(rootPidFile)), false, 'the CLI root is still running');
+    assert.equal(alive(await readPid(intermediatePidFile)), false, 'the intermediate parent is still running');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the detached descendant never started');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the detached descendant is still running');
+    assert.equal(alive(unrelated.pid), true, 'cleanup ended a process outside the CLI job');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally {
+    unrelated.kill();
+    await killRecorded(`${marker}.started`, intermediatePidFile, rootPidFile);
+  }
+});
+
+test('a CLI wrapper may exit before its worker prints the result', async () => {
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'late-worker', 'wrapper.mjs'), `import { spawn } from 'node:child_process';
+spawn(process.execPath, ['-e', "setTimeout(() => console.log(JSON.stringify(['worker-result'])), 300)"], {
+  stdio: 'inherit', detached: ${process.platform === 'win32'},
+}).unref();`),
+  });
+  assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), ['worker-result']);
+});
+
+test('Windows: cancellation after the CLI root exits ends its job and keeps the successful result', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'cancelled-orphan.txt');
+  const rootPidFile = `${marker}.root`;
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'cancelled-orphan', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync, writeFileSync } from 'node:fs';
+writeFileSync(${quote(rootPidFile)}, String(process.pid));
+spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'inherit', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready);
+  console.log(JSON.stringify(['done']));
+}, 20);`),
+    killGraceMs: GRACE,
+  });
+  const controller = new AbortController();
+  const outcome = cli.authLogin('synthetic@example.test', 'synthetic-password', { signal: controller.signal });
+  try {
+    assert.equal(await waitUntil(async () => {
+      const pid = await readPid(rootPidFile);
+      return pid > 0 && !alive(pid) && (await readPid(`${marker}.started`)) > 0;
+    }, 10000), true, 'the CLI root never exited');
+    const pid = await readPid(`${marker}.started`);
+    assert.equal(alive(pid), true, 'the descendant did not outlive the CLI root');
+    controller.abort();
+    assert.deepEqual(await outcome, ['done']);
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the descendant is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally {
+    controller.abort();
+    await outcome.catch(() => {});
+    await killRecorded(`${marker}.started`, rootPidFile);
+  }
+});
 
 test('an abort signal stops the CLI, and an already aborted signal never starts it', async () => {
   const pidFile = join(markers, 'aborted.pid');

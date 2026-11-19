@@ -1164,13 +1164,23 @@ switched mode after the failure. A successful receipt clears `lastFailure`.
 The chat card of the confirmation shows the message with its reasons, and its
 details list the stage, the HTTP status, the reasons and the bundle summary.
 The plugin shows only its own text and these cleaned reasons, never the raw
-CLI output. On a timeout or
-a cancellation the plugin ends the CLI and the processes it started, then
-waits up to 5 seconds for them to stop, so the result arrives at most 5 seconds
-after the limit. If a CLI exits cleanly but a process it started keeps its
-output open, only macOS and Linux end that process; on Windows it is left
-running. If DSH exits normally while a submission is running, the plugin ends
-the CLI on macOS and Linux; a DSH killed by a signal or a crash does not end it.
+CLI output. On a timeout or cancellation, the plugin requests termination of
+the CLI process tree and waits up to 5 seconds before releasing its output
+streams. A slow Windows `taskkill` can finish after that wait ends.
+
+On Windows, plugin CLI calls require Windows PowerShell and permission to run
+its `Add-Type` compiler. A helper assigns the CLI to a Windows Job before it
+executes. The helper waits for the whole Job, including workers that finish
+after their parent exits. Terminating the helper ends the remaining descendants
+without looking up old process IDs. A private receipt keeps the CLI's original
+exit code, including 0. This supervision covers the plugin's CLI
+calls, including login and the shared update refresh. It does not supervise
+commands the Agent starts through a terminal or another host tool.
+
+On macOS and Linux, a Node exit hook sends SIGTERM to tracked process groups.
+That hook does not establish cleanup after a crash or forced termination.
+Window close, client disconnect, plugin unload, and DSH Host exit behavior
+still require verification in the actual DSH host.
 
 Submission slots per challenge are limited by the platform's rules;
 the tool never retries a submission on its own.
