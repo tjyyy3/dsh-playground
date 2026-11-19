@@ -35,6 +35,8 @@ and can consume a platform submission slot.
 
 Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation. If DSH has no execution receipt for a task, the pane shows **暂无执行回执**. Use **赛题** for challenges, **提交** for task submissions, and **连接设置** for authentication.
 
+The installed DSH 0.2.1-rc.5 does not persist `stopReason` in `subagent-settled` notices, so after a restart those rows have an unknown end reason; newer hosts that persist the field show the saved reason.
+
 To keep working in an ordinary conversation, open Playground from it, select its workspace, and click **把当前对话设为主控**. The conversation and its history stay in place. If the workspace already has a controller, Playground opens that controller instead. Challenge task conversations cannot be promoted. An empty conversation receives one initialization message so DSH keeps it as a distinct session.
 
 To delegate to Codex, enable the official Codex subagent in your DSH Profile and set up its authentication. If Codex is unavailable, the controller is instructed to delegate to a native DSH subagent when the active preset provides one. A native child works in its own conversation and returns its result to the controller. Open that conversation from the task details. Challenge submissions use a separate Playground task conversation.

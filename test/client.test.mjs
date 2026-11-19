@@ -5240,6 +5240,7 @@ test('controller stop reasons describe historical notices and never override a n
     [{ childId: 'new-running', state: 'running', noticeStopReason: 'error' }, '运行中'],
     [{ childId: 'new-running-with-end', state: 'running', noticeStopReason: 'error', liveEnd: { stopReason: 'error' } }, '运行中'],
     [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
+    [{ childId: 'finished-with-notice', state: 'ended', noticeStopReason: 'completed', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
     [{ childId: 'live-limit', state: 'ended', liveEnd: { stopReason: 'max-tokens' } }, '达到输出上限'],
     [{ childId: 'live-refusal', state: 'ended', liveEnd: { stopReason: 'refusal' } }, '拒绝执行'],
   ];
@@ -5270,7 +5271,7 @@ test('controller stop reasons describe historical notices and never override a n
       assert.match(text(tree), /上次运行结束：出错/);
       assert.doesNotMatch(text(tree), /本次运行结束/);
     }
-    if (row.childId === 'new-ended') assert.match(text(tree), /本次运行结束：完成/);
+    if (row.liveEnd?.stopReason === 'completed') assert.match(text(tree), /本次运行结束：完成/);
     if (row.noticeStopReason === 'provider-specific') assert.match(text(tree), /provider-specific/);
     f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
   }
