@@ -23,6 +23,20 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+function chunkedResponse(chunks, { status = 200, headers, read = () => {}, cancel = () => {} } = {}) {
+  let index = 0;
+  return new Response(new ReadableStream({
+    pull(controller) {
+      if (index === chunks.length) controller.close();
+      else {
+        read();
+        controller.enqueue(chunks[index++]);
+      }
+    },
+    cancel,
+  }, { highWaterMark: 0 }), { status, headers });
+}
+
 test('normalizeApiBase accepts root and api URLs', () => {
   assert.equal(normalizeApiBase('https://play.bohrium.com'), 'https://play.bohrium.com/api');
   assert.equal(normalizeApiBase('https://play.bohrium.com/'), 'https://play.bohrium.com/api');
@@ -201,6 +215,129 @@ test('request reports a response body read failure as a network error', async ()
     (error) => error instanceof PlaygroundApiError && error.code === 'network_error'
       && /connection reset/.test(error.message),
   );
+});
+
+for (const status of [200, 503]) {
+  for (const contentLength of [undefined, '1', 'invalid', '1000000']) {
+    test(`#78: oversized HTTP ${status} body stops and cancels with Content-Length ${contentLength}`, async () => {
+      const chunks = ['{"items":[]}', ' ', 'body-secret-never-returned', 'unread-tail'].map((text) => new TextEncoder().encode(text));
+      let reads = 0;
+      let cancelled = false;
+      const response = chunkedResponse(chunks, {
+        status,
+        headers: contentLength === undefined ? {} : { 'content-length': contentLength },
+        read: () => { reads += 1; },
+        cancel: () => { cancelled = true; },
+      });
+      let fetches = 0;
+      const client = createPlaygroundClient({
+        baseUrl: 'https://example.test',
+        maxResponseBytes: chunks[0].byteLength + chunks[1].byteLength,
+        fetchImpl: async () => { fetches += 1; return response; },
+      });
+      await assert.rejects(() => client.listChallenges(), (error) => {
+        assert.ok(error instanceof PlaygroundApiError);
+        assert.equal(error.code, 'response_too_large');
+        assert.equal(error.status, status);
+        assert.match(error.message, /too large.*read completely/);
+        assert.doesNotMatch(String(error) + JSON.stringify(error), /body-secret|unread-tail|items/);
+        return true;
+      });
+      assert.equal(reads, 3);
+      assert.equal(cancelled, true);
+      assert.equal(response.body.locked, false);
+      assert.equal(fetches, 1);
+    });
+  }
+}
+
+test('#78: the byte budget allows its exact UTF-8 boundary and rejects one byte over it', async () => {
+  const body = { id: 'demo', content: '中文🙂' };
+  const bytes = new TextEncoder().encode(JSON.stringify(body));
+  const split = bytes.indexOf(0xe4) + 1;
+  for (const headroom of [0, 1, -1]) {
+    let cancelled = false;
+    const client = createPlaygroundClient({
+      baseUrl: 'https://example.test',
+      maxResponseBytes: bytes.byteLength + headroom,
+      fetchImpl: async () => chunkedResponse([bytes.slice(0, split), bytes.slice(split, split + 3), bytes.slice(split + 3)], {
+        cancel: () => { cancelled = true; },
+      }),
+    });
+    if (headroom < 0) {
+      await assert.rejects(() => client.getChallenge('demo'), (error) => error.code === 'response_too_large');
+      assert.equal(cancelled, true);
+    } else {
+      assert.equal((await client.getChallenge('demo')).content, body.content);
+      assert.equal(cancelled, false);
+    }
+  }
+});
+
+test('#78: a large declared Content-Length cannot prevent reading a small complete body', async () => {
+  const bytes = new TextEncoder().encode('{"items":[]}');
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    maxResponseBytes: bytes.byteLength,
+    fetchImpl: async () => chunkedResponse([bytes], { headers: { 'content-length': '1000000' } }),
+  });
+  assert.deepEqual((await client.listChallenges()).items, []);
+});
+
+test('#78: a cancellation failure cannot hide the response-too-large error', async () => {
+  const response = chunkedResponse([new TextEncoder().encode('body-secret')], {
+    status: 502,
+    cancel() { throw new Error('cleanup failed'); },
+  });
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', maxResponseBytes: 1, fetchImpl: async () => response });
+  await assert.rejects(() => client.getAttempt(42), (error) => error.code === 'response_too_large' && error.status === 502);
+  assert.equal(response.body.locked, false);
+});
+
+test('#78: identity and result reads propagate oversized bodies without interpreting the status or retrying', async () => {
+  for (const status of [200, 401, 403, 429]) {
+    for (const read of [(client) => client.getChallenge('demo'), (client) => client.getCurrentUser(), (client) => client.getAttempt(42)]) {
+      const requests = [];
+      const client = createPlaygroundClient({
+        baseUrl: 'https://example.test', token: 'synthetic-token', maxResponseBytes: 1,
+        fetchImpl: async (url, init) => {
+          requests.push({ url, method: init.method });
+          return jsonResponse({ error: 'body-secret', id: 42, status: 'scored' }, status);
+        },
+      });
+      await assert.rejects(() => read(client), (error) => error.code === 'response_too_large' && error.status === status);
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].method, 'GET');
+    }
+  }
+});
+
+test('#78: the default budget admits long challenge, paged list, and scoring bodies', async () => {
+  const content = '研究笔记 '.repeat(100000);
+  const responses = [
+    { id: 'demo', content, title: 'Long challenge' },
+    { items: Array.from({ length: 50 }, (_, index) => ({ id: `demo-${index}`, title: '长标题'.repeat(400) })), total: 50 },
+    { id: 42, scorecard: { analysis: content }, status: 'scored', score: 0.87 },
+  ];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => {
+      const bytes = new TextEncoder().encode(JSON.stringify(responses.shift()));
+      return chunkedResponse(Array.from({ length: Math.ceil(bytes.byteLength / 1024) }, (_, index) => bytes.slice(index * 1024, (index + 1) * 1024)));
+    },
+  });
+  assert.equal((await client.getChallenge('demo')).content, content);
+  assert.equal((await client.listChallenges({ perPage: 50 })).items.length, 50);
+  const result = await client.getAttempt(42);
+  assert.equal(result.status, 'scored');
+  assert.equal(result.score, 0.87);
+  assert.equal(result.scorecardTruncated, true);
+});
+
+test('#78: response byte budgets must be positive safe integers', () => {
+  for (const maxResponseBytes of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '10']) {
+    assert.throws(() => createPlaygroundClient({ baseUrl: 'https://example.test', maxResponseBytes }), (error) => error.code === 'invalid_config');
+  }
 });
 
 test('listChallenges sends filters and normalizes cards', async () => {
