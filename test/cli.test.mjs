@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
+import { windowsJobLaunch } from '../lib/windows-process.js';
 
 const warnings = [];
 process.on('warning', (warning) => warnings.push(warning));
@@ -92,12 +94,111 @@ test('an argument with & does not run another command', async () => {
   assert.equal(existsSync(marker), false);
 });
 
+test('a null byte in CLI arguments is refused before any process starts', async () => {
+  const marker = join(markers, 'null-argument.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'null-argument', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`),
+  });
+  await assert.rejects(() => cli.authLogin('synthetic\0@example.test', 'synthetic-password'),
+    (error) => error.code === 'ERR_INVALID_ARG_VALUE' && error.started === false);
+  assert.equal(existsSync(marker), false);
+});
+
 test('a missing CLI is still reported as before', async () => {
   const command = `playground-missing-${process.pid}`;
   const cli = createPlaygroundCli({ command });
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' }),
     (error) => error.code === (process.platform === 'win32' ? 'cli_not_found' : 'ENOENT') && error.started === false
       && (process.platform !== 'win32' || !error.message.includes(command)));
+});
+
+test('Windows: a helper failure before the CLI starts is reported as unavailable', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-failure.txt');
+  const command = await fakeCli(join(root, 'helper-failure', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'helper-failure', 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+const launch = JSON.parse(process.env.PLAYGROUND_CLI_LAUNCH);
+writeFileSync(launch.receipt + '.nostart', '');
+console.error('synthetic Add-Type compiler failure'); process.exit(1);`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'), (error) => {
+    assert.equal(error.code, 'cli_job_unavailable');
+    assert.equal(error.started, false);
+    assert.match(error.message, /Windows PowerShell.*Add-Type/);
+    assert.doesNotMatch(error.message, /synthetic|not found|Install.*CLI/);
+    return true;
+  });
+  assert.equal(existsSync(marker), false);
+});
+
+test('Windows: a helper exiting without a marker never reports that the CLI started', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-no-marker.txt');
+  const command = await fakeCli(join(root, 'helper-no-marker', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'helper-no-marker', 'helper.mjs'), 'process.exit(1);');
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  await assert.rejects(() => cli.authLogin('synthetic@example.test', 'password'),
+    (error) => error.code === 'cli_job_unavailable' && error.started === false);
+  assert.equal(existsSync(marker), false);
+});
+
+test('Windows: an invalid executable fails before the CLI starts', { skip: process.platform !== 'win32' }, async () => {
+  const command = join(root, 'invalid.exe');
+  await writeFile(command, 'This is not a Windows executable.');
+  await assert.rejects(() => createPlaygroundCli({ command }).authLogin('synthetic@example.test', 'synthetic-password'),
+    (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+});
+
+test('Windows: a missing PowerShell or unusable helper temp directory is not a missing CLI', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-unavailable.txt');
+  const command = await fakeCli(join(root, 'helper-unavailable', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  for (const options of [{ powerShell: join(root, 'missing', 'powershell.exe') }, { tempRoot: join(root, 'missing-temp') }]) {
+    const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => windowsJobLaunch(launch, options) });
+    await assert.rejects(() => cli.authLogin('synthetic@example.test', 'synthetic-password'),
+      (error) => error.code === 'cli_job_unavailable' && error.started === false && /Windows PowerShell.*Add-Type/.test(error.message));
+  }
+  assert.equal(existsSync(marker), false);
+});
+
+test('stale Windows job directories are removed without deleting recent or unrelated temp entries', async () => {
+  const tempRoot = await mkdtemp(join(root, 'job-sweep-'));
+  const stale = join(tempRoot, 'playground-cli-job-stale');
+  const recent = join(tempRoot, 'playground-cli-job-recent');
+  const unrelated = join(tempRoot, 'other-stale');
+  const file = join(tempRoot, 'playground-cli-job-file');
+  await Promise.all([stale, recent, unrelated].map((path) => mkdir(path)));
+  await writeFile(file, 'keep');
+  const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  await Promise.all([stale, unrelated, file].map((path) => utimes(path, old, old)));
+  const launch = await windowsJobLaunch({ file: process.execPath, args: [] }, { tempRoot });
+  try {
+    assert.equal(existsSync(stale), false);
+    for (const path of [recent, unrelated, file]) assert.equal(existsSync(path), true, path);
+  } finally { await launch.dispose(); }
+});
+
+test('Windows: material checks contain the dry run while version, help and update checks start directly', { skip: process.platform !== 'win32' }, async () => {
+  const command = await fakeCli(join(root, 'direct-probes', 'cli.mjs'), `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));
+else if (args[0] === 'update-check') console.log(JSON.stringify({ current: '0.1.43', latest: '0.1.44', update_available: true }));`);
+  const launches = [];
+  const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => {
+    launches.push(launch.args);
+    return windowsJobLaunch(launch);
+  } });
+  assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
+  assert.equal(launches.length, 1);
+  assert.ok(launches[0].includes('--dry-run'));
+  assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.44' });
+  assert.equal(launches.length, 1);
 });
 
 test('Windows: a missing CLI path is cli_not_found, not ENOENT', { skip: process.platform !== 'win32' }, async () => {
@@ -373,6 +474,9 @@ async function expectTreeEnded(cli, marker) {
     const error = await outcome;
     assert.equal(error.code, 'cli_terminated');
     assert.equal(error.started, true);
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the descendant never recorded its pid');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the descendant is still running');
     // Wait until the marker would have been written, counted from when the process really started.
     await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
     assert.equal(existsSync(marker), false);
@@ -468,20 +572,16 @@ ${HANG}`),
     }
   });
 
-// On Windows taskkill /T finds descendants through a live root, so a grandchild that outlives a
-// clean CLI exit cannot be ended there. Process groups cover it on macOS and Linux.
-test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open',
-  { skip: process.platform === 'win32' && 'Windows cannot end a grandchild after the CLI has exited' }, async () => {
+test('a CLI that exited cleanly is not rewritten when a grandchild holds its output open', async () => {
     const pidFile = join(markers, 'held.pid');
     const timeout = 3000;
-    // The grandchild ignores SIGTERM, so the pipes are only released by SIGKILL or the end of the
-    // wait, both at timeout + GRACE. It writes its pid once the handler is installed, and the CLI
-    // prints its JSON and exits only after that, so the timeout cannot hit a running CLI.
+    // On POSIX the grandchild ignores SIGTERM until SIGKILL at timeout + GRACE. Windows closes
+    // its job on cancellation. The pid is recorded before the CLI prints and exits.
     const grandchild = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${quote(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
     const cli = createPlaygroundCli({
       command: await fakeCli(join(root, 'held', 'held.mjs'), `import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit' }).unref();
+spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit', detached: ${process.platform === 'win32'} }).unref();
 const wait = setInterval(() => {
   if (!existsSync(${quote(pidFile)})) return;
   clearInterval(wait);
@@ -495,7 +595,9 @@ const wait = setInterval(() => {
       const output = await cli.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
       const elapsed = Date.now() - begin;
       assert.deepEqual(output, ['done']);
-      assert.ok(elapsed >= timeout + GRACE - 100, `run() returned after ${elapsed} ms, before the grace period ended`);
+      if (process.platform !== 'win32') {
+        assert.ok(elapsed >= timeout + GRACE - 100, `run() returned after ${elapsed} ms, before the grace period ended`);
+      }
       assert.ok(elapsed < timeout + GRACE + 1500, `run() took ${elapsed} ms`);
       const pid = await readPid(pidFile);
       assert.ok(pid > 0, 'the grandchild never started');
@@ -504,6 +606,143 @@ const wait = setInterval(() => {
       await killRecorded(pidFile);
     }
   });
+
+test('Windows: a dry-run precheck ends detached descendants after the CLI root exits', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'precheck-orphan.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'precheck-orphan', 'cli.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) {
+  spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'inherit', detached: true }).unref();
+  const ready = setInterval(() => {
+    if (!existsSync(${quote(`${marker}.started`)})) return;
+    clearInterval(ready); console.log(JSON.stringify({ status: 'dry_run' }));
+  }, 20);
+}`),
+    timeoutMs: 3000,
+    killGraceMs: GRACE,
+  });
+  try {
+    assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the detached descendant never started');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the detached descendant is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally { await killRecorded(`${marker}.started`); }
+});
+
+test('Windows: a login ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'orphaned-login.txt');
+  const intermediatePidFile = `${marker}.parent`;
+  const rootPidFile = `${marker}.root`;
+  const grandchild = delayedMarker(marker);
+  const intermediate = `const { spawn } = require('node:child_process'); const fs = require('node:fs');
+fs.writeFileSync(${quote(intermediatePidFile)}, String(process.pid));
+spawn(process.execPath, ['-e', ${quote(grandchild)}], { stdio: 'inherit', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!fs.existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready);
+}, 20);`;
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'orphaned-login', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+writeFileSync(${quote(rootPidFile)}, String(process.pid));
+const intermediate = spawn(process.execPath, ['-e', ${quote(intermediate)}], { stdio: 'inherit', detached: true });
+intermediate.once('exit', () => console.log(JSON.stringify({ status: 'authenticated' })));`),
+    killGraceMs: GRACE,
+    timeoutMs: 8000,
+  });
+  // This process belongs to the host, outside the CLI's job, and must survive its cleanup.
+  const unrelated = spawn(process.execPath, ['-e', HANG], { stdio: 'ignore', windowsHide: true });
+  try {
+    assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), { status: 'authenticated' });
+    assert.equal(alive(await readPid(rootPidFile)), false, 'the CLI root is still running');
+    assert.equal(alive(await readPid(intermediatePidFile)), false, 'the intermediate parent is still running');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the detached descendant never started');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the detached descendant is still running');
+    assert.equal(alive(unrelated.pid), true, 'cleanup ended a process outside the CLI job');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally {
+    unrelated.kill();
+    await killRecorded(`${marker}.started`, intermediatePidFile, rootPidFile);
+  }
+});
+
+test('a CLI wrapper may exit before its worker prints the result', async () => {
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'late-worker', 'wrapper.mjs'), `import { spawn } from 'node:child_process';
+spawn(process.execPath, ['-e', "setTimeout(() => console.log(JSON.stringify(['worker-result'])), 300)"], {
+  stdio: 'inherit', detached: ${process.platform === 'win32'},
+}).unref();`),
+  });
+  assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), ['worker-result']);
+});
+
+test('Windows: a successful CLI does not wait for the call timeout when a background worker remains', { skip: process.platform !== 'win32', timeout: 15000 }, async () => {
+  const marker = join(markers, 'background-worker.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'background-worker', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'ignore', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready); console.log(JSON.stringify(['done']));
+}, 20);`),
+    timeoutMs: 30000,
+  });
+  const begin = Date.now();
+  try {
+    assert.deepEqual(await cli.authLogin('synthetic@example.test', 'synthetic-password'), ['done']);
+    assert.ok(Date.now() - begin < 10000, 'the successful CLI waited for its call timeout');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the background worker never started');
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the background worker is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally { await killRecorded(`${marker}.started`); }
+});
+
+test('Windows: cancellation after the CLI root exits ends its job and keeps the successful result', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'cancelled-orphan.txt');
+  const rootPidFile = `${marker}.root`;
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'cancelled-orphan', 'login.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync, writeFileSync } from 'node:fs';
+writeFileSync(${quote(rootPidFile)}, String(process.pid));
+spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'inherit', detached: true }).unref();
+const ready = setInterval(() => {
+  if (!existsSync(${quote(`${marker}.started`)})) return;
+  clearInterval(ready);
+  console.log(JSON.stringify(['done']));
+}, 20);`),
+    killGraceMs: GRACE,
+  });
+  const controller = new AbortController();
+  const outcome = cli.authLogin('synthetic@example.test', 'synthetic-password', { signal: controller.signal });
+  try {
+    assert.equal(await waitUntil(async () => {
+      const pid = await readPid(rootPidFile);
+      return pid > 0 && !alive(pid) && (await readPid(`${marker}.started`)) > 0;
+    }, 10000), true, 'the CLI root never exited');
+    const pid = await readPid(`${marker}.started`);
+    assert.equal(alive(pid), true, 'the descendant did not outlive the CLI root');
+    controller.abort();
+    assert.deepEqual(await outcome, ['done']);
+    assert.equal(await waitUntil(() => !alive(pid), 2000), true, 'the descendant is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally {
+    controller.abort();
+    await outcome.catch(() => {});
+    await killRecorded(`${marker}.started`, rootPidFile);
+  }
+});
 
 test('an abort signal stops the CLI, and an already aborted signal never starts it', async () => {
   const pidFile = join(markers, 'aborted.pid');

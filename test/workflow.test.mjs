@@ -7,7 +7,8 @@ import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
-import { buildSubmitArgs } from '../lib/cli.js';
+import { buildSubmitArgs, createPlaygroundCli } from '../lib/cli.js';
+import { windowsJobLaunch } from '../lib/windows-process.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
@@ -617,6 +618,7 @@ test('login never records CLI output, credentials or a duplicate identity copy',
       // Windows cmd prints the missing-command message in the console code page; the CLI wrapper
       // classifies it by looking the command up instead.
       [Object.assign(new Error('\uFFFD\uFFFD\uFFFD\uFFFD'), { code: 'cli_not_found' }), /未找到 Playground CLI/],
+      [Object.assign(new Error('powershell.exe not found synthetic-secret'), { code: 'cli_job_unavailable', started: false }), /Windows PowerShell.*Add-Type.*没有启动/],
       [Object.assign(new Error('killed'), { code: 'cli_terminated' }), /中断或超时/],
       [Object.assign(new Error('unsafe argument'), { code: 'cli_unsafe_argument' }), /cliPath 设为 Playground CLI 的 JS 入口/],
       [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing' }), /未在 PATH 中找到 Node\.js/],
@@ -1342,6 +1344,8 @@ test('D3: errors raised before the CLI started keep the same card valid and say 
     [Object.assign(new Error('spawn EACCES'), { code: 'EACCES', started: false }), /未能启动/],
     [Object.assign(new Error(`Playground CLI not found: ${notice}`), { code: 'cli_not_found', stderr: notice }), /未找到 Playground CLI.*PATH/],
     [Object.assign(new Error(`Node.js was not found on PATH; it is needed to run ${notice}`), { code: 'cli_node_missing', started: false }), /Node\.js.*PATH/],
+    [Object.assign(new Error(`PowerShell helper failed: ${notice}`), { code: 'cli_job_unavailable', started: false }), /Windows PowerShell.*Add-Type.*没有启动/],
+    [Object.assign(new Error(`PowerShell helper failed: ${notice}`), { code: 'cli_job_unavailable' }), /Windows PowerShell.*Add-Type.*没有启动/],
     [Object.assign(new Error(`arguments contain characters that cmd.exe would interpret: ${notice}`), { code: 'cli_unsafe_argument', started: false }), /cmd 会解释的字符.*cliPath 设为 CLI 的 JS 入口文件/],
     [Object.assign(new Error('unsupported outcome "maybe"; use success, failure'), { code: 'invalid_argument' }), /^提交参数无效：unsupported outcome "maybe"; use success, failure。/],
     [Object.assign(new Error(`invalid bundle ${notice}`), { code: 'invalid_argument', started: false }), /^提交参数无效。/],
@@ -4432,6 +4436,28 @@ test('#57: the English reason gives each skipped precheck an English note and co
   assert.ok(lines.includes('Trace: 3 steps'), lines.join(' / '));
   assert.ok(lines.includes('CLI precheck: skipped'), lines.join(' / '));
   assert.ok(approval.asked[0].reason.split(' ｜\n').includes('轨迹：3 步'));
+});
+
+test('Windows: an unavailable dry-run helper gives the approval reason a skipped precheck note', { skip: process.platform !== 'win32' }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'playground-precheck-helper-'));
+  directories.push(directory);
+  const command = join(directory, 'cli.mjs');
+  await writeFile(command, `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => windowsJobLaunch(launch, { tempRoot: join(directory, 'missing-temp') }) });
+  const f = await fixture(cli);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  const note = 'Windows PowerShell, Add-Type, or the helper temporary directory is unavailable';
+  assert.equal(checked.cliPrecheck.status, 'skipped');
+  assert.equal(checked.cliPrecheck.noteEn, note);
+  assert.match(checked.cliPrecheck.note, /Windows PowerShell.*Add-Type.*未经 CLI 预检/);
+  f.record(checked);
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: checked.approvalId }, { ...f.exec, name: 'playground_submit' }, { approval, approvalPanel: true });
+  assert.ok(approval.asked[0].displayReason.en.split(' ｜\n').includes(`CLI precheck: skipped, ${note}`));
 });
 
 test('#57: a network or platform error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {
