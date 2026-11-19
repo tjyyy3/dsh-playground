@@ -501,6 +501,22 @@ test('passive resident local running evidence wins while idle, absent and extern
   assert.equal(f.promptRequests.length, 1);
 });
 
+test('a newer resident round keeps the previously observed end as history without dispatching', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', createdAt: 1, mode: 'continuable' }] } : previous(name);
+  f.controller.observeEnd({ id: 'child', runId: 'previous', provider: 'dsh', stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'previous output' }] });
+  const before = (await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0];
+  assert.equal(before.state, 'ended');
+  f.live.set('child', { agent: { id: 'child', status: 'running' } });
+  const after = (await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0];
+  assert.equal(after.state, 'running');
+  assert.deepEqual(after.liveEnd, before.liveEnd);
+  assert.equal(f.createRequests.length, 1);
+  assert.equal(f.promptRequests.length, 1);
+});
+
 test('only owned first user input with the exact Mnemon marker is grouped as maintenance', async (t) => {
   const f = await fixture(t);
   const { sessionId } = await open(f.controller);

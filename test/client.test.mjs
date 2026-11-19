@@ -5189,7 +5189,7 @@ test('task detail renders recognized result text with a preserved raw notice and
   t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
   const Main = f.registrations.get('main').Component;
   const raw = 'Background subagent child finished. It cannot receive follow-up messages.\nIts closing message:\n# Result\n- Complete';
-  const rows = [{ childId: 'child', label: 'Work', provider: 'codex', state: 'settled', terminalText: raw }, { childId: 'unknown', label: 'Pending', state: 'unknown' }, { childId: 'odd', label: 'Other', state: 'settled', terminalText: 'Unrecognized notification\nIts closing message:\nKeep everything' }, { childId: 'live', label: 'Live', state: 'settled', terminalText: raw, liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'Actual output' }] } }];
+  const rows = [{ childId: 'child', label: 'Work', provider: 'codex', state: 'settled', terminalText: raw }, { childId: 'unknown', label: 'Pending', state: 'unknown' }, { childId: 'odd', label: 'Other', state: 'settled', terminalText: 'Unrecognized notification\nIts closing message:\nKeep everything' }, { childId: 'live', label: 'Live', state: 'ended', terminalText: raw, liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'Actual output' }] } }];
   const factory = [];
   const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }), useSessions: (fn) => fn({ ids: [], byId: {} }),
     inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
@@ -5238,7 +5238,10 @@ test('controller stop reasons describe historical notices and never override a n
     [{ childId: 'saved-other', state: 'settled', noticeStopReason: 'provider-specific' }, '已收到历史结果'],
     [{ childId: 'saved-legacy', state: 'settled' }, '已收到历史结果'],
     [{ childId: 'new-running', state: 'running', noticeStopReason: 'error' }, '运行中'],
+    [{ childId: 'new-running-with-end', state: 'running', noticeStopReason: 'error', liveEnd: { stopReason: 'error' } }, '运行中'],
     [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
+    [{ childId: 'live-limit', state: 'ended', liveEnd: { stopReason: 'max-tokens' } }, '达到输出上限'],
+    [{ childId: 'live-refusal', state: 'ended', liveEnd: { stopReason: 'refusal' } }, '拒绝执行'],
   ];
   const rows = cases.map(([row]) => ({ ...row, label: row.childId, terminalText: 'earlier result' }));
   const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
@@ -5253,9 +5256,21 @@ test('controller stop reasons describe historical notices and never override a n
     assert.ok(text(button).includes(label), `${row.childId} shows ${label}`);
     button.props.onClick();
     tree = f.render(Main, props);
-    assert.match(text(tree), /历史结果通知/);
-    if (row.state === 'settled') assert.match(text(tree), /当前执行状态未知/);
-    if (row.state === 'running' || row.state === 'ended') assert.doesNotMatch(text(tree), /上次运行出错/);
+    if (row.state === 'settled') {
+      assert.match(text(tree), /历史结果通知/);
+      assert.match(text(tree), /当前执行状态未知/);
+      assert.equal(text(f.find(tree, (node) => node.type === 'summary')), '历史原始通知');
+      if (typeof row.noticeStopReason === 'string') assert.match(text(tree), /历史通知的结束原因/);
+      else assert.doesNotMatch(text(tree), /结束原因/);
+    } else {
+      assert.doesNotMatch(text(tree), /历史结果通知|当前执行状态未知|不能作为本次运行已结束|历史通知的结束原因|上次运行出错/);
+      assert.equal(text(f.find(tree, (node) => node.type === 'summary')), '原始通知');
+    }
+    if (row.state === 'running' && row.liveEnd) {
+      assert.match(text(tree), /上次运行结束：出错/);
+      assert.doesNotMatch(text(tree), /本次运行结束/);
+    }
+    if (row.childId === 'new-ended') assert.match(text(tree), /本次运行结束：完成/);
     if (row.noticeStopReason === 'provider-specific') assert.match(text(tree), /provider-specific/);
     f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
   }
