@@ -1815,7 +1815,7 @@ window.__ModuleLoader__.load({
             setInspection({ kind: 'existing', sessionId: opened.sessionId, archived: false });
           }
           const result = await dispatchChallenge({ workspaceId: attempt.workspaceId, sessionId: attempt.sessionId,
-            challengeId: attempt.challenge.id, challengeTitle: attempt.challenge.title?.slice(0, 500), requestId: attempt.requestId });
+            challengeId: attempt.challenge.id, requestId: attempt.requestId });
           if (result.kind === 'accepted' && result.sessionId === attempt.sessionId) {
             await openAfterDispatch(attempt);
           } else {

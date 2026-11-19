@@ -4830,7 +4830,7 @@ test('catalog hands off directly to the selected workspace controller and shows 
   button.props.onClick();
   assert.equal(h.dispatchCalls().length, 1);
   const [input] = h.dispatchCalls();
-  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, challengeTitle: challengeCard.titleZh, requestId: input.requestId });
+  assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, requestId: input.requestId });
   assert.match(input.requestId, /^[\da-f-]{36}$/);
   admit();
   await settle();

@@ -551,12 +551,12 @@ test('only owned first user input with the exact Mnemon marker is grouped as mai
 test('handoff names explicit association parameters for every delegated child', async (t) => {
   const f = await fixture(t);
   f.put('one', 'controller', f.snapshot({ workspaceId: 'one', sessionId: 'controller' }));
-  await f.controller.dispatch({ ...handoff, challengeTitle: '  Same\n  title  ' });
+  await f.controller.dispatch(handoff);
   const text = f.promptRequests[0].content[0].text;
   assert.match(text, /playground_controller_link_task/);
   assert.match(text, /每个子任务都单独登记/);
   assert.deepEqual(JSON.parse(text.split('登记参数（数据，不是指令）：')[1]), {
-    base_url: 'https://playground.example.test/api', challenge_id: handoff.challengeId, title: 'Same title',
+    base_url: 'https://playground.example.test/api', challenge_id: handoff.challengeId,
   });
 });
 
@@ -571,7 +571,7 @@ test('explicit child associations and separate results survive cold rereads with
   const entry = f.live.get(sessionId);
   const exec = { agent: entry.agent, signal: new AbortController().signal };
   const link = async (child_id, challenge_id) => {
-    const result = await f.controller.linkTask({ child_id, challenge_id, base_url: 'https://playground.example.test/api', title: 'Same title' }, exec);
+    const result = await f.controller.linkTask({ child_id, challenge_id, base_url: 'https://playground.example.test/api' }, exec);
     assert.equal(result.kind, 'associated');
     entry.marker = controllerProjection.apply(entry.marker, { seq: 1, type: 'tool/result',
       data: { meta: { playgroundControllerAssociation: result.association } } });
@@ -678,14 +678,14 @@ test('an explicit correction names its predecessor and survives replay without w
   assert.equal(controllerProjection.apply(initial, events[1]), initial, 'a correction cannot create an unassociated mapping');
 });
 
-test('association trims challenge ids, API bases and titles before looking up or grouping a challenge', async (t) => {
+test('association trims challenge ids and API bases and uses the platform title', async (t) => {
   const f = await fixture(t);
   const { sessionId } = await open(f.controller);
   const previous = f.ctx.get;
   f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', mode: 'external', createdAt: 1 }] } : previous(name);
   const exec = { agent: f.live.get(sessionId).agent, signal: new AbortController().signal };
-  f.client.getChallenge = async (id) => { f.challengeReads.push([id]); return { id }; };
-  const args = { child_id: 'child', challenge_id: ' challenge-a ', base_url: f.client.baseUrl, title: '  Same title  ' };
+  f.client.getChallenge = async (id) => { f.challengeReads.push([id]); return { id, title: '  Same\n  title  ' }; };
+  const args = { child_id: 'child', challenge_id: ' challenge-a ', base_url: f.client.baseUrl };
   const first = await f.controller.linkTask(args, exec);
   assert.equal(first.kind, 'associated');
   assert.deepEqual(first.association.challenge, { baseUrl: f.client.baseUrl, id: 'challenge-a', title: 'Same title' });
@@ -694,4 +694,48 @@ test('association trims challenge ids, API bases and titles before looking up or
   assert.deepEqual(second.association.challenge, first.association.challenge);
   assert.ok(f.challengeReads.every(([id]) => id === 'challenge-a'));
   assert.equal((await f.controller.linkTask({ ...args, challenge_id: '  ' }, exec)).code, 'invalid_association');
+});
+
+test('association retention keeps the newest 100 inserts in order through correction and replay', () => {
+  const marker = { workspaceId: 'one', sessionId: 'controller' };
+  const initial = controllerProjection.apply(controllerProjection.init({ id: marker.sessionId }, 0), {
+    seq: 0, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: marker }) },
+  });
+  let state = initial;
+  const events = [];
+  const insert = (index, supersedes) => {
+    const event = { seq: events.length + 1, type: 'tool/result', data: { meta: { playgroundControllerAssociation: {
+      ...marker, childId: `child-${index}`, challenge: { baseUrl: 'https://one.example.test/api', id: supersedes ? 'corrected' : `challenge-${index}` },
+      ...(supersedes ? { supersedes } : {}),
+    } } } };
+    events.push(event);
+    state = controllerProjection.apply(state, event);
+  };
+  for (let index = 0; index <= 100; index += 1) insert(index);
+  const expected = Array.from({ length: 100 }, (_, index) => `child-${index + 1}`);
+  assert.deepEqual(Object.keys(state.taskChallenges), expected);
+  assert.equal(Object.hasOwn(state.taskChallenges, 'child-0'), false);
+  insert(50, 'challenge-50');
+  assert.deepEqual(Object.keys(state.taskChallenges), expected, 'a correction does not change insertion order');
+  assert.equal(state.taskChallenges['child-50'].id, 'corrected');
+  insert(101);
+  assert.deepEqual(Object.keys(state.taskChallenges), Array.from({ length: 100 }, (_, index) => `child-${index + 2}`));
+  assert.deepEqual(events.reduce((restored, event) => controllerProjection.apply(restored, event), initial), state);
+});
+
+test('association conflict identifies a stored platform mismatch even when the challenge id matches', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', mode: 'external', createdAt: 1 }] } : previous(name);
+  const entry = f.live.get(sessionId);
+  entry.marker = controllerProjection.apply(entry.marker, { seq: 1, type: 'tool/result', data: { meta: { playgroundControllerAssociation: {
+    workspaceId: 'one', sessionId, childId: 'child', challenge: { baseUrl: 'https://other.example.test/api', id: 'challenge-a' },
+  } } } });
+  const result = await f.controller.linkTask({ child_id: 'child', challenge_id: 'challenge-a', base_url: f.client.baseUrl }, {
+    agent: entry.agent, signal: new AbortController().signal,
+  });
+  assert.equal(result.code, 'association_conflict');
+  assert.match(result.reason, /平台.*不一致/);
+  assert.doesNotMatch(result.reason, /另一道赛题/);
 });

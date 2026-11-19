@@ -325,7 +325,7 @@ test('controller association tool saves checked child identity through presentat
   } }), create: () => { throw Error('must not create'); }, prompt: () => { throw Error('must not prompt'); } };
   services.subagents = { listChildren: async () => [{ id: 'actual-child', mode: 'external', createdAt: 1 }] };
   const tool = tools.find((item) => item.name === 'playground_controller_link_task');
-  const input = { child_id: 'actual-child', challenge_id: 'challenge-a', base_url: 'https://association.example.test/api', title: 'Challenge title' };
+  const input = { child_id: 'actual-child', challenge_id: 'challenge-a', base_url: 'https://association.example.test/api' };
   const result = await tool.execute(input, exec);
   assert.equal(result.ok, true);
   const meta = tool.output.presentationMeta(input, result);
@@ -344,6 +344,7 @@ test('controller association tool saves checked child identity through presentat
   assert.deepEqual(tool.output.presentationMeta(input, missing), {});
   assert.match(tool.description, /Correct it ONLY on the user's explicit request/);
   assert.match(tool.parameters.properties.supersedes.description, /explicitly user-requested correction/);
+  assert.equal(Object.hasOwn(tool.parameters.properties, 'title'), false);
 }));
 
 test('a workspace controller cannot bind a challenge or change task state', async () => {
