@@ -829,7 +829,7 @@ export function apply(ctx, config) {
     scope.sessionProjections.register(workflowProjection);
     scope.sessionProjections.register(controllerProjection);
     scope.sessionProjections.register(controllerNoticesProjection);
-    const controller = createController(scope, (name) => scope.get?.(name) ?? ctx.get?.(name));
+    const controller = createController(scope, (name) => scope.get?.(name) ?? ctx.get?.(name), client);
     scope.on?.('subagent/start', controller.observeStart);
     scope.on?.('subagent/end', controller.observeEnd);
     workflow = createWorkflow({ ctx: scope, client, cli, presentationMeta,
@@ -885,6 +885,11 @@ export function apply(ctx, config) {
         const result = await controller.tasks({ workspaceId: marker.workspaceId, sessionId: exec.agent.id }, exec.signal);
         return { ok: result.kind === 'ready', ...result };
       } });
+    scope.tools.register({ name: 'playground_controller_link_task', description: 'Record an explicit challenge association for an existing direct child of THIS workspace controller after an accepted delegation. Copy base_url and challenge_id from the challenge handoff, and child_id from the delegation result. Never infer a challenge from labels, creation times or the latest handoff. Reads the platform challenge for its canonical id and title. Preserves the first association. Correct it ONLY on the user\'s explicit request, supplying supersedes with the exact currently stored challenge id; a mismatched predecessor is refused. Creates no session, sends no prompt and writes nothing to the platform.',
+      parameters: { type: 'object', properties: { child_id: { type: 'string' }, base_url: { type: 'string' }, challenge_id: { type: 'string' }, supersedes: { type: 'string', description: 'Current stored challenge id, only for an explicitly user-requested correction.' } }, required: ['child_id', 'base_url', 'challenge_id'], additionalProperties: false },
+      output: { ...output, presentationMeta: (_args, value) => value.ok ? { playgroundControllerAssociation: value.association } : {} },
+      execute: (args, exec) => controller.linkTask(args, exec).then((result) => result.kind === 'associated'
+        ? { ok: true, association: result.association } : { ok: false, error: { code: result.code, message: result.reason } }).catch(errorValue) });
     scope.tools.register({ name: 'playground_start_task', description: 'Create a NEW native DSH task conversation for an explicitly selected Playground challenge. If this conversation already has a Playground task, continue working here and use playground_task to read its context, receipts or results. Only create another task when the user explicitly requests a new task. From a conversation without a Playground task, when the user explicitly asks to work on, solve or submit a specific Playground challenge in this conversation, call playground_bind_task to bind this conversation instead of creating a new one; before preparing materials for submission in this conversation, bind it: the Playground task list, submission requests and result tracking use task conversations. Reading, browsing, explaining or comparing challenges needs neither tool. Call this tool only when the user explicitly asks for a new or separate task conversation. Use the directory the user names; if they name none, the current conversation\'s workspace is acceptable because the user started the request here. Requires an absolute cwd that is an existing registered DSH workspace; there is no implicit default. Does not create or register directories and does not submit platform changes.',
       parameters: { type: 'object', properties: { challenge_id: { type: 'string' }, cwd: { type: 'string', description: 'Required absolute path of a registered DSH workspace: the directory the user named, otherwise the current conversation\'s workspace.' }, mode: { type: 'string', enum: ['participate', 'author'] } }, required: ['challenge_id', 'cwd'] }, output,
       execute: (args, exec) => workflow.start(args, exec).then(toToolValue).catch(errorValue) });

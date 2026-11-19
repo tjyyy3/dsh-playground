@@ -16,6 +16,7 @@ test('challenge dispatch admits only the exact workspace, session, challenge and
   const input = { workspaceId: 'workspace-a', sessionId: 'controller-a', challengeId: 'a b/c', requestId: '98bcdf27-3bfb-4120-8ad2-06c2eca5810d' };
   assert.deepEqual(await service.dispatchChallenge(schema.parse(input), signal), { kind: 'accepted', sessionId: 'controller-a' });
   assert.deepEqual(calls, [[input, signal]]);
+  assert.equal(schema.safeParse({ ...input, challengeTitle: 'Unused hint' }).success, false);
   for (const invalid of [{ ...input, title: 'other' }, { ...input, prompt: 'other' }, { ...input, workspaceId: '' },
     { ...input, sessionId: undefined }, { ...input, challengeId: ' ' }, { ...input, requestId: 'random' }]) {
     assert.equal(schema.safeParse(invalid).success, false);

@@ -15,6 +15,7 @@ See the [README](../README.md) to install the plugin and try the workspace contr
 | `playground_open_controller` | Find a registered workspace's controller and offer to open its conversation | DSH session/workspace services |
 | `playground_set_controller` | Explicitly set the current ordinary conversation as the workspace controller | DSH session/workspace services |
 | `playground_controller_tasks` | Read the controller’s direct delegated tasks and observed results | DSH subagent services |
+| `playground_controller_link_task` | Associate an existing direct child with an explicitly named platform and challenge | DSH projections, subagent services, and `GET /api/challenges/{id}` |
 | `playground_bind_task` | Make the current conversation the task conversation of one challenge | DSH projections and `GET /api/challenges/{id}` |
 | `playground_task` | Read task/receipt, switch working mode, refresh latest result, record material references, report progress, or `track` an official CLI or API attempt | DSH projections and `GET /api/attempts/{id}` |
 
@@ -26,6 +27,8 @@ upload submissions and does not run a mandatory precheck.
 ## Try a workspace controller
 
 Open **Playground** and select a registered workspace. Open or create its controller to use the native DSH conversation alongside its delegated tasks. The task pane shows results received by that conversation. Use **赛题** for challenges, **提交** for task submissions, and **连接设置** for authentication.
+
+The task pane groups children by their recorded API base URL and challenge id. The controller is instructed to call `playground_controller_link_task` after each accepted delegation with the returned `child_id` and the handoff's `base_url` and `challenge_id`. The helper reads the platform challenge and verifies direct-child ownership before recording the canonical id and title. The projection retains the newest 100 associations in insertion order. It preserves the first association unless the user explicitly requests a correction that supplies the currently stored challenge id as `supersedes`. The projection applies a correction only while that predecessor still matches. Multiple children keep their own results and conversations. Legacy children and tasks whose linking call was omitted remain under **未关联赛题**, and maintenance tasks keep their separate group. Expanding groups, browsing results, and **刷新任务** only read existing state.
 
 **运行中** means a live run is observed. **本次运行已结束** means the plugin observed its end; **已收到结果** also appears when a notice is available. **已收到历史结果** and labels starting with **上次** describe saved history when the current execution state is unknown. A running task's old notice appears under **历史原始通知**, without a current result or copy button. If DSH has no execution receipt for a task, the pane shows **暂无执行回执**, which does not mean failure.
 
