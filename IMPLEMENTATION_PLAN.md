@@ -45,6 +45,7 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 - Preserve agreed quota exceptions. The reported local tests already showed Boolean-only fake submission and automatic `allowed-once`; neither proves human consent. Record the actual supported interaction and enforcement boundary.
 - Pass the correct task, workspace, expected account, material references and known attempt context. Track actual returned IDs with existing ownership checks.
 - Distinguish dispatch, creation, upload, scoring, failure and unknown results; query ambiguous outcomes before another create. Preserve known IDs.
+- Preserve existing per-challenge history, association markers, reference/final score explanations and quota information. Migrate the known statement-limit dependency on the old `prepared` event into retained task/context handling; keep source/unknown information and existing quota-sensitive confirmation rules without restoring cards or introducing a new statement parser. Replace outdated check-and-confirm recovery instructions.
 - The old immutable-snapshot project is superseded. Any retained claim about a checked material version still requires matching evidence, but the handoff does not add full-file hashes or copies.
 
 ### Track B — Reliability and removal of redundant work
@@ -54,7 +55,7 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 | B1 | Preserve settlement reasons; reuse supported DSH evidence for state | controller projection, observers, task display | [#77](https://github.com/tjyyy3/dsh-playground/issues/77), AUD-006 |
 | B2 | Remaining Windows descendant cleanup for plugin-created processes | CLI runner, Windows fixtures, host validation | [#17](https://github.com/tjyyy3/dsh-playground/issues/17), AUD-007 |
 | B3 | Remove full material reads, hashes/conversions, ZIP inspection and plugin material gates | obsolete preparation/readers, related UI/tests | [#75](https://github.com/tjyyy3/dsh-playground/issues/75), AUD-004/AUD-009 |
-| B4 | Additional history/comparison UI beyond #74 result clarity | presentation/UI | Candidate; separate product review |
+| B4 | Additional task-history filtering/grouping or attempt comparisons beyond the existing history and score displays | presentation/UI | Candidate; separate product review; existing behavior migration belongs to #74 |
 | B5 | Byte-budgeted reads of retained plugin API responses | API request layer, fake-stream tests | [#78](https://github.com/tjyyy3/dsh-playground/issues/78), AUD-008 |
 
 **B1 requirements**
@@ -90,14 +91,14 @@ These rows require further product review and do not automatically become tasks 
 
 | Item | Candidate scope | Question to resolve |
 |---|---|---|
-| C1 | Task board grouped by challenge/state | which existing views need an additional board? |
+| C1 | Organize existing task views by challenge/state | does grouping help, and how can controller child tasks be reliably associated with a challenge? |
 | C2 | Session/TODO association and daily done list | what creates a durable done record and what can be edited? |
 | C3 | Cancel, retry and reassign controls | which target DSH/provider actions exist and what do they guarantee? |
 | C4 | Evidence-based task review | what evidence helps without adding a universal submission gate? |
 | C5 | Bounded parallelism and dependencies | which limits and dependency behavior do actual workflows need? |
 | C6 | Artifact registry and optional Worktree isolation | which artifact identities/conflicts justify the added infrastructure? |
 
-#74 already owns essential submission-result clarity; B4/C4 must not duplicate it. Unknown is valid, and cancel/retry UI needs verified host semantics.
+#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. The controller already has a child-task list and native session links, while the task overview lists separate task conversations. C1/C2 must clarify the relationship and remaining gaps before proposing another model or view. Unknown is valid, and cancel/retry UI needs verified host semantics.
 
 ### Track D — Incremental file splitting
 

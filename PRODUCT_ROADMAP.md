@@ -40,8 +40,9 @@ Agent orchestration supports these journeys through existing DSH capabilities. I
 
 - Challenge discovery, filtering and detail.
 - Competition / season discovery.
-- Personal and public submission lookup.
-- Task conversations, attempt association and score tracking.
+- Personal and public submission lookup, including per-challenge history with time ordering, identity and current-conversation association markers.
+- Task conversations, attempt association and score tracking. Current displays already distinguish reference/final scores, a bundle not uploaded, and an attempt closed by the platform.
+- Challenge rules and resources in detail views; submission counts and known limits, with their sources and incomplete-data notices, in submission history.
 - Legacy material checks, confirmation cards and plugin-operated submission paths. These are being replaced under #74/#75; they are not requirements to preserve in the new participant flow.
 
 **Agreed near-term changes**
@@ -51,13 +52,15 @@ Agent orchestration supports these journeys through existing DSH capabilities. I
 - Submission handoff does not load or parse trace, manifest or ZIP contents, create material hashes/snapshots, or run ZIP summary/layout inspection. Do not restore those reads merely to populate UI statistics. Use official receipt data when it supplies the needed information.
 - Remove the plugin's old 200 MiB ZIP gate from handoff and do not replace it with new universal trace/manifest limits. Report actual official errors and preserve any attempt ID already obtained.
 - Distinguish request dispatched, attempt created, upload/result uncertainty, scoring and final platform result. Query an ambiguous outcome before another create operation; cancellation does not undo a platform write that already happened.
+- Preserve the existing history, score explanations and known quota information during migration. Replace instructions that still send users through checks/cards. Known challenge limits must remain usable without a retired preparation card; retain their provenance and the agreed quota-sensitive confirmation rules under #74.
 
 **Candidate follow-ups**
 
-- Submission history grouped by challenge and task, with explicit distinction between new submission and retry.
-- Clear explanations of provisional/final scores and missing-bundle or closed-attempt states.
-- Compare multiple attempts and show scorecard changes over time.
-- Keep challenge rules, submission limits and resource requirements visible while working.
+- Additional task-specific filtering or grouping within the existing per-challenge submission history. Correct new-submission versus retransmission behavior belongs to #74; a separate history of each retransmission would need its own product decision.
+- Compare multiple attempts or scorecard changes over time. Per-attempt totals and details already exist; define whether users need two-attempt comparison, scorecard evolution, or both before designing any additional storage.
+- Make existing challenge rules, known submission limits and resource information easier to reach while working in a task.
+
+Baseline references: [submission history and association markers](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1158-L1257), [existing score/status explanations](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L149-L270), and [the statement-limit dependency on the old prepared event](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/workflow.js#L192-L197). These are source-review findings, not a new runtime verification.
 
 The participant flow has no mandatory plugin-owned "Validate → Awaiting confirmation" stage between a user's ordinary submit request and Agent execution. An Agent may still perform checks required by the official workflow or needed to diagnose a concrete problem.
 
@@ -67,8 +70,8 @@ The participant flow has no mandatory plugin-owned "Validate → Awaiting confir
 
 - Workspace controller and challenge handoff.
 - Native Codex delegation with DSH subagent fallback guidance.
-- Child session observation and persisted result notices.
-- Separate challenge task conversations and controller conversations.
+- A controller child-task list with observed state, persisted result notices, result details and native child-session links where supported.
+- Separate challenge task conversations, their task overview, and controller conversations. These are existing views of different kinds of records.
 
 **Agreed near-term reliability work**
 
@@ -79,13 +82,15 @@ The participant flow has no mandatory plugin-owned "Validate → Awaiting confir
 
 **Candidate follow-ups**
 
-1. Task board grouped by challenge and status.
-2. Improved child-session links and task-to-session association where the provider exposes a usable session address.
+1. Organize existing task views by challenge and status if that helps the workflow. First decide how to associate controller child tasks reliably with a challenge: the current returned rows have no structured challenge ID. This candidate does not approve a separate task system.
+2. Fill remaining session-link and task-association gaps where the provider exposes a usable address; native child-session links already exist.
 3. Explicit cancel / retry / reassign controls, subject to DSH host support and verified semantics.
 4. Task dependencies and bounded parallelism.
 5. Artifact collection and provenance.
 6. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
 7. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
+
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; challenge grouping, TODOs and new task actions remain separate candidates.
 
 **Suggested task lifecycle, pending product review**
 
