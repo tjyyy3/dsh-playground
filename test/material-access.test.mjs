@@ -71,6 +71,32 @@ test('workspace materials are checked without authorization and an unknown task 
   await assert.rejects(readBundle(join(f.cwd, 'bundle.zip'), f.exec), { code: 'workspace_required' });
 });
 
+test('#73 r1: files named like discovery directories do not block workspace materials', async (t) => {
+  const f = await fixture(t);
+  await Promise.all(['.playground', 'playground-submission'].map((file) => writeFile(join(f.cwd, file), 'synthetic')));
+  const result = await f.workflow.prepare(f.args, f.exec);
+  assert.equal(result.ok, true, result.error?.message);
+  assert.deepEqual(f.calls, ['readBundle', 'precheck']);
+  assert.deepEqual((await f.workflow.materialAccess.status(f.exec)).requests, []);
+});
+
+test('#73 r1: an unreadable discovery directory does not block workspace materials', async (t) => {
+  const f = await fixture(t);
+  const directory = join(f.cwd, '.playground');
+  await mkdir(directory);
+  const begin = f.workflow.materialAccess.begin;
+  f.workflow.materialAccess.begin = async (...args) => {
+    const access = await begin(...args);
+    const readdir = access.readdir.bind(access);
+    access.readdir = (path) => path === directory
+      ? Promise.reject(Object.assign(new Error(`EACCES: scandir '${path}'`), { code: 'EACCES' })) : readdir(path);
+    return access;
+  };
+  const result = await f.workflow.prepare(f.args, f.exec);
+  assert.equal(result.ok, true, result.error?.message);
+  assert.deepEqual(f.calls, ['readBundle', 'precheck']);
+});
+
 test('absolute and .. external paths stop before content reads, hashes and CLI precheck', async (t) => {
   const f = await fixture(t);
   for (const bundle_path of [join(f.outside, 'bundle.zip'), relative(f.cwd, join(f.outside, 'bundle.zip'))]) {
@@ -133,6 +159,22 @@ test('task grants are reusable and revoke, workspace changes, task end and resta
     const operation = await access.begin(f.exec, args);
     await assert.rejects(operation.readFile(args.bundle_path), { code: 'material_authorization_required' }, action);
   }
+});
+
+test('#73 r1: a transient workspace lookup failure refuses access without losing a task grant', async (t) => {
+  const f = await fixture(t);
+  const args = { ...f.args, bundle_path: join(f.outside, 'bundle.zip') };
+  const blocked = await f.workflow.prepare(args, f.exec);
+  const approved = await f.authorize(blocked.workflow.request.requestId, 'task');
+  assert.equal((await f.workflow.prepare(approved.input, f.exec)).ok, true);
+  const resolveByPath = f.ctx.workspaceRegistry.resolveByPath;
+  f.ctx.workspaceRegistry.resolveByPath = async () => { throw new Error('Workspace registry temporarily unavailable'); };
+  const unavailable = await f.ctx.queries.materials({ action: 'status', sessionId: 'task' });
+  assert.equal(unavailable.error.code, 'workspace_required');
+  f.ctx.workspaceRegistry.resolveByPath = resolveByPath;
+  assert.equal((await f.workflow.materialAccess.status(f.exec)).grants.length, 1);
+  assert.equal((await f.workflow.prepare(args, f.exec)).ok, true);
+  assert.deepEqual(f.calls, ['readBundle', 'precheck', 'readBundle', 'precheck']);
 });
 
 test('automatic discovery checks a junction or symlink before listing outside the workspace', async (t) => {

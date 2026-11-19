@@ -459,6 +459,20 @@ test('M-01: confirmation command returns an error when the workflow throws', asy
   }
 });
 
+test('#73 r1: a malformed confirmation payload returns a command error', async () => {
+  const commands = [];
+  const scope = {
+    tools: { register() {} }, commands: { register: (command) => commands.push(command) },
+    sessionProjections: { register() {} }, inject() {},
+  };
+  apply({ tools: scope.tools, get: () => undefined, inject: (_services, callback) => callback(scope) });
+  const command = commands.find((item) => item.name === 'playground-confirm');
+  const result = await command.handler({ rawInput: '{"check_id":' });
+  assert.equal(result.kind, 'error');
+  assert.equal(typeof result.text, 'string');
+  assert.notEqual(result.text, '');
+});
+
 test('native task creation tool requires an explicit target directory in its schema', () => {
   const tools = [];
   const scope = {
