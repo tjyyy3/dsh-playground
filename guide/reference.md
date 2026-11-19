@@ -81,8 +81,7 @@ Login status checks and catalog loading, refresh, search, and filtering use a
 session-free read-only Host query. Their status and errors stay in the workbench;
 they do not append commands to any conversation, and browsing works without an
 open conversation. **交给主控** sends a request to the controller of the selected
-workspace. Creating a separate challenge task, checking materials, and
-confirming submissions use the session workflow.
+workspace. Task creation, submission handoff and result tracking use the existing task session.
 
 Chat no longer shows the login-status and catalog cards that older plugin
 versions wrote automatically into open conversations; the stored history is
@@ -315,8 +314,7 @@ These reads go through the session-free query, are kept in the workbench's
 memory only, and add nothing to any conversation. **查询结果 #…** in the task
 drawer is unchanged: it is your own action and still leaves a result card.
 
-Select a task to open its detail drawer, check materials, review the exact
-submission target and inspect results. The drawer's **在网页中打开** opens the
+Select a task to open its detail drawer, request submission from its Agent and inspect results. The drawer's **在网页中打开** opens the
 task's challenge page the same way. New tasks record the address when they are
 created. For tasks created before this version, the address is built the same
 way from the API base the task recorded when it was created, so the page belongs
@@ -334,9 +332,7 @@ the platform marks final counts, a queued or evaluating 0 shows **—**, and a
 `late_scored` entry is a final score marked **（赛后）**. The list is read
 once when the drawer opens, through the session-free query, without writing to
 any conversation, and needs a Playground login; **重试** reads it again after a
-failure. The list reloads once each time a submission is confirmed in the
-task conversation, such as one confirmed in the drawer, including a re-upload
-under the same submission number; **查询结果 #…** does not reload it or drop
+failure. The list reloads when the Agent tracks a new attempt or updates its reported progress, including a re-upload under the same submission number; **查询结果 #…** does not reload it or drop
 pages already loaded. The history is not polled on its own: when
 the workbench refresh above settles a task's latest submission, its history
 entry takes that result; other entries, including CLI submissions, update when
@@ -344,8 +340,7 @@ the drawer is reopened. In task
 conversations created before this version, only the latest submission is marked
 **本对话**.
 A submission whose bundle upload failed, by this task's own receipt
-(`upload_failed`: the confirmation created the submission and the upload into
-it failed), shows **评测包未上传** with stage **提交未完成** in the task row, the
+(`upload_failed`: the Agent reported a failed upload after obtaining a verified attempt ID), shows **评测包未上传** with stage **提交未完成** in the task row, the
 drawer summary and its history entry, instead of the platform's **排队中**. The
 platform keeps such a submission queued until it gives up on the bundle (about
 an hour later it marks it failed, "bundle missing"), and it reports
@@ -402,14 +397,13 @@ its content is kept, and it can be restored. There is no confirmation; the
 drawer then shows **已归档** and **撤销**. The button is disabled while the
 conversation is running (**对话正在运行，停止后再归档。**); the plugin never stops
 running work to archive it. It is also disabled for the conversation open in
-DSH's main view, for example after **前往工作台确认提交**
+DSH's main view
 (**这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。**): DSH closes its main
 view when that conversation is archived, which would also close the workbench.
 DSH does not open an archived conversation until it is restored, so an archived
-task's drawer has no **打开任务对话** and no check or confirm controls; it shows
+task's drawer has no **打开任务对话** or submission controls; it shows
 the archived state, **撤销** and the submission history, and **返回所选任务对话**
-skips it. A task with a submission waiting for confirmation can be archived,
-and its check card is still there after it is restored. If DSH refuses because
+skips it. Archiving invalidates material grants. Restored pending requests must be checked again before dispatch. If DSH refuses because
 the conversation still has running work, including subagents, background jobs
 or schedules, the workbench says so; other refusals show a short reason.
 **N 个任务** counts only tasks that
@@ -427,10 +421,7 @@ away. The plugin offers no delete: DSH
 has no interface for deleting a conversation. On a DSH version that does not report its archive set, nothing
 is treated as archived and the archive controls are hidden.
 
-Chat keeps its historical tool cards and workflow command cards. A pending
-check card offers **前往工作台确认提交**, which opens the workbench for that
-conversation.
-This navigation never confirms a submission. The workbench's **如何使用**
+Chat keeps historical records. Retired check cards are inert and labeled as historical information. The workbench's **如何使用**
 explains the workflow; natural-language queries remain in DSH's own composer.
 
 For example, ask:
@@ -455,9 +446,7 @@ not create a scientific solution, generate a trajectory, or build an ARM ZIP.
 
 After upgrading an existing installation to add this Client module, restart DSH
 once so its package metadata is rediscovered. Headless/SDK read tools remain
-supported without a browser. Login and CLI submission require the native DSH
-workflow services; deployments without them fail closed instead of submitting
-automatically.
+supported without a browser. Plugin login and submission handoff require the native DSH services. Missing dispatch or browser identity keeps the request unexecuted.
 
 ## API boundaries
 
@@ -469,7 +458,7 @@ apply. The plugin contains no independent uploader or automatic API fallback.
 
 ## Playground CLI and plugin setup
 
-Install the Playground CLI to check materials and submit for evaluation. The
+Install the Playground CLI for CLI login or when the chosen official challenge workflow requires it. The
 CLI requires Node.js 20 or newer. Install the plugin itself from DSH using the
 [README](../README.md#安装插件).
 
@@ -490,7 +479,7 @@ also installs `@dptech-corp/bohr-cli`, which the plugin does not need, so the
 Windows steps above leave it out.
 
 When the CLI reports that it is outdated ("Playground CLI x is outdated; latest
-is y"), the workbench login area and the material check show
+is y"), the workbench login area shows
 "Playground CLI 版本过旧（x，最新 y），可能影响评分" with these update steps.
 The login area learns this from `playground update-check`, which makes one
 release-notice request (the CLI caches the answer in its own file). The plugin
@@ -500,8 +489,7 @@ start; if the CLI is slower, that load shows no warning and the next one does.
 A shown warning is checked against the installed version at most every 30
 seconds and ends soon after the installed version changes (after updating, click
 **重新检测** in the login area); if that check fails, the warning stays for five
-minutes. A material check also picks the warning up from the CLI's notice. Only
-the two version numbers are kept, never other CLI output.
+minutes. Only the two version numbers are kept, never other CLI output.
 
 ### Developer installation
 

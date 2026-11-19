@@ -70,6 +70,8 @@ for (const route of ['CLI', 'API']) test('#74/#75: one click dispatches referenc
   assert.deepEqual(one.submission.attemptIds, [12]);
   assert.equal(one.submission.challengeId, 'challenge-a');
   assert.equal(one.submission.cwd, f.cwd);
+  assert.equal(one.submission.workspaceId, 'workspace');
+  assert.equal(one.submission.workspaceRoot, f.cwd);
   const prompt = f.calls[0].content[0].text;
   assert.match(prompt, /CLI 或 API/);
   assert.match(prompt, /track/);
@@ -114,9 +116,31 @@ test('#74: cancel, unavailable peer, expired confirmation and changed account ne
   const next = await f.submit();
   f.client.getCurrentUser = async () => ({ authenticated: true, user: { id: 6 } });
   assert.equal((await f.submit({ action: 'confirm_quota', requestId: next.submission.requestId })).error.code, 'request_changed');
+  assert.equal(f.state().submission.status, 'not_created');
   f.ctx.get = () => undefined;
   assert.equal((await f.submit()).error.code, 'user_action_required');
   assert.equal(f.calls.length, 0);
+});
+
+test('#74: quota confirmation expires after restart or a changed statement limit and can be requested again', async (t) => {
+  for (const change of ['restart', 'limit']) {
+    const f = await fixture(t, { content: '每天最多提交 3 次' });
+    const pending = await f.submit();
+    if (change === 'restart') {
+      const restarted = createWorkflow({ ctx: f.ctx, client: f.client, presentationMeta });
+      f.ctx.commands.execute = async (agent, command, _attachments, signal) => {
+        const result = await restarted.command({ agent, rawInput: command.slice('/playground '.length), signal });
+        f.setState(workflowProjection.apply(f.state(), { type: 'command/done', data: result }));
+        return { result };
+      };
+      registerWorkbenchQueries(f.ctx, restarted);
+    } else f.client.getChallenge = async (id) => ({ id, title: 'A', content: '每天最多提交 1 次' });
+    const refused = await f.submit({ action: 'confirm_quota', requestId: pending.submission.requestId });
+    assert.equal(refused.ok, false);
+    assert.equal(f.state().submission.status, 'not_created');
+    assert.equal((await f.submit()).status, 'awaiting_user');
+    assert.equal(f.calls.length, 0);
+  }
 });
 
 test('#74/#75: external references retain operation and task scope without reading material content', async (t) => {

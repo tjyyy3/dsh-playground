@@ -481,6 +481,7 @@ window.__ModuleLoader__.load({
         request ? h('div', { className: 'pg-confirm', role: 'status' },
           h('p', { className: 'pg-note' }, stages[request.status] || request.status),
           request.policy?.announcement ? h('p', { className: 'pg-note' }, request.policy.announcement) : null,
+          submissionCountsLine(request.counts) ? h('p', { className: 'pg-note' }, submissionCountsLine(request.counts)) : null,
           request.message ? h('p', { className: 'pg-note' }, request.reportedBy === 'agent' ? `Agent 报告：${request.message}` : request.message) : null,
           request.status === 'awaiting_user' ? h(React.Fragment, null,
             h('p', { className: 'pg-confirm-impact' }, `${request.policy?.reasonText || '本次提交有配额风险'}。继续可能消耗提交名额。`),
@@ -1374,7 +1375,7 @@ window.__ModuleLoader__.load({
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? current.receipt?.trackedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
