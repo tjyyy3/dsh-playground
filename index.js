@@ -363,6 +363,9 @@ function errorValue(error, extra = {}) {
 }
 
 const TASK_STATUS_TASK_KEYS = ['challengeId', 'title', 'mode', 'cwd'];
+const TASK_STATUS_MATERIAL_KEYS = ['outputs_path', 'bundle_path', 'trace_path', 'manifest_path'];
+const TASK_STATUS_SUBMISSION_KEYS = ['requestId', 'status', 'challengeId', 'title', 'cwd', 'workspaceId', 'workspaceRoot', 'baseUrl',
+  'attemptId', 'attemptIds', 'latestAttemptId', 'dispatchedAt', 'quotaConfirmed', 'message', 'reportedBy'];
 const TASK_STATUS_RECEIPT_KEYS = ['ok', 'attemptId', 'challengeId', 'challengeTitle', 'submissionState', 'agentReport', 'status', 'bundleStatus', 'score',
   'scoringState', 'error', 'violations', 'stage', 'traceCount', 'args', 'note', 'diagnosis', 'bundleNotReceived'];
 // The facts a failed confirmation records for the agent (lib/workflow.js cliFailure); all plugin-written or cleaned.
@@ -415,6 +418,29 @@ function submissionCountsView(state) {
 }
 
 const SUBMIT_POLICY_KEYS = ['askFirst', 'reasons', 'reasonText', 'announcement'];
+const SUBMISSION_RECORD_KEYS = {
+  expectedAccount: ['id', 'name', 'userType'],
+  materials: TASK_STATUS_MATERIAL_KEYS,
+  policy: SUBMIT_POLICY_KEYS,
+  counts: SUBMISSION_COUNTS_KEYS,
+  recovery: ['status', 'requestId', 'attemptId', 'attemptIds'],
+};
+
+// Model-visible projection fields must be explicitly selected, including nested submission records.
+// Adding a stored field must not expose it to the model until this view opts in.
+function submissionView(source) {
+  const view = pickKeys(source, TASK_STATUS_SUBMISSION_KEYS);
+  if (!view) return null;
+  for (const [key, keys] of Object.entries(SUBMISSION_RECORD_KEYS)) {
+    const picked = pickKeys(source[key], keys);
+    if (picked) view[key] = picked;
+  }
+  if (Array.isArray(source.materialScopes)) view.materialScopes = source.materialScopes.map((scope) => pickKeys(scope, ['path', 'kind', 'recursive']));
+  if (Array.isArray(source.limits)) view.limits = source.limits.map((limit) => pickKeys(limit, SUBMISSION_LIMIT_KEYS));
+  if (view.counts && Array.isArray(source.counts.limits)) view.counts.limits = source.counts.limits.map((limit) => pickKeys(limit, SUBMISSION_LIMIT_KEYS));
+  return view;
+}
+
 function taskStatus(state, submitPolicy) {
   const receipt = pickKeys(state?.receipt, TASK_STATUS_RECEIPT_KEYS);
   if (receipt?.diagnosis !== undefined) receipt.diagnosis = diagnosisView(receipt.diagnosis);
@@ -436,8 +462,8 @@ function taskStatus(state, submitPolicy) {
     ...(state?.attemptIds !== undefined ? { attemptIds: state.attemptIds } : {}),
     ...(bundleMissingIds.length ? { bundleMissingIds } : {}),
     ...(state?.lastFailure ? { lastFailure: diagnosisView(state.lastFailure) } : {}),
-    materials: state?.materials || {},
-    submission: state?.submission || null,
+    materials: pickKeys(state?.materials, TASK_STATUS_MATERIAL_KEYS) ?? {},
+    submission: submissionView(state?.submission),
   };
 }
 

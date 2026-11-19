@@ -92,7 +92,11 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Current state
 
-Version `0.4.4` contains the split Playground workbench, responsive layout,
-task summary rows, and a task detail drawer. The future-capability preview was
-removed from runtime UI; future ideas belong in local design notes. No live
-runtime verification is implied by the unit tests alone.
+Version field: `0.4.4`.
+
+The workbench dispatches submission requests to each task's existing Agent,
+passes authorized material references, and tracks verified attempt IDs and results.
+It does not upload materials or run submission prechecks. Browser cancellation
+recovers stranded requests while retaining their IDs and reconciliation context.
+Historical cards remain readable without executable submission handlers.
+No live runtime verification is implied by the unit tests alone.

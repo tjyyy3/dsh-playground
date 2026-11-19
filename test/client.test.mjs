@@ -129,8 +129,8 @@ function taskDrawer(f, getState, run, { access = true, running = false, material
 }
 const buttonLabeled = (f, tree, label) => f.find(tree, (n) => n.type === 'button' && text(n).includes(label));
 
-test('#74 r1: stranded handoffs offer browser cancellation and retain the visible attempt', async (t) => {
-  for (const status of ['dispatched', 'created', 'unknown']) {
+test('#74 r2: stranded handoffs offer browser cancellation and retain the visible attempt', async (t) => {
+  for (const status of ['dispatching', 'dispatched', 'created', 'unknown']) {
     const f = await clientFixture(t);
     const calls = [];
     const state = { task: { challengeId: 'fixture', title: 'Fixture', mode: 'participate' },
@@ -147,6 +147,19 @@ test('#74 r1: stranded handoffs offer browser cancellation and retain the visibl
     const after = render();
     assert.match(text(after), /#41/);
     assert.equal(f.find(after, (node) => node.type === 'button' && node.props.children.includes('提交')).props.disabled, false);
+  }
+});
+
+test('#74 r2: internal submission records have a label and a submission status fact', async (t) => {
+  const f = await clientFixture(t);
+  const Card = f.registrations.get('playground').Component;
+  for (const status of ['dispatching', 'dispatched', 'unknown', 'not_created']) {
+    const card = f.render(Card, { node: { name: 'playground', args: '{"action":"record_submission","id":"internal-record"}',
+      outcome: { kind: 'success', text: JSON.stringify({ playgroundWorkflow: { kind: 'submission', submission: { status } }, ok: true }) } } });
+    assert.match(text(card), /提交请求状态/);
+    const facts = JSON.parse(text(f.find(card, (node) => node.type === 'pre')));
+    assert.equal(facts.交接状态, status);
+    assert.doesNotMatch(text(card), /internal-record/);
   }
 });
 

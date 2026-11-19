@@ -392,6 +392,30 @@ test('D10a: playground_task status keeps the receipt error fields and omits abse
   assert.equal(Object.values(value.receipt).includes(undefined), false);
 });
 
+test('#74 r2: task status explicitly selects material and submission fields at nested boundaries', async () => {
+  const hidden = { futureInternalField: 'DO_NOT_EXPOSE' };
+  const materials = { outputs_path: 'outputs', bundle_path: 'bundle.zip', trace_path: 'trace.jsonl', manifest_path: 'manifest.json' };
+  const limit = { source: 'statement', limit: 3, period: 'day' };
+  const { tools, exec } = mountWorkflowScope({ task: null, prepared: null, receipt: null,
+    materials: { ...materials, ...hidden }, submission: { requestId: 'current', status: 'unknown', challengeId: 'a', attemptIds: [41],
+      expectedAccount: { id: 5, name: 'Synthetic', ...hidden }, materials: { ...materials, ...hidden },
+      materialScopes: [{ path: 'outputs', kind: 'directory', recursive: true, ...hidden }],
+      policy: { askFirst: true, reasons: ['statement_limit'], announcement: 'Synthetic announcement', ...hidden },
+      counts: { total: 1, counted: 1, limits: [{ ...limit, ...hidden }], ...hidden }, limits: [{ ...limit, ...hidden }],
+      recovery: { requestId: 'previous', status: 'dispatching', attemptIds: [41], ...hidden }, ...hidden } });
+  const value = await tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
+  assert.doesNotMatch(JSON.stringify(value), /DO_NOT_EXPOSE|futureInternalField/);
+  assert.deepEqual(value.materials, materials);
+  assert.deepEqual(value.submission.materials, materials);
+  assert.deepEqual(value.submission.expectedAccount, { id: 5, name: 'Synthetic' });
+  assert.deepEqual(value.submission.materialScopes, [{ path: 'outputs', kind: 'directory', recursive: true }]);
+  assert.equal(value.submission.status, 'unknown');
+  assert.equal(value.submission.policy.askFirst, true);
+  assert.deepEqual(value.submission.counts, { total: 1, counted: 1, limits: [limit] });
+  assert.deepEqual(value.submission.limits, [limit]);
+  assert.deepEqual(value.submission.recovery, { requestId: 'previous', status: 'dispatching', attemptIds: [41] });
+});
+
 test('D10a: playground_task status passes attemptIds through as an array of numbers when present', async () => {
   // `attemptIds` is written by the task attempt history branch; this base only passes it through.
   const { tools, exec } = mountWorkflowScope({ ...pendingState(), attemptIds: [3, 7] });

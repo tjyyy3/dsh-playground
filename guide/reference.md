@@ -697,7 +697,7 @@ Agent reports until a platform result provides further evidence.
 Always retain an attempt ID obtained before upload failed. On a timeout or
 unknown result, query the known attempt or the submission list before creating
 another. A retry follows the official protocol for the verified original
-attempt. Cancellation cannot withdraw a server write that already happened. A dispatched, created or unknown handoff can be cancelled from the task drawer to clear the plugin request state. This does not stop the Agent. Known attempt IDs remain visible and tracked, and the next handoff explicitly requires reconciliation of the previous request before any new creation.
+attempt. Cancellation cannot withdraw a server write that already happened. A dispatched, created or unknown handoff can be cancelled from the task drawer to clear the plugin request state. A persisted dispatching request can also be reset after a Host restart, when no in-flight dispatch owns it. Cancellation is refused while the current Host still owns that dispatch. This does not stop the Agent. Known attempt IDs remain visible and tracked, and the next handoff explicitly requires reconciliation of the previous request before any new creation.
 
 ## Configuration
 

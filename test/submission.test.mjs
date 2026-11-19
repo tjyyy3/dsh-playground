@@ -260,15 +260,63 @@ test('#74 r1: browser cancellation resets stranded handoffs and keeps attempts f
   }
 });
 
-test('#74 r1: cancellation cannot reset a request still dispatching or a different request', async (t) => {
+test('#74 r1: cancellation cannot reset a different request', async (t) => {
   const f = await fixture(t);
   await f.submit();
-  const requestId = f.state().submission.requestId;
   assert.equal((await f.submit({ action: 'cancel', requestId: 'another-request' })).error.code, 'request_not_pending');
-  f.setState({ ...f.state(), submission: { ...f.state().submission, status: 'dispatching' } });
-  assert.equal((await f.submit({ action: 'cancel', requestId })).error.code, 'request_not_pending');
-  assert.equal(f.state().submission.status, 'dispatching');
+  assert.equal(f.state().submission.status, 'dispatched');
   assert.equal(f.calls.length, 1);
+});
+
+test('#74 r2: a restored dispatching request without a Host lock can be cancelled and reconciled', async (t) => {
+  const f = await fixture(t);
+  f.record(await f.workflow.track({ attempt_id: 41, submission_state: 'created' }, f.exec));
+  f.setState({ ...f.state(), submission: { requestId: 'persisted-request', status: 'dispatching', attemptId: 41 } });
+  const cancelled = await f.submit({ action: 'cancel', requestId: 'persisted-request' });
+  assert.equal(cancelled.ok, true);
+  assert.equal(f.state().submission.status, 'not_created');
+  assert.equal(f.state().submission.recovery.status, 'dispatching');
+  assert.equal(f.state().receipt.attemptId, 41);
+  assert.deepEqual(f.state().attemptIds, [41]);
+  assert.equal(f.calls.length, 0);
+  const next = await f.submit();
+  assert.equal(next.status, 'dispatched');
+  assert.deepEqual(next.submission.attemptIds, [41]);
+  assert.match(f.calls[0].content[0].text, /先核对上次请求是否已在服务器创建提交/);
+});
+
+test('#74 r2: browser cancellation cannot reset a dispatch running in this Host instance', async (t) => {
+  const f = await fixture(t);
+  let entered;
+  let finish;
+  const started = new Promise((resolve) => { entered = resolve; });
+  f.ctx.sessionController.prompt = (request) => {
+    f.calls.push(request);
+    return new Promise((resolve) => { finish = resolve; entered(); });
+  };
+  const running = f.submit();
+  await started;
+  const cancelled = f.submit({ action: 'cancel', requestId: f.state().submission.requestId });
+  finish({ accepted: true });
+  const result = await cancelled;
+  await running;
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'request_in_progress');
+  assert.equal(f.state().submission.status, 'dispatched');
+  assert.equal(f.state().submission.recovery, undefined);
+  assert.equal(f.calls.length, 1);
+});
+
+test('#74 r2: not_created with an attempt ID is refused without dropping or tracking the ID', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  const before = f.state();
+  f.client.getAttempt = () => assert.fail('a contradictory progress report must not query or track');
+  const result = await f.workflow.reportSubmission({ attempt_id: 41, submission_state: 'not_created' }, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.message, '已取得编号时请先用 track 记录真实编号。');
+  f.record(result);
+  assert.deepEqual(f.state(), before);
 });
 
 test('#74 r1: binding ignores a legacy card for another challenge and preserves matching receipts', async (t) => {
@@ -309,6 +357,7 @@ test('#74/#75: retired tools, commands, API uploads and CLI submit/precheck are 
   assert.equal(commands.some((command) => command.name === 'playground-confirm'), false);
   const f = await fixture(t);
   assert.equal((await f.workflow.command({ ...f.exec, rawInput: '{"action":"check","user_confirmed_limit":true}' })).kind, 'error');
+  assert.equal((await f.workflow.command({ ...f.exec, rawInput: '{"action":"cancel"}' })).kind, 'error');
   const client = createPlaygroundClient({ baseUrl: 'http://127.0.0.1:9' });
   assert.equal(client.createAttempt, undefined);
   assert.equal(client.uploadBundle, undefined);

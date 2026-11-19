@@ -455,7 +455,7 @@ window.__ModuleLoader__.load({
       };
       const disabled = busy || running || !allowed;
       const active = ['dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
-      const canCancel = ['awaiting_user', 'dispatched', 'created', 'unknown'].includes(request?.status);
+      const canCancel = ['awaiting_user', 'dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
       const stages = { awaiting_user: '等待配额答复，尚未派发', dispatching: '正在交接', dispatched: '已派发给 Agent，尚未取得新编号',
         not_created: '未创建新提交', created: '已创建，上传状态未确认', uploaded: 'Agent 报告已上传', upload_failed: '已创建，Agent 报告上传失败',
         unknown: '结果未知，先核对已有提交', running: '平台已接收，处理中', final: '平台已返回最终结果' };
@@ -1971,7 +1971,7 @@ window.__ModuleLoader__.load({
           ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
             ? openControllerChat(data.sessionId, data.workspaceId || '') : openTask(data.sessionId) },
             toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
-        data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
+        data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '打开工作台') : null,
         data ? h(React.Fragment, null,
           h('div', { className: 'pg-facts' },
             data.attemptId !== undefined || data.id !== undefined ? h('span', null, `${t(isAttempt ? 'submissionId' : 'id')}: ${data.attemptId ?? data.id}`) : null,
@@ -2265,7 +2265,8 @@ window.__ModuleLoader__.load({
       const label = node.name === 'playground-auth-login' ? 'Playground 登录'
         : node.name === 'playground-confirm' ? '确认提交' : action === 'results' ? '查询评测结果' : workflow?.kind === 'receipt' ? '提交回执'
         : ({ auth: '登录状态检测', catalog: '赛题目录查询', start: '创建任务对话', task: '任务上下文', context: '任务上下文',
-          mode: '切换工作模式', check: '检查提交材料', prepared: '检查提交材料', results: '查询评测结果', cancel: '取消提交准备', clear: '取消提交准备' })[action] || 'Playground 命令';
+          mode: '切换工作模式', check: '检查提交材料', prepared: '检查提交材料', results: '查询评测结果', cancel: '取消提交准备', clear: '取消提交准备',
+          record_submission: '提交请求状态', submission: '提交请求状态' })[action] || 'Playground 命令';
       const failed = node.outcome?.kind === 'error' || result.ok === false || Boolean(result.error);
       const available = Object.keys(result).length > 0;
       const status = !node.outcome ? '执行中 / 尚未完成' : failed ? '未完成' : !available ? '结果不可用'
@@ -2278,6 +2279,7 @@ window.__ModuleLoader__.load({
           当前页赛题: challenges.slice(0, 12).map((item) => commandFact(item.titleZh || item.title || item.id)).filter((title) => title !== undefined) } : {}),
         ...(workflow?.task ? { 赛题: commandFact(workflow.task.title) } : {}),
         ...(workflow?.mode ? { 工作模式: workflow.mode === 'author' ? '出题' : '参赛' } : {}),
+        ...(workflow?.submission ? { 交接状态: commandFact(workflow.submission.status) } : {}),
         ...(workflow?.prepared ? { 赛题: commandFact(workflow.prepared.challenge?.title), 材料数量: commandFact(workflow.prepared.files?.length), 提交状态: '历史记录，不参与当前提交' } : {}),
         ...(workflow?.receipt || action === 'results' ? { 提交编号: commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id),
           评测状态: commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status),
