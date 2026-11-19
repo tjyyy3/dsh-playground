@@ -5238,13 +5238,14 @@ test('controller stop reasons describe historical notices and never override a n
     [{ childId: 'saved-other', state: 'settled', noticeStopReason: 'provider-specific' }, '已收到历史结果'],
     [{ childId: 'saved-legacy', state: 'settled' }, '已收到历史结果'],
     [{ childId: 'new-running', state: 'running', noticeStopReason: 'error' }, '运行中'],
-    [{ childId: 'new-running-with-end', state: 'running', noticeStopReason: 'error', liveEnd: { stopReason: 'error' } }, '运行中'],
-    [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
-    [{ childId: 'finished-with-notice', state: 'ended', noticeStopReason: 'completed', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
+    [{ childId: 'new-running-with-end', state: 'running', noticeStopReason: 'error', liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'earlier output' }] } }, '运行中'],
+    [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束 · 已收到结果'],
+    [{ childId: 'finished-with-notice', state: 'ended', noticeStopReason: 'completed', liveEnd: { stopReason: 'completed' } }, '本次运行已结束 · 已收到结果'],
+    [{ childId: 'finished-without-notice', state: 'ended', terminalText: '', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
     [{ childId: 'live-limit', state: 'ended', liveEnd: { stopReason: 'max-tokens' } }, '达到输出上限'],
     [{ childId: 'live-refusal', state: 'ended', liveEnd: { stopReason: 'refusal' } }, '拒绝执行'],
   ];
-  const rows = cases.map(([row]) => ({ ...row, label: row.childId, terminalText: 'earlier result' }));
+  const rows = cases.map(([row]) => ({ label: row.childId, terminalText: 'earlier result', ...row }));
   const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
     useWorkspaces: (select) => select({ phase: 'ready', items: [] }), useSessions: (select) => select({ ids: [], byId: {} }),
     inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
@@ -5263,9 +5264,15 @@ test('controller stop reasons describe historical notices and never override a n
       assert.equal(text(f.find(tree, (node) => node.type === 'summary')), '历史原始通知');
       if (typeof row.noticeStopReason === 'string') assert.match(text(tree), /历史通知的结束原因/);
       else assert.doesNotMatch(text(tree), /结束原因/);
+    } else if (row.state === 'running') {
+      assert.match(text(tree), /正在运行。已收到的通知属于历史结果/);
+      assert.equal(text(f.find(tree, (node) => node.type === 'summary')), '历史原始通知');
+      assert.equal(f.find(tree, (node) => node.props?.className === 'pg-controller-markdown'), undefined);
+      assert.equal(f.find(tree, (node) => node.type === 'button' && text(node) === '复制结果'), undefined);
+      assert.doesNotMatch(text(tree), /当前执行状态未知/);
     } else {
       assert.doesNotMatch(text(tree), /历史结果通知|当前执行状态未知|不能作为本次运行已结束|历史通知的结束原因|上次运行出错/);
-      assert.equal(text(f.find(tree, (node) => node.type === 'summary')), '原始通知');
+      assert.equal(text(f.find(tree, (node) => node.type === 'summary')), row.terminalText === '' ? '' : '原始通知');
     }
     if (row.state === 'running' && row.liveEnd) {
       assert.match(text(tree), /上次运行结束：出错/);

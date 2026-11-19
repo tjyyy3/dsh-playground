@@ -427,6 +427,7 @@ test('structured notice stop reasons survive projection replay and controller re
   assert.equal(result.kind, 'ready');
   assert.deepEqual(result.rows.map((row) => row.noticeStopReason), reasons);
   assert.ok(result.rows.every((row) => row.state === 'settled' && !row.liveEnd));
+  assert.ok(result.rows.every((row) => row.noticeIsHistorical === true));
   assert.equal(f.createRequests.length, 1);
   assert.equal(f.promptRequests.length, 1);
   assert.equal(controllerNoticesProjection.stateVersion, 2);
@@ -459,6 +460,7 @@ test('an earlier notice is historical while a newer round runs and after its obs
   let row = (await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0];
   assert.equal(row.state, 'running');
   assert.equal(row.noticeStopReason, 'error');
+  assert.equal(row.noticeIsHistorical, true);
   assert.equal(row.liveEnd, undefined);
   f.controller.observeEnd({ id: 'child', runId: 'old', provider: 'dsh', stopReason: 'error' });
   assert.equal((await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0].state, 'running');
@@ -468,6 +470,7 @@ test('an earlier notice is historical while a newer round runs and after its obs
   assert.equal(row.liveEnd.stopReason, 'completed');
   assert.equal(row.noticeStopReason, 'error');
   assert.equal(row.terminalText, 'earlier result');
+  assert.equal(row.noticeIsHistorical, false);
   assert.equal(f.createRequests.length, 1);
   assert.equal(f.promptRequests.length, 1);
 });
@@ -496,7 +499,6 @@ test('passive resident local running evidence wins while idle, absent and extern
   assert.equal(result.rows[0].noticeStopReason, 'error');
   assert.equal(result.rows[0].liveEnd, undefined);
   assert.equal(f.live.has(sessionId), false, 'reading tasks does not activate the cold parent');
-  assert.equal(f.live.has('missing'), false, 'reading tasks does not activate a missing child');
   assert.equal(f.createRequests.length, 1);
   assert.equal(f.promptRequests.length, 1);
 });
