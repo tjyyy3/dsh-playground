@@ -211,7 +211,11 @@ test('#73 r1: a transient workspace lookup failure refuses access without losing
 test('automatic discovery checks a junction or symlink before listing outside the workspace', async (t) => {
   const f = await fixture(t);
   await Promise.all(['bundle.zip', 'trace.json'].map((file) => unlink(join(f.cwd, file))));
-  await symlink(f.outside, join(f.cwd, '.playground'), process.platform === 'win32' ? 'junction' : 'dir');
+  try { await symlink(f.outside, join(f.cwd, '.playground'), process.platform === 'win32' ? 'junction' : 'dir'); }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') { t.skip('Windows junction privilege is unavailable.'); return; }
+    throw error;
+  }
   const blocked = await f.workflow.prepare(f.args, f.exec);
   assert.equal(blocked.error.code, 'material_authorization_required');
   assert.deepEqual(f.calls, []);
@@ -235,7 +239,11 @@ test('recursive directory grants cover descendants but not a nested junction to 
   await writeFile(join(elsewhere, 'private.json'), '{}');
   await mkdir(join(f.outside, 'nested'));
   await writeFile(join(f.outside, 'nested', 'file.json'), '{}');
-  await symlink(elsewhere, join(f.outside, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+  try { await symlink(elsewhere, join(f.outside, 'escape'), process.platform === 'win32' ? 'junction' : 'dir'); }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') { t.skip('Windows junction privilege is unavailable.'); return; }
+    throw error;
+  }
   const operation = await f.workflow.materialAccess.begin(f.exec, f.args);
   let request;
   await assert.rejects(operation.readdir(f.outside), (error) => { request = error.materialAccess; return error.code === 'material_authorization_required'; });

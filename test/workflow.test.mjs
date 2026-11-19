@@ -5260,7 +5260,7 @@ test('#62: the public list and the own list report truncation; a complete public
 test('#62: results reuse a fresh overview, detail flags are read once, and own detail reads carry the session token', async () => {
   const f = await materialFixture();
   f.client.currentToken = async () => 'synthetic-token';
-  f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 40, challengeId: 'challenge-a' }, attemptIds: [40] });
+  f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', cwd: f.cwd, mode: 'participate' }, receipt: { ok: true, attemptId: 40, challengeId: 'challenge-a' }, attemptIds: [40] });
   const reads = quotaClient(f, { own: [{ id: 40, createdAt: nowIso() }], agents: AGENTS,
     publicItems: [{ id: 41, authorId: 'opencode-glm', createdAt: nowIso() }], quota: { 40: true, 41: false } });
   let ownReads = 0;
@@ -5281,7 +5281,8 @@ test('#62: results reuse a fresh overview, detail flags are read once, and own d
   assert.equal(reads.details.length, detailReads + 1, 'a fresh overview makes no new detail reads');
   // A material check reads again but reuses the quota flags already read.
   const before = reads.details.filter((id) => id === 41).length;
-  await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const prepared = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(prepared.ok, true, prepared.error?.message);
   assert.equal(reads.details.filter((id) => id === 41).length, before);
   // A failing overview never fails results.
   const g = await materialFixture();
