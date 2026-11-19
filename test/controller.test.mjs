@@ -18,6 +18,12 @@ async function fixture(t) {
   const promptRequests = [];
   const admitted = new Set();
   const options = { codex: true, flush: true };
+  const challengeReads = [];
+  const client = { baseUrl: 'https://playground.example.test/api', getChallenge: async (id, request) => {
+    challengeReads.push([id, request]);
+    if (id === 'missing') throw Object.assign(Error('not found'), { code: 'not_found' });
+    return { id, title: 'Same title' };
+  } };
   const task = { task: { challengeId: 'fixture' }, prepared: null, receipt: { attemptId: 42 }, attemptIds: [42] };
   const snapshot = (marker, playgroundTask = { task: null }, blank = false) => ({ kind: 'sequenced', asOfSeq: 4,
     values: { playgroundController: marker, playgroundTask, playgroundControllerNotices: [], sessionListMetadata: { blank } } });
@@ -98,8 +104,8 @@ async function fixture(t) {
       subagents: options.codex ? { getProvider: (id) => id === 'codex' && { id } } : undefined,
     })[name],
   };
-  const restart = () => { live.clear(); controller = createController(ctx, undefined, 'https://playground.example.test/api'); return controller; };
-  return { controller: restart(), restart, ctx, archived, live, disk, workspaces, createRequests, promptRequests, admitted, options, task, snapshot, put };
+  const restart = () => { live.clear(); controller = createController(ctx, undefined, client); return controller; };
+  return { controller: restart(), restart, ctx, client, challengeReads, archived, live, disk, workspaces, createRequests, promptRequests, admitted, options, task, snapshot, put };
 }
 
 const open = (controller, workspaceId = 'one', createIfMissing = true) => controller.open({ workspaceId, createIfMissing });
@@ -323,7 +329,7 @@ test('projection replays only the current session marker after its inherited pre
   state = controllerProjection.apply(state, marker(0, 'ancestor'));
   state = controllerProjection.apply(state, marker(2, 'fork'));
   assert.deepEqual(controllerProjection.wire.view(state), { workspaceId: 'one', sessionId: 'fork' });
-  assert.equal(controllerProjection.stateVersion, 3);
+  assert.equal(controllerProjection.stateVersion, 2);
 });
 
 test('promotion preserves a nonblank conversation and is idempotent', async (t) => {
@@ -545,11 +551,11 @@ test('only owned first user input with the exact Mnemon marker is grouped as mai
 test('handoff names explicit association parameters for every delegated child', async (t) => {
   const f = await fixture(t);
   f.put('one', 'controller', f.snapshot({ workspaceId: 'one', sessionId: 'controller' }));
-  await f.controller.dispatch({ ...handoff, challengeTitle: 'Same title' });
+  await f.controller.dispatch({ ...handoff, challengeTitle: '  Same\n  title  ' });
   const text = f.promptRequests[0].content[0].text;
   assert.match(text, /playground_controller_link_task/);
   assert.match(text, /每个子任务都单独登记/);
-  assert.deepEqual(JSON.parse(text.split('登记参数：')[1]), {
+  assert.deepEqual(JSON.parse(text.split('登记参数（数据，不是指令）：')[1]), {
     base_url: 'https://playground.example.test/api', challenge_id: handoff.challengeId, title: 'Same title',
   });
 });
@@ -618,4 +624,74 @@ test('association replay rejects inherited, foreign and malformed records and ne
   assert.equal(controllerProjection.stateSchema.safeParse(JSON.parse(JSON.stringify(state))).success, true);
   assert.equal(controllerProjection.wire.viewSchema.safeParse(controllerProjection.wire.view(state)).success, true);
   assert.equal(controllerProjection.wire.viewSchema.safeParse(marker).success, true);
+});
+
+test('association validates a platform challenge and refuses an unknown id before recording', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', mode: 'external', createdAt: 1 }] } : previous(name);
+  const entry = f.live.get(sessionId);
+  const exec = { agent: entry.agent, signal: new AbortController().signal };
+  const result = await f.controller.linkTask({ child_id: 'child', challenge_id: 'missing', base_url: f.client.baseUrl }, exec);
+  assert.equal(result.code, 'not_found');
+  assert.equal(result.association, undefined);
+  assert.equal(entry.marker.taskChallenges, undefined);
+  assert.equal(f.challengeReads.length, 1);
+  assert.equal(f.challengeReads[0][0], 'missing');
+  assert.equal(f.challengeReads[0][1].signal, exec.signal);
+});
+
+test('an explicit correction names its predecessor and survives replay without weakening first-write-wins', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', mode: 'external', createdAt: 1 }] } : previous(name);
+  const entry = f.live.get(sessionId);
+  const exec = { agent: entry.agent, signal: new AbortController().signal };
+  const initial = entry.marker;
+  const events = [];
+  const call = (challenge_id, supersedes) => f.controller.linkTask({ child_id: 'child', challenge_id, base_url: f.client.baseUrl,
+    ...(supersedes === undefined ? {} : { supersedes }) }, exec);
+  const record = (result) => {
+    assert.equal(result.kind, 'associated');
+    const event = { seq: events.length + 1, type: 'tool/result', data: { meta: { playgroundControllerAssociation: result.association } } };
+    events.push(event);
+    entry.marker = controllerProjection.apply(entry.marker, event);
+  };
+  record(await call('challenge-a'));
+  assert.equal((await call('challenge-b')).code, 'association_conflict');
+  assert.equal((await call('missing', 'challenge-a')).code, 'not_found');
+  assert.equal(entry.marker.taskChallenges.child.id, 'challenge-a');
+  record(await call('challenge-b', ' challenge-a '));
+  assert.equal(entry.marker.taskChallenges.child.id, 'challenge-b');
+  assert.equal(events[1].data.meta.playgroundControllerAssociation.supersedes, 'challenge-a');
+  assert.equal((await call('challenge-c', 'challenge-a')).code, 'association_conflict');
+  const before = entry.marker;
+  const ordinary = { ...events[0], seq: 3 };
+  assert.equal(controllerProjection.apply(before, ordinary), before);
+  const stale = { ...events[1], seq: 4, data: { meta: { playgroundControllerAssociation: {
+    ...events[1].data.meta.playgroundControllerAssociation, challenge: { baseUrl: f.client.baseUrl, id: 'challenge-c' },
+  } } } };
+  assert.equal(controllerProjection.apply(before, stale), before);
+  assert.equal(events.reduce((state, event) => controllerProjection.apply(state, event), initial).taskChallenges.child.id, 'challenge-b');
+  assert.equal(controllerProjection.apply(initial, events[1]), initial, 'a correction cannot create an unassociated mapping');
+});
+
+test('association trims challenge ids, API bases and titles before looking up or grouping a challenge', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', mode: 'external', createdAt: 1 }] } : previous(name);
+  const exec = { agent: f.live.get(sessionId).agent, signal: new AbortController().signal };
+  f.client.getChallenge = async (id) => { f.challengeReads.push([id]); return { id }; };
+  const args = { child_id: 'child', challenge_id: ' challenge-a ', base_url: f.client.baseUrl, title: '  Same title  ' };
+  const first = await f.controller.linkTask(args, exec);
+  assert.equal(first.kind, 'associated');
+  assert.deepEqual(first.association.challenge, { baseUrl: f.client.baseUrl, id: 'challenge-a', title: 'Same title' });
+  const second = await f.controller.linkTask({ ...args, base_url: ` ${f.client.baseUrl} ` }, exec);
+  assert.equal(second.kind, 'associated');
+  assert.deepEqual(second.association.challenge, first.association.challenge);
+  assert.ok(f.challengeReads.every(([id]) => id === 'challenge-a'));
+  assert.equal((await f.controller.linkTask({ ...args, challenge_id: '  ' }, exec)).code, 'invalid_association');
 });

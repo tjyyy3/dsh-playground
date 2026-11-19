@@ -1741,8 +1741,8 @@ window.__ModuleLoader__.load({
         }).catch((failure) => { if (!abort.signal.aborted) setError(failure.message); });
         return () => abort.abort();
       }, [workspaceId, retry]);
+      React.useEffect(() => { setTaskSnapshot(null); }, [workspaceId, expectedId]);
       React.useEffect(() => {
-        setTaskSnapshot(null);
         if (!workspaceId || !expectedId || !controllerTasks) return;
         const abort = new AbortController();
         let inFlight = false;

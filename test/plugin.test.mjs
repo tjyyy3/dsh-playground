@@ -310,7 +310,7 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   return { tools, contexts, scope, session, exec, commands, services };
 }
 
-test('controller association tool saves checked child identity through presentation metadata only', async (t) => {
+test('controller association tool saves checked child identity through presentation metadata only', async (t) => withSyntheticPlatform(async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'playground-association-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const sessionId = 'synthetic-agent';
@@ -325,7 +325,7 @@ test('controller association tool saves checked child identity through presentat
   } }), create: () => { throw Error('must not create'); }, prompt: () => { throw Error('must not prompt'); } };
   services.subagents = { listChildren: async () => [{ id: 'actual-child', mode: 'external', createdAt: 1 }] };
   const tool = tools.find((item) => item.name === 'playground_controller_link_task');
-  const input = { child_id: 'actual-child', challenge_id: 'challenge', base_url: 'https://association.example.test/api', title: 'Challenge title' };
+  const input = { child_id: 'actual-child', challenge_id: 'challenge-a', base_url: 'https://association.example.test/api', title: 'Challenge title' };
   const result = await tool.execute(input, exec);
   assert.equal(result.ok, true);
   const meta = tool.output.presentationMeta(input, result);
@@ -334,12 +334,17 @@ test('controller association tool saves checked child identity through presentat
   });
   state = controllerProjection.apply(state, { seq: 1, type: 'tool/result', data: { meta } });
   assert.deepEqual(controllerProjection.wire.view(state).taskChallenges, {
-    'actual-child': { baseUrl: input.base_url, id: input.challenge_id, title: input.title },
+    'actual-child': { baseUrl: input.base_url, id: input.challenge_id, title: 'Synthetic challenge' },
   });
   const refused = await tool.execute({ ...input, child_id: 'not-a-child' }, exec);
   assert.equal(refused.error.code, 'child_not_found');
   assert.deepEqual(tool.output.presentationMeta(input, refused), {});
-});
+  const missing = await tool.execute({ ...input, challenge_id: 'missing' }, exec);
+  assert.equal(missing.error.code, 'not_found');
+  assert.deepEqual(tool.output.presentationMeta(input, missing), {});
+  assert.match(tool.description, /Correct it ONLY on the user's explicit request/);
+  assert.match(tool.parameters.properties.supersedes.description, /explicitly user-requested correction/);
+}));
 
 test('a workspace controller cannot bind a challenge or change task state', async () => {
   const state = workflowProjection.init();

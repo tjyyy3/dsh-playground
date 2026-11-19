@@ -1343,14 +1343,17 @@ test('#25: binding an ordinary conversation records the task in it, without a ne
   assert.equal(author.states.get('source').task.mode, 'author');
 });
 
-test('#25: a directory alias of the conversation resolves to the registered workspace path', async () => {
+test('#25: a directory alias of the conversation resolves to the registered workspace path', async (t) => {
   const f = await fixture();
   noSessionWork(f);
   const parent = await realpath(await mkdtemp(join(tmpdir(), 'playground-alias-')));
   directories.push(parent);
   const alias = join(parent, 'linked-workspace');
-  // A junction needs no privilege on Windows; elsewhere the type is ignored and a directory symlink is made.
-  await symlink(f.cwd, alias, 'junction');
+  try { await symlink(f.cwd, alias, 'junction'); }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') { t.skip('Windows junction privilege is unavailable.'); return; }
+    throw error;
+  }
   const aliases = [alias, ...(process.platform === 'win32' ? [f.cwd.toUpperCase(), toNamespacedPath(f.cwd)] : [])];
   for (const directory of aliases) {
     f.states.set('source', workflowProjection.init());

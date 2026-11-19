@@ -5202,10 +5202,14 @@ test('workspace selection hides old controller tasks immediately and ignores a l
   render(); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
   assert.match(text(render()), /one-task/);
+  f.find(render(), (node) => node.props?.className === 'pg-controller-row' && node.props.key === 'one-task').props.onClick();
+  assert.match(text(render()), /one-task result/);
   f.find(render(), (node) => node.type === 'button' && text(node) === '刷新任务').props.onClick();
   f.effects.length = 0;
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect()));
   assert.equal(typeof finishOldRead, 'function');
+  assert.match(text(render()), /one-task result/);
+  assert.ok(f.find(render(), (node) => node.type === 'button' && text(node) === '返回任务'), 'refresh keeps the current detail open while reading');
   await f.find(render(), (node) => node.props?.['aria-label'] === '工作区').props.onChange({ target: { value: 'two' } });
   assert.doesNotMatch(text(render()), /one-task/);
   finishOldRead({ kind: 'ready', rows: rows('one-task') });
