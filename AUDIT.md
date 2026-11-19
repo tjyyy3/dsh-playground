@@ -76,7 +76,7 @@ These are reviewed requirements, not merged fixes.
 
 ### AUD-005 — Custom remote HTTP endpoints expose credential-bearing requests
 
-- **Priority:** P1. **Status:** conditional configuration issue confirmed; #76 pending.
+- **Priority:** P1. **Status:** conditional configuration issue confirmed in the review baseline. [#80](https://github.com/tjyyy3/dsh-playground/pull/80) merged on 2026-11-19 and #76 is closed; repository status verified, implementation tests not independently rerun in this documentation review.
 - **Evidence:** the default base uses HTTPS, but arbitrary HTTP bases are accepted and requests attach an available token. See [#76](https://github.com/tjyyy3/dsh-playground/issues/76).
 - **Required behavior:** require HTTPS for remote hosts. Preserve local-development HTTP for `localhost`, `127.0.0.1` and `[::1]`; do not add a general unsafe-remote override. Reject disallowed destinations before fetching and prevent silent downgrade through redirects.
 - **Acceptance:** fake-token tests cover remote HTTPS, permitted local HTTP, rejected remote HTTP and the chosen redirect policy; existing local demo/CI use remains possible.
@@ -135,7 +135,7 @@ For the affected implementation scope, apply the linked issue criteria:
 - [ ] #73: hybrid scope, lifetime, path semantics and tested host boundaries.
 - [ ] #74: existing-Agent handoff, retired entry points, quota-consent migration and verified result tracking.
 - [ ] #75: no redundant material/ZIP reads or plugin material gates; historical-data compatibility.
-- [ ] #76: remote HTTPS and the documented local-development exception.
+- [x] #76: remote HTTPS and the documented local-development exception — implemented by merged [#80](https://github.com/tjyyy3/dsh-playground/pull/80); merge/issue status verified, without independent test execution in this review.
 - [ ] #77: settlement reasons, compatible notices and evidence-based state recovery.
 - [ ] #17: Windows cleanup and host limits verified and accurately reported; unresolved behavior tracked.
 - [ ] #78: bounded API response reading with correct errors and cleanup.

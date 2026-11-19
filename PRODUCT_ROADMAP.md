@@ -3,9 +3,9 @@
 > Decisions synchronized: 2026-11-19  
 > Source-review baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`  
 > Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
-> Status: the near-term direction below is agreed, but implementation and required verification remain open. Later product items are candidates for separate review, not commitments or prerequisites for the submission redesign.
+> Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue. Later candidates require separate product review and are not prerequisites for the submission redesign.
 
-Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17) and [#78](https://github.com/tjyyy3/dsh-playground/issues/78). Updating this roadmap does not mean those changes have shipped.
+Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78) and [#81](https://github.com/tjyyy3/dsh-playground/issues/81). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
 
 ## 1. Product direction
 
@@ -80,17 +80,28 @@ The participant flow has no mandatory plugin-owned "Validate → Awaiting confir
 - Treat an old result as historical evidence when it cannot be reliably associated with the current execution. A missing notification or a non-running process is not proof of success or failure.
 - Preserve unknown when evidence is insufficient. State inspection must not wake the Agent or automatically repeat its work. No new task database or recovery action is required for this change.
 
+**Agreed task organization — #81**
+
+Within the selected workspace's controller task list, organize tasks by challenge. Opening a challenge shows which Agents are working on it, each task's execution state, existing results and the conversations that can actually be opened.
+
+- Keep multiple execution tasks for the same challenge distinct, including their results and session context.
+- Establish explicit challenge association for new tasks using existing platform/challenge identities and supported DSH records. The current child-task rows have no structured challenge ID; verify the smallest reliable addition rather than inferring ownership from labels, timing or the most recent challenge handoff.
+- Keep historical or other unassociated tasks visible in an explicitly unassociated area. Preserve the existing maintenance category and workspace/controller boundaries.
+- Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
+- Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
+
+This approved scope is tracked in [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information; TODOs, new task actions, scheduling, artifacts and review remain separate candidates.
+
 **Candidate follow-ups**
 
-1. Organize existing task views by challenge and status if that helps the workflow. First decide how to associate controller child tasks reliably with a challenge: the current returned rows have no structured challenge ID. This candidate does not approve a separate task system.
-2. Fill remaining session-link and task-association gaps where the provider exposes a usable address; native child-session links already exist.
-3. Explicit cancel / retry / reassign controls, subject to DSH host support and verified semantics.
-4. Task dependencies and bounded parallelism.
-5. Artifact collection and provenance.
-6. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
-7. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
+1. Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
+2. Explicit cancel / retry / reassign controls, subject to DSH host support and verified semantics.
+3. Task dependencies and bounded parallelism.
+4. Artifact collection and provenance.
+5. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
+6. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
 
-Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; challenge grouping, TODOs and new task actions remain separate candidates.
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; #81 adds the approved challenge grouping. TODOs and new task actions remain separate candidates.
 
 **Suggested task lifecycle, pending product review**
 
@@ -196,12 +207,13 @@ The linked issues define agreed near-term scope and acceptance. Candidate priori
 |---|---|---|
 | P0 | File-use authorization and explicit submission handoff | Agreed: #73 / #74; protect the intended scope and user request |
 | P1 | Retire redundant material processing and ZIP inspection | Agreed: #75, coordinated with #74 |
-| P1 | HTTPS for the plugin's remote API requests | Agreed: #76; preserve supported local development |
+| P1 | HTTPS for the plugin's remote API requests | Implemented via merged #80; #76 closed. Merge status verified; not independently rerun in this document review |
 | P1 | Preserve end reasons and recover supported task evidence | Agreed: #77; keep unknown honest |
 | P1 | Remaining Windows CLI cleanup and host cancellation boundaries | Agreed: #17; limited to retained plugin-launched processes |
 | P2 | Bounded API response consumption | Agreed: #78; protect plugin resources without setting material limits |
 | P1 | Participant history and workflow-state clarity | Core receipts in #74; further history UI remains a candidate |
-| P1 | Task board, session links, cancel / retry | Candidate; confirm host-supported operations before adding controls |
+| P1 | Challenge-grouped tasks, results and existing conversation entry points | Agreed: #81; establish reliable association and preserve existing records |
+| P1 | Further session integration and cancel / retry | Candidate; confirm host-supported operations before adding controls |
 | P1 | Evidence-based completion review | Candidate; match evidence to the task |
 | P2 | Artifact registry and Worktree isolation | Candidate; improve parallel work and review |
 | P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |

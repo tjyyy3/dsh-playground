@@ -19,7 +19,9 @@ The baseline still contains the old flow. Update outdated `AGENTS.md`, README, t
 
 ## 2. Issue work and PR sequence
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration. Tracks C-E retain candidate work for further review.
+Implementation progress checked on 2026-11-19: [#80](https://github.com/tjyyy3/dsh-playground/pull/80) is merged and #76 is closed. This confirms repository status; this documentation review did not independently rerun the implementation tests.
+
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration. Track C1 is approved under #81; C2-C6 and Tracks D-E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -85,20 +87,29 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 3. These fixes do not wait for a snapshot design, every product feature, or documentation PR #72 to merge.
 4. Keep code-unit results, isolated-host observations and actual target-host acceptance distinguishable.
 
-### Track C — Participant and Agent collaboration candidates
+### Track C — Task organization and further collaboration
 
-These rows require further product review and do not automatically become tasks in the current issue set.
+C1 is approved under #81. C2-C6 remain candidates for separate product review.
 
-| Item | Candidate scope | Question to resolve |
+| Item | Scope | Status / implementation question |
 |---|---|---|
-| C1 | Organize existing task views by challenge/state | does grouping help, and how can controller child tasks be reliably associated with a challenge? |
+| C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Agreed: [#81](https://github.com/tjyyy3/dsh-playground/issues/81); establish reliable challenge association using supported DSH records |
 | C2 | Session/TODO association and daily done list | what creates a durable done record and what can be edited? |
 | C3 | Cancel, retry and reassign controls | which target DSH/provider actions exist and what do they guarantee? |
 | C4 | Evidence-based task review | what evidence helps without adding a universal submission gate? |
 | C5 | Bounded parallelism and dependencies | which limits and dependency behavior do actual workflows need? |
 | C6 | Artifact registry and optional Worktree isolation | which artifact identities/conflicts justify the added infrastructure? |
 
-#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. The controller already has a child-task list and native session links, while the task overview lists separate task conversations. C1/C2 must clarify the relationship and remaining gaps before proposing another model or view. Unknown is valid, and cancel/retry UI needs verified host semantics.
+**C1 requirements**
+
+- Within the selected workspace/controller, preserve separate tasks for the same challenge and group them by reliable existing platform/challenge identity.
+- Inspect the target DSH version's supported metadata and records. Add only the association information needed for new tasks; title matching, timing or the most recent handoff are not reliable association.
+- Preserve old/unassociated tasks and results visibly, existing maintenance classification and session context. Avoid mixing unrelated top-level task conversations into controller child tasks.
+- Reuse existing result displays and native session links. Provider records without a usable address remain readable without a fabricated link.
+- Browsing/refreshing does not dispatch work, create sessions or submit. Reuse #77 state evidence; preserve unknown and distinguish it from #74 platform state.
+- Verify same-challenge multiple tasks, different challenges, legacy records, workspace switches, association persistence, results and supported session opening with focused mock tests and actual DSH UI checks. No real competition submission is needed.
+
+#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. C1 uses existing controller tasks; C2's TODO/session association remains a separate decision. Unknown is valid, and cancel/retry UI needs verified host semantics.
 
 ### Track D — Incremental file splitting
 
@@ -161,6 +172,7 @@ Simplifying participant submission neither removes these candidates nor approves
 ### Product acceptance
 
 - Participant: discover/work → explicit submit intent → existing Agent follows official requirements → real attempt tracked → platform result displayed.
+- Task organization (#81): select workspace → open a challenge group → inspect separate Agent tasks, supported states and results → open an available existing conversation.
 - Author/organizer/community: define acceptance when a candidate is selected for implementation.
 - Structural refactors: preserve existing behavior and affected contracts.
 
@@ -179,9 +191,9 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 ## 5. Immediate next actions
 
 1. Implement #74/#75 in coordinated increments, carrying #73's grants into actual retained boundaries.
-2. Complete focused fixes in #76, #77, #17 and #78, coordinating shared files.
+2. Complete focused fixes in #77, #17 and #78, coordinating shared files. #76 has been implemented via merged #80; retain its behavior in subsequent API work.
 3. Use the AUD-003 findings already recorded in #74 and investigate the remaining production boundary, rather than restarting the completed isolated investigation.
-4. Review later product choices and file-splitting scope separately; open narrow issues for selected work.
+4. Implement the approved challenge grouping in #81, coordinating with #77's state data. Review remaining product choices and file-splitting scope separately; open narrow issues for selected work.
 5. Update the audit and status table as implementation lands, not merely when discussion concludes.
 
 ## 6. Status tracking
@@ -191,11 +203,12 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | A1 hybrid policy | Agreed; implementation pending | [#73](https://github.com/tjyyy3/dsh-playground/issues/73) | retained-call integration and path/host tests |
 | A2/A3 handoff and consent migration | Agreed; implementation pending | [#74](https://github.com/tjyyy3/dsh-playground/issues/74) | new-flow regression and actual interaction channel |
 | B3 material/ZIP cleanup | Agreed; implementation pending | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) | no-read handoff and historical compatibility |
-| A4 HTTPS | Reviewed; implementation pending | [#76](https://github.com/tjyyy3/dsh-playground/issues/76) | destination/redirect/local-development tests |
+| A4 HTTPS | #80 merged; #76 closed | [#76](https://github.com/tjyyy3/dsh-playground/issues/76) / [#80](https://github.com/tjyyy3/dsh-playground/pull/80) | merge/issue status verified; implementation tests not independently rerun in this document review |
 | B1 settlement/state evidence | Reviewed; implementation pending | [#77](https://github.com/tjyyy3/dsh-playground/issues/77) | target host/provider capabilities and recreation |
 | B2 remaining CLI cleanup | Scope corrected; Windows validation pending | [#17](https://github.com/tjyyy3/dsh-playground/issues/17) | descendants and host lifecycle |
 | B5 API response budgets | Reviewed; implementation pending | [#78](https://github.com/tjyyy3/dsh-playground/issues/78) | budget choice, streams and caller behavior |
-| B4/C1-C6 product extensions | Candidates; further review needed | — | product decisions and host semantics |
+| C1 challenge-grouped task list | Agreed; implementation pending | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) | reliable association, legacy/workspace compatibility and actual session navigation |
+| B4/C2-C6 product extensions | Candidates; further review needed | — | product decisions and host semantics |
 | D1-D5 file splitting | Candidate engineering plan | — | retained boundaries and chosen scope |
 | E1-E8 author/organizer/community | Discovery candidates | — | official contracts, permissions and selection |
 
