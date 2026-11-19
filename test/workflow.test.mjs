@@ -7,7 +7,8 @@ import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { apply, createSubmitTool, presentationMeta, readBundle, readTrace, readManifest } from '../index.js';
-import { buildSubmitArgs } from '../lib/cli.js';
+import { buildSubmitArgs, createPlaygroundCli } from '../lib/cli.js';
+import { windowsJobLaunch } from '../lib/windows-process.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { formatSubmission } from '../lib/format.js';
 import { challengeWebBase, publicChallengeUrl } from '../lib/links.js';
@@ -4399,7 +4400,6 @@ test('#57: the English reason gives each skipped precheck an English note and co
     [Object.assign(new Error('Playground CLI was not found.'), { code: 'cli_not_found', started: false }), 'the Playground CLI was not found'],
     [Object.assign(new Error('spawn playground ENOENT'), { code: 'ENOENT' }), 'the Playground CLI was not found'],
     [Object.assign(new Error('Node.js was not found on PATH'), { code: 'cli_node_missing', started: false }), 'Node.js, which the Playground CLI needs, is not on PATH'],
-    [Object.assign(new Error('PowerShell helper failed'), { code: 'cli_job_unavailable', started: false }), 'Windows PowerShell, Add-Type, or the helper temporary directory is unavailable'],
     [Object.assign(new Error('spawn failed'), { code: 'EACCES', started: false }), 'the Playground CLI did not start'],
     [Object.assign(new Error('old'), { code: 'cli_precheck_unsupported', reason: 'old_version', started: true, version: '0.1.40' }), 'the installed Playground CLI 0.1.40 is older than 0.1.43'],
     [Object.assign(new Error('odd'), { code: 'cli_precheck_unsupported', reason: 'unknown_version', started: true }), 'the installed Playground CLI version could not be read'],
@@ -4436,6 +4436,28 @@ test('#57: the English reason gives each skipped precheck an English note and co
   assert.ok(lines.includes('Trace: 3 steps'), lines.join(' / '));
   assert.ok(lines.includes('CLI precheck: skipped'), lines.join(' / '));
   assert.ok(approval.asked[0].reason.split(' ｜\n').includes('轨迹：3 步'));
+});
+
+test('Windows: an unavailable dry-run helper gives the approval reason a skipped precheck note', { skip: process.platform !== 'win32' }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'playground-precheck-helper-'));
+  directories.push(directory);
+  const command = join(directory, 'cli.mjs');
+  await writeFile(command, `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));`);
+  const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => windowsJobLaunch(launch, { tempRoot: join(directory, 'missing-temp') }) });
+  const f = await fixture(cli);
+  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(checked.ok, true);
+  const note = 'Windows PowerShell, Add-Type, or the helper temporary directory is unavailable';
+  assert.equal(checked.cliPrecheck.status, 'skipped');
+  assert.equal(checked.cliPrecheck.noteEn, note);
+  assert.match(checked.cliPrecheck.note, /Windows PowerShell.*Add-Type.*未经 CLI 预检/);
+  f.record(checked);
+  const approval = fakeApproval('rejected');
+  await f.workflow.submitApproved({ approval_id: checked.approvalId }, { ...f.exec, name: 'playground_submit' }, { approval, approvalPanel: true });
+  assert.ok(approval.asked[0].displayReason.en.split(' ｜\n').includes(`CLI precheck: skipped, ${note}`));
 });
 
 test('#57: a network or platform error in the login check before asking writes nothing, asks nothing and keeps the card', async () => {

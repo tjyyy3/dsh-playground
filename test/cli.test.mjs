@@ -134,6 +134,19 @@ console.error('synthetic Add-Type compiler failure'); process.exit(1);`);
   assert.equal(existsSync(marker), false);
 });
 
+test('Windows: a helper exiting without a marker never reports that the CLI started', { skip: process.platform !== 'win32' }, async () => {
+  const marker = join(markers, 'helper-no-marker.txt');
+  const command = await fakeCli(join(root, 'helper-no-marker', 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+  const helper = await fakeCli(join(root, 'helper-no-marker', 'helper.mjs'), 'process.exit(1);');
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => ({
+    ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+  }) });
+  await assert.rejects(() => cli.authLogin('synthetic@example.test', 'password'),
+    (error) => error.code === 'cli_job_unavailable' && error.started === false);
+  assert.equal(existsSync(marker), false);
+});
+
 test('Windows: an invalid executable fails before the CLI starts', { skip: process.platform !== 'win32' }, async () => {
   const command = join(root, 'invalid.exe');
   await writeFile(command, 'This is not a Windows executable.');
@@ -170,15 +183,22 @@ test('stale Windows job directories are removed without deleting recent or unrel
   } finally { await launch.dispose(); }
 });
 
-test('Windows: version, help, dry-run and update checks do not need the Job helper', { skip: process.platform !== 'win32' }, async () => {
+test('Windows: material checks contain the dry run while version, help and update checks start directly', { skip: process.platform !== 'win32' }, async () => {
   const command = await fakeCli(join(root, 'direct-probes', 'cli.mjs'), `const args = process.argv.slice(2);
 if (args[0] === '--version') console.log('0.1.43');
 else if (args.includes('--help')) console.log('--dry-run');
 else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));
 else if (args[0] === 'update-check') console.log(JSON.stringify({ current: '0.1.43', latest: '0.1.44', update_available: true }));`);
-  const cli = createPlaygroundCli({ command, launchWindowsJob: () => { assert.fail('a short call used the Job helper'); } });
+  const launches = [];
+  const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => {
+    launches.push(launch.args);
+    return windowsJobLaunch(launch);
+  } });
   assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
+  assert.equal(launches.length, 1);
+  assert.ok(launches[0].includes('--dry-run'));
   assert.deepEqual(await cli.updateStatus(), { current: '0.1.43', latest: '0.1.44' });
+  assert.equal(launches.length, 1);
 });
 
 test('Windows: a missing CLI path is cli_not_found, not ENOENT', { skip: process.platform !== 'win32' }, async () => {
@@ -586,6 +606,34 @@ const wait = setInterval(() => {
       await killRecorded(pidFile);
     }
   });
+
+test('Windows: a dry-run precheck ends detached descendants after the CLI root exits', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'precheck-orphan.txt');
+  const cli = createPlaygroundCli({
+    command: await fakeCli(join(root, 'precheck-orphan', 'cli.mjs'), `import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('0.1.43');
+else if (args.includes('--help')) console.log('--dry-run');
+else if (args.includes('--dry-run')) {
+  spawn(process.execPath, ['-e', ${quote(delayedMarker(marker))}], { stdio: 'inherit', detached: true }).unref();
+  const ready = setInterval(() => {
+    if (!existsSync(${quote(`${marker}.started`)})) return;
+    clearInterval(ready); console.log(JSON.stringify({ status: 'dry_run' }));
+  }, 20);
+}`),
+    timeoutMs: 3000,
+    killGraceMs: GRACE,
+  });
+  try {
+    assert.equal((await cli.precheck({ challengeId: 'demo', bundlePath: 'b.zip' })).status, 'dry_run');
+    const pid = await readPid(`${marker}.started`);
+    assert.ok(pid > 0, 'the detached descendant never started');
+    assert.equal(alive(pid), false, 'the detached descendant is still running');
+    await sleep(Math.max(0, statSync(`${marker}.started`).mtimeMs + MARKER_DELAY + 500 - Date.now()));
+    assert.equal(existsSync(marker), false);
+  } finally { await killRecorded(`${marker}.started`); }
+});
 
 test('Windows: a login ends detached descendants after their intermediate parent exited', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
   const marker = join(markers, 'orphaned-login.txt');
