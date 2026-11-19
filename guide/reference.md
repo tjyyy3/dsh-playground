@@ -1181,7 +1181,7 @@ The row accepts:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `baseUrl` | `https://play.bohrium.com` | Site root or `/api` endpoint; normalized automatically |
+| `baseUrl` | `https://play.bohrium.com` | HTTPS site root or `/api` endpoint; normalized automatically. Loopback HTTP is supported for local development |
 | `timeoutMs` | `20000` | Per-request timeout for reads, including response body reading, in milliseconds |
 | `uploadTimeoutMs` | `180000` | Per-request timeout for submission and bundle uploads, including response body reading |
 | `cliPath` | `playground` | Installed Playground CLI executable used for login and confirmed submission |
@@ -1191,6 +1191,11 @@ The row accepts:
 | `token` | — | Playground token override; it wins over every other source, including a token saved in the workbench. Prefer the workbench token login |
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
+The same protocol rule applies to both sources. The plugin rejects remote HTTP
+API bases before making a request. HTTP is supported only for `localhost`,
+`127.0.0.1`, or `[::1]`, including explicit ports. LAN addresses and similar
+hostnames such as `localhost.example.test` require HTTPS. The plugin's API client
+does not follow redirects. Configure the final API endpoint.
 
 ## Develop and verify
 

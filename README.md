@@ -38,6 +38,8 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 
 在 **提交** 页查看已关联的任务、提交历史和评分。浏览公开赛题通常可以直接开始。查看个人提交或提交评测前，打开右上角的 **连接设置**，[登录 Playground](guide/reference.md#log-in-with-an-api-token)。需要检查材料或提交评测时，安装 [Playground CLI](guide/reference.md#install-or-update-the-playground-cli)。
 
+自定义远程 API 地址必须使用 HTTPS。本机 HTTP 调试例外和重定向策略见[配置说明](guide/reference.md#configuration)。
+
 在独立的参赛任务对话准备提交材料。检查完成后，核对赛题、提交身份和次数，再点 **确认目标并提交**，或在任务对话中明确要求提交。交给主控时，插件只发送赛题处理请求。
 
 ## 更新和反馈
