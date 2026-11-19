@@ -153,6 +153,78 @@ writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
   assert.equal(existsSync(marker), false);
 });
 
+for (const reason of ['cancelled', 'timed out']) {
+  test(`Windows: stopping a preparing helper is ${reason} before the CLI starts`, { skip: process.platform !== 'win32', timeout: 20000 }, async (t) => {
+    const marker = join(markers, `startup-${reason}.txt`);
+    const helperPid = `${marker}.helper`;
+    const command = await fakeCli(join(root, `startup-${reason}`, 'cli.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, 'started'); console.log('[]');`);
+    const helper = await fakeCli(join(root, `startup-${reason}`, 'helper.mjs'), `import { writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(helperPid)}, String(process.pid)); setInterval(() => {}, 1000);`);
+    const options = { command, timeoutMs: 300, submitTimeoutMs: 300, killGraceMs: 1000 };
+    const cli = createPlaygroundCli({ ...options, launchWindowsJob: async (launch) => ({
+      ...await windowsJobLaunch(launch), file: process.execPath, args: [helper],
+    }) });
+    const controller = new AbortController();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const outcome = (reason === 'cancelled'
+        ? cli.authLogin('synthetic@example.test', 'password', { signal: controller.signal })
+        : cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', signal: controller.signal })).then(
+        () => assert.fail('expected the preparing helper to be stopped'), (error) => error,
+      );
+      assert.equal(await waitUntil(() => existsSync(helperPid), 10000), true, 'the helper never started');
+      if (reason === 'cancelled') controller.abort();
+      else t.mock.timers.tick(options.timeoutMs);
+      await sleep(50);
+      t.mock.timers.tick(options.killGraceMs);
+      const error = await outcome;
+      assert.equal(error.code, 'cli_terminated');
+      assert.equal(error.started, false);
+      assert.match(error.message, new RegExp(`${reason} before it started`));
+      assert.doesNotMatch(error.message, /PowerShell|Add-Type/);
+      assert.equal(existsSync(marker), false);
+    } finally {
+      controller.abort();
+      t.mock.timers.reset();
+      await killRecorded(helperPid);
+    }
+  });
+}
+
+test('Windows: a supervisor failure after the CLI starts keeps its stack out of the public message', { skip: process.platform !== 'win32', timeout: 20000 }, async () => {
+  const marker = join(markers, 'after-start.pid');
+  const release = `${marker}.release`;
+  const command = await fakeCli(join(root, 'after-start', 'cli.mjs'), `import { existsSync, writeFileSync } from 'node:fs';
+writeFileSync(${JSON.stringify(marker)}, String(process.pid));
+const ready = setInterval(() => {
+  if (!existsSync(${JSON.stringify(release)})) return;
+  clearInterval(ready); console.log('[]');
+}, 20);`);
+  let receipt;
+  const cli = createPlaygroundCli({ command, launchWindowsJob: async (launch) => {
+    const job = await windowsJobLaunch(launch);
+    receipt = JSON.parse(job.env.PLAYGROUND_CLI_LAUNCH).receipt;
+    return job;
+  } });
+  const outcome = cli.authLogin('synthetic@example.test', 'password').then(
+    () => assert.fail('expected the supervisor receipt write to fail'), (error) => error,
+  );
+  try {
+    assert.equal(await waitUntil(() => existsSync(marker), 10000), true, 'the CLI never started');
+    await mkdir(`${receipt}.tmp`);
+    await writeFile(release, 'done');
+    const error = await outcome;
+    assert.equal(error.code, 'cli_error');
+    assert.equal(error.started, true);
+    assert.match(error.message, /Windows process job/);
+    assert.doesNotMatch(error.message, /Exception|PlaygroundCliJob|playground-cli-job-/);
+    assert.doesNotMatch(error.stderr, /Exception|PlaygroundCliJob|playground-cli-job-/);
+  } finally {
+    await killRecorded(marker);
+  }
+});
+
 test('Windows: an invalid executable fails before the CLI starts', { skip: process.platform !== 'win32' }, async () => {
   const command = join(root, 'invalid.exe');
   await writeFile(command, 'This is not a Windows executable.');
