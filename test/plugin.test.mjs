@@ -17,7 +17,10 @@ function fixtureSubmitTool(client, cwd) {
     sessionProjections: { stateOf: () => ({ task: { cwd, challengeId: 'demo' } }) },
     workspaceRegistry: { resolveByPath: async () => ({ id: 'test-workspace', path: cwd }) },
   });
-  return createSubmitTool(client, { materialAccess: { begin: (exec, args, operation) => access.begin({ ...exec, agent }, args, operation) } });
+  const tool = createSubmitTool(client);
+  return { ...tool, execute: async (args, exec) => tool.execute(args, exec, {
+    access: await access.begin({ ...exec, agent }, args, 'confirm'),
+  }) };
 }
 
 function mount(config = {}) {

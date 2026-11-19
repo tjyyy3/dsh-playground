@@ -71,7 +71,7 @@ async function fixture(cli, options = {}) {
     async uploadBundle(id) { calls.push(['upload', id]); return { bundleStatus: 'ready', attempt: { id, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, violations: [] }; },
     async getAttempt(id) { return { id, challengeId: 'challenge-a', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }; },
   };
-  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client, { workingDirectory: ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta, ...options });
+  workflow = createWorkflow({ ctx, client, cli, submit: createSubmitTool(client), readBundle, readTrace, readManifest, presentationMeta, ...options });
   return { cwd, workflow, states, exec, calls, record, client, ctx };
 }
 
@@ -1411,7 +1411,7 @@ test('D3: a receipt that cannot be built still clears the confirmation', async (
   const calls = [];
   const cli = { submit: async (input) => { calls.push(input); throw cliError(`未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`); } };
   const broken = () => { throw new Error('presentation failure'); };
-  const workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli, submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }),
+  const workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli, submit: createSubmitTool(f.client),
     readBundle, readTrace, readManifest, presentationMeta: broken });
   const checked = await workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
@@ -3205,7 +3205,7 @@ test('#12: an email-and-name check from before a DSH restart is refused, because
   // A fresh module instance stands in for the restarted Host process: it draws a new key.
   const restarted = await import(`../lib/workflow.js?restart=${Date.now()}`);
   const workflow = restarted.createWorkflow({ ctx: f.ctx, client: f.client, cli: undefined,
-    submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+    submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta });
   const result = await workflow.confirm(checked.workflow.prepared.checkId, f.exec);
   assert.equal(result.error.code, 'identity_changed');
   assert.deepEqual(f.calls, [], 'nothing was created or uploaded');
@@ -4390,7 +4390,7 @@ test('#57: the approval reason has every decision field of the workbench card, p
 test('#57: the reason names a passed precheck, caps the detail at 200 characters and shows defaults when nothing is declared', async () => {
   const passed = await approvalCase({ args: { detail: 'd'.repeat(500) }, setup: (f) => {
     f.workflow = createWorkflow({ ctx: f.ctx, client: f.client, cli: { precheck: async () => ({}), submit: async () => { throw new Error('must not submit'); } },
-      submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta });
+      submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta });
   } });
   const approval = fakeApproval('rejected');
   await passed.f.workflow.submitApproved({ approval_id: passed.approvalId }, passed.exec, { approval, approvalPanel: true });
@@ -4851,7 +4851,7 @@ test('#57: the model-facing approval id is a keyed hash: /playground-confirm ref
   assert.equal(submits.length, 0);
   // A DSH restart: another process key. The old approval id is refused before asking.
   const restarted = createWorkflow({ ctx: f.ctx, client: f.client, cli: { submit: async () => { throw new Error('must not submit'); } },
-    submit: createSubmitTool(f.client, { workingDirectory: f.ctx.workingDirectory }), readBundle, readTrace, readManifest, presentationMeta,
+    submit: createSubmitTool(f.client), readBundle, readTrace, readManifest, presentationMeta,
     approvalKey: Buffer.alloc(32, 7) });
   const asked = fakeApproval();
   const refused = await restarted.submitApproved({ approval_id: approvalId }, exec, { approval: asked, approvalPanel: true });

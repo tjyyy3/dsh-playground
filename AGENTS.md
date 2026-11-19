@@ -36,6 +36,9 @@ submission, and result cards to DSH. The product name is Playground Workbench.
 - Do not put Playground tokens, passwords, credentials, or local absolute paths
   into tracked files.
 - Keep UI-only changes in `client.js`; do not modify DSH host code from this repo.
+- Workspace materials need no new permission. External paths require a user grant
+  from the browser workbench, for this operation by default or for the task.
+  A material read grant is not a submission grant.
 - Playground writes require an explicit user request (#63): the user asks in
   the conversation to submit, or clicks the workbench button
   (`/playground-confirm`). On such a request the agent may submit directly with

@@ -68,7 +68,7 @@ test('workspace materials are checked without authorization and an unknown task 
   const stopped = await f.workflow.prepare(f.args, f.exec);
   assert.equal(stopped.error.code, 'workspace_required');
   assert.deepEqual(f.calls, ['readBundle', 'precheck', 'readBundle', 'precheck']);
-  await assert.rejects(readBundle(join(f.cwd, 'bundle.zip'), f.exec), { code: 'workspace_required' });
+  await assert.rejects(readBundle(join(f.cwd, 'bundle.zip')), { code: 'workspace_required' });
 });
 
 test('#73 r1: files named like discovery directories do not block workspace materials', async (t) => {
