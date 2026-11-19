@@ -49,6 +49,66 @@ test('normalizeApiBase rejects relative and empty values', () => {
   assert.throws(() => normalizeApiBase('play.bohrium.com'), PlaygroundApiError);
 });
 
+test('#79: API bases reject userinfo before fetching or resolving a token without echoing credentials', () => {
+  let fetches = 0;
+  let tokenLookups = 0;
+  for (const userinfo of ['api-user:password-secret', 'api-user', ':password-secret', 'encoded%2Duser:password%2Dsecret']) {
+    const baseUrl = `https://${userinfo}@example.test/path?token=query-secret#fragment-secret`;
+    for (const normalize of [
+      () => normalizeApiBase(baseUrl),
+      () => createPlaygroundClient({
+        baseUrl,
+        resolveToken: async () => { tokenLookups += 1; return '{{SECRET_gcw5aydp}}'; },
+        fetchImpl: async () => { fetches += 1; return jsonResponse({ id: 4 }); },
+      }),
+    ]) {
+      assert.throws(normalize, (error) => {
+        assert.ok(error instanceof PlaygroundApiError);
+        assert.equal(error.code, 'invalid_config');
+        assert.doesNotMatch(String(error) + JSON.stringify(error), /api-user|password-secret|query-secret|fragment-secret|encoded|password%2Dsecret/);
+        return true;
+      });
+    }
+  }
+  assert.equal(fetches, 0);
+  assert.equal(tokenLookups, 0);
+});
+
+test('#79: invalid and unsupported API URLs do not echo the input or its secrets', () => {
+  for (const baseUrl of [
+    'bad URL api-user:password-secret?token=query-secret',
+    'https://api-user:password-secret@/?token=query-secret',
+    'http2://api-user:password-secret@example.test/?token=query-secret',
+    'ftp://example.test/?token=query-secret',
+  ]) {
+    assert.throws(() => normalizeApiBase(baseUrl), (error) => {
+      assert.ok(error instanceof PlaygroundApiError);
+      assert.equal(error.code, 'invalid_config');
+      assert.doesNotMatch(String(error) + JSON.stringify(error), /api-user|password-secret|query-secret|token=/);
+      return true;
+    });
+  }
+});
+
+test('#79: returned API bases and identity results omit query strings and fragments', async () => {
+  const baseUrl = 'https://example.test/path/?token=query-secret#fragment-secret';
+  const expected = 'https://example.test/path/api';
+  assert.equal(normalizeApiBase(baseUrl), expected);
+  for (const token of [undefined, '{{SECRET_nscqxmdb}}']) {
+    const client = createPlaygroundClient({
+      baseUrl, token,
+      fetchImpl: async (url) => {
+        assert.equal(url.toString(), `${expected}/auth/me`);
+        return jsonResponse({ id: 4 });
+      },
+    });
+    assert.equal(client.baseUrl, expected);
+    const identity = await client.getCurrentUser();
+    assert.equal(identity.baseUrl, expected);
+    assert.doesNotMatch(JSON.stringify(identity), /query-secret|fragment-secret|token=/);
+  }
+});
+
 test('#76: HTTPS API bases preserve paths and send a synthetic token on reads', async () => {
   for (const [baseUrl, expected] of [
     [undefined, 'https://play.bohrium.com/api'],

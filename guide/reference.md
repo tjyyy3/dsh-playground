@@ -1219,6 +1219,10 @@ hostnames such as `localhost.example.test` require HTTPS. The plugin's API clien
 does not follow redirects and reports `redirect_refused` when the API answers
 with one. Configure the final HTTPS API endpoint.
 
+API bases containing a username or password are refused with `invalid_config`.
+Use a Playground token for authentication. Query strings and fragments are
+discarded during normalization. Invalid-base errors do not echo the input.
+
 Every API response body has an 8 MiB byte budget, including challenge details,
 paged lists, identity checks, submission records, scorecards, and upload
 receipts. The client counts decoded body bytes as it reads the stream, including
