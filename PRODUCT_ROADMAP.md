@@ -90,7 +90,7 @@ Within the selected workspace's controller task list, organize tasks by challeng
 - Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
 - Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
 
-This approved scope is tracked in [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information; TODOs, new task actions, scheduling, artifacts and review remain separate candidates.
+This approved scope is tracked in [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information; new task actions, scheduling, artifacts and review remain separate candidates.
 
 **Candidate follow-ups**
 
@@ -101,7 +101,7 @@ This approved scope is tracked in [#81](https://github.com/tjyyy3/dsh-playground
 5. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
 6. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
 
-Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; #81 adds the approved challenge grouping. TODOs and new task actions remain separate candidates.
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; #81 adds the approved challenge grouping. New task actions remain separate candidates.
 
 **Suggested task lifecycle, pending product review**
 
@@ -191,7 +191,7 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 Keep the existing top-level Playground areas, but clarify the task context:
 
 - **赛题:** browse challenges, competitions and seasons.
-- **工作:** current challenge tasks, controller, child agents, TODOs and artifacts.
+- **工作:** current challenge tasks, controller, child agents and artifacts.
 - **提交:** attempts, scorecards, quota and submission receipts.
 - **出题:** authoring and task-package workflow.
 - **比赛管理:** organizer workflows.

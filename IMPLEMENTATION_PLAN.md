@@ -21,7 +21,7 @@ The baseline still contains the old flow. Update outdated `AGENTS.md`, README, t
 
 Implementation progress checked on 2026-11-19: [#80](https://github.com/tjyyy3/dsh-playground/pull/80) is merged and #76 is closed. This confirms repository status; this documentation review did not independently rerun the implementation tests.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration. Track C1 is approved under #81; C2-C6 and Tracks D-E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration. Track C1 is approved under #81; C3-C6 and Tracks D-E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -89,12 +89,11 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 
 ### Track C — Task organization and further collaboration
 
-C1 is approved under #81. C2-C6 remain candidates for separate product review.
+C1 is approved under #81. C3-C6 remain candidates for separate product review.
 
 | Item | Scope | Status / implementation question |
 |---|---|---|
 | C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Agreed: [#81](https://github.com/tjyyy3/dsh-playground/issues/81); establish reliable challenge association using supported DSH records |
-| C2 | Session/TODO association and daily done list | what creates a durable done record and what can be edited? |
 | C3 | Cancel, retry and reassign controls | which target DSH/provider actions exist and what do they guarantee? |
 | C4 | Evidence-based task review | what evidence helps without adding a universal submission gate? |
 | C5 | Bounded parallelism and dependencies | which limits and dependency behavior do actual workflows need? |
@@ -109,7 +108,7 @@ C1 is approved under #81. C2-C6 remain candidates for separate product review.
 - Browsing/refreshing does not dispatch work, create sessions or submit. Reuse #77 state evidence; preserve unknown and distinguish it from #74 platform state.
 - Verify same-challenge multiple tasks, different challenges, legacy records, workspace switches, association persistence, results and supported session opening with focused mock tests and actual DSH UI checks. No real competition submission is needed.
 
-#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. C1 uses existing controller tasks; C2's TODO/session association remains a separate decision. Unknown is valid, and cancel/retry UI needs verified host semantics.
+#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. C1 uses existing controller tasks and their supported session associations. Unknown is valid, and cancel/retry UI needs verified host semantics.
 
 ### Track D — Incremental file splitting
 
@@ -208,7 +207,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | B2 remaining CLI cleanup | Scope corrected; Windows validation pending | [#17](https://github.com/tjyyy3/dsh-playground/issues/17) | descendants and host lifecycle |
 | B5 API response budgets | Reviewed; implementation pending | [#78](https://github.com/tjyyy3/dsh-playground/issues/78) | budget choice, streams and caller behavior |
 | C1 challenge-grouped task list | Agreed; implementation pending | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) | reliable association, legacy/workspace compatibility and actual session navigation |
-| B4/C2-C6 product extensions | Candidates; further review needed | — | product decisions and host semantics |
+| B4/C3-C6 product extensions | Candidates; further review needed | — | product decisions and host semantics |
 | D1-D5 file splitting | Candidate engineering plan | — | retained boundaries and chosen scope |
 | E1-E8 author/organizer/community | Discovery candidates | — | official contracts, permissions and selection |
 
