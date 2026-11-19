@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import test from 'node:test';
 
 import {
@@ -32,6 +33,119 @@ test('normalizeApiBase accepts root and api URLs', () => {
 test('normalizeApiBase rejects relative and empty values', () => {
   assert.throws(() => normalizeApiBase(''), PlaygroundApiError);
   assert.throws(() => normalizeApiBase('play.bohrium.com'), PlaygroundApiError);
+});
+
+test('#76: HTTPS API bases preserve paths and send a synthetic token on reads', async () => {
+  for (const [baseUrl, expected] of [
+    [undefined, 'https://play.bohrium.com/api'],
+    ['https://example.test:8443/playground/?discard=1#fragment', 'https://example.test:8443/playground/api'],
+    ['https://example.test/playground/API/', 'https://example.test/playground/API'],
+  ]) {
+    const client = createPlaygroundClient({
+      baseUrl,
+      token: 'synthetic-https-token',
+      fetchImpl: async (url, init) => {
+        assert.equal(url.toString(), `${expected}/auth/me`);
+        assert.equal(init.headers.authorization, 'Bearer synthetic-https-token');
+        assert.equal(init.redirect, 'error');
+        return jsonResponse({ id: 4, name: 'Ada' });
+      },
+    });
+    assert.equal(client.baseUrl, expected);
+    assert.equal((await client.getCurrentUser()).authenticated, true);
+  }
+});
+
+test('#76: each documented loopback HTTP host supports ports and authenticated reads', async () => {
+  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+    const baseUrl = `http://${host}:15000/api`;
+    const client = createPlaygroundClient({
+      baseUrl,
+      token: 'synthetic-loopback-token',
+      fetchImpl: async (url, init) => {
+        assert.equal(url.toString(), `${baseUrl}/auth/me`);
+        assert.equal(init.headers.authorization, 'Bearer synthetic-loopback-token');
+        return jsonResponse({ id: 4, name: 'Ada' });
+      },
+    });
+    assert.equal((await client.getCurrentUser()).authenticated, true);
+  }
+});
+
+test('#76: direct clients reject remote HTTP before token lookup or any read request', async () => {
+  let fetches = 0;
+  let tokenLookups = 0;
+  const token = 'synthetic-http-token';
+  for (const host of [
+    'example.test', 'localhost.example.test', '127.0.0.1.example.test',
+    'localhost@remote.example.test', '192.168.1.20', '10.0.0.2', '[::2]',
+  ]) {
+    for (const read of [
+      (client) => client.getCurrentUser(),
+      (client) => client.getAttempt(42),
+      (client) => client.listChallenges(),
+    ]) {
+      await assert.rejects(async () => read(createPlaygroundClient({
+        baseUrl: `http://${host}:5000/?token=${token}`,
+        token,
+        resolveToken: async () => { tokenLookups += 1; return token; },
+        fetchImpl: async () => { fetches += 1; return jsonResponse({ id: 4, items: [] }); },
+      })), (error) => {
+        assert.ok(error instanceof PlaygroundApiError);
+        assert.equal(error.code, 'invalid_config');
+        assert.match(error.message, /HTTPS/i);
+        assert.doesNotMatch(String(error) + JSON.stringify(error), new RegExp(token));
+        return true;
+      });
+    }
+  }
+  assert.equal(tokenLookups, 0);
+  assert.equal(fetches, 0);
+});
+
+test('#76: native fetch refuses every redirect without requesting its target', async () => {
+  const token = 'synthetic-redirect-token';
+  let status = 302;
+  let sourceRequests = 0;
+  let targetRequests = 0;
+  const server = createServer((request, response) => {
+    if (request.url === '/redirect-target') {
+      targetRequests += 1;
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ id: 4, items: [] }));
+      return;
+    }
+    sourceRequests += 1;
+    assert.equal(request.headers.authorization, `Bearer ${token}`);
+    response.writeHead(status, { location: `http://127.0.0.1:${server.address().port}/redirect-target` });
+    response.end(token);
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const client = createPlaygroundClient({ baseUrl: `http://127.0.0.1:${server.address().port}`, token });
+    for (status of [301, 302, 303, 307, 308]) {
+      for (const read of [
+        () => client.getCurrentUser(),
+        () => client.getAttempt(42),
+        () => client.listChallenges(),
+      ]) {
+        await assert.rejects(read, (error) => {
+          assert.ok(error instanceof PlaygroundApiError);
+          assert.equal(error.code, 'network_error');
+          assert.doesNotMatch(String(error) + JSON.stringify(error), new RegExp(token));
+          return true;
+        });
+      }
+    }
+    assert.equal(sourceRequests, 15);
+    assert.equal(targetRequests, 0);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 ['timeout', 'cancelled'].forEach((code) => {

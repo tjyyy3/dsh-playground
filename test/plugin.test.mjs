@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { apply, createSubmitTool, createTokenResolver, inject, name, normalizeSettings, presentationMeta } from '../index.js';
 import { displayCredentialsPath } from '../lib/cli.js';
+import { PlaygroundApiError } from '../lib/api.js';
 import { workflowProjection } from '../lib/workflow.js';
 
 function mount(config = {}) {
@@ -28,6 +29,36 @@ function mount(config = {}) {
 test('plugin declares the tools service and a stable name', () => {
   assert.deepEqual(inject, ['tools']);
   assert.equal(name, 'playground-competition');
+});
+
+test('#76: settings and environment reject remote HTTP before fetching', () => {
+  const previousBase = process.env.PLAYGROUND_API_BASE;
+  const previousFetch = globalThis.fetch;
+  const token = 'synthetic-config-token';
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches += 1; return new Response('{}'); };
+  try {
+    for (const source of ['settings', 'environment']) {
+      process.env.PLAYGROUND_API_BASE = source === 'environment'
+        ? `http://remote.example.test/?token=${token}`
+        : 'https://example.test';
+      assert.throws(() => mount({
+        ...(source === 'settings' ? { baseUrl: `http://remote.example.test/?token=${token}` } : {}),
+        token,
+      }), (error) => {
+        assert.ok(error instanceof PlaygroundApiError);
+        assert.equal(error.code, 'invalid_config');
+        assert.match(error.message, /HTTPS/i);
+        assert.doesNotMatch(String(error) + JSON.stringify(error), new RegExp(token));
+        return true;
+      });
+    }
+    assert.equal(fetches, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousBase === undefined) delete process.env.PLAYGROUND_API_BASE;
+    else process.env.PLAYGROUND_API_BASE = previousBase;
+  }
 });
 
 test('apply registers all eight tools with schemas and persisted UI metadata', () => {
