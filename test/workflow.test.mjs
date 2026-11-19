@@ -4459,7 +4459,7 @@ if (args[0] === '--version') console.log('0.1.43');
 else if (args.includes('--help')) console.log('--dry-run');
 else if (args.includes('--dry-run')) console.log(JSON.stringify({ status: 'dry_run' }));`);
   const cli = createPlaygroundCli({ command, launchWindowsJob: (launch) => windowsJobLaunch(launch, { tempRoot: join(directory, 'missing-temp') }) });
-  const f = await fixture(cli);
+  const f = await materialFixture(cli);
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
   const note = 'Windows PowerShell, Add-Type, or the helper temporary directory is unavailable';
