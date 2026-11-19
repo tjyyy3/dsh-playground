@@ -5,6 +5,7 @@ import { chmod, copyFile, link, mkdir, mkdtemp, readFile, rm, utimes, writeFile 
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { buildSubmitArgs, compareVersions, createPlaygroundCli, displayCredentialsPath, parseCliUpdate } from '../lib/cli.js';
 import { windowsJobLaunch } from '../lib/windows-process.js';
 
@@ -237,10 +238,15 @@ test('a relative cliPath runs from the CLI working directory, not the host direc
 });
 
 // The explicit timeout makes a hang (a login that is never ended) fail the test instead of the CI job.
-test('errors say whether the CLI process started', { timeout: 60000 }, async () => {
+test('errors say whether the CLI process started', { timeout: 60000 }, async (t) => {
   const bin = join(root, 'started');
   const notStarted = (error) => error.started === false;
-  const started = (code) => (error) => error.started === true && error.code === code;
+  const started = (code) => (error) => {
+    const diagnostic = JSON.stringify({ code: error.code, message: error.message, jobState: error.jobState, stderr: error.stderr });
+    assert.equal(error.started, true, diagnostic);
+    assert.equal(error.code, code, diagnostic);
+    return true;
+  };
   const cli = createPlaygroundCli({ command: await fakeCli(join(bin, 'argv.mjs')) });
   // The working directory does not exist, so spawning fails before a process exists.
   await assert.rejects(() => cli.submit({ challengeId: 'demo', bundlePath: 'b.zip', cwd: join(bin, 'no such dir') }), notStarted);
@@ -248,34 +254,37 @@ test('errors say whether the CLI process started', { timeout: 60000 }, async () 
   await assert.rejects(() => failing.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started('cli_error'));
   const text = createPlaygroundCli({ command: await fakeCli(join(bin, 'text.mjs'), "console.log('not json');") });
   await assert.rejects(() => text.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), started(undefined));
-  // Login uses timeoutMs and is terminated; submit uses submitTimeoutMs and finishes. A CLI that
-  // finishes while it is being ended is a success, not a termination, and ending a process tree on
-  // Windows (taskkill) can take seconds on a slow runner. So the login CLI never exits on its own:
-  // only the kill ends it. The kill must come well before submitTimeoutMs: a login that waits for
-  // submitTimeoutMs, or has no timeout at all, fails at loginBoundMs instead of passing late or hanging.
+  // The Windows helper compiles before the CLI starts. Advance only the parent's deadline after
+  // the CLI records its PID, so startup speed cannot change the expected `started` value.
   const options = { timeoutMs: 300, submitTimeoutMs: 30000 };
   const loginBoundMs = 10000;
   const pidFile = join(markers, 'started-login.pid');
+  const submitPidFile = join(markers, 'started-submit.pid');
   const hanging = createPlaygroundCli({ ...options,
     command: await fakeCli(join(bin, 'hang.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`) });
-  const begun = Date.now();
-  let bound;
-  try {
-    const unbounded = new Promise((_, reject) => { bound = setTimeout(() => reject(new Error(`login was not ended within ${loginBoundMs} ms`)), loginBoundMs); });
-    await assert.rejects(() => Promise.race([hanging.authLogin('name@example.test', 'synthetic-password'), unbounded]), started('cli_terminated'));
-    assert.ok(Date.now() - begun < loginBoundMs, `login ended after ${Date.now() - begun} ms`);
-  } finally {
-    clearTimeout(bound);
-    await killRecorded(pidFile);
-  }
-  // The submit CLI exits on its own after 3 s: ten times timeoutMs and a tenth of submitTimeoutMs.
-  // A submit that wrongly used timeoutMs is ended at 300 ms. On macOS SIGTERM to the process group
-  // ends it at once, so the cli_terminated failure is certain there. On Windows it is caught as long
-  // as taskkill ends the tree within about 2.7 s; a slower taskkill lets the CLI print and exit 0,
-  // which counts as a success, and only the macOS legs then catch the regression.
   const slow = createPlaygroundCli({ ...options,
-    command: await fakeCli(join(bin, 'slow.mjs'), "setTimeout(() => console.log(JSON.stringify(['done'])), 3000);") });
-  assert.deepEqual(await slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' }), ['done']);
+    command: await fakeCli(join(bin, 'slow.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(submitPidFile)}, String(process.pid)); setTimeout(() => console.log(JSON.stringify(['done'])), 3000);`) });
+  const bound = new AbortController();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const login = hanging.authLogin('name@example.test', 'synthetic-password');
+    await assert.rejects(async () => {
+      assert.equal(await Promise.race([waitUntil(() => existsSync(pidFile), loginBoundMs), login]), true, 'the login CLI never started');
+      const unbounded = sleep(loginBoundMs, undefined, { signal: bound.signal }).then(() => {
+        throw new Error(`login was not ended within ${loginBoundMs} ms`);
+      });
+      t.mock.timers.tick(options.timeoutMs);
+      return Promise.race([login, unbounded]);
+    }, started('cli_terminated'));
+    const submission = slow.submit({ challengeId: 'demo', bundlePath: 'b.zip' });
+    assert.equal(await Promise.race([waitUntil(() => existsSync(submitPidFile), loginBoundMs), submission]), true, 'the submit CLI never started');
+    t.mock.timers.tick(options.timeoutMs);
+    assert.deepEqual(await submission, ['done']);
+  } finally {
+    bound.abort();
+    t.mock.timers.reset();
+    await killRecorded(pidFile, submitPidFile);
+  }
 });
 
 test('a failed CLI keeps its output streams for classification but hides them from serialization', async () => {
@@ -434,7 +443,7 @@ test('Windows: the cmd fallback refuses arguments cmd would interpret', { skip: 
   assert.equal(existsSync(join(bin, 'started.txt')), false);
 });
 
-const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+const sleep = delay;
 const alive = (pid) => {
   try { return process.kill(pid, 0); } catch { return false; }
 };
