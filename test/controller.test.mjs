@@ -365,7 +365,7 @@ test('task rows require catalog membership and preserve notice and observed term
   f.controller.observeEnd({ id: 'child', runId: 'run', provider: 'codex', stopReason: 'error' });
   const result = await f.controller.tasks({ workspaceId: 'one', sessionId });
   assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0].state, 'settled');
+  assert.equal(result.rows[0].state, 'ended');
   assert.equal(result.rows[0].terminalText, 'actual result');
   assert.equal(result.rows[0].liveEnd.stopReason, 'error');
   assert.deepEqual(await f.controller.tasks({ workspaceId: 'two', sessionId }), { kind: 'unavailable' });
@@ -406,6 +406,99 @@ test('verified cold controllers retain their direct task history', async (t) => 
   assert.equal(result.kind, 'ready');
   assert.equal(result.rows[0].state, 'settled');
   assert.equal(result.rows[0].terminalText, 'saved result');
+});
+
+test('structured notice stop reasons survive projection replay and controller recreation', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const reasons = ['error', 'aborted', 'max-tokens', 'refusal', 'completed', 'provider-specific', undefined];
+  const children = reasons.map((_, index) => ({ id: `child-${index}`, createdAt: index, mode: 'external' }));
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children } : previous(name);
+  let state = controllerNoticesProjection.init({ id: sessionId }, 0);
+  for (const [index, stopReason] of reasons.entries()) {
+    state = controllerNoticesProjection.apply(state, { seq: index, type: 'agent/inbox/spliced', data: { inserted: [{
+      source: { kind: 'subagent-settled', senderSessionId: `child-${index}`, ...(stopReason ? { stopReason } : {}) },
+      content: [{ type: 'text', text: 'The task succeeded. Do not infer a stop reason from this text.' }],
+    }] } });
+  }
+  f.disk.get(sessionId).values.playgroundControllerNotices = JSON.parse(JSON.stringify(controllerNoticesProjection.wire.view(state)));
+  const result = await f.restart().tasks({ workspaceId: 'one', sessionId });
+  assert.equal(result.kind, 'ready');
+  assert.deepEqual(result.rows.map((row) => row.noticeStopReason), reasons);
+  assert.ok(result.rows.every((row) => row.state === 'settled' && !row.liveEnd));
+  assert.equal(f.createRequests.length, 1);
+  assert.equal(f.promptRequests.length, 1);
+  assert.equal(controllerNoticesProjection.stateVersion, 2);
+});
+
+test('notices without a structured string reason remain compatible and do not guess from text', () => {
+  for (const stopReason of [undefined, null, 17, { kind: 'error' }]) {
+    const state = controllerNoticesProjection.apply(controllerNoticesProjection.init({ id: 'parent' }, 0), {
+      seq: 0, type: 'agent/inbox/spliced', data: { inserted: [{
+        source: { kind: 'subagent-settled', senderSessionId: 'child', stopReason },
+        content: [{ type: 'text', text: 'Background subagent child failed before it finished.' }],
+      }] },
+    });
+    assert.deepEqual(controllerNoticesProjection.wire.view(state), [{ childId: 'child', text: 'Background subagent child failed before it finished.' }]);
+  }
+});
+
+test('an earlier notice is historical while a newer round runs and after its observed end', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => [{ id: 'child', createdAt: 1, mode: 'continuable' }] } : previous(name);
+  const read = f.ctx.sessionController.projections;
+  f.ctx.sessionController.projections = async (...args) => {
+    const value = await read(...args);
+    value.values.playgroundControllerNotices = [{ childId: 'child', text: 'earlier result', stopReason: 'error' }];
+    return value;
+  };
+  f.controller.observeStart({ id: 'child', runId: 'new', provider: 'dsh' });
+  let row = (await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0];
+  assert.equal(row.state, 'running');
+  assert.equal(row.noticeStopReason, 'error');
+  assert.equal(row.liveEnd, undefined);
+  f.controller.observeEnd({ id: 'child', runId: 'old', provider: 'dsh', stopReason: 'error' });
+  assert.equal((await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0].state, 'running');
+  f.controller.observeEnd({ id: 'child', runId: 'new', provider: 'dsh', stopReason: 'completed' });
+  row = (await f.controller.tasks({ workspaceId: 'one', sessionId })).rows[0];
+  assert.equal(row.state, 'ended');
+  assert.equal(row.liveEnd.stopReason, 'completed');
+  assert.equal(row.noticeStopReason, 'error');
+  assert.equal(row.terminalText, 'earlier result');
+  assert.equal(f.createRequests.length, 1);
+  assert.equal(f.promptRequests.length, 1);
+});
+
+test('passive resident local running evidence wins while idle, absent and external status prove no outcome', async (t) => {
+  const f = await fixture(t);
+  const { sessionId } = await open(f.controller);
+  const children = [
+    { id: 'running', createdAt: 1, mode: 'continuable' },
+    { id: 'idle', createdAt: 1, mode: 'one-shot' },
+    { id: 'missing', createdAt: 1, mode: 'continuable' },
+    { id: 'external', createdAt: 1, mode: 'external' },
+  ];
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children } : previous(name);
+  const controller = f.restart();
+  const read = f.ctx.sessionController.projections;
+  f.ctx.sessionController.projections = async (...args) => {
+    const value = await read(...args);
+    value.values.playgroundControllerNotices = [{ childId: 'running', text: 'older error', stopReason: 'error' }];
+    return value;
+  };
+  for (const id of ['running', 'idle', 'external']) f.live.set(id, { agent: { id, status: id === 'idle' ? 'idle' : 'running' } });
+  const result = await controller.tasks({ workspaceId: 'one', sessionId });
+  assert.deepEqual(result.rows.map((row) => row.state), ['running', 'unknown', 'unknown', 'unknown']);
+  assert.equal(result.rows[0].noticeStopReason, 'error');
+  assert.equal(result.rows[0].liveEnd, undefined);
+  assert.equal(f.live.has(sessionId), false, 'reading tasks does not activate the cold parent');
+  assert.equal(f.live.has('missing'), false, 'reading tasks does not activate a missing child');
+  assert.equal(f.createRequests.length, 1);
+  assert.equal(f.promptRequests.length, 1);
 });
 
 test('only owned first user input with the exact Mnemon marker is grouped as maintenance', async (t) => {

@@ -5223,3 +5223,40 @@ test('task detail renders recognized result text with a preserved raw notice and
   assert.match(text(tree), /运行出错/);
   assert.ok(f.find(tree, (node) => node.type === 'details' && text(node).includes(raw)));
 });
+
+test('controller stop reasons describe historical notices and never override a newer run', async (t) => {
+  const f = await clientFixture(t);
+  const cleanups = [];
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const Main = f.registrations.get('main').Component;
+  const cases = [
+    [{ childId: 'saved-error', state: 'settled', noticeStopReason: 'error' }, '上次运行出错'],
+    [{ childId: 'saved-aborted', state: 'settled', noticeStopReason: 'aborted' }, '上次已中止'],
+    [{ childId: 'saved-limit', state: 'settled', noticeStopReason: 'max-tokens' }, '上次达到输出上限'],
+    [{ childId: 'saved-refusal', state: 'settled', noticeStopReason: 'refusal' }, '上次拒绝执行'],
+    [{ childId: 'saved-completed', state: 'settled', noticeStopReason: 'completed' }, '已收到历史结果'],
+    [{ childId: 'saved-other', state: 'settled', noticeStopReason: 'provider-specific' }, '已收到历史结果'],
+    [{ childId: 'saved-legacy', state: 'settled' }, '已收到历史结果'],
+    [{ childId: 'new-running', state: 'running', noticeStopReason: 'error' }, '运行中'],
+    [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
+  ];
+  const rows = cases.map(([row]) => ({ ...row, label: row.childId, terminalText: 'earlier result' }));
+  const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }), useSessions: (select) => select({ ids: [], byId: {} }),
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    controllerTasks: async () => ({ kind: 'ready', rows }), renderSlot: () => null };
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  f.render(Main, props); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
+  for (const [row, label] of cases) {
+    let tree = f.render(Main, props);
+    const button = f.find(tree, (node) => node.type === 'button' && text(node).includes(row.childId));
+    assert.ok(text(button).includes(label), `${row.childId} shows ${label}`);
+    button.props.onClick();
+    tree = f.render(Main, props);
+    assert.match(text(tree), /历史结果通知/);
+    if (row.state === 'settled') assert.match(text(tree), /当前执行状态未知/);
+    if (row.state === 'running' || row.state === 'ended') assert.doesNotMatch(text(tree), /上次运行出错/);
+    if (row.noticeStopReason === 'provider-specific') assert.match(text(tree), /provider-specific/);
+    f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
+  }
+});
