@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Playground 比赛平台",
-    "description": "查题后新建 DSH 任务对话，检查产物、确认目标后提交，并查看回执、分数与关键指标。"
+    "description": "浏览赛题，向当前任务 Agent 派发提交请求，并查看已关联提交的评测结果。"
   }
 }

@@ -199,7 +199,7 @@ window.__ModuleLoader__.load({
       return `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? '（可能不完整）' : ''}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes('agent_private_hidden') ? 'Agent 账号未公开的提交看不到，没有计入。' : ''}${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
     }
 
-    // One compact line about the checked bundle (lib/bundle.js summarizeZip), or undefined without a summary.
+    // Historical ZIP directory metadata, never evidence about the current material.
     function bundleSummaryLine(summary) {
       if (!summary || typeof summary !== 'object' || !Number.isFinite(summary.files)) return undefined;
       const size = (bytes) => !Number.isFinite(bytes) ? '?' : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB`
@@ -207,7 +207,7 @@ window.__ModuleLoader__.load({
       const named = (item) => `${String(item?.name ?? '').split('/').pop()}（${size(item?.bytes)}）`;
       const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join('、') : '';
       const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join('、') : '';
-      return [`评测包：${summary.files} 个文件，共 ${size(summary.totalBytes)}`,
+      return [`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`,
         largest ? `最大：${largest}` : '',
         summary.nonTextCount ? `非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? ' 等' : ''}` : '非文本文件（按扩展名）0 个',
         summary.symlinkCount ? `符号链接 ${summary.symlinkCount} 个` : '',
@@ -238,12 +238,14 @@ window.__ModuleLoader__.load({
       const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
       const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt)
         && (bundleMissing || receiptBundleMissing(receipt));
+      const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt)
+        ? ({ created: ['已创建，上传未确认', 'Created; upload unconfirmed'], uploaded: ['Agent 报告已上传', 'Agent reports uploaded'], unknown: ['结果未知，先核对已有提交', 'Outcome unknown; reconcile existing attempts'] })[receipt?.submissionState] : undefined;
       const receiptStage = !receipt ? 'created'
         : notReceived ? 'incomplete'
         : failed ? 'failed'
           : scoreIsFinal ? (states.includes('late_scored') ? 'finalLate' : 'final')
             : notUploaded ? 'incomplete'
-              : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
+              : reported ? 'submitted' : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
                 : uploadFailed || states.includes('draft') ? 'incomplete'
                   : 'submitted';
       const stage = running ? 'running' : receiptStage;
@@ -255,7 +257,8 @@ window.__ModuleLoader__.load({
       const badgeTone = !receipt ? (running ? 'warning' : 'neutral')
         : receiptStage === 'submitted' && receipt.bundleStatus === 'incomplete' ? 'warning'
           : stageTones[receiptStage] || 'neutral';
-      return { stage, stageText: t(`progress.${stage}`), state, badgeText, badgeTone,
+      const reportText = reported?.[t('progress.points') === '分' ? 0 : 1];
+      return { stage, stageText: !running && reportText ? reportText : t(`progress.${stage}`), state, badgeText: reportText || badgeText, badgeTone,
         scoreIsFinal, score: finalScore, referenceScore, scoreText };
     }
 
@@ -394,7 +397,7 @@ window.__ModuleLoader__.load({
         try {
           const result = await materials({ ...input, sessionId });
           if (result.ok === false) throw new Error(result.error.message);
-          if (input.action === 'authorize') await resume(result.input, result.operation === 'confirm');
+          if (input.action === 'authorize') await resume(result.input);
           await refresh();
         } catch (failure) { setError(failure.message); }
         finally { setBusy(false); }
@@ -402,16 +405,16 @@ window.__ModuleLoader__.load({
       const scopeText = (item) => `${item.kind === 'directory' ? `目录（${item.recursive ? '含子目录' : '仅直接文件'}）` : '文件'}：${item.path}`;
       return h('section', { className: 'pg-confirm', 'aria-label': '外部材料权限' },
         h('h4', null, '外部材料权限'),
-        h('p', { className: 'pg-note' }, '仅用于当前任务的比赛材料读取、摘要和检查。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。'),
+        h('p', { className: 'pg-note' }, '仅用于当前任务所列比赛材料引用和后续读取。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。'),
         ...(snapshot?.requests || []).map((item) => h('div', { key: item.requestId, className: 'pg-form' },
-          h('p', { className: 'pg-note' }, item.operation === 'confirm' ? '为已请求的提交读取材料。授权后继续该提交操作。' : '检查材料。授权后继续这次检查，不会上传。'),
+          h('p', { className: 'pg-note' }, item.operation === 'submit' ? '为已请求的提交传递材料引用。授权后继续交接，配额例外仍需答复。' : '记录材料引用。授权后继续记录，不会上传。'),
           ...item.scopes.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
           h('label', { className: 'pg-field' }, '允许范围', h('select', { value: scope, disabled: disabled || busy, onChange: (event) => setScope(event.target.value) },
             h('option', { value: 'operation' }, '仅本次操作允许'), h('option', { value: 'task' }, '本次任务内允许'))),
           item.scopes.some((entry) => entry.kind === 'directory') ? h('label', { className: 'pg-field' },
             h('input', { type: 'checkbox', checked: recursive, disabled: disabled || busy, onChange: (event) => setRecursive(event.target.checked) }), '目录授权包含子目录') : null,
           h('button', { className: 'pg-button pg-primary', disabled: disabled || busy,
-            onClick: () => act({ action: 'authorize', requestId: item.requestId, scope, recursive }) }, item.operation === 'confirm' ? '允许读取并继续提交' : '允许读取并继续检查'))),
+            onClick: () => act({ action: 'authorize', requestId: item.requestId, scope, recursive }) }, item.operation === 'submit' ? '允许引用并继续交接' : '允许引用并继续记录'))),
         snapshot?.grants?.length ? h(React.Fragment, null,
           h('p', { className: 'pg-note' }, '本次任务已允许的范围'),
           ...snapshot.grants.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
@@ -421,94 +424,77 @@ window.__ModuleLoader__.load({
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null);
     }
 
-    function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, materials, openTask, t }) {
+    function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t }) {
       const task = state?.task;
-      const prepared = state?.prepared;
       const receipt = state?.receipt;
       const progress = receiptProgress(receipt, t, { running });
-      const [target, setTarget] = React.useState(task?.challengeId || '');
-      const [files, setFiles] = React.useState({ bundle_path: '', trace_path: '', manifest_path: '', method: '', model: '' });
-      const [showFiles, setShowFiles] = React.useState(false);
-      const [showResult, setShowResult] = React.useState(false);
+      const [files, setFiles] = React.useState(state?.materials || {});
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
-      const [edited, setEdited] = React.useState(false);
+      const [request, setRequest] = React.useState(state?.submission);
+      const [accessRequest, setAccessRequest] = React.useState(state?.materialAccess);
       const [showAccess, setShowAccess] = React.useState(Boolean(state?.materialAccess));
-      React.useEffect(() => { if (state?.materialAccess) setShowAccess(true); }, [state?.materialAccess]);
-      React.useEffect(() => { setTarget(task?.challengeId || ''); }, [task?.challengeId]);
+      React.useEffect(() => { setFiles(state?.materials || {}); }, [state?.materials]);
+      React.useEffect(() => { setRequest(state?.submission); }, [state?.submission]);
       React.useEffect(() => {
-        const args = prepared?.args || receipt?.args;
-        if (args) setFiles(Object.fromEntries(['bundle_path', 'trace_path', 'manifest_path', 'method', 'model'].map((key) => [key, args[key] || ''])));
-      }, [prepared?.checkId, receipt?.attemptId]);
-      const act = async (input, confirm = false) => {
+        if (state?.materialAccess) { setAccessRequest(state.materialAccess); setShowAccess(true); }
+      }, [state?.materialAccess]);
+      const act = async (input) => {
+        if (busy) return;
         setBusy(true); setError('');
         try {
-          const result = await run(sessionId, input, confirm);
+          const result = ['request', 'confirm_quota', 'cancel'].includes(input.action)
+            ? await submission({ ...input, sessionId }) : await run(sessionId, input);
           if (result.ok === false) setError(result.error?.message || result.note || '操作未完成');
-          if (result.status === 'awaiting_confirmation') { setEdited(false); setShowFiles(false); }
-          if (result.attemptId || result.id) setShowResult(true);
-          if (result.sessionId) openTask(result.sessionId);
-          if (result.workflow?.kind === 'material-access') setShowAccess(true);
+          if (result.submission) setRequest(result.submission);
+          if (result.workflow?.kind === 'material-access') {
+            setAccessRequest(result.workflow.request); setShowAccess(true);
+          }
         } catch (failure) { setError(failure.message); }
         finally { setBusy(false); }
       };
       const disabled = busy || running || !allowed;
-      // Agent-supplied fields that a new submission sends; a retry uploads only the bundle.
-      // Whitespace is collapsed for display so a newline in a value cannot add a fake card line.
-      const declared = prepared && !prepared.args.attempt_id ? [['声明结果', prepared.args.outcome], ['说明', prepared.args.detail], ['署名', prepared.args.author_name]]
-        .filter(([, value]) => typeof value === 'string' && value.trim()).map(([label, value]) => `${label}：${value.trim().replace(/\s+/g, ' ')}`).join(' · ') : '';
+      const active = ['dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
+      const canCancel = ['awaiting_user', 'dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
+      const stages = { awaiting_user: '等待配额答复，尚未派发', dispatching: '正在交接', dispatched: '已派发给 Agent，尚未取得新编号',
+        not_created: '未创建新提交', created: '已创建，上传状态未确认', uploaded: 'Agent 报告已上传', upload_failed: '已创建，Agent 报告上传失败',
+        unknown: '结果未知，先核对已有提交', running: '平台已接收，处理中', final: '平台已返回最终结果' };
       return h('section', { className: 'pg-guide pg-workflow', 'aria-label': 'Playground 任务' },
-        h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}.pg-advanced summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px}.pg-advanced[open] summary{color:var(--pg-accent)}'),
-        h('div', { className: 'pg-head' }, h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务')),
+        h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}'),
+        h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务'),
         task ? h('p', { className: 'pg-note pg-path' }, `赛题 ${task.challengeId} · ${cwd || task.cwd}`) : null,
         task && materials ? h(React.Fragment, null,
           h('button', { className: 'pg-button', 'aria-expanded': showAccess, onClick: () => setShowAccess(!showAccess) }, '外部材料权限'),
-          showAccess ? h(MaterialPermissions, { sessionId, request: state?.materialAccess, materials, resume: act, disabled }) : null) : null,
-        // Author mode is not offered in the UI yet; a task already in author mode can only switch back.
+          showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null) : null,
         task?.mode === 'author' ? h(React.Fragment, null,
-          h('p', { className: 'pg-note' }, '可在当前工作区准备题面、资源说明和评分规则。本 MVP 尚未接入平台出题修改与发布。'),
-          h('div', { className: 'pg-actions' },
-            h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act({ action: 'mode', mode: 'participate' }) }, '切回参赛'))) : null,
+          h('p', { className: 'pg-note' }, '出题模式目前只支持本地准备。'),
+          h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'mode', mode: 'participate' }) }, '切回参赛')) : null,
         task && task.mode !== 'author' ? h(React.Fragment, null,
+          h('p', { className: 'pg-note' }, '提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。'),
+          h('details', { className: 'pg-advanced' }, h('summary', null, '材料引用（可选）'),
+            h('div', { className: 'pg-form' }, ...[['outputs_path', '产物目录'], ['bundle_path', '评测包路径'], ['trace_path', '执行轨迹路径'], ['manifest_path', 'Manifest 路径']].map(([key, label]) =>
+              h('label', { key, className: 'pg-field' }, label, h('input', { className: 'pg-input', value: files[key] || '', disabled: disabled || active,
+                onChange: (event) => setFiles({ ...files, [key]: event.target.value }) })))),
+            h('p', { className: 'pg-note' }, '仅传递路径，不读取内容或检查格式。留空时由 Agent 根据任务上下文处理，外部材料需先授权。')),
           h('div', { className: 'pg-actions' },
-            h('button', { className: 'pg-button pg-primary', disabled, 'aria-expanded': showFiles, onClick: () => setShowFiles(!showFiles) }, '准备提交 / 检查材料'),
-            receipt?.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'results' }) }, `查询结果 #${receipt.attemptId}`) : null),
-          showFiles ? h('div', { className: 'pg-form' },
-            h('div', { className: 'pg-field' }, h('span', null, '目标赛题（来自当前任务）'), h('div', { className: 'pg-readonly pg-path', 'aria-label': '目标赛题（来自当前任务）' }, `${task.title} · ${target}`)),
-            h('details', { className: 'pg-advanced' },
-              h('summary', null, '高级选项：指定材料路径和方案信息'),
-              h('div', { className: 'pg-form' },
-                ...[['bundle_path', 'ARM ZIP 路径'], ['trace_path', '执行轨迹路径'], ['manifest_path', 'ARM manifest 路径（可选）'], ['method', '方案名称'], ['model', '声明模型（按赛题要求）']].map(([key, label]) => h('label', { key, className: 'pg-field' }, label,
-                  h('input', { className: 'pg-input', value: files[key], disabled: busy, placeholder: key.endsWith('_path') ? '留空时从当前工作区自动发现' : '', onChange: (event) => { setFiles({ ...files, [key]: event.target.value }); setEdited(true); } }))))),
-            h('p', { className: 'pg-note' }, '默认从当前工作区根目录、playground-submission/、.playground/ 中自动发现材料；只有存在多个候选或需要覆盖默认方案时才展开高级选项。检查不上传文件。'),
-            h('button', { className: 'pg-button pg-primary', disabled: disabled || !target.trim(), onClick: () => act({ action: 'check', challenge_id: target, ...files }) }, '检查并生成确认卡'),
-            // The platform does not score an upload into a submission it closed as "bundle missing", so
-            // that receipt offers no re-upload; the check above creates a new submission.
-            receipt?.ok === false && receipt.attemptId && receipt.bundleNotReceived === true
-              ? h('p', { className: 'pg-note pg-closed-note' }, `平台已关闭提交 #${receipt.attemptId}（未收到评测包），不能再往里重传。修改评测包后，用“检查并生成确认卡”新建一次提交。`)
-              : receipt?.ok === false && receipt.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ ...receipt.args, action: 'check', ...files, challenge_id: target, attempt_id: receipt.attemptId }) }, `检查后重传原提交 #${receipt.attemptId}`) : null) : null) : null,
-        prepared && !edited ? h('div', { className: 'pg-confirm', 'aria-label': 'Playground 提交确认' },
-          h('h4', { className: 'pg-confirm-title' }, '请确认本次提交'),
-          h('p', { className: 'pg-confirm-impact' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '高影响操作'), '确认后会向 Playground 上传已检查的材料，并可能消耗一个提交名额；请先核对目标、工作区和文件摘要。'),
-          h('p', { className: 'pg-note pg-path' }, `目标：${prepared.challenge.title}（${prepared.challenge.id}）\n平台：${prepared.baseUrl}\n工作区：${prepared.cwd}`),
-          h('p', { className: 'pg-note' }, `${prepared.args.attempt_id ? `重传提交 #${prepared.args.attempt_id}` : '创建一条新提交'} · 方案：${prepared.args.method} · 轨迹 ${prepared.traceCount} 步`),
-          declared ? h('p', { className: 'pg-note pg-path' }, declared) : null,
-          h('ul', { className: 'pg-note pg-path' }, prepared.files.map((file) => h('li', { key: file.kind }, `${file.kind}: ${file.path} · ${file.bytes} bytes`, h('details', null, h('summary', null, 'SHA-256'), file.sha256)))),
-          bundleSummaryLine(prepared.bundleSummary) ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(prepared.bundleSummary)) : null,
-          typeof prepared.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', prepared.bundleWarning) : null,
-          submissionCountsLine(prepared.submissionCounts) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(prepared.submissionCounts)) : null,
-          h('p', { className: 'pg-note' }, `${prepared.cliPrecheck?.status === 'passed' ? '本地文件检查和 Playground CLI 预检均已通过；'
-            : prepared.cliPrecheck?.note ? `本地文件检查通过；${prepared.cliPrecheck.note}` : '本地文件检查通过；'}最终协议和有效性由平台校验。确认后将上传上述材料并提交评测。`),
-          prepared.cliUpdate?.warning ? h('p', { className: 'pg-note', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, 'CLI 需更新'), ' ', prepared.cliUpdate.warning) : null,
-          h('div', { className: 'pg-actions' }, h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act(prepared.checkId, true) }, '确认目标并提交'),
-            h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'cancel' }) }, '取消本次提交'))) : null,
-        edited && prepared ? h('p', { className: 'pg-note' }, '输入已改变，请重新检查材料。') : null,
-        receipt ? h('details', { className: 'pg-raw', open: showResult, onToggle: (event) => setShowResult(event.currentTarget.open) },
+            h('button', { className: 'pg-button pg-primary', disabled: disabled || active || request?.status === 'awaiting_user', onClick: () => act({ action: 'request', ...files }) }, '提交'),
+            receipt?.attemptId ? h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'results' }) }, `查询结果 #${receipt.attemptId}`) : null)) : null,
+        request ? h('div', { className: 'pg-confirm', role: 'status' },
+          h('p', { className: 'pg-note' }, request.status === 'not_created' && request.recovery ? '已解除交接状态，服务器结果待核对' : stages[request.status] || request.status),
+          request.policy?.announcement ? h('p', { className: 'pg-note' }, request.policy.announcement) : null,
+          submissionCountsLine(request.counts) ? h('p', { className: 'pg-note' }, submissionCountsLine(request.counts)) : null,
+          request.message ? h('p', { className: 'pg-note' }, request.reportedBy === 'agent' ? `Agent 报告：${request.message}` : request.message) : null,
+          request.status === 'awaiting_user' ? h(React.Fragment, null,
+            h('p', { className: 'pg-confirm-impact' }, `${request.policy?.reasonText || '本次提交有配额风险'}。继续可能消耗提交名额。`),
+            h('div', { className: 'pg-actions' },
+              h('button', { className: 'pg-button pg-primary', disabled, onClick: () => act({ action: 'confirm_quota', requestId: request.requestId }) }, '知悉配额风险，继续本次提交'))) : null,
+          canCancel ? h('button', { className: 'pg-button', disabled: busy || !allowed, onClick: () => act({ action: 'cancel', requestId: request.requestId }) }, '取消本次请求') : null) : null,
+        receipt ? h('details', { className: 'pg-raw' },
           h('summary', null, `${t('progress.attempt')} #${receipt.attemptId ?? '—'} · ${progress.badgeText} · ${progress.stageText} · ${progress.scoreText}`),
           h(PlaygroundToolCard, { phase: 'result', block: { meta: { playground: receipt } }, toolName: 'playground_get_attempt', t })) : null,
         error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
-        running ? h('p', { className: 'pg-note', role: 'status' }, '此会话正在执行任务，请等待完成或返回对话停止生成后操作。') : !allowed ? h('p', { className: 'pg-note' }, '当前连接没有此会话的操作权限。') : null,
-        busy ? h('p', { className: 'pg-note', role: 'status' }, '正在执行…') : null);
+        running ? h('p', { className: 'pg-note' }, '此会话正在执行任务。取消生成不能撤回已经发生的服务器写入。') : null,
+        !allowed ? h('p', { className: 'pg-note' }, '当前连接没有此会话的操作权限。') : null);
     }
 
     function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
@@ -1385,12 +1371,12 @@ window.__ModuleLoader__.load({
           h(TaskArchiveControl, { session, archive }),
           // An archived task is read-only here: its state and history, without the check and confirm controls,
           // which would act on a conversation DSH has archived.
-          archived ? h('p', { className: 'pg-note pg-archived-note' }, '此任务已归档。DSH 不会打开已归档的对话；撤销后才能继续检查材料和确认提交。')
+          archived ? h('p', { className: 'pg-note pg-archived-note' }, '此任务已归档。DSH 不会打开已归档的对话；撤销后才能向任务 Agent 请求提交。')
             : h(SelectedTask, { key: session.id, session, projection, ...props }),
           // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
           // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
           // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
+          historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? current.receipt?.trackedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
     }
 
     function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
@@ -1583,7 +1569,7 @@ window.__ModuleLoader__.load({
             h('ol', null,
               h('li', null, '搜索比赛和赛题，查看题目后点击“交给主控”。'),
               h('li', null, '首次交接时选择工作区并确认，主控会在该工作区协调赛题工作。'),
-              h('li', null, '完成方案后，在对应任务卡检查材料，核对赛题、平台和文件，再明确确认提交。'),
+              h('li', null, '完成方案后，在任务详情点击“提交”，由该任务 Agent 按官方要求执行并记录编号。'),
               h('li', null, '查询结果与关键指标；排队状态表示尚未得到最终评分。')))));
     }
 
@@ -1971,10 +1957,6 @@ window.__ModuleLoader__.load({
       const receiptState = receipt?.scoringState?.state || data?.scoringState?.state || receipt?.status || data?.status;
       const receiptLine = approvedSubmit && receiptId !== undefined
         ? `${t('progress.attempt')} #${receiptId} · ${receiptState ? stateLabel(receiptState, t) : t('awaitingScore')}` : '';
-      // A refused approval, a login refused, unreachable or failed before asking, or a card that did not reach
-      // the CLI, leaves the confirmation card valid.
-      const cardKept = approvedSubmit && failed && !data?.workflow
-        && ['approval_rejected', 'approval_cancelled', 'approval_unavailable', 'authentication_required', 'network_error', 'response_too_large', 'login_check_failed', 'cli_not_started', 'ask_first'].includes(data?.error?.code);
       return h('section', { className: 'pg-card', 'aria-label': t(`tools.${toolName}`) },
         h('style', null, css),
         h('div', { className: 'pg-head' },
@@ -1983,14 +1965,13 @@ window.__ModuleLoader__.load({
             failed ? t('failed') : phase === 'preparing' ? t('preparing') : phase === 'start' ? t(approvedSubmit ? 'approving' : toolName === 'playground_submit_attempt' ? 'uploading' : 'running') : state ? stateLabel(state, t) : t('loaded'))),
         failed ? h('p', { className: 'pg-error', role: 'alert' }, data?.error?.message || block.error?.message || text || t('failed')) : null,
         receiptLine ? h('p', { className: 'pg-note pg-receipt', role: 'status' }, receiptLine) : null,
-        cardKept && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         phase === 'result' && data?.ok && requestTask && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
           ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
         data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
           ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
             ? openControllerChat(data.sessionId, data.workspaceId || '') : openTask(data.sessionId) },
             toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
-        data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
+        data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '打开工作台') : null,
         data ? h(React.Fragment, null,
           h('div', { className: 'pg-facts' },
             data.attemptId !== undefined || data.id !== undefined ? h('span', null, `${t(isAttempt ? 'submissionId' : 'id')}: ${data.attemptId ?? data.id}`) : null,
@@ -2284,11 +2265,12 @@ window.__ModuleLoader__.load({
       const label = node.name === 'playground-auth-login' ? 'Playground 登录'
         : node.name === 'playground-confirm' ? '确认提交' : action === 'results' ? '查询评测结果' : workflow?.kind === 'receipt' ? '提交回执'
         : ({ auth: '登录状态检测', catalog: '赛题目录查询', start: '创建任务对话', task: '任务上下文', context: '任务上下文',
-          mode: '切换工作模式', check: '检查提交材料', prepared: '检查提交材料', results: '查询评测结果', cancel: '取消提交准备', clear: '取消提交准备' })[action] || 'Playground 命令';
+          mode: '切换工作模式', check: '检查提交材料', prepared: '检查提交材料', results: '查询评测结果', cancel: '取消提交准备', clear: '取消提交准备',
+          record_submission: '提交请求状态', submission: '提交请求状态' })[action] || 'Playground 命令';
       const failed = node.outcome?.kind === 'error' || result.ok === false || Boolean(result.error);
       const available = Object.keys(result).length > 0;
       const status = !node.outcome ? '执行中 / 尚未完成' : failed ? '未完成' : !available ? '结果不可用'
-        : workflow?.kind === 'prepared' ? '等待确认' : workflow?.kind === 'clear' ? '已取消或失效' : auth ? (auth.authenticated ? '已登录' : '未登录') : '已完成';
+        : workflow?.kind === 'prepared' ? '历史检查记录，已退役' : workflow?.kind === 'clear' ? '已取消或失效' : auth ? (auth.authenticated ? '已登录' : '未登录') : '已完成';
       // Historical payloads can contain CLI output and credentials. Only project safe business facts.
       const details = {
         操作: label, 状态: status,
@@ -2297,7 +2279,8 @@ window.__ModuleLoader__.load({
           当前页赛题: challenges.slice(0, 12).map((item) => commandFact(item.titleZh || item.title || item.id)).filter((title) => title !== undefined) } : {}),
         ...(workflow?.task ? { 赛题: commandFact(workflow.task.title) } : {}),
         ...(workflow?.mode ? { 工作模式: workflow.mode === 'author' ? '出题' : '参赛' } : {}),
-        ...(workflow?.prepared ? { 赛题: commandFact(workflow.prepared.challenge?.title), 材料数量: commandFact(workflow.prepared.files?.length), 提交状态: '等待用户确认' } : {}),
+        ...(workflow?.submission ? { 交接状态: commandFact(workflow.submission.status) } : {}),
+        ...(workflow?.prepared ? { 赛题: commandFact(workflow.prepared.challenge?.title), 材料数量: commandFact(workflow.prepared.files?.length), 提交状态: '历史记录，不参与当前提交' } : {}),
         ...(workflow?.receipt || action === 'results' ? { 提交编号: commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id),
           评测状态: commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status),
           平台返回分数: commandFact(workflow?.receipt?.scoringState?.displayScore ?? result.scoringState?.displayScore ?? result.score) } : {}),
@@ -2310,21 +2293,20 @@ window.__ModuleLoader__.load({
         } : {}),
       };
       const summary = failed ? ({ authentication_required: '请先在工作台登录 Playground，再重试此操作。',
-        confirmation_required: '提交尚未获得有效确认，请在工作台重新检查材料并确认。',
+        confirmation_required: '旧提交入口已退役，请在任务详情请求 Agent 提交。',
         materials_changed: '材料已改变，请在工作台重新检查后再提交。',
-        identity_changed: '检查材料后登录身份已变化或无法核对，请在工作台确认登录身份并重新检查材料。' })[result.error?.code]
+        identity_changed: '登录身份已变化或无法核对，请在工作台确认登录身份。' })[result.error?.code]
           || diagnosedMessage(result) || safeMessage(result.error?.message ?? plainText) || '操作未完成或已中断。请检查工作台中的状态后重试。'
         : !node.outcome ? '此记录尚无完成结果；若任务已停止，请回到工作台核对状态。'
         : auth ? (auth.authenticated ? 'Playground 身份已确认。' : '尚未登录；公开赛题仍可浏览。')
         : catalog ? `共 ${details.比赛数量} 个比赛、${details.赛题数量} 道赛题。`
-        : workflow?.prepared ? '材料已检查，等待用户在工作台确认提交。'
+        : workflow?.prepared ? '历史材料目录信息。旧检查卡已退役，不表示本次材料已检查或归档安全验证通过。'
         : details.提交编号 !== undefined ? `提交 #${details.提交编号} · ${details.评测状态 || '评测状态待查询'}`
         : typeof result.sessionId === 'string' ? '已创建独立任务对话。' : commandFact(workflow?.task?.title) || '可展开查看已保存的操作摘要；未提供的详情不可用。';
       return h('section', { className: 'pg-card' }, h('style', null, css),
         h('div', { className: 'pg-head' }, h('strong', null, label), h('span', { className: 'pg-badge', 'data-tone': failed ? 'error' : !node.outcome || auth?.authenticated === false ? 'warning' : 'neutral' }, status)),
         h('p', { className: failed ? 'pg-error' : 'pg-note', role: failed ? 'alert' : 'status' }, summary),
         h('details', { className: 'pg-raw' }, h('summary', null, '查看操作详情'), h('pre', null, JSON.stringify(details, null, 2))),
-        workflow?.kind === 'prepared' && !failed ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '前往工作台确认提交') : null,
         typeof result.sessionId === 'string' ? h('button', { className: 'pg-button', onClick: () => openTask(result.sessionId) }, '打开任务对话') : null);
     }
 
@@ -2383,8 +2365,9 @@ window.__ModuleLoader__.load({
           refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
           query: (input, signal) => requestHost('query', input, signal),
           materials: (input) => requestHost('materials', input),
-          run: async (sessionId, input, confirm = false) => {
-            const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${typeof input === 'string' ? input : JSON.stringify(input)}` : `/playground ${JSON.stringify(input)}`, []);
+          submission: (input) => requestHost('submission', input),
+          run: async (sessionId, input) => {
+            const result = await ctx.remote.commands.execute(sessionId, `/playground ${JSON.stringify(input)}`, []);
             if (!result.ok) throw new Error(result.error.message);
             if (!result.value) throw new Error('Playground 命令未注册，请重启 DSH 加载插件。');
             const text = result.value.result.text;

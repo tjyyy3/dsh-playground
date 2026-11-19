@@ -1,7 +1,7 @@
 // Local, fully offline demo of the Playground plugin.
 //
 // Starts a mock Playground API on 127.0.0.1, then drives the same client and
-// submission code the plugin uses. No request leaves the machine, and nothing
+// task handoff code the plugin uses. No request leaves the machine, and nothing
 // is uploaded to play.bohrium.com.
 import http from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -14,32 +14,11 @@ import {
   formatAttemptList,
   formatChallenge,
   formatList,
-  formatSubmission,
 } from '../lib/format.js';
-import { createSubmitTool } from '../index.js';
-import { createMaterialAccess } from '../lib/material-access.js';
+import { presentationMeta } from '../index.js';
+import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
 const requests = [];
-const uploads = [];
-
-function summarize(form) {
-  return [...form.entries()].map(([key, value]) => (
-    typeof value === 'string'
-      ? `${key}=${value.length > 70 ? `${value.slice(0, 70)}…` : value}`
-      : `${key}=<file ${value.name}, ${value.size} bytes>`
-  ));
-}
-
-async function readForm(req) {
-  const request = new Request(`http://127.0.0.1${req.url}`, {
-    method: req.method,
-    headers: req.headers,
-    body: req,
-    duplex: 'half',
-  });
-  return request.formData();
-}
-
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   requests.push(`${req.method} ${url.pathname}${url.search}`);
@@ -132,34 +111,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/challenges/demo-challenge/attempts') {
-      const form = await readForm(req);
-      uploads.push({ endpoint: url.pathname, parts: summarize(form) });
-      return send(201, {
-        id: 202,
-        challengeId: 'demo-challenge',
-        status: 'submitted',
-        bundleStatus: null,
-        bundlePath: null,
-      });
-    }
-
-    if (req.method === 'POST' && url.pathname === '/api/attempts/202/bundle') {
-      const form = await readForm(req);
-      uploads.push({ endpoint: url.pathname, parts: summarize(form) });
-      return send(200, {
-        bundleStatus: 'ready',
-        validation: { valid: true },
-        violations: [],
-        attempt: {
-          id: 202,
-          challengeId: 'demo-challenge',
-          status: 'submitted',
-          bundleStatus: 'ready',
-        },
-      });
-    }
-
     return send(404, { error: 'not found' });
   } catch (error) {
     return send(500, { error: error instanceof Error ? error.message : String(error) });
@@ -197,31 +148,29 @@ try {
   console.log('\n=== 4. 单条结果（GET /api/attempts/101） ===');
   console.log(formatAttempt(await client.getAttempt(101)));
 
-  console.log('\n=== 5. 提交评测（本地 mock，不访问真实平台） ===');
-  const submitTool = createSubmitTool(client);
-  const exec = { agent: { id: 'demo-task', session: { id: 'demo-task' } }, signal: new AbortController().signal };
-  const access = createMaterialAccess({
+  console.log('\n=== 5. 交给当前任务 Agent（假会话，不提交） ===');
+  const agent = { id: 'demo-task', session: { id: 'demo-task' } };
+  let state = { ...workflowProjection.init(), task: { challengeId: 'demo-challenge', title: 'Demo', cwd: dir, mode: 'participate' } };
+  const ctx = {
     workingDirectory: { get: () => dir },
-    sessionProjections: { stateOf: () => ({ task: { cwd: dir, challengeId: 'demo-challenge' } }) },
     workspaceRegistry: { resolveByPath: async () => ({ id: 'demo-workspace', path: dir }) },
-  });
-  const args = {
-    challenge_id: 'demo-challenge',
-    bundle_path: bundlePath,
-    trace_path: tracePath,
-    method: 'local-demo',
-    model: 'local-model',
-    harness: 'Local Harness',
-    detail: 'Demonstration submission against the local mock.',
+    sessionProjections: { stateOf: () => state },
+    sessionController: { prompt: async (request) => { console.log('Fake Agent received one request for ' + request.sessionId); return { accepted: true }; } },
   };
-  const submitted = await submitTool.execute(args, exec, { access: await access.begin(exec, args, 'confirm') });
-  console.log(formatSubmission(submitted));
-
-  console.log('\n=== mock 收到的 multipart（这就是真实平台会收到的内容） ===');
-  for (const upload of uploads) {
-    console.log(`- ${upload.endpoint}`);
-    for (const part of upload.parts) console.log(`    ${part}`);
-  }
+  const workflow = createWorkflow({ ctx, client: { ...client,
+    getCurrentUser: async () => ({ authenticated: true, user: { id: 'local', name: 'Local Tester' } }),
+    listMyAttempts: async () => ({ items: [] }), listMyAgents: async () => ({ items: [] }),
+  }, presentationMeta });
+  ctx.commands = { execute: async (target, command, _attachments, signal) => {
+    const result = await workflow.command({ agent: target, rawInput: command.slice('/playground '.length), signal });
+    state = workflowProjection.apply(state, { type: 'command/done', data: result });
+    return { result };
+  } };
+  const exec = { agent, signal: new AbortController().signal };
+  const dispatched = await workflow.requestSubmission({ action: 'request', bundle_path: bundlePath, trace_path: tracePath }, exec);
+  console.log(dispatched.note);
+  const tracked = await workflow.track({ attempt_id: 101 }, exec);
+  console.log(tracked.note);
 
   console.log('\n=== 请求记录（全部指向本地 mock） ===');
   for (const line of requests) console.log(`- ${line}`);

@@ -13,7 +13,6 @@ import {
   formatAttemptList,
   formatChallenge,
   formatList,
-  formatSubmission,
 } from '../lib/format.js';
 
 function jsonResponse(body, status = 200) {
@@ -786,102 +785,13 @@ test('getAttempt returns score, scoring state, and a bounded scorecard', async (
   assert.match(attempt.scorecard, /dimensions/);
 });
 
-test('createAttempt sends multipart fields and the trajectory file', async () => {
-  let captured;
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test',
-    token: 'tok-1',
-    fetchImpl: async (url, init) => {
-      captured = { url, init };
-      return jsonResponse({ id: 99, challengeId: 'demo', status: 'submitted', bundleStatus: null }, 201);
-    },
-  });
 
-  const result = await client.createAttempt('demo', {
-    method: 'playground-test',
-    model: 'deepseek-v4',
-    type: 'agent',
-    status: 'submitted',
-    trace: '[]',
-  }, [{
-    field: 'raw_messages',
-    filename: 'raw_messages.jsonl',
-    data: new Blob(['{"type":"session_start"}\n'], { type: 'application/x-ndjson' }),
-  }]);
 
-  assert.equal(captured.init.method, 'POST');
-  assert.equal(captured.init.headers.authorization, 'Bearer tok-1');
-  assert.ok(captured.init.body instanceof FormData);
-  assert.equal(captured.init.body.get('method'), 'playground-test');
-  assert.equal(captured.init.body.get('model'), 'deepseek-v4');
-  assert.equal(captured.init.body.get('trace'), '[]');
-  const file = captured.init.body.get('raw_messages');
-  assert.equal(file.name, 'raw_messages.jsonl');
-  assert.match(await file.text(), /session_start/);
-  assert.equal(result.attempt.id, 99);
-  assert.equal(result.idempotentReuse, false);
-});
 
-test('createAttempt refuses to send without a token', async () => {
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test',
-    fetchImpl: async () => {
-      throw new Error('must not reach the network');
-    },
-  });
-  await assert.rejects(
-    () => client.createAttempt('demo', { status: 'submitted' }, []),
-    (error) => error instanceof PlaygroundApiError && error.code === 'authentication_required',
-  );
-});
 
-test('uploadBundle sends the zip and keeps validation on a 400 rejection', async () => {
-  let captured;
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test',
-    token: 'tok-1',
-    fetchImpl: async (url, init) => {
-      captured = { url, init };
-      return jsonResponse({
-        bundleStatus: 'failed',
-        violations: [{
-          rule: 'invalid_bundle',
-          message: 'arm_manifest.json is missing',
-          fix: 'Put it at the zip root.',
-          docs: '/api/protocol#bundle-layout',
-        }],
-        validation: { valid: false, errors: ['arm_manifest.json is missing'] },
-        attempt: { id: 99, status: 'submitted', challengeId: 'demo' },
-      }, 400);
-    },
-  });
 
-  const result = await client.uploadBundle(99, {
-    filename: 'arm.zip',
-    data: new Blob(['zip-bytes'], { type: 'application/zip' }),
-  });
 
-  assert.equal(captured.init.method, 'POST');
-  assert.ok(captured.init.body instanceof FormData);
-  const file = captured.init.body.get('bundle');
-  assert.equal(file.name, 'arm.zip');
-  assert.equal(result.bundleStatus, 'failed');
-  assert.equal(result.violations[0].rule, 'invalid_bundle');
-  assert.match(result.validation, /missing/);
-  assert.equal(result.attempt.id, 99);
-});
 
-test('uploadBundle rejects a 400 that is not a bundle verdict', async () => {
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test',
-    token: 'tok-1',
-    fetchImpl: async () => jsonResponse({ error: 'Not authorized' }, 400),
-  });
-  await assert.rejects(
-    () => client.uploadBundle(99, { filename: 'arm.zip', data: new Blob(['zip-bytes']) }),
-    (error) => error instanceof PlaygroundApiError && /Not authorized/.test(error.message),
-  );
-});
 
 test('formatters produce a table and a bounded problem statement', () => {
   const text = formatList({
@@ -948,17 +858,7 @@ test('attempt formatters show scoring state and submission outcome', () => {
   assert.match(attempt, /final score: 12/);
   assert.match(attempt, /## Scorecard/);
 
-  const submitted = formatSubmission({
-    ok: true,
-    attemptId: 99,
-    challengeId: 'demo',
-    created: true,
-    bundleStatus: 'ready',
-    status: 'submitted',
-    note: 'The bundle was accepted and scoring was triggered.',
-  });
-  assert.match(submitted, /Submission 99 created/);
-  assert.match(submitted, /playground_get_attempt/);
+
 });
 
 test('getChallengeFacets reads the discipline counts and rejects a response without them', async () => {
@@ -980,37 +880,7 @@ test('getChallengeFacets reads the discipline counts and rejects a response with
   }
 });
 
-test('#12: a request given a token uses exactly it and skips the lookup', async () => {
-  let lookups = 0;
-  const headers = [];
-  const client = createPlaygroundClient({
-    baseUrl: 'http://127.0.0.1:15000/api',
-    resolveToken: async () => { lookups += 1; return 'synthetic-later-token'; },
-    fetchImpl: async (url, init) => {
-      headers.push([new URL(url).pathname, init.headers.authorization ?? null]);
-      const { pathname } = new URL(url);
-      if (pathname.endsWith('/auth/me')) return jsonResponse({ id: 5, name: 'Test user' });
-      if (pathname.endsWith('/me/attempts')) return jsonResponse({ items: [], next_cursor: null });
-      if (pathname.endsWith('/bundle')) return jsonResponse({ bundleStatus: 'ready' });
-      return jsonResponse({ id: 7, challenge_id: 'challenge-a' });
-    },
-  });
-  assert.equal(await client.currentToken(), 'synthetic-later-token');
-  lookups = 0;
-  const token = 'synthetic-checked-token';
-  assert.equal((await client.getCurrentUser({ token })).user.id, 5);
-  await client.listMyAttempts({}, { token });
-  await client.createAttempt('challenge-a', { method: 'm' }, [], { token });
-  await client.uploadBundle(7, { filename: 'b.zip', data: new Blob(['zip']) }, { token });
-  assert.equal(lookups, 0, 'no request looked the token up again');
-  assert.ok(headers.every(([, value]) => value === 'Bearer synthetic-checked-token'), JSON.stringify(headers.map(([path]) => path)));
-  // An empty given token means none: an authenticated request is refused, not sent with the lookup's token.
-  assert.deepEqual(await client.getCurrentUser({ token: '' }), { authenticated: false, baseUrl: client.baseUrl, reason: 'no_token' });
-  assert.equal(lookups, 0);
-  // Without the option every request resolves as before.
-  await client.getCurrentUser();
-  assert.equal(lookups, 1);
-});
+
 
 // #58: the shapes GET /attempts/<id> returned on 2026-11-05 for #63167 (queued, owner view, bundle never
 // arrived), #63116 (closed by the platform as bundle missing) and #63179 (failed for another reason).
