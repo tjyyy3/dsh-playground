@@ -92,7 +92,7 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Current state
 
-Version field: `0.4.4`.
+Version `0.5.0-preview.7`.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.
