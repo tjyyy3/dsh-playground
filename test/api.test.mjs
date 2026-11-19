@@ -261,6 +261,19 @@ test('#76: native fetch refuses every redirect without requesting its target', a
   });
 });
 
+test('#78: a fetchImpl response without a body property is invalid', async () => {
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+  await assert.rejects(() => client.listChallenges(), (error) => {
+    assert.equal(error.code, 'invalid_response');
+    assert.equal(error.status, 200);
+    assert.match(error.message, /fetchImpl/);
+    return true;
+  });
+});
+
 test('request reports a response body read failure as a network error', async () => {
   const client = createPlaygroundClient({
     baseUrl: 'https://example.test',
