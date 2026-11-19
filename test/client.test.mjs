@@ -113,11 +113,11 @@ test('F-01: opening a task drawer preserves confirmation actions and closes corr
 });
 
 // Open the task drawer for one session in the given workflow state and render its TaskWorkflow.
-function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
+function taskDrawer(f, getState, run, { access = true, running = false, materials } = {}) {
   const Main = f.registrations.get('playground.library').Component;
   const session = { id: 's', displayTitle: 'Playground · Fixture', retainedBy: { mainView: 1 }, running };
   const props = { useSessions: (select) => select({ ids: ['s'], byId: { s: session }, projectionsBySession: { s: { state: 'ready', values: { playgroundTask: getState() } } } }),
-    useSessionAccess: () => access, refreshProjections: async () => {}, run, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
+    useSessionAccess: () => access, refreshProjections: async () => {}, run, materials, openTask: () => {}, openChat: () => {}, login: async () => {}, t: (s) => s };
   const row = f.find(f.render(Main, props), (n) => n.type?.name === 'TaskSummaryRow');
   f.find(f.render(row.type, row.props), (n) => n.props?.className === 'pg-task-row-select').props.onClick();
   return () => {
@@ -128,6 +128,56 @@ function taskDrawer(f, getState, run, { access = true, running = false } = {}) {
   };
 }
 const buttonLabeled = (f, tree, label) => f.find(tree, (n) => n.type === 'button' && text(n).includes(label));
+
+test('external material UI defaults to one operation and only a click grants and resumes the check', async (t) => {
+  const f = await clientFixture(t);
+  const calls = [];
+  const request = { requestId: 'synthetic-request', operation: 'check', purpose: 'challenge-materials',
+    scopes: [{ path: '/synthetic/outside', kind: 'directory', recursive: false }] };
+  const state = { task: { challengeId: 'fixture', title: 'Fixture' }, materialAccess: request };
+  let pending = true;
+  const materials = async (input) => {
+    calls.push(input);
+    if (input.action === 'status') return { ok: true, requests: pending ? [request] : [], grants: [] };
+    pending = false;
+    return { ok: true, operation: 'check', input: { action: 'check', challenge_id: 'fixture', material_request_id: request.requestId } };
+  };
+  const run = async (...args) => { calls.push(args); return { ok: true }; };
+  const workflow = taskDrawer(f, () => state, run, { materials });
+  const panel = f.find(workflow(), (node) => node.type?.name === 'MaterialPermissions');
+  const view = await f.mount(panel);
+  assert.equal(f.find(view, (node) => node.type === 'select').props.value, 'operation');
+  assert.equal(f.find(view, (node) => node.props?.type === 'checkbox').props.checked, false);
+  assert.match(text(view), /仅直接文件.*仅本次操作允许/s);
+  assert.match(text(view), /此授权不代表同意提交/);
+  assert.deepEqual(calls, [{ action: 'status', sessionId: 's' }]);
+  await buttonLabeled(f, view, '允许读取并继续检查').props.onClick();
+  assert.deepEqual(calls[1], { action: 'authorize', requestId: request.requestId, scope: 'operation', recursive: false, sessionId: 's' });
+  assert.deepEqual(calls[2], ['s', { action: 'check', challenge_id: 'fixture', material_request_id: request.requestId }, false]);
+});
+
+test('external material UI names recursive task scope and lets the user revoke it', async (t) => {
+  const f = await clientFixture(t);
+  const calls = [];
+  const request = { requestId: 'synthetic-request', operation: 'check', scopes: [{ path: '/synthetic/outside', kind: 'directory', recursive: false }] };
+  const materials = async (input) => {
+    calls.push(input);
+    if (input.action === 'status') return { ok: true, requests: [request], grants: [{ ...request.scopes[0], recursive: true }] };
+    return { ok: true, operation: 'check', input: { action: 'check' } };
+  };
+  const workflow = taskDrawer(f, () => ({ task: { challengeId: 'fixture' }, materialAccess: request }), async () => ({ ok: true }), { materials });
+  const panel = f.find(workflow(), (node) => node.type?.name === 'MaterialPermissions');
+  let view = await f.mount(panel);
+  f.find(view, (node) => node.type === 'select').props.onChange({ target: { value: 'task' } });
+  f.find(view, (node) => node.props?.type === 'checkbox').props.onChange({ target: { checked: true } });
+  view = f.render(panel.type, panel.props);
+  await buttonLabeled(f, view, '允许读取并继续检查').props.onClick();
+  assert.equal(calls[1].scope, 'task');
+  assert.equal(calls[1].recursive, true);
+  assert.match(text(view), /目录（含子目录）/);
+  await buttonLabeled(f, f.render(panel.type, panel.props), '撤销本任务全部材料授权').props.onClick();
+  assert.ok(calls.some((input) => input.action === 'revoke' && input.sessionId === 's'));
+});
 
 test('task details offer no working-mode selector for a participation task', async (t) => {
   const f = await clientFixture(t);

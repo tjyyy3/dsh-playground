@@ -375,7 +375,53 @@ window.__ModuleLoader__.load({
       store.publish();
     }
 
-    function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, openTask, t }) {
+    function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
+      const [snapshot, setSnapshot] = React.useState(null);
+      const [scope, setScope] = React.useState('operation');
+      const [recursive, setRecursive] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+      const refresh = async () => {
+        try {
+          const value = await materials({ action: 'status', sessionId });
+          if (value.ok === false) throw new Error(value.error.message);
+          setSnapshot(value); setError('');
+        } catch (failure) { setError(failure.message); }
+      };
+      React.useEffect(() => { setScope('operation'); setRecursive(false); refresh(); }, [sessionId, request?.requestId]);
+      const act = async (input) => {
+        setBusy(true); setError('');
+        try {
+          const result = await materials({ ...input, sessionId });
+          if (result.ok === false) throw new Error(result.error.message);
+          if (input.action === 'authorize') await resume(result.input, result.operation === 'confirm');
+          await refresh();
+        } catch (failure) { setError(failure.message); }
+        finally { setBusy(false); }
+      };
+      const scopeText = (item) => `${item.kind === 'directory' ? `目录（${item.recursive ? '含子目录' : '仅直接文件'}）` : '文件'}：${item.path}`;
+      return h('section', { className: 'pg-confirm', 'aria-label': '外部材料权限' },
+        h('h4', null, '外部材料权限'),
+        h('p', { className: 'pg-note' }, '仅用于当前任务的比赛材料读取、摘要和检查。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。'),
+        ...(snapshot?.requests || []).map((item) => h('div', { key: item.requestId, className: 'pg-form' },
+          h('p', { className: 'pg-note' }, item.operation === 'confirm' ? '为已请求的提交读取材料。授权后继续该提交操作。' : '检查材料。授权后继续这次检查，不会上传。'),
+          ...item.scopes.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
+          h('label', { className: 'pg-field' }, '允许范围', h('select', { value: scope, disabled: disabled || busy, onChange: (event) => setScope(event.target.value) },
+            h('option', { value: 'operation' }, '仅本次操作允许'), h('option', { value: 'task' }, '本次任务内允许'))),
+          item.scopes.some((entry) => entry.kind === 'directory') ? h('label', { className: 'pg-field' },
+            h('input', { type: 'checkbox', checked: recursive, disabled: disabled || busy, onChange: (event) => setRecursive(event.target.checked) }), '目录授权包含子目录') : null,
+          h('button', { className: 'pg-button pg-primary', disabled: disabled || busy,
+            onClick: () => act({ action: 'authorize', requestId: item.requestId, scope, recursive }) }, item.operation === 'confirm' ? '允许读取并继续提交' : '允许读取并继续检查'))),
+        snapshot?.grants?.length ? h(React.Fragment, null,
+          h('p', { className: 'pg-note' }, '本次任务已允许的范围'),
+          ...snapshot.grants.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
+          h('button', { className: 'pg-button', disabled: disabled || busy, onClick: () => act({ action: 'revoke' }) }, '撤销本任务全部材料授权')) : null,
+        snapshot && !snapshot.requests.length && !snapshot.grants.length ? h('p', { className: 'pg-note' }, '没有待授权的外部材料，也没有任务级授权。') : null,
+        h('button', { className: 'pg-button', disabled: busy, onClick: refresh }, '刷新材料权限'),
+        error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null);
+    }
+
+    function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, materials, openTask, t }) {
       const task = state?.task;
       const prepared = state?.prepared;
       const receipt = state?.receipt;
@@ -387,6 +433,8 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
       const [edited, setEdited] = React.useState(false);
+      const [showAccess, setShowAccess] = React.useState(Boolean(state?.materialAccess));
+      React.useEffect(() => { if (state?.materialAccess) setShowAccess(true); }, [state?.materialAccess]);
       React.useEffect(() => { setTarget(task?.challengeId || ''); }, [task?.challengeId]);
       React.useEffect(() => {
         const args = prepared?.args || receipt?.args;
@@ -400,6 +448,7 @@ window.__ModuleLoader__.load({
           if (result.status === 'awaiting_confirmation') { setEdited(false); setShowFiles(false); }
           if (result.attemptId || result.id) setShowResult(true);
           if (result.sessionId) openTask(result.sessionId);
+          if (result.workflow?.kind === 'material-access') setShowAccess(true);
         } catch (failure) { setError(failure.message); }
         finally { setBusy(false); }
       };
@@ -412,6 +461,9 @@ window.__ModuleLoader__.load({
         h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}.pg-advanced summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px}.pg-advanced[open] summary{color:var(--pg-accent)}'),
         h('div', { className: 'pg-head' }, h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : 'Playground · 开始任务')),
         task ? h('p', { className: 'pg-note pg-path' }, `赛题 ${task.challengeId} · ${cwd || task.cwd}`) : null,
+        task && materials ? h(React.Fragment, null,
+          h('button', { className: 'pg-button', 'aria-expanded': showAccess, onClick: () => setShowAccess(!showAccess) }, '外部材料权限'),
+          showAccess ? h(MaterialPermissions, { sessionId, request: state?.materialAccess, materials, resume: act, disabled }) : null) : null,
         // Author mode is not offered in the UI yet; a task already in author mode can only switch back.
         task?.mode === 'author' ? h(React.Fragment, null,
           h('p', { className: 'pg-note' }, '可在当前工作区准备题面、资源说明和评分规则。本 MVP 尚未接入平台出题修改与发布。'),
@@ -2318,8 +2370,9 @@ window.__ModuleLoader__.load({
           },
           refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
           query: (input, signal) => requestHost('query', input, signal),
+          materials: (input) => requestHost('materials', input),
           run: async (sessionId, input, confirm = false) => {
-            const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${input}` : `/playground ${JSON.stringify(input)}`, []);
+            const result = await ctx.remote.commands.execute(sessionId, confirm ? `/playground-confirm ${typeof input === 'string' ? input : JSON.stringify(input)}` : `/playground ${JSON.stringify(input)}`, []);
             if (!result.ok) throw new Error(result.error.message);
             if (!result.value) throw new Error('Playground 命令未注册，请重启 DSH 加载插件。');
             const text = result.value.result.text;

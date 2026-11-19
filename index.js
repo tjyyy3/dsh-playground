@@ -20,9 +20,10 @@
  */
 
 import * as fsp from 'node:fs/promises';
-import { basename, isAbsolute, resolve as resolvePath } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 import { createWorkflow, submissionCountsText, submissionLimitsFor, taskBundleMissingIds, withoutReasonsList, workflowProjection } from './lib/workflow.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
+import { requireMaterialAccess } from './lib/material-access.js';
 import { controllerCommand, controllerProjection, controllerNoticesProjection, createController } from './lib/controller.js';
 import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, displayCredentialsPath, readCliCredential } from './lib/cli.js';
 
@@ -396,30 +397,12 @@ export function createTokenResolver(settings, ctx) {
   return resolveToken;
 }
 
-function resolveToolPath(inputPath, exec, workingDirectory) {
-  const text = cleanString(inputPath);
-  if (text.length === 0) return '';
-  if (isAbsolute(text)) return resolvePath(text);
-  let cwd;
-  try {
-    const session = exec?.agent?.session;
-    if (workingDirectory !== null && typeof workingDirectory === 'object'
-      && typeof workingDirectory.get === 'function' && session !== undefined) {
-      cwd = workingDirectory.get(session);
-    }
-  } catch {
-    // Fall back to the Host process directory.
-  }
-  return resolvePath(typeof cwd === 'string' && cwd.length > 0 ? cwd : process.cwd(), text);
-}
-
 function invalidArgument(message) {
   return new PlaygroundApiError(message, { code: 'invalid_argument' });
 }
 
-export async function readBundle(inputPath, exec, workingDirectory) {
-  const resolved = resolveToolPath(inputPath, exec, workingDirectory);
-  if (resolved.length === 0) throw invalidArgument('bundle_path must not be empty');
+export async function readBundle(inputPath, exec, access) {
+  const resolved = await requireMaterialAccess(access).resolve(inputPath);
   if (!resolved.toLowerCase().endsWith('.zip')) {
     throw invalidArgument(`bundle_path must point to a .zip file: ${resolved}`);
   }
@@ -428,13 +411,7 @@ export async function readBundle(inputPath, exec, workingDirectory) {
   if (info.size > MAX_BUNDLE_BYTES) {
     throw invalidArgument(`bundle is ${(info.size / 1024 / 1024).toFixed(1)} MiB; the platform limit is ${MAX_BUNDLE_BYTES / 1024 / 1024} MiB`);
   }
-  let data;
-  if (typeof fsp.openAsBlob === 'function') {
-    data = await fsp.openAsBlob(resolved, { type: 'application/zip' }).catch(() => undefined);
-  }
-  if (data === undefined) {
-    data = new Blob([await fsp.readFile(resolved)], { type: 'application/zip' });
-  }
+  const data = new Blob([await access.readFile(resolved)], { type: 'application/zip' });
   return { field: 'bundle', filename: basename(resolved), data, bytes: info.size, path: resolved };
 }
 
@@ -444,11 +421,9 @@ export async function readBundle(inputPath, exec, workingDirectory) {
  * is sent only as raw_messages. The platform requires a session_start header
  * on raw_messages, so one is prepended when absent.
  */
-export async function readTrace(inputPath, exec, workingDirectory) {
-  const resolved = resolveToolPath(inputPath, exec, workingDirectory);
-  if (resolved.length === 0) throw invalidArgument('trace_path must not be empty');
-  const text = await fsp.readFile(resolved, 'utf8').catch(() => null);
-  if (text === null) throw invalidArgument(`trace not found: ${resolved}`);
+export async function readTrace(inputPath, exec, access) {
+  const resolved = await requireMaterialAccess(access).resolve(inputPath);
+  const text = await access.readFile(resolved, 'utf8');
   if (text.trim().length === 0) throw invalidArgument(`trace is empty: ${resolved}`);
 
   let parsed;
@@ -508,11 +483,9 @@ export async function readTrace(inputPath, exec, workingDirectory) {
   };
 }
 
-export async function readManifest(inputPath, exec, workingDirectory) {
-  const resolved = resolveToolPath(inputPath, exec, workingDirectory);
-  if (resolved.length === 0) throw invalidArgument('manifest_path must not be empty');
-  const text = await fsp.readFile(resolved, 'utf8').catch(() => null);
-  if (text === null) throw invalidArgument(`manifest not found: ${resolved}`);
+export async function readManifest(inputPath, exec, access) {
+  const resolved = await requireMaterialAccess(access).resolve(inputPath);
+  const text = await access.readFile(resolved, 'utf8');
   try {
     JSON.parse(text);
   } catch {
@@ -974,7 +947,7 @@ function createGetAttemptTool(client) {
   };
 }
 
-export function createSubmitTool(client, { workingDirectory } = {}) {
+export function createSubmitTool(client, { materialAccess } = {}) {
   return {
     name: 'playground_submit_attempt',
     description: 'Submit an ARM bundle to a Playground challenge for scoring: creates an agent submission with a trajectory, uploads the .zip bundle, and triggers scoring. Requires a Playground token. This writes to the platform, consumes one submission slot, and uploads the bundle file.',
@@ -1041,7 +1014,9 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
       try {
         const challengeId = cleanString(args.challenge_id);
         if (challengeId.length === 0) throw invalidArgument('challenge_id must not be empty');
-        const bundle = materials?.bundle ?? await readBundle(args.bundle_path, exec, workingDirectory);
+        const access = requireMaterialAccess(materials?.access ?? await materialAccess?.begin(exec, args, 'confirm'));
+        await access.resolveAll([args.bundle_path, args.trace_path, args.manifest_path].filter(Boolean).map((path) => ({ path })));
+        const bundle = materials?.bundle ?? await readBundle(args.bundle_path, exec, access);
 
         const retryRaw = args.attempt_id === undefined || args.attempt_id === null ? '' : String(args.attempt_id).trim();
         if (retryRaw.length > 0) {
@@ -1059,7 +1034,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
           if (cleanString(args.trace_path).length === 0) {
             throw invalidArgument('trace_path is required when creating a submission: agent submissions must include a trajectory');
           }
-          const trace = materials?.trace ?? await readTrace(args.trace_path, exec, workingDirectory);
+          const trace = materials?.trace ?? await readTrace(args.trace_path, exec, access);
           const fields = {
             method: cleanString(args.method) || 'DSH Playground plugin',
             model: cleanString(args.model) || undefined,
@@ -1073,7 +1048,7 @@ export function createSubmitTool(client, { workingDirectory } = {}) {
           };
           if (cleanString(args.manifest_path).length > 0) {
             stage = 'manifest';
-            fields.manifest_json = materials?.manifest ?? await readManifest(args.manifest_path, exec, workingDirectory);
+            fields.manifest_json = materials?.manifest ?? await readManifest(args.manifest_path, exec, access);
           }
           stage = 'create';
           const createdResult = await client.createAttempt(challengeId, fields, trace.files, { signal: exec.signal, ...(token === undefined ? {} : { token }) });
@@ -1174,8 +1149,7 @@ export function apply(ctx, config) {
     submitTimeoutMs: settings.cliSubmitTimeoutMs,
     resolveToken,
   });
-  const workingDirectory = typeof ctx?.get === 'function' ? ctx.get('workingDirectory') : undefined;
-  const submit = createSubmitTool(client, { workingDirectory });
+  const submit = createSubmitTool(client);
   let workflow;
   const requestSubmission = {
     ...submit,
@@ -1224,10 +1198,14 @@ export function apply(ctx, config) {
     scope.commands.register({ name: controllerCommand, description: 'Initialize the workspace controller from Playground Workbench.',
       handler: controller.initialize });
     scope.commands.register({ name: 'playground-confirm', description: 'User-only: confirm the exact checked Playground submission.',
-      handler: (inv) => workflow.confirm(inv.rawInput?.trim(), { agent: inv.agent, signal: inv.signal }).then((result) => {
-        // Receipt is durable in command/done and readable by playground_task; it is not an approval for another write.
-        return { kind: result.ok ? 'success' : 'error', text: JSON.stringify({ playgroundWorkflow: result.workflow, ...result }) };
-      }).catch((error) => ({ kind: 'error', text: error.message })) });
+      handler: (inv) => {
+        const raw = inv.rawInput?.trim();
+        const input = raw?.startsWith('{') ? JSON.parse(raw) : { check_id: raw };
+        return workflow.confirm(input.check_id, { agent: inv.agent, signal: inv.signal }, input.material_request_id).then((result) => {
+          // Receipt is durable in command/done and readable by playground_task; it is not an approval for another write.
+          return { kind: result.ok ? 'success' : 'error', text: JSON.stringify({ playgroundWorkflow: result.workflow, ...result }) };
+        }).catch((error) => ({ kind: 'error', text: error.message }));
+      } });
     // Workbench login uses the session-free playgroundQueries/login call (lib/queries.js).
     const output = { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' } }, required: ['ok'] },
       render: (_args, value) => renderText(JSON.stringify(value, null, 2)), presentationMeta };

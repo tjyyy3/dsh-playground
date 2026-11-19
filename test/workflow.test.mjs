@@ -75,6 +75,19 @@ async function fixture(cli, options = {}) {
   return { cwd, workflow, states, exec, calls, record, client, ctx };
 }
 
+async function materialFixture(cli, options) {
+  const f = await fixture(cli, options);
+  f.states.set('source', { ...workflowProjection.init(), task: { challengeId: 'challenge-a', title: 'Synthetic challenge', cwd: f.cwd, mode: 'participate' } });
+  return f;
+}
+
+// Build legacy task-less receipts under a valid temporary task; only their replay is task-less.
+async function historicalMaterial(f, action) {
+  const state = f.states.get('source');
+  f.states.set('source', { ...state, task: { challengeId: 'challenge-a', cwd: f.cwd, mode: 'participate' } });
+  try { return await action(); } finally { f.states.set('source', state); }
+}
+
 test('creating a task uses a new native session and preserves the exploration session', async () => {
   const f = await fixture();
   const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
@@ -88,7 +101,7 @@ test('creating a task uses a new native session and preserves the exploration se
 
 test('a workspace controller rejects material checks and task context but can start an independent task', async (t) => {
   const cli = { precheck: t.mock.fn(async () => {}) };
-  const f = await fixture(cli, { isController: (agent) => agent.id === 'source' });
+  const f = await materialFixture(cli, { isController: (agent) => agent.id === 'source' });
   const readChallenge = t.mock.method(f.client, 'getChallenge');
   const initial = f.states.get('source');
   const args = { challenge_id: 'challenge-a' };
@@ -117,8 +130,8 @@ test('a workspace controller rejects material checks and task context but can st
 test('a workspace controller preserves legacy task records without confirming, tracking or updating them', async (t) => {
   let marked = false;
   const cli = { submit: t.mock.fn(async () => { throw Object.assign(new Error('CLI missing'), { code: 'ENOENT', started: false }); }) };
-  const f = await fixture(cli, { isController: () => marked });
-  const task = { challengeId: 'challenge-a', mode: 'participate' };
+  const f = await materialFixture(cli, { isController: () => marked });
+  const task = { challengeId: 'challenge-a', cwd: f.cwd, mode: 'participate' };
   const receipt = { ok: true, attemptId: 77, challengeId: task.challengeId, status: 'submitted' };
   f.states.set('source', { ...workflowProjection.init(), task, receipt, attemptIds: [77] });
   const checked = await f.workflow.prepare({ challenge_id: task.challengeId }, f.exec);
@@ -642,7 +655,7 @@ test('login never records CLI output, credentials or a duplicate identity copy',
 });
 
 test('material check is read-only; only an exact human confirmation uploads checked bytes', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
   assert.equal(checked.workflow.prepared.traceCount, 1);
@@ -659,7 +672,7 @@ test('material check is read-only; only an exact human confirmation uploads chec
 });
 
 test('D10a/#57: the check result text never contains the checkId; only the agent\'s approval_id line names the approval id', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   const checkId = checked.workflow.prepared.checkId;
   const rendered = formatSubmission(checked);
@@ -687,7 +700,7 @@ test('D10a/#57: the check result text never contains the checkId; only the agent
 });
 
 test('changed trace invalidates the prior confirmation without platform writes', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   await writeFile(join(f.cwd, 'trace.json'), JSON.stringify([{ content: 'changed' }]));
@@ -697,7 +710,7 @@ test('changed trace invalidates the prior confirmation without platform writes',
 });
 
 test('missing, ambiguous, malformed and empty material errors never reach create', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   assert.equal((await f.workflow.prepare({}, f.exec)).ok, false);
   await writeFile(join(f.cwd, 'other.zip'), 'not a zip');
   assert.match((await f.workflow.prepare({ challenge_id: 'a' }, f.exec)).error.message, /多个候选/);
@@ -708,14 +721,14 @@ test('missing, ambiguous, malformed and empty material errors never reach create
 });
 
 test('retry target mismatch is rejected before upload', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const result = await f.workflow.prepare({ challenge_id: 'challenge-b', attempt_id: 7 }, f.exec);
   assert.match(result.error.message, /属于 challenge-a/);
   assert.equal(f.calls.length, 0);
 });
 
 test('failed upload retains the attempt id and retry uploads into that exact attempt', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   f.client.uploadBundle = async (id) => { f.calls.push(['rejected', id]); return { bundleStatus: 'failed', violations: [{ message: 'bad bundle' }] }; };
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
@@ -737,8 +750,8 @@ test('confirm stamps every receipt, including a same-id retry, and a results que
     { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'failed', violations: [{ message: 'bad bundle' }] } },
     { attempt_id: '7', attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } },
   ];
-  const cliPath = await fixture({ submit: async () => cliResults.shift() });
-  const apiPath = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+  const cliPath = await materialFixture({ submit: async () => cliResults.shift() });
+  const apiPath = await materialFixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
   let uploads = 0;
   apiPath.client.uploadBundle = async (id) => ({ bundleStatus: uploads++ ? 'ready' : 'failed', violations: [], attempt: { id, status: 'submitted' } });
   for (const [path, f] of [['cli', cliPath], ['api', apiPath]]) {
@@ -767,7 +780,7 @@ test('confirm stamps every receipt, including a same-id retry, and a results que
 });
 
 test('mode switches preserve receipts, clear confirmation and do not grant submission authority', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   f.states.set('source', { task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { attemptId: 7 }, prepared: { checkId: 'old' } });
   const command = await f.workflow.command({ agent: f.exec.agent, signal: f.exec.signal, rawInput: '{"action":"mode","mode":"author"}' });
   const replayed = workflowProjection.apply(f.states.get('source'), { type: 'command/done', data: command });
@@ -779,7 +792,7 @@ test('mode switches preserve receipts, clear confirmation and do not grant submi
 });
 
 test('an author task refuses material checks until it switches back to participation', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   assert.equal((await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd, mode: 'author' }, f.exec)).ok, true);
   const exec = { agent: f.ctx.agents.get('new-task'), signal: f.exec.signal };
   assert.equal(f.states.get('new-task').task.mode, 'author');
@@ -805,7 +818,7 @@ test('registered agent submission cannot write without native workflow services;
 
 test('F-03: API fallback preserves submission ids and bundle failures', async () => {
   for (const bundleStatus of ['ready', 'failed']) {
-    const f = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+    const f = await materialFixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
     const violations = bundleStatus === 'failed' ? [{ message: 'bad bundle' }] : [];
     f.client.uploadBundle = async (id) => ({ bundleStatus, violations, attempt: { id, status: 'submitted' } });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
@@ -829,7 +842,7 @@ test('F-03: API fallback preserves submission ids and bundle failures', async ()
 });
 
 test('F-03: API fallback preserves upload error stage and retry id', async () => {
-  const f = await fixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
+  const f = await materialFixture({ submit: async () => { throw Object.assign(new Error('CLI unavailable'), { code: 'ENOENT' }); } });
   f.client.uploadBundle = async () => { throw new Error('upload interrupted'); };
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
@@ -845,7 +858,7 @@ test('F-03: API fallback preserves upload error stage and retry id', async () =>
 test('F-03: CLI receipts preserve successful and failed bundle JSON results', async () => {
   for (const bundleStatus of ['ready', 'failed']) {
     const violations = bundleStatus === 'failed' ? [{ message: 'bad bundle' }] : [];
-    const f = await fixture({ submit: async () => ({ attempt_id: '19', attempt: { status: 'submitted', score: 0 }, bundle_response: { bundleStatus, violations } }) });
+    const f = await materialFixture({ submit: async () => ({ attempt_id: '19', attempt: { status: 'submitted', score: 0 }, bundle_response: { bundleStatus, violations } }) });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -864,7 +877,7 @@ test('F-03: CLI receipts preserve successful and failed bundle JSON results', as
 
 test('CLI submission receives the checked manifest, outcome and explicitly given detail and author', async () => {
   const received = [];
-  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '21', attempt: { status: 'submitted' } }; } });
+  const f = await materialFixture({ submit: async (options) => { received.push(options); return { attempt_id: '21', attempt: { status: 'submitted' } }; } });
   await writeFile(join(f.cwd, 'arm_manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', outcome: 'partial', detail: 'Synthetic run notes', author_name: 'Synthetic agent' }, f.exec);
   assert.equal(checked.ok, true);
@@ -881,7 +894,7 @@ test('CLI submission receives the checked manifest, outcome and explicitly given
 
 test('CLI submission leaves detail and author to the CLI defaults when they were not given', async () => {
   const received = [];
-  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '22' }; } });
+  const f = await materialFixture({ submit: async (options) => { received.push(options); return { attempt_id: '22' }; } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -891,7 +904,7 @@ test('CLI submission leaves detail and author to the CLI defaults when they were
 
 test('an undeclarable outcome fails the material check before any submission', async () => {
   let submitCalls = 0;
-  const f = await fixture({ submit: async () => { submitCalls++; return { attempt_id: '23' }; } });
+  const f = await materialFixture({ submit: async () => { submitCalls++; return { attempt_id: '23' }; } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', outcome: 'excellent' }, f.exec);
   assert.equal(checked.ok, false);
   assert.match(checked.error.message, /outcome/);
@@ -906,7 +919,7 @@ const NEW_FIELD_FLAGS = ['--manifest', '--outcome', '--detail', '--author-name']
 
 test('a retry through confirm() passes the fields through and its CLI arguments drop them', async () => {
   const received = [];
-  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '7', attempt: { status: 'submitted' } }; } });
+  const f = await materialFixture({ submit: async (options) => { received.push(options); return { attempt_id: '7', attempt: { status: 'submitted' } }; } });
   await writeFile(join(f.cwd, 'arm_manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 7, outcome: 'failed', detail: 'Retry notes', author_name: 'Synthetic agent' }, f.exec);
   assert.equal(checked.ok, true);
@@ -926,7 +939,7 @@ test('a retry through confirm() passes the fields through and its CLI arguments 
 
 test('an explicit relative manifest_path reaches the CLI as an absolute path', async () => {
   const received = [];
-  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '24' }; } });
+  const f = await materialFixture({ submit: async (options) => { received.push(options); return { attempt_id: '24' }; } });
   await mkdir(join(f.cwd, 'materials'));
   await writeFile(join(f.cwd, 'materials', 'manifest.json'), JSON.stringify({ name: 'synthetic arm' }));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', manifest_path: 'materials/manifest.json' }, f.exec);
@@ -941,7 +954,7 @@ test('an explicit relative manifest_path reaches the CLI as an absolute path', a
 
 test('a detail that starts with "--" survives into the CLI arguments', async () => {
   const received = [];
-  const f = await fixture({ submit: async (options) => { received.push(options); return { attempt_id: '25' }; } });
+  const f = await materialFixture({ submit: async (options) => { received.push(options); return { attempt_id: '25' }; } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', detail: '--- notes' }, f.exec);
   assert.equal(checked.ok, true);
   f.record(checked);
@@ -953,7 +966,7 @@ test('a detail that starts with "--" survives into the CLI arguments', async () 
 test('F-03: CLI receipts clear confirmation on invalid submission ids without retry', async () => {
   for (const attempt_id of [undefined, null, '', 'null', 'bad', 0, -1, 1.5, Infinity, true, [], Number.MAX_SAFE_INTEGER + 1]) {
     let submitCalls = 0;
-    const f = await fixture({ submit: async () => { submitCalls++; return { attempt_id }; } });
+    const f = await materialFixture({ submit: async () => { submitCalls++; return { attempt_id }; } });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     const checkId = checked.workflow.prepared.checkId;
@@ -978,7 +991,7 @@ test('#21: CLI receipts interpret snake_case scoring state like the API path', a
     { attempt: { id: 31, status: 'submitted', scoringState: { state: 'final', scoreIsFinal: true, displayScore: 9 }, score: 9, bundle_status: 'ready' }, state: 'final', score: 9, final: true },
   ];
   for (const { attempt, state, score, final } of cases) {
-    const f = await fixture({ submit: async () => ({ attempt_id: '31', attempt }) });
+    const f = await materialFixture({ submit: async () => ({ attempt_id: '31', attempt }) });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -998,7 +1011,7 @@ test('#21: CLI receipts interpret snake_case scoring state like the API path', a
 
 test('#21: CLI receipts keep an object under scoring_state', async () => {
   const attempt = { id: 31, status: 'submitted', scoring_state: { state: 'final', scoreIsFinal: true, displayScore: 12 }, score: 12, bundle_status: 'ready' };
-  const f = await fixture({ submit: async () => ({ attempt_id: '31', attempt }) });
+  const f = await materialFixture({ submit: async () => ({ attempt_id: '31', attempt }) });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -1013,7 +1026,7 @@ test('#21: CLI receipts are still built when the CLI attempt is absent or not an
     { name: 'array', output: { attempt_id: '31', attempt: [{ id: 31 }], bundle_response: { bundleStatus: 'ready', violations: [] } } },
   ];
   for (const { name, output } of cases) {
-    const f = await fixture({ submit: async () => output });
+    const f = await materialFixture({ submit: async () => output });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -1048,7 +1061,7 @@ function clearOf(result) {
 
 async function failedConfirm(failure, setup) {
   const calls = [];
-  const f = await fixture({ submit: async (input) => { calls.push(input); if (calls.length === 1) throw failure; return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }; } });
+  const f = await materialFixture({ submit: async (input) => { calls.push(input); if (calls.length === 1) throw failure; return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }; } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   // After the check, which also reads the submission list to count today's submissions (#62).
@@ -1108,7 +1121,7 @@ test('D3: a terminated CLI reports an unknown outcome instead of a failure', asy
 
 test('D3: a terminated retry keeps the known submission id', async () => {
   const calls = [];
-  const f = await fixture({ submit: async (input) => { calls.push(input); throw cliError('', 'cli_terminated'); } });
+  const f = await materialFixture({ submit: async (input) => { calls.push(input); throw cliError('', 'cli_terminated'); } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
   f.record(checked);
   const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -1292,7 +1305,7 @@ test('#45 / #58: a 5xx after the --attempt-id retry hint is a Worker server_erro
 
 test('#45 (regression guard): a 5xx while retrying into an existing submission never claims nothing was created', async () => {
   const calls = [];
-  const f = await fixture({ submit: async (input) => { calls.push(input); throw serverError(); } });
+  const f = await materialFixture({ submit: async (input) => { calls.push(input); throw serverError(); } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
   f.record(checked);
   const result = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -1352,7 +1365,7 @@ test('D3: errors raised before the CLI started keep the same card valid and say 
   ]) {
     const calls = [];
     let queried = false;
-    const f = await fixture({ submit: async (input) => { calls.push(input); throw error; } });
+    const f = await materialFixture({ submit: async (input) => { calls.push(input); throw error; } });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     f.client.listMyAttempts = async () => { queried = true; return { items: [], nextCursor: null }; };
@@ -1394,7 +1407,7 @@ test('D3: an explicit started flag overrides a never-started error code', async 
 });
 
 test('D3: a receipt that cannot be built still clears the confirmation', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const calls = [];
   const cli = { submit: async (input) => { calls.push(input); throw cliError(`未能连接 worker，请稍后再试。${CLI_RETRY}${CLI_TAIL}`); } };
   const broken = () => { throw new Error('presentation failure'); };
@@ -1430,7 +1443,7 @@ test('D3: an exception while classifying a started CLI still clears the confirma
 test('D3: an abort before the lookup skips it and leaves the outcome unknown', async () => {
   const controller = new AbortController();
   let queried = false;
-  const f = await fixture({ submit: async () => { controller.abort(); throw cliError('', 'cli_terminated'); } });
+  const f = await materialFixture({ submit: async () => { controller.abort(); throw cliError('', 'cli_terminated'); } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   f.record(checked);
   f.client.listMyAttempts = async () => { queried = true; return { items: [{ id: 50, challengeId: 'challenge-a', createdAt: new Date().toISOString() }], nextCursor: null }; };
@@ -1680,7 +1693,7 @@ function precheckFixture(precheck, submit = async () => assert.fail('a precheck 
     precheck: async (input) => { prechecks.push(input); return precheck(input); },
     submit: async (input) => { submits.push(input); return submit(input); },
   };
-  return fixture(cli).then((f) => ({ f, prechecks, submits }));
+  return materialFixture(cli).then((f) => ({ f, prechecks, submits }));
 }
 
 test('#45: a trace the CLI rejects produces no confirmation card and explains the accepted formats', async () => {
@@ -2790,8 +2803,7 @@ test('#25: after binding, the material check issues the confirmation card in the
   assert.match(result.error.message, /还没有提交回执/);
 });
 
-// Holds the conversation's workspace lookup until release(): a bind stays in flight meanwhile. Material
-// checks never look up the workspace, so they run through.
+// Holds the conversation's workspace lookup until release(): a bind stays in flight meanwhile.
 function holdWorkspaceLookup(f) {
   const lookup = f.ctx.workspaceRegistry.resolveByPath.bind(f.ctx.workspaceRegistry);
   let release;
@@ -2803,10 +2815,10 @@ function holdWorkspaceLookup(f) {
 test('#25: binding a task-less conversation keeps its card, receipt and attemptIds for the same challenge', async () => {
   const f = await fixture();
   noSessionWork(f);
-  const first = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const first = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec));
   f.record(first);
-  f.record(await f.workflow.confirm(first.workflow.prepared.checkId, f.exec));
-  const pending = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(await historicalMaterial(f, () => f.workflow.confirm(first.workflow.prepared.checkId, f.exec)));
+  const pending = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec));
   f.record(pending);
   const before = f.states.get('source');
   assert.equal(before.task, null);
@@ -2824,7 +2836,7 @@ test('#25: binding a task-less conversation keeps its card, receipt and attemptI
   assert.equal(state.receipt, before.receipt);
   assert.deepEqual(state.attemptIds, [7]);
   // The pending card still confirms in the bound conversation (fake client; nothing reaches a platform).
-  const confirmed = await f.workflow.confirm(pending.workflow.prepared.checkId, f.exec);
+  const confirmed = await historicalMaterial(f, () => f.workflow.confirm(pending.workflow.prepared.checkId, f.exec));
   assert.equal(confirmed.ok, true);
   assert.equal(confirmed.attemptId, 7);
   f.record(confirmed);
@@ -2834,7 +2846,7 @@ test('#25: binding a task-less conversation keeps its card, receipt and attemptI
   // Author mode cannot submit: binding in it drops the card and keeps the receipt.
   const author = await fixture();
   noSessionWork(author);
-  const card = await author.workflow.prepare({ challenge_id: 'challenge-a' }, author.exec);
+  const card = await historicalMaterial(author, () => author.workflow.prepare({ challenge_id: 'challenge-a' }, author.exec));
   author.record(card);
   author.states.set('source', { ...author.states.get('source'), receipt: before.receipt, attemptIds: [7] });
   const authored = await author.workflow.bind({ challenge_id: 'challenge-a', mode: 'author' }, author.exec);
@@ -2848,7 +2860,7 @@ test('#25: binding a task-less conversation keeps its card, receipt and attemptI
 test('#25: a task-less conversation holding another challenge\'s card or receipt refuses to bind and stays unchanged', async () => {
   const f = await fixture();
   noSessionWork(f);
-  const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  const checked = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec));
   f.record(checked);
   for (const held of ['card', 'receipt']) {
     const before = f.states.get('source');
@@ -2860,7 +2872,7 @@ test('#25: a task-less conversation holding another challenge\'s card or receipt
     assert.equal(result.workflow, undefined);
     f.record(result);
     assert.equal(f.states.get('source'), before);
-    if (held === 'card') f.record(await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec));
+    if (held === 'card') f.record(await historicalMaterial(f, () => f.workflow.confirm(checked.workflow.prepared.checkId, f.exec)));
   }
   assert.equal(f.states.get('source').task, null);
   assert.equal(f.states.get('source').receipt.attemptId, 7);
@@ -2910,10 +2922,10 @@ test('#25: the projection keeps the first logged bind, and ignores a bind over a
 test('#25: a card and a receipt for two different challenges refuse either bind without pointing at the other', async () => {
   const f = await fixture();
   noSessionWork(f);
-  const submitted = await f.workflow.prepare({ challenge_id: 'challenge-b' }, f.exec);
+  const submitted = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'challenge-b' }, f.exec));
   f.record(submitted);
-  f.record(await f.workflow.confirm(submitted.workflow.prepared.checkId, f.exec));
-  const card = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
+  f.record(await historicalMaterial(f, () => f.workflow.confirm(submitted.workflow.prepared.checkId, f.exec)));
+  const card = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec));
   f.record(card);
   const before = f.states.get('source');
   assert.equal(before.prepared.challenge.id, 'challenge-a');
@@ -2945,9 +2957,9 @@ test('#25: receipts and the already-bound check compare canonical challenge ids'
   // The platform resolves an upper-case id to its canonical lower-case one.
   let reads = 0;
   f.client.getChallenge = async (id) => { reads += 1; return { id: id.toLowerCase(), title: 'Synthetic challenge', content: 'x', resources: [] }; };
-  const checked = await f.workflow.prepare({ challenge_id: 'CHALLENGE-A' }, f.exec);
+  const checked = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: 'CHALLENGE-A' }, f.exec));
   f.record(checked);
-  f.record(await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec));
+  f.record(await historicalMaterial(f, () => f.workflow.confirm(checked.workflow.prepared.checkId, f.exec)));
   const before = f.states.get('source');
   assert.equal(before.receipt.challengeId, 'challenge-a');
   assert.equal(before.receipt.args.challenge_id, 'CHALLENGE-A');
@@ -3024,10 +3036,10 @@ test('#25: a material check logged while a bind is in flight keeps its card, or 
   for (const [checkedId, keeps] of [['challenge-a', true], ['challenge-b', false]]) {
     const f = await fixture();
     noSessionWork(f);
+    const checked = await historicalMaterial(f, () => f.workflow.prepare({ challenge_id: checkedId }, f.exec));
     const release = holdWorkspaceLookup(f);
     const binding = f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
     // The check result is logged first, the bind result after it.
-    const checked = await f.workflow.prepare({ challenge_id: checkedId }, f.exec);
     assert.equal(checked.ok, true, checkedId);
     f.record(checked);
     release();
@@ -3099,7 +3111,7 @@ test('#12: the login check tells no token, a refused token and an unreachable pl
 });
 
 test('#12: operations that need a login point to the API token login and explain a refused token', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   for (const [reason, expected] of [
     ['no_token', /去网站生成令牌.*API 与 Agent.*其他登录方式/],
     [undefined, /去网站生成令牌/],
@@ -3131,7 +3143,7 @@ test('#12: operations that need a login point to the API token login and explain
 });
 
 test('#12: confirmation refuses a submission under another identity than the material check', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.workflow.prepared.submitter, 'id:5');
   f.record(checked);
@@ -3153,7 +3165,7 @@ test('#12: confirmation refuses a submission under another identity than the mat
 });
 
 test('#12: a check recorded without an identity (an older plugin) is refused with a request to check again', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   const { submitter, ...old } = checked.workflow.prepared;
   assert.ok(submitter);
@@ -3166,7 +3178,7 @@ test('#12: a check recorded without an identity (an older plugin) is refused wit
 });
 
 test('#12: without a platform user id the check records a keyed hash, never the email or name', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   let user = { name: 'Ada', email: 'ada@example.test' };
   f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
@@ -3185,7 +3197,7 @@ test('#12: without a platform user id the check records a keyed hash, never the 
 });
 
 test('#12: an email-and-name check from before a DSH restart is refused, because the fingerprint key changed', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   const user = { name: 'Ada', email: 'ada@example.test' };
   f.client.getCurrentUser = async () => ({ authenticated: true, baseUrl: f.client.baseUrl, user });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
@@ -3211,7 +3223,7 @@ async function switchingTokenFixture(cli) {
   const seen = { auth: [], writes: [] };
   let stored = 'synthetic-a';
   let switchOnRead = false;
-  const f = await fixture(cli, {
+  const f = await materialFixture(cli, {
     readBundle: async (...args) => {
       if (switchOnRead) stored = 'synthetic-b';
       return readBundle(...args);
@@ -3324,7 +3336,7 @@ const ISSUE_58_PACKED = [...ISSUE_58_BUNDLE, { name: 'outputs/answer.md', data: 
 const ISSUE_58_FILES = ISSUE_58_PACKED.filter((entry) => !entry.name.endsWith('/') && entry.mode !== 0o120777);
 
 test('#58: the material check returns a ZIP directory summary that names binary, large and linked files', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   await writeFile(join(f.cwd, 'bundle.zip'), zipOf(ISSUE_58_PACKED));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
@@ -3376,7 +3388,7 @@ test('#58: the bundle summary reads only the directory, cuts its lists and never
     nonTextCount: 0, nonText: [], symlinkCount: 0, symlinks: [], complete: false });
   assert.equal(summarizeZip(Buffer.from('PK\u0003\u0004 not a zip')), undefined);
   // The check still passes with an unreadable directory: the summary is a hint, not a gate.
-  const f = await fixture();
+  const f = await materialFixture();
   await writeFile(join(f.cwd, 'bundle.zip'), Buffer.concat([zip.subarray(0, directoryStart), Buffer.from('garbage-directory'), zip.subarray(zip.length - 22)]));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
@@ -3485,7 +3497,7 @@ test('#58: creating the record and uploading the bundle fail with different text
 });
 
 test('#58: a failed upload gives the agent its stage, reasons, submission, bundle summary and next steps, and the task state keeps them', async () => {
-  const f = await fixture({ submit: async (input) => {
+  const f = await materialFixture({ submit: async (input) => {
     if (!input.attemptId) throw workerError();
     return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
   } });
@@ -3545,7 +3557,7 @@ test('#58: a failed upload gives the agent its stage, reasons, submission, bundl
 
 test('#58: a check or confirmation into a submission the platform closed as "bundle missing" is refused; a new submission is still checked', async () => {
   let submits = 0;
-  const f = await fixture({ submit: async (input) => {
+  const f = await materialFixture({ submit: async (input) => {
     submits += 1;
     if (!input.attemptId) throw workerError();
     return { attempt_id: input.attemptId, attempt: { status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
@@ -3584,7 +3596,7 @@ test('#58: a check or confirmation into a submission the platform closed as "bun
 
 test('#58: the refused-bundle warning is per challenge, survives a later failure of another kind and a new task, and keeps at most 10 bundles', async () => {
   let submits = 0;
-  const f = await fixture({ submit: async () => {
+  const f = await materialFixture({ submit: async () => {
     submits += 1;
     if (submits === 1) throw workerError();
     throw cliError('未能连接 worker，请稍后再试。');
@@ -4112,7 +4124,7 @@ test('#58: an interrupted retry keeps the "no bundle" mark; a successful re-uplo
   assert.equal(platformReceivedBundle({ scoringState: { state: 'failed' } }), false);
   // The same through the workflow: a failed upload, then a retry the CLI did not finish.
   let runs = 0;
-  const f = await fixture({ submit: async () => {
+  const f = await materialFixture({ submit: async () => {
     runs += 1;
     if (runs === 1) throw workerError(workerStderr('HTTP 400 Bad Request: {"error":"too many files"}', 42));
     throw Object.assign(new Error('terminated'), { code: 'cli_terminated', stderr: '', stdout: '' });
@@ -4132,7 +4144,7 @@ test('#58: an interrupted retry keeps the "no bundle" mark; a successful re-uplo
 
 test('#58: a submission the platform closed as "bundle missing" is reported as needing a new submission; a received bundle drops the mark', async () => {
   const run = async (attempt) => {
-    const f = await fixture({ submit: async () => { throw workerError(workerStderr('HTTP 400 Bad Request: {"error":"too many files"}', 42)); } });
+    const f = await materialFixture({ submit: async () => { throw workerError(workerStderr('HTTP 400 Bad Request: {"error":"too many files"}', 42)); } });
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     f.record(checked);
     replay(f, await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec));
@@ -4156,7 +4168,7 @@ test('#58: next steps read the submission first, never re-send a refused bundle,
   assert.match(steps, /先用 playground_task（action 为 results）读取提交 #42 的平台状态。如果平台已关闭它/);
   assert.match(steps, /平台没有关闭它时，不要新建提交：处理后用 playground_check_materials 并传 attempt_id=42/);
   // A retry without a hint: the submission exists, the bundle state is unknown.
-  const f = await fixture({ submit: async () => { throw cliError(`未能连接 worker，请稍后再试。${CLI_TAIL}`); } });
+  const f = await materialFixture({ submit: async () => { throw cliError(`未能连接 worker，请稍后再试。${CLI_TAIL}`); } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: 42 }, f.exec);
   f.record(checked);
   const unconfirmed = await f.workflow.confirm(checked.workflow.prepared.checkId, f.exec);
@@ -4203,7 +4215,7 @@ function fakeApproval(answer = 'allowed-once') {
 // A conversation with one checked card and a fake CLI that records every real submission.
 async function approvalCase({ args = {}, setup, submit } = {}) {
   const submits = [];
-  const f = await fixture({ submit: async (input) => {
+  const f = await materialFixture({ submit: async (input) => {
     submits.push(input);
     if (submit) return submit(input);
     return { attempt_id: input.attemptId ?? 42, attempt: { id: input.attemptId ?? 42, challenge_id: 'challenge-a', status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } };
@@ -4854,11 +4866,11 @@ test('#57: the model-facing approval id is a keyed hash: /playground-confirm ref
 });
 
 test('#57: the settled-card memory keeps at most the configured number of conversations, dropping the oldest', async () => {
-  const f = await fixture({ submit: async () => ({ attempt_id: 42, attempt: { id: 42, status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }) },
+  const f = await materialFixture({ submit: async () => ({ attempt_id: 42, attempt: { id: 42, status: 'submitted' }, bundle_response: { bundleStatus: 'ready', violations: [] } }) },
     { settledConversations: 2 });
   const conversations = ['c1', 'c2', 'c3'].map((id) => {
     const agent = { id, session: { id } };
-    f.states.set(id, workflowProjection.init());
+    f.states.set(id, { ...workflowProjection.init(), task: { challengeId: 'challenge-a', cwd: f.cwd, mode: 'participate' } });
     return { ...f.exec, agent };
   });
   const cards = [];
@@ -4899,7 +4911,7 @@ test('#61: a bundle without files under outputs/ or without arm_manifest.json ge
     ['issue #58 layout', ISSUE_58_BUNDLE, /outputs\/ 下没有任何文件，根目录没有 arm_manifest\.json/],
   ];
   for (const [label, entries, missing] of cases) {
-    const f = await fixture();
+    const f = await materialFixture();
     await writeFile(join(f.cwd, 'bundle.zip'), zipOf(entries));
     const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
     assert.equal(checked.ok, false, label);
@@ -4912,7 +4924,7 @@ test('#61: a bundle without files under outputs/ or without arm_manifest.json ge
     assert.deepEqual(f.calls, [], label);
   }
   // A re-upload into an existing submission is checked the same way.
-  const f = await fixture();
+  const f = await materialFixture();
   f.client.getAttempt = async () => ({ id: 42, challengeId: 'challenge-a' });
   await writeFile(join(f.cwd, 'bundle.zip'), await readFile(new URL('./fixtures/minimal.zip', import.meta.url)));
   const retry = await f.workflow.prepare({ challenge_id: 'challenge-a', attempt_id: '42' }, f.exec);
@@ -4924,7 +4936,7 @@ test('#61: a bundle without files under outputs/ or without arm_manifest.json ge
 });
 
 test('#61 r1: the layout message says --outputs must be a directory and speaks of retries only for a retry', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   // `--outputs answer.md` makes the CLI copy the file to a file named `outputs`, not under `outputs/`.
   await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs', data: Buffer.from('a') }, { name: 'arm_manifest.json', data: Buffer.from('{}') }]));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
@@ -4949,7 +4961,7 @@ test('#61 r1: bundleLayout normalizes names, skips directories by attribute and 
   // A ZIP under outputs/ is a file like any other.
   const inner = zipOf([{ name: 'SKILL.md', data: Buffer.from('a') }]);
   assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/submission.zip', data: inner }, manifest])), { hasOutputs: true, hasManifest: true });
-  const f = await fixture();
+  const f = await materialFixture();
   await writeFile(join(f.cwd, 'bundle.zip'), zipOf([{ name: 'outputs/sub', attributes: 0x10 }, manifest]));
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.error.code, 'bundle_layout');
@@ -4963,7 +4975,7 @@ test('#61 r1: a central directory that cannot be read to the end is left to the 
   truncated.writeUInt16LE(2, truncated.length - 22 + 8);
   truncated.writeUInt16LE(2, truncated.length - 22 + 10);
   assert.deepEqual(bundleLayout(truncated), { hasOutputs: false, hasManifest: false, complete: false });
-  const f = await fixture();
+  const f = await materialFixture();
   await writeFile(join(f.cwd, 'bundle.zip'), truncated);
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.notEqual(checked.error?.code, 'bundle_layout');
@@ -4975,7 +4987,7 @@ test('#61: a bundle with the CLI layout passes and its summary shows the layout 
   const zip = await readFile(new URL('./fixtures/cli-bundle.zip', import.meta.url));
   assert.deepEqual(bundleLayout(zip), { hasOutputs: true, hasManifest: true });
   assert.deepEqual(bundleLayout(zipOf([{ name: 'outputs/', mode: 0o40755 }])), { hasOutputs: false, hasManifest: false });
-  const f = await fixture();
+  const f = await materialFixture();
   await writeFile(join(f.cwd, 'bundle.zip'), zip);
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(checked.ok, true);
@@ -5178,7 +5190,7 @@ test('#62: a 429 submission limit is recorded with its source and shown on the n
 });
 
 test('#62: a statement limit is recorded at the check; without any limit the card shows only the counts', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   f.client.getChallenge = async (id) => ({ id, title: 'Synthetic challenge', content: '提交规则：每天最多提交 3 次。', resources: [] });
   quotaClient(f, { own: [], agents: [], publicItems: [] });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
@@ -5186,7 +5198,7 @@ test('#62: a statement limit is recorded at the check; without any limit the car
   f.record(checked);
   assert.deepEqual(f.states.get('source').submissionLimits.map((item) => [item.challengeId, item.source, item.limit]), [['challenge-a', 'statement', 3]]);
   assert.match(submissionCountsText(checked.submissionCounts)[0], /题面写明每天最多 3 次/);
-  const plain = await fixture();
+  const plain = await materialFixture();
   quotaClient(plain, { own: [], agents: [], publicItems: [] });
   const none = await plain.workflow.prepare({ challenge_id: 'challenge-a' }, plain.exec);
   assert.deepEqual([none.submissionCounts.total, none.submissionCounts.limits], [0, []]);
@@ -5246,7 +5258,7 @@ test('#62: the public list and the own list report truncation; a complete public
 });
 
 test('#62: results reuse a fresh overview, detail flags are read once, and own detail reads carry the session token', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   f.client.currentToken = async () => 'synthetic-token';
   f.states.set('source', { ...f.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 40, challengeId: 'challenge-a' }, attemptIds: [40] });
   const reads = quotaClient(f, { own: [{ id: 40, createdAt: nowIso() }], agents: AGENTS,
@@ -5272,7 +5284,7 @@ test('#62: results reuse a fresh overview, detail flags are read once, and own d
   await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.equal(reads.details.filter((id) => id === 41).length, before);
   // A failing overview never fails results.
-  const g = await fixture();
+  const g = await materialFixture();
   g.states.set('source', { ...g.states.get('source'), task: { challengeId: 'challenge-a', mode: 'participate' }, receipt: { ok: true, attemptId: 40, challengeId: 'challenge-a' }, attemptIds: [40] });
   g.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a' });
   g.client.listMyAttempts = async () => { throw new Error('HTTP 500'); };
@@ -5316,7 +5328,7 @@ test('#62: a time without an offset is read as UTC before the Beijing shift', ()
 });
 
 test('#62: a material check whose statement states no limit removes the recorded statement limit', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   let content = '每天最多提交 3 次。';
   f.client.getChallenge = async (id) => ({ id, title: 'Synthetic challenge', content, resources: [] });
   quotaClient(f, { own: [], agents: [], publicItems: [] });
@@ -5352,7 +5364,7 @@ test('#63: playground_submit submits through the workbench confirmation without 
 });
 
 test('#63: without a limit the card gives the one-line announcement and lets the agent submit without waiting', async () => {
-  const f = await fixture();
+  const f = await materialFixture();
   quotaClient(f, { own: [{ id: 10, createdAt: nowIso(1000) }], agents: AGENTS, publicItems: [], quota: { 10: false } });
   const checked = await f.workflow.prepare({ challenge_id: 'challenge-a' }, f.exec);
   assert.deepEqual(checked.submitPolicy, { askFirst: false, reasons: [],
@@ -5360,7 +5372,7 @@ test('#63: without a limit the card gives the one-line announcement and lets the
   assert.match(checked.note, /先说一句“将以本人账号向「Synthetic challenge」（challenge-a）新建提交（今天已提交 1 次，占名额 0 次（可能不完整）；题面没有写次数限制）”，然后直接提交，不必等回复/);
   assert.deepEqual(checked.workflow.prepared.submitPolicy, checked.submitPolicy);
   // Unreadable counts still announce, and say so.
-  const unread = await fixture();
+  const unread = await materialFixture();
   const card = await unread.workflow.prepare({ challenge_id: 'challenge-a' }, unread.exec);
   assert.equal(card.submitPolicy.askFirst, false);
   assert.match(card.submitPolicy.announcement, /今天的提交次数未能读取；题面没有写次数限制/);

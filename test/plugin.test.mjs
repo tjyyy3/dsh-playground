@@ -8,6 +8,17 @@ import { apply, createSubmitTool, createTokenResolver, inject, name, normalizeSe
 import { displayCredentialsPath } from '../lib/cli.js';
 import { PlaygroundApiError } from '../lib/api.js';
 import { workflowProjection } from '../lib/workflow.js';
+import { createMaterialAccess } from '../lib/material-access.js';
+
+function fixtureSubmitTool(client, cwd) {
+  const agent = { id: 'test-task', session: { id: 'test-task' } };
+  const access = createMaterialAccess({
+    workingDirectory: { get: () => cwd },
+    sessionProjections: { stateOf: () => ({ task: { cwd, challengeId: 'demo' } }) },
+    workspaceRegistry: { resolveByPath: async () => ({ id: 'test-workspace', path: cwd }) },
+  });
+  return createSubmitTool(client, { materialAccess: { begin: (exec, args, operation) => access.begin({ ...exec, agent }, args, operation) } });
+}
 
 function mount(config = {}) {
   const registered = [];
@@ -244,7 +255,7 @@ test('submit tool creates a submission, sends the trajectory, and uploads the bu
       },
     };
 
-    const tool = createSubmitTool(client);
+    const tool = fixtureSubmitTool(client, dir);
     const result = await tool.execute({
       challenge_id: 'demo',
       bundle_path: bundlePath,
@@ -290,7 +301,7 @@ test('submit tool retries only the upload when attempt_id is given', async () =>
       },
     };
 
-    const result = await createSubmitTool(client).execute({
+    const result = await fixtureSubmitTool(client, dir).execute({
       challenge_id: 'demo',
       bundle_path: bundlePath,
       attempt_id: 55,
@@ -309,12 +320,12 @@ test('submit tool requires a trajectory for a new submission', async () => {
     const bundlePath = join(dir, 'arm.zip');
     await writeFile(bundlePath, 'PK-zip-bytes');
 
-    const result = await createSubmitTool({
+    const result = await fixtureSubmitTool({
       baseUrl: 'https://example.test/api',
       async createAttempt() {
         throw new Error('must not reach createAttempt');
       },
-    }).execute({
+    }, dir).execute({
       challenge_id: 'demo',
       bundle_path: bundlePath,
     }, { signal: new AbortController().signal });
@@ -333,7 +344,7 @@ test('submit tool requires a trajectory for a new submission', async () => {
       await writeFile(join(dir, 'trace.jsonl'), `{"type":"session_start"}\r\n\r\n${invalidLine}\r\n`);
       let createCalls = 0;
       let uploadCalls = 0;
-      const result = await createSubmitTool({
+      const result = await fixtureSubmitTool({
         async createAttempt() {
           createCalls += 1;
           return { attempt: { id: 1 } };
@@ -342,7 +353,7 @@ test('submit tool requires a trajectory for a new submission', async () => {
           uploadCalls += 1;
           return { bundleStatus: 'ready', violations: [] };
         },
-      }).execute({
+      }, dir).execute({
         challenge_id: 'demo',
         bundle_path: join(dir, 'arm.zip'),
         trace_path: join(dir, 'trace.jsonl'),
@@ -363,7 +374,7 @@ test('submit tool accepts JSONL objects and preserves an existing session header
     await writeFile(join(dir, 'arm.zip'), 'PK-zip-bytes');
     await writeFile(join(dir, 'trace.jsonl'), '\r\n{"type":"session_start"}\r\n\r\n{"type":"message","content":"hi"}\r\n');
     let rawMessages;
-    const result = await createSubmitTool({
+    const result = await fixtureSubmitTool({
       baseUrl: 'https://example.test/api',
       async createAttempt(_challengeId, fields, files) {
         assert.deepEqual(fields.trace, undefined);
@@ -373,7 +384,7 @@ test('submit tool accepts JSONL objects and preserves an existing session header
       async uploadBundle() {
         return { bundleStatus: 'ready', violations: [] };
       },
-    }).execute({
+    }, dir).execute({
       challenge_id: 'demo',
       bundle_path: join(dir, 'arm.zip'),
       trace_path: join(dir, 'trace.jsonl'),
@@ -410,7 +421,7 @@ test('submit tool reports a rejected bundle with its violations', async () => {
       },
     };
 
-    const tool = createSubmitTool(client);
+    const tool = fixtureSubmitTool(client, dir);
     const originalCreate = client.createAttempt;
     client.createAttempt = async (_challengeId, _fields, files) => {
       rawMessages = await files[0].data.text();
@@ -561,6 +572,7 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
       },
     },
     workingDirectory: { get: (requestedSession) => { assert.equal(requestedSession, session); return cwd; } },
+    workspaceRegistry: { resolveByPath: async () => ({ id: 'workspace', path: cwd }) },
     systemPrompt: { context: (entry) => contexts.push(entry), getContextOrder: () => 0 },
     inject: (services, callback) => { if (services.includes('systemPrompt') || services.includes('typert')) callback(scope); },
     // The session-free workbench queries register here.
@@ -752,7 +764,7 @@ test('D10a/#57: playground_check_materials renders without the checkId and names
     await writeFile(join(directory, 'trace.json'), JSON.stringify([{ type: 'tool_result', content: 'synthetic run' }]));
     await withSyntheticPlatform(async () => {
       const { tools, exec } = mountWorkflowScope(
-        { task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null },
+        { task: { challengeId: 'challenge-a', cwd: directory, mode: 'participate' }, prepared: null, receipt: null },
         { config: SYNTHETIC_CONFIG, cwd: directory },
       );
       const tool = tools.find((item) => item.name === 'playground_check_materials');
@@ -967,7 +979,7 @@ test('#12: the auth query and the CLI precheck use the token stored in DSH; the 
       return new Response('not found', { status: 404 });
     };
     const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: 'synthetic-dsh-token', source: 'file' } : undefined) };
-    const { tools, exec, scope } = mountWorkflowScope({ task: { challengeId: 'challenge-a', mode: 'participate' }, prepared: null, receipt: null },
+    const { tools, exec, scope } = mountWorkflowScope({ task: { challengeId: 'challenge-a', cwd: directory, mode: 'participate' }, prepared: null, receipt: null },
       { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
     const auth = await scope.provided.playgroundQueries.query({ action: 'auth' }, new AbortController().signal);
     assert.equal(auth.authenticated, true);
@@ -1018,7 +1030,7 @@ test('#12: a confirmed submission with a token only in DSH runs the CLI submit w
       const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: 'synthetic-dsh-token', source: 'file' } : undefined) };
       const state = workflowProjection.init();
       const { tools, exec, commands } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
-      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      state.task = { challengeId: 'challenge-a', cwd: directory, mode: 'participate' };
       const tool = tools.find((item) => item.name === 'playground_check_materials');
       const args = { challenge_id: 'challenge-a' };
       const checked = await tool.execute(args, exec);
@@ -1086,7 +1098,7 @@ test('#12: a token saved in DSH while the confirmation re-reads the materials do
       const credentials = { resolve: async (name) => (name === 'PLAYGROUND_TOKEN' ? { value: stored, source: 'file' } : undefined) };
       const state = workflowProjection.init();
       const { tools, exec, commands } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials });
-      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      state.task = { challengeId: 'challenge-a', cwd: directory, mode: 'participate' };
       const tool = tools.find((item) => item.name === 'playground_check_materials');
       const args = { challenge_id: 'challenge-a' };
       const checked = await tool.execute(args, exec);
@@ -1324,7 +1336,7 @@ test('#57/#63: playground_submit on request runs one CLI submission and its rece
       const approval = { async request(req) { asked.push(req); return 'allowed-once'; } };
       const state = workflowProjection.init();
       const { tools, exec } = mountWorkflowScope(state, { config: { baseUrl: 'http://127.0.0.1:15000/api', cliPath, credentialsPath }, cwd: directory, credentials, approval });
-      state.task = { challengeId: 'challenge-a', mode: 'participate' };
+      state.task = { challengeId: 'challenge-a', cwd: directory, mode: 'participate' };
       const check = tools.find((item) => item.name === 'playground_check_materials');
       const checked = await check.execute({ challenge_id: 'challenge-a' }, exec);
       assert.equal(checked.ok, true, checked.error?.message);
