@@ -315,7 +315,7 @@ test('controller association tool saves checked child identity through presentat
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const sessionId = 'synthetic-agent';
   const marker = { workspaceId: 'workspace', sessionId };
-  const config = { baseUrl: 'https://association.example.test' };
+  const config = { baseUrl: 'https://association.example.test', token: 'test-association-token' };
   const { tools, scope, exec, services } = mountWorkflowScope({ task: null }, { cwd, config, controllerMarker: marker });
   const workspace = { id: 'workspace', path: cwd, sessionIds: [sessionId] };
   scope.workspaceRegistry = { list: () => [workspace], archivedSessionIds: [], resolveByPath: async () => workspace };
