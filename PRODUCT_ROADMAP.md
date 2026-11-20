@@ -96,13 +96,9 @@ This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playgro
 
 **Agreed control direction — C3**
 
-Prefer the controller's existing DSH tools for stopping a task and relaying additional ideas. The user will ask local Codex directly, through a prompt, to check installed versions, effective configuration and controller-visible tools. This one-off local check is not a separately tracked development task.
+Prefer the controller's existing DSH tools for stopping a task and relaying additional ideas, within the capabilities supported by the host and target provider. Additional stop/retry/reassign controls are not planned at this stage.
 
-- Check whether the actual controller can request a stop, and distinguish an accepted request from observed task termination. Do not infer availability from a package's default configuration alone.
-- Check message delivery to supported native DSH child sessions, distinguishing message acceptance from the child acting on it.
-- Keep the external Codex boundary explicit: the reviewed DSH adapter runs one external activation, supplies a result record, and does not create a local child conversation or accept follow-up input/resume. Verify the installed adapter rather than treating a message to the controller as a message to that running execution.
-- Starting another external execution after preserving existing work is a new delegation, not a resumed conversation or authorization to submit to the competition.
-- The local check does not automatically enable disabled tools, change host configuration, modify adapters or add a stop/retry/reassign button set. Any concrete feature gap can be discussed after the findings are available; the check itself needs no issue or code PR.
+Keep request acceptance distinct from actual task termination or processing of a message. For a provider without follow-up input support, a message to the controller does not reach an already-running external execution. Starting a new execution does not authorize a competition submission.
 
 **Candidate follow-ups**
 
@@ -110,7 +106,7 @@ Prefer the controller's existing DSH tools for stopping a task and relaying addi
 2. Task dependencies and bounded parallelism.
 3. Artifact collection and provenance.
 
-Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping. Local controller-tool availability is checked through a direct prompt before any separate decision about new task controls.
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping.
 
 **Result presentation — C4 removed as a separate feature**
 

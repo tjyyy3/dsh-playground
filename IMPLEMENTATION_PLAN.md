@@ -21,7 +21,7 @@ The historical source baseline contains the old flow; #88 replaces it. Keep `AGE
 
 Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools, with any local capability check handled through a direct prompt. C4 is removed as a standalone feature; C5-C6 and Tracks D-E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature; C5-C6 and Tracks D-E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -94,7 +94,7 @@ C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existin
 | Item | Scope | Status / implementation question |
 |---|---|---|
 | C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Delivered: [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81); preserve explicit challenge association and existing records |
-| C3 | Reuse controller stop/message capabilities | Agreed direction; local availability is checked through a direct prompt, with no separate development task or button set committed |
+| C3 | Reuse controller stop/message capabilities | Agreed direction; use supported host/provider operations, with no new control UI planned |
 | C5 | Bounded parallelism and dependencies | which limits and dependency behavior do actual workflows need? |
 | C6 | Artifact registry and optional Worktree isolation | which artifact identities/conflicts justify the added infrastructure? |
 
@@ -109,9 +109,7 @@ C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existin
 
 **C3: reuse existing capabilities**
 
-The user will give local Codex a one-off prompt to check actual tool visibility, effective configuration and native/external provider boundaries. That local check does not need an issue, code PR or release milestone, and does not itself authorize configuration changes, adapter changes or new controls. Discuss an implementation only if the findings establish a concrete gap.
-
-Preserve the difference between a stop request and observed termination, and between accepting a message and the child acting on it. The reviewed external Codex adapter has one execution and a terminal result, without a local child conversation or follow-up/resume; verify the installed adapter when answering a local capability question. A new delegation does not authorize competition submission.
+Reuse the controller's supported DSH stop/message operations within the target provider's capabilities. No additional stop/retry/reassign controls are planned at this stage. Preserve the distinction between a request being accepted and the target actually stopping or processing the message. Starting a new execution does not authorize competition submission.
 
 **C4 disposition: no separate result-review feature**
 
@@ -200,7 +198,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 
 1. Build on the merged implementations recorded below. Do not reopen or reimplement closed work solely because an older planning paragraph still described it as pending.
 2. Preserve the validation limits recorded in implementation PRs. The historical AUD-003 production-session bypass remains unproven; a documentation status update supplies no new production-path evidence.
-3. Review C5-C6, further participant history, author/organizer/community choices and file-splitting scope separately. Handle one-off local capability questions through direct prompts; open narrow issues for agreed implementation work.
+3. Review C5-C6, further participant history, author/organizer/community choices and file-splitting scope separately; record the selected scope before implementation.
 4. Keep the audit and status table aligned with repository delivery and actual evidence.
 
 ## 6. Status tracking
