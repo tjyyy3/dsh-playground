@@ -74,4 +74,13 @@ jobs:
             cat "$RUNNER_TEMP/npm-view.err"
             exit 1
           fi
+          if current="$(npm view dsh-playground "dist-tags.$DIST_TAG" 2> "$RUNNER_TEMP/npm-tag.err")"; then
+            if [[ -n "$current" ]] && ! node --input-type=module -e 'import { parseVersion, compareVersions } from "./lib/releases.js"; const [next, current] = process.argv.slice(1).map(parseVersion); process.exit(next && current && compareVersions(next, current) > 0 ? 0 : 1)' "$version" "$current"; then
+              echo "dist-tag $DIST_TAG points to dsh-playground@$current, which is not lower than $version; refusing to move it back."
+              exit 1
+            fi
+          elif ! grep -q 'E404' "$RUNNER_TEMP/npm-tag.err"; then
+            cat "$RUNNER_TEMP/npm-tag.err"
+            exit 1
+          fi
           npm publish --provenance --access public --tag "$DIST_TAG"

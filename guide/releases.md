@@ -57,7 +57,7 @@ Host 的 [App boot 文档](https://github.com/deepseek-ai/deepseek-harness/blob/
 
 ## 发布到 npm
 
-**Publish to npm** 在 Release 发布后运行，使用 npm trusted publishing（OIDC），不需要 npm token。它检查 tag 语法和 `v<version>`、tag commit 位于 main、Release 正文的 `Commit:` 等于 tag commit，以及预发布标志与 tag 一致。随后在 Node 24 上确认 npm 不低于 11.5.1，运行 `npm ci --ignore-scripts` 与 `npm test`。发布前用 `npm view "dsh-playground@<version>" version` 查询：该版本已在 npm 上时跳过发布并记录日志，工作流成功；返回 E404 时执行 `npm publish --provenance --access public`；其他错误使工作流失败。`-beta.N` 使用 dist-tag `beta`，正式版使用 `latest`。
+**Publish to npm** 在 Release 发布后运行，使用 npm trusted publishing（OIDC），不需要 npm token。它检查 tag 语法和 `v<version>`、tag commit 位于 main、Release 正文的 `Commit:` 等于 tag commit，以及预发布标志与 tag 一致。随后在 Node 24 上确认 npm 不低于 11.5.1，运行 `npm ci --ignore-scripts` 与 `npm test`。发布前用 `npm view "dsh-playground@<version>" version` 查询：该版本已在 npm 上时跳过发布并记录日志，工作流成功；返回 E404 时执行 `npm publish --provenance --access public`；其他错误使工作流失败。`-beta.N` 使用 dist-tag `beta`，正式版使用 `latest`。跳过检查之后、发布之前，工作流用 `npm view dsh-playground dist-tags.<tag>` 查询该 dist-tag 当前指向的版本，若它不低于待发布版本则失败，不会把 tag 移回旧版本；tag 或包不存在时照常发布。
 
 首次发布由维护者手动执行，因为 npm 只能为已存在的包配置 trusted publisher。在该 tag 的干净 checkout 中运行 `npm publish --access public --tag beta`。第一个 Release 发布后，工作流查到该版本已存在，跳过发布。首次发布后，在 npmjs.com 的包设置中添加 GitHub Actions trusted publisher，各字段必须完全一致：owner `tjyyy3`，repository `dsh-playground`，workflow `publish.yml`，environment 留空。全新包的第一个版本即使用 `--tag beta` 发布，`latest` 也会指向它；正式版发布前，`dsh-playground` 不带 tag 时安装的是该测试版。
 
