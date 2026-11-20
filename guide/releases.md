@@ -35,7 +35,7 @@ releaseChannel: beta
 
 1. 将 `package.json` 与锁文件的版本设为待发布版本，并新增对应的 `release-notes/<version>.md`。
 2. 正式版使用 `MAJOR.MINOR.PATCH`，预发布只使用 `MAJOR.MINOR.PATCH-beta.N`，不使用 build metadata。
-3. 确保版本大于每一个已有 Release tag，包括预发布。当前版本保持 `0.5.0-preview.7`。因为 SemVer 中 `beta` 排在 `preview` 前，下一预发布可用 `0.5.1-beta.1`，不能用 `0.5.0-beta.N`。新工作流也不会发布旧的 preview tag。
+3. 确保版本大于每一个已有 Release tag，包括预发布。第一个按新规则发布的版本是 `0.5.1-beta.1`。旧的 `0.5.0-preview.7` 没有 Release，因为 SemVer 中 `beta` 排在 `preview` 前，后续版本不能回到 `0.5.0-beta.N`。
 4. 核对 `compatibility.json` 和 release notes。`engines.dsh` 的最低版本为 `0.2.1-rc.5`，依据是已检查的 desktop runtime `desktopVersion` 与同版本的已安装 `@deepseek-ai/dsh-sdk-protocol/package.json`。它是当前可据实声明的最低 Host 版本，未证明更早版本兼容，也未完成当前版本的真实安装更新验证。
 5. 合并代码并创建与 package 版本完全一致的 `v<version>` tag。
 6. 手动运行 **Prepare release**，填写已有 tag。
