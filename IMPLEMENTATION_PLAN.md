@@ -21,7 +21,7 @@ The historical source baseline contains the old flow; #88 replaces it. Keep `AGE
 
 Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. Tracks D-E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. D1 retains the existing material-access module without a standalone extraction. D2-D5 and Track E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -131,13 +131,17 @@ Directory or worktree organization does not replace file-access authorization. D
 
 Keep file splitting in the engineering plan, after the responsibilities of retained code are clear.
 
-| Item | Candidate extraction | Boundary to preserve |
+| Item | Refactoring scope | Boundary to preserve |
 |---|---|---|
-| D1 | Retained path access and material-reference handling | extract surviving behavior, not obsolete full readers |
+| D1 | Retain the existing material-access module; adjust small reference adapters with D2 only as needed | no standalone split planned; preserve path and authorization behavior |
 | D2 | Submission intent/quota rules, Agent handoff and receipt tracking | separate policy from host adapters; no replacement uploader |
 | D3 | Controller observers, projections and state presentation | preserve projection compatibility; no implied new task database |
 | D4 | Workbench UI by page/domain | keep appearance and interactions stable during a structural PR |
 | D5 | API request/response handling and plugin-owned CLI runner | preserve public contracts and tested cancellation/error behavior |
+
+**D1: retain the existing module**
+
+The [material-access module at main `371f7c8`](https://github.com/tjyyy3/dsh-playground/blob/371f7c816ab83edcc9bd80e0df7d8f05ff04dbbe/lib/material-access.js) already owns path resolution, workspace boundaries and hybrid grants. Continue using it. Small material-reference adapters remaining in the workflow may be adjusted with D2 when needed; no independent D1 refactoring PR is planned. Preserve authorization and path revalidation without restoring full-file readers.
 
 Use small, reviewable extractions. Do not combine a visual redesign, new product capability and broad structural rewrite. Create a module only when it clarifies a real responsibility; the table does not mandate a new service for every row.
 
@@ -224,7 +228,8 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | B5 API response budgets / credential-free bases | Merged; #78/#79 closed | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) | Preserve response-byte budgets and secret-free base validation |
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
 | B4 participant-history extensions | Candidate; further review needed | — | Product decisions and required scope |
-| D1-D5 file splitting | Candidate engineering plan | — | Retained boundaries and chosen scope |
+| D1 path/material access | Agreed: retain existing module; no standalone split planned | — | Existing `lib/material-access.js`; small reference adapters may be adjusted with D2 |
+| D2-D5 file splitting | Candidate engineering plan | — | Retained boundaries and chosen scope |
 | E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 
 Merge/issue status above was verified during this documentation review. Implementation and target-host tests were not independently rerun; use the linked PRs for their reported evidence and remaining limits.
