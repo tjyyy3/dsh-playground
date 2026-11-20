@@ -198,7 +198,7 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 
 ### Engineering structure
 
-The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records the agreed direction: one Host/Client package with feature-based modules, explicit state owners and gradual extraction behind existing interfaces. Concrete module placement and implementation batches remain under review. It maps current code to target locations and records the Client bundle/publishing contract. This engineering draft does not approve additional product features, navigation or runtime changes. The product areas above describe user workflows; they do not mandate one new service or directory per area.
+The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records the agreed direction: one Host/Client package with feature-based modules, explicit state owners and gradual extraction behind existing interfaces. The first pure-policy/redaction extraction is scoped in [#94](https://github.com/tjyyy3/dsh-playground/issues/94), pending implementation. Remaining module placement and migration batches stay under review. It maps current code to target locations and records the Client bundle/publishing contract. This engineering draft does not approve additional product features, navigation or runtime changes. The product areas above describe user workflows; they do not mandate one new service or directory per area.
 
 ## 5. Suggested workbench information architecture
 

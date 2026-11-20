@@ -131,7 +131,7 @@ Directory or worktree organization does not replace file-access authorization. D
 
 #### Overall architecture draft
 
-**Status: overall modularization direction agreed; detailed migration scopes remain under review.** Keep one Host/Client package with feature modules, explicit state ownership and gradual extraction. D1 remains agreed: retain the existing material-access module without a standalone split. The concrete module map, Client build settings and D2-D5 implementation batches below remain a review draft; this status does not record a delivered refactor.
+**Status: overall modularization direction agreed; detailed migration scopes remain under review.** Keep one Host/Client package with feature modules, explicit state ownership and gradual extraction. D1 remains agreed: retain the existing material-access module without a standalone split. The first extraction batch is scoped in [#94](https://github.com/tjyyy3/dsh-playground/issues/94): pure submission policy and redaction, with implementation pending. Remaining module placement, Client build settings and migration batches stay under review; this status does not record a delivered refactor.
 
 The architecture review uses plugin main `46dacaf4579e825a26657dab135db76fe7184c5a` (package `dsh-playground`, `0.6.0-beta.1`) and the official DSH `0.2.1-rc.5` source `b830ec950faba0a46dda564be3e2d854afed94f1` for the Client bundle contract. This is a separate current-code snapshot from the historical audit baseline. The review read source and existing tests; it did not build a new bundle, run tests, install a package or verify a live Host.
 
@@ -255,7 +255,7 @@ Migrate toward the whole structure in small batches. The sequence below is a rev
 
 | Batch | Concrete change | Evidence needed before moving on |
 |---|---|---|
-| 1. Establish leaf boundaries | Proposed first scope: extract pure redaction and submission-policy helpers with compatible re-exports; leave projection reducers, request Maps, network reads and dispatch in place | Existing date/count/limit/policy and redaction cases, plus affected submission cases; unchanged outputs and rules; no reverse import into the facade |
+| 1. Establish leaf boundaries | Selected scope: [#94](https://github.com/tjyyy3/dsh-playground/issues/94), pure redaction and submission-policy extraction with compatible re-exports and complete package contents; leave projection reducers, request Maps, network reads and dispatch in place | Existing date/count/limit/policy and redaction cases, plus affected submission cases; unchanged outputs and rules; no reverse import into the facade |
 | 2. Extract submission handoff | Move the request/confirmation/duplicate-guard lifecycle together, injecting the existing recorder, authorization and data readers | Ordinary one-action dispatch, repeated clicks, refusal/cancellation, expired/changed quota context and unknown outcomes |
 | 3. Separate overview and receipts | Move history/count reads and their single cache owner, then tracking/results/progress; connect explicit invalidation | Identity/challenge ownership, idempotent tracking, preserved IDs on failure, current cache freshness and incomplete-data labels |
 | 4. Reduce the remaining workflow and entry | Extract task lifecycle, catalog/auth operations and Host registration/views in separate coherent changes | Workspace/binding behavior, session-free reads, unchanged tool/RPC shapes, model-visible field selection and prompt guidance |
@@ -276,7 +276,7 @@ Assess the architecture with concrete maintenance scenarios:
 
 Reuse the repository's relevant offline tests and required CI matrix. Add focused coverage only for a real gap introduced by a new interface or build artifact. Preserve the established distinctions between mock tests, isolated Host observations and live target-Host evidence. Structural work does not introduce a new uploader, material scanner, scheduler, result-review gate or author/organizer feature.
 
-The next review should select the **first small migration** against the agreed direction and check its concrete module boundaries and state owners. Exact filenames and bundler settings can be settled within that scope; they should not substitute for those decisions.
+The **first small migration** is scoped in [#94](https://github.com/tjyyy3/dsh-playground/issues/94) and remains pending implementation. Review the remaining module boundaries and state owners separately; record implementation evidence in the corresponding issue/PR. For later batches, settle remaining filenames and Client build settings alongside their responsibilities and state ownership.
 
 ### Track E — Author, organizer and community discovery
 
@@ -362,7 +362,8 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
 | B4 participant-history extensions | Candidate; further review needed | — | Product decisions and required scope |
 | D1 path/material access | Agreed: retain existing module; no standalone split planned | — | Existing `lib/material-access.js`; small reference adapters may be adjusted with D2 |
-| D2-D5 file splitting | Overall modularization direction agreed; detailed migration scope remains under review | — | Track D: source mapping, state ownership, Client delivery and staged acceptance |
+| Architecture batch 1 | Scoped; implementation pending | [#94](https://github.com/tjyyy3/dsh-playground/issues/94) | Pure submission policy/redaction extraction, compatibility and package inclusion |
+| Remaining D2-D5 file splitting | Overall modularization direction agreed; detailed migration scope remains under review | — | Track D: source mapping, state ownership, Client delivery and staged acceptance |
 | E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 
 Merge/issue status above was verified during this documentation review. Implementation and target-host tests were not independently rerun; use the linked PRs for their reported evidence and remaining limits.
