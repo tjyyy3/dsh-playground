@@ -11,10 +11,10 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 ## 安装插件
 
 1. 在 DSH 中打开 **插件 → 添加插件 → 安装第三方插件**。
-2. 选择 **Git 仓库**，输入 `https://github.com/tjyyy3/dsh-playground.git`。
+2. 从 [GitHub Release](https://github.com/tjyyy3/dsh-playground/releases) 复制固定完整 commit 的 Git spec，格式为 `github:tjyyy3/dsh-playground#<40 位 SHA>`，填入第三方插件安装框。
 3. 安装完成后，按提示启用或重启。左侧导航出现 **Playground** 即可开始使用。
 
-**遇到「无法访问 GitHub」时**，可以向维护者索取对应版本的 `.tgz` 安装包。下载后无需解压，在 DSH 的 **添加插件** 安装框输入文件的完整路径。
+未固定 commit 的 `https://github.com/tjyyy3/dsh-playground.git` 仍可安装，但 DSH 无法更新该来源。迁移时把 Release 的固定 Git spec 填入第三方插件安装框，覆盖安装当前副本，按提示重启。仅当 DSH 返回 `already-installed` 时才移除后重新安装。暂无 Release 时可使用未固定的地址试用，之后再迁移。
 
 **从本地开发版切换到 Git 安装后**，如果启用时报旧目录的 `locale` 找不到，请从托盘完全退出 DSH，再重新打开。
 
@@ -48,7 +48,11 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 
 ## 更新和反馈
 
-在 DSH 的 **插件** 页打开 Playground 的详情，按页面提示更新或卸载。使用本地包试用时，向维护者索取新版本的 `.tgz`。
+打开 Playground 的 **连接设置**，在 **版本与更新** 中查看运行版本、磁盘版本和安装来源。磁盘版本较新时需要重启 DSH。插件配置 `releaseChannel` 默认是 `stable`，可改为 `beta`。正式渠道选择最高正式版，Beta 选择包含预发布在内的最高版本。Beta 可能不稳定。只有点击 **检查更新** 才会访问 GitHub；成功结果缓存三分钟，普通失败可立即重试，GitHub 限流时等待额度恢复。
+
+卡片只读取信息，可打开发布说明或复制 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源可通过第三方插件安装框覆盖安装固定 spec。DSH 的更新操作只接受较新版本，降级前请核对兼容性，再用旧版固定 spec 覆盖安装。卡片没有安装按钮。暂无发布时会明确提示。
+
+维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。当前版本保持 `0.5.0-preview.7`；新预发布统一使用 `beta.N`。因为 `beta` 排在 `preview` 前，下一版可用 `0.5.1-beta.1`，不能使用较旧的 `0.5.0-beta.N`。
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 

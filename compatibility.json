@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "recommendedHost": "0.2.1-rc.5",
+  "supportedHosts": [
+    { "version": "0.2.1-rc.5", "track": "recommended" }
+  ]
+}

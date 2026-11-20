@@ -18,15 +18,18 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "compatibility.json",
+    "release-notes/*.md",
     "README.md",
     "guide/*.md",
     "assets/*.png"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=24",
+    "dsh": ">=0.2.1-rc.5"
   },
   "scripts": {
-    "test": "node test/api.test.mjs && node test/competitions.test.mjs && node test/plugin.test.mjs && node test/controller.test.mjs && node test/workflow.test.mjs && node test/submission.test.mjs && node test/material-access.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs",
+    "test": "node test/api.test.mjs && node test/competitions.test.mjs && node test/plugin.test.mjs && node test/controller.test.mjs && node test/workflow.test.mjs && node test/submission.test.mjs && node test/material-access.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs && node test/releases.test.mjs && node test/validate-release.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo:local": "node scripts/demo-local.mjs"
   },
