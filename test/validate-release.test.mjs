@@ -47,6 +47,8 @@ test('workflow validates input before checkout and drafts only pinned commit met
   const writeJob = workflow.slice(workflow.indexOf('\n  draft:'));
   for (const [, action] of writeJob.matchAll(/uses: ([^\s]+)/g)) assert.match(action, /@[0-9a-f]{40}$/);
   assert.ok([...workflow.matchAll(/run: npm ci(.*)/g)].every((match) => match[1].includes('--ignore-scripts')));
+  const testWorkflow = readFileSync(new URL('../.github/workflows/test.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(testWorkflow, /release:pack|package-release/);
 });
 
 test('manifest keeps the current version and ships compatibility metadata with the host floor', () => {
@@ -58,4 +60,7 @@ test('manifest keeps the current version and ships compatibility metadata with t
   assert.ok(manifest.files.includes('icon.svg'));
   assert.ok(manifest.files.includes('compatibility.json'));
   assert.ok(manifest.files.includes('release-notes/*.md'));
+  for (const file of [...requiredFiles, `release-notes/${manifest.version}.md`]) {
+    assert.ok(readFileSync(new URL(`../${file}`, import.meta.url)).length > 0, file);
+  }
 });
