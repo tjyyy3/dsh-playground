@@ -61,7 +61,7 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
   Host tool or command handler. Keep historical client renderers for safe display.
 - Before executing a submission, read `playground_task status` and announce
   `submitPolicy.announcement`. A statement limit, a counted submission today
-  across self and confirmed Agent accounts in Beijing time, or a recorded
+  by the current account in Beijing time, or a recorded
   platform 429 requires an additional user answer. For a chat-requested
   submission, an explicit user answer in that conversation also counts.
   The workbench verifies its

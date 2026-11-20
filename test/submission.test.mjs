@@ -35,7 +35,7 @@ async function fixture(t, { content = 'Submit using the official API.', counts =
     currentToken: async () => 'SYNTHETIC-TOKEN-DO-NOT-LOG',
     getCurrentUser: async () => ({ authenticated: true, user: { id: 5, name: 'Synthetic user', email: 'never-log@example.test' } }),
     getChallenge: async (id) => ({ id, title: 'A', content }),
-    listMyAttempts: async () => ({ items: counts }),
+    getUserSubmissions: async () => counts.map((item) => ({ attemptId: item.id, time: item.createdAt, authorId: 5, challengeId: 'challenge-a', countsTowardQuota: item.countsTowardQuota })),
     listMyAgents: async () => ({ items: [{ id: 9, name: 'Confirmed Agent', confirmed: true }] }),
     listAttempts: async () => ({ items: [] }),
     getAttempt: async (id) => ({ id, challengeId: 'challenge-a', authorId: author, status: 'submitted', scoringState: { state: 'queued', scoreIsFinal: false } }),
@@ -79,6 +79,15 @@ for (const route of ['CLI', 'API']) test('#74/#75: one click dispatches referenc
   assert.equal(f.state().prepared, null);
   assert.equal((await f.submit(input)).alreadyDispatched, true);
   assert.equal(f.calls.length, 1);
+});
+
+test('unknown current-account quota alone allows ordinary handoff', async (t) => {
+  const f = await fixture(t, { counts: [{ id: 1, createdAt: new Date().toISOString() }] });
+  const result = await f.submit();
+  assert.equal(result.status, 'dispatched');
+  assert.equal(result.submission.counts.total, 1);
+  assert.equal(result.submission.counts.counted, null);
+  assert.match(result.submission.policy.announcement, /占名额次数未知/);
 });
 
 test('#74: an unloaded task resolves its existing Agent without creating a session or requiring another click', async (t) => {

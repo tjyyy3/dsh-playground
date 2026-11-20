@@ -1468,18 +1468,16 @@ test('mounting, cleaning up and mounting again starts a fresh round and drops th
   assert.deepEqual(h.rows().map((row) => row.badge), ['排队中']);
 });
 
-// A real Playground client over a fake fetch, so rows go through the real /me/attempts normalizer.
-// `respond(url, init)` returns a raw snake_case platform body, a failure from platformFailure(), or a promise of either.
-// The fake response only resolves microtasks, so one settle() is enough for a read to land.
 const fakeResponse = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const platformFailure = (message, status = 503) => ({ failure: fakeResponse({ error: message }, status) });
-const attemptsPage = (items, nextCursor = null) => ({ items, next_cursor: nextCursor, limit: 50 });
-// `agents` answers the Agent account list (#62), which the first history page also reads; those reads
-// and the public list are kept out of `requests`, which records the own-list reads.
-function attemptsClient(respond, requests, { token = 'test-token', agents = [], publicAttempts = [], agentRequests = [] } = {}) {
+const attemptsPage = (items) => items.map((row) => ({ ...row, attemptId: row.id, authorId: row.authorId ?? 'test-user',
+  challengeId: row.challenge_id, time: row.created_at, updatedAt: row.updated_at, scoringState: row.scoringState || (row.scoring_state ? {
+    state: row.scoring_state, scoreIsFinal: ['final', 'late_scored'].includes(row.scoring_state),
+    displayScore: ['final', 'late_scored'].includes(row.scoring_state) ? row.score : null, provisionalScore: row.score } : undefined) }));
+function attemptsClient(respond, requests, { token = 'test-token' } = {}) {
   return createPlaygroundClient({ baseUrl: 'https://example.test', token, fetchImpl: async (url, init) => {
-    if (url.pathname === '/api/agent/register') { agentRequests.push({ url, init }); return typeof agents === 'function' ? agents() : fakeResponse(agents); }
-    if (/^\/api\/challenges\/[^/]+\/attempts$/.test(url.pathname)) { agentRequests.push({ url, init }); return typeof publicAttempts === 'function' ? publicAttempts() : fakeResponse({ attempts: publicAttempts, total: publicAttempts.length }); }
+    if (url.pathname === '/api/auth/me') return fakeResponse({ id: 'test-user', name: 'Tester' });
+    assert.equal(url.pathname, '/api/user-submissions');
     requests.push({ url, init });
     const body = await respond(url, init);
     return body?.failure ?? fakeResponse(body);
@@ -1550,8 +1548,8 @@ test('the task drawer lists every account submission for the challenge and marks
     [['/api', 'playgroundQueries/query', { action: 'my_attempts', challengeId: 'fixture', limit: 50 }]]);
   assert.equal(f.requests.length, 1);
   const { url, init } = f.requests[0];
-  assert.equal(url.pathname, '/api/me/attempts');
-  assert.deepEqual(Object.fromEntries(url.searchParams), { limit: '50', challenge_id: 'fixture' });
+  assert.equal(url.pathname, '/api/user-submissions');
+  assert.deepEqual(Object.fromEntries(url.searchParams), {});
   assert.equal(init.headers.authorization, 'Bearer test-token');
   assert.ok(init.signal instanceof AbortSignal);
   const rows = historyRows(f.panel);
@@ -1630,40 +1628,29 @@ test('history rows take a settled result from the workbench refresh, but never a
 });
 
 test('submission history derives attribution from an old receipt and loads further pages on request', async (t) => {
-  const pages = {
-    '': attemptsPage([{ id: 7, challenge_id: 'fixture', scoring_state: 'final', score: 80, created_at: '2026-10-02T08:00:00Z' }], 'page-2'),
-    'page-2': attemptsPage([{ id: 5, challenge_id: 'fixture', score: null, created_at: '2026-10-01T08:00:00Z' }]),
-  };
-  // A projection persisted before attemptIds existed only has the latest receipt.
-  const f = await historyFixture(t, (url) => pages[url.searchParams.get('cursor') || ''], historyTask({ receipt: { ok: true, attemptId: 7 } }));
-  assert.equal(liveStatus(f.panel), '已加载 1 条提交');
+  const rowsOnPlatform = Array.from({ length: 51 }, (_, i) => ({ id: i + 1, challenge_id: 'fixture', created_at: '2026-10-02T08:00:00Z' }));
+  const f = await historyFixture(t, () => attemptsPage(rowsOnPlatform), historyTask({ receipt: { ok: true, attemptId: 51 } }));
+  assert.equal(liveStatus(f.panel), '已加载 50 条提交');
   let focused = 0;
   f.find(f.panel, (node) => node.type === 'ul').props.ref({ focus: () => { focused++; } });
   await findButton(f.panel, '加载更多').props.onClick();
   const panel = f.render(f.history.type, f.history.props);
-  assert.deepEqual(f.requests.map(({ url }) => url.searchParams.get('cursor')), [null, 'page-2']);
+  assert.equal(f.requests.length, 2);
   const rows = historyRows(panel);
-  assert.equal(rows.length, 2);
-  assert.match(rows[0], /提交 #7.*本对话/);
-  assert.match(rows[1], /提交 #5.*未关联到对话/);
+  assert.equal(rows.length, 51);
+  assert.match(rows[0], /提交 #51.*本对话/);
+  assert.match(rows[50], /提交 #1.*未关联到对话/);
   assert.equal(findButton(panel, '加载更多'), undefined);
   assert.equal(focused, 1, 'focus moves to the list when the last page removes "加载更多"');
   assert.equal(f.find(panel, (node) => node.type === 'ul').props.tabIndex, -1);
-  assert.equal(liveStatus(panel), '已加载 2 条提交');
+  assert.equal(liveStatus(panel), '已加载 51 条提交');
 });
 
 test('submission history shows each attempt once and skips rows without an id', async (t) => {
   const row = (id, day) => ({ ...(id ? { id } : {}), challenge_id: 'fixture', score: null, created_at: `2026-10-0${day}T08:00:00Z` });
-  const pages = {
-    '': attemptsPage([row(3, 3), row(3, 3), row(undefined, 4)], 'page-2'),
-    'page-2': attemptsPage([row(3, 3), row(2, 2)]),
-  };
-  const f = await historyFixture(t, (url) => pages[url.searchParams.get('cursor') || ''], historyTask());
-  assert.deepEqual(historyRows(f.panel).map((item) => item.match(/提交 #(\S+)/)[1]), ['3']);
-  await findButton(f.panel, '加载更多').props.onClick();
-  const panel = f.render(f.history.type, f.history.props);
-  assert.deepEqual(historyRows(panel).map((item) => item.match(/提交 #(\S+)/)[1]), ['3', '2']);
-  assert.equal(liveStatus(panel), '已加载 2 条提交');
+  const f = await historyFixture(t, () => attemptsPage([row(3, 3), row(3, 3), row(undefined, 4), row(2, 2)]), historyTask());
+  assert.deepEqual(historyRows(f.panel).map((item) => item.match(/提交 #(\S+)/)[1]), ['3', '2']);
+  assert.equal(liveStatus(f.panel), '已加载 2 条提交');
 });
 
 test('submission history explains signed-out, failed and empty reads', async (t) => {
@@ -1759,11 +1746,12 @@ test('a failed read, including a repeated 重试 failure, announces 提交历史
 });
 
 test('a failed 加载更多 keeps the loaded rows and shows the error', async (t) => {
-  const f = await historyFixture(t, (url) => (url.searchParams.get('cursor') ? platformFailure('upstream returned 503')
-    : attemptsPage([{ id: 7, challenge_id: 'fixture', scoring_state: 'final', score: 80, created_at: '2026-10-02T08:00:00Z' }], 'page-2')), historyTask());
+  let reads = 0;
+  const f = await historyFixture(t, () => (++reads > 1 ? platformFailure('upstream returned 503')
+    : attemptsPage(Array.from({ length: 51 }, (_, i) => ({ id: i + 1, challenge_id: 'fixture', created_at: '2026-10-02T08:00:00Z' })))), historyTask());
   await findButton(f.panel, '加载更多').props.onClick();
   const panel = f.render(f.history.type, f.history.props);
-  assert.deepEqual(historyRows(panel).map((item) => item.match(/提交 #(\d+)/)[1]), ['7']);
+  assert.equal(historyRows(panel).length, 50);
   assert.equal(alerts(panel).length, 1);
   assert.match(alerts(panel)[0], /Playground 平台请求失败：upstream returned 503/);
   const more = findButton(panel, '加载更多');
@@ -1843,7 +1831,7 @@ test('only the newest submission-history request updates the list', async (t) =>
   f.effects.splice(0).forEach((effect) => effect());
   await settle();
   assert.equal(pending.length, 2);
-  assert.deepEqual(pending.map((item) => item.challengeId), ['fixture', 'other']);
+  assert.deepEqual(f.calls.map((call) => call[2].args.input.challengeId), ['fixture', 'other']);
   assert.equal(pending[0].signal.aborted, true);
   assert.equal(pending[1].signal.aborted, false);
   pending[1].resolve(attemptsPage([{ id: 2, challenge_id: 'other', score: null, created_at: '2026-10-02T08:00:00Z' }]));
@@ -4579,42 +4567,16 @@ test('#58: a submission whose upload failed is polled until the platform closes 
 // #57: playground_submit gets its own tool card; an approved submission shows its receipt like the 确认提交 card.
 
 
-// #62: the drawer's history lists the Agent accounts' submissions from the public list, labelled, with today's counts.
-test('#62: the task history labels own and Agent-account submissions and shows today\'s counts with the recorded limits', async (t) => {
-  const today = new Date().toISOString();
-  const agentRequests = [];
-  const state = historyTask({ submissionLimits: [{ challengeId: 'fixture', source: 'platform', limit: 5 }, { challengeId: 'other', source: 'platform', limit: 9 }] });
-  const f = await historyFixture(t, (url) => (url.pathname === '/api/me/attempts'
-    ? attemptsPage([{ id: 301, challenge_id: 'fixture', status: 'submitted', score: null, created_at: '2026-10-01T08:00:00Z' }])
-    : { id: 0 }), state, {
-    agentRequests,
-    agents: [{ agentUser: { id: 'codex_asc_agent', name: 'Codex ASC Agent', agentFramework: 'Codex', operatorConfirmed: true } }],
-    publicAttempts: [
-      { id: 302, authorId: 'codex_asc_agent', author_name: 'Codex ASC Agent', authorIsAgent: true, countsTowardQuota: true, status: 'scored', score: 61, scoring_state: 'final', created_at: today },
-      { id: 303, authorId: 'someone', countsTowardQuota: true, created_at: today },
-    ],
-  });
-  assert.deepEqual(agentRequests.map(({ url }) => url.pathname), ['/api/agent/register', '/api/challenges/fixture/attempts']);
-  const rows = historyRows(f.panel);
-  assert.equal(rows.length, 2);
-  assert.match(rows[0], /提交 #302 .*Agent 账号 · Codex ASC Agent/);
-  assert.match(rows[1], /提交 #301 .*本人/);
-  assert.equal(rows.some((row) => row.includes('#303')), false);
-  assert.match(text(f.panel), /Agent 账号的提交来自这道题的公开提交列表，看不到未公开的提交/);
+test('drawer shows only current account submissions and separates ordinary counts from quota usage', async (t) => {
+  const state = historyTask({ submissionLimits: [{ challengeId: 'fixture', source: 'platform', limit: 5 }] });
+  const f = await historyFixture(t, () => attemptsPage([
+    { id: 301, challenge_id: 'fixture', created_at: new Date().toISOString() },
+    { id: 302, authorId: 'other', challenge_id: 'fixture', created_at: new Date().toISOString() },
+  ]), state);
+  assert.deepEqual(historyRows(f.panel).map((row) => row.match(/#(\d+)/)[1]), ['301']);
   const counts = text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-submission-counts'));
-  assert.match(counts, /^今天（北京时间 \d{4}-\d{2}-\d{2}）已提交 1 次，其中占名额 1 次，本人与名下 Agent 账号合计（可能不完整）。Agent 账号未公开的提交看不到，没有计入。次数上限：平台曾返回上限 5 次。$/);
-  assert.doesNotMatch(counts, /9 次|剩余/);
+  assert.match(counts, /当前账号累计 1 次.*已提交 1 次，占名额次数未知。次数上限：平台曾返回上限 5 次/);
 });
-
-test('#62: a failed Agent list leaves the own submissions and the history says only they are listed', async (t) => {
-  const f = await historyFixture(t, () => attemptsPage([{ id: 401, challenge_id: 'fixture', status: 'submitted', score: null, created_at: '2026-10-01T08:00:00Z' }]),
-    historyTask(), { agents: () => fakeResponse({ error: 'boom' }, 500) });
-  assert.deepEqual(historyRows(f.panel).map((row) => row.match(/#(\d+)/)[1]), ['401']);
-  assert.match(text(f.find(f.panel, (node) => node.props?.className === 'pg-note pg-history-partial')), /无法读取名下 Agent 账号列表，只列出本人的提交/);
-});
-
-
-
 
 test('the scoped controller renderer mounts native content only for the verified session', async (t) => {
   const { registrations, render } = await clientFixture(t);

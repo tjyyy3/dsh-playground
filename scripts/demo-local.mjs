@@ -159,7 +159,7 @@ try {
   };
   const workflow = createWorkflow({ ctx, client: { ...client,
     getCurrentUser: async () => ({ authenticated: true, user: { id: 'local', name: 'Local Tester' } }),
-    listMyAttempts: async () => ({ items: [] }), listMyAgents: async () => ({ items: [] }),
+    getUserSubmissions: async () => [], listMyAgents: async () => ({ items: [] }),
   }, presentationMeta });
   ctx.commands = { execute: async (target, command, _attachments, signal) => {
     const result = await workflow.command({ agent: target, rawInput: command.slice('/playground '.length), signal });

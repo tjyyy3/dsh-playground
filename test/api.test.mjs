@@ -583,39 +583,29 @@ test('#12: getCurrentUser keeps Agent identity fields in camelCase, snake_case a
     { id: 9, name: 'deepseek', userType: 'agent', operatorId: 4, operatorConfirmed: true });
   assert.deepEqual(await read({ id: 9, name: 'deepseek', userType: 'agent', operator: { id: 'op-1', name: 'Ada' } }),
     { id: 9, name: 'deepseek', userType: 'agent', operatorId: 'op-1', operatorName: 'Ada' });
+  for (const id of ['agent-5', '0005']) assert.equal((await read({ id, name: 'Agent' })).id, id);
   // Odd values are dropped rather than shown.
   assert.deepEqual(await read({ id: 9, name: 'deepseek', operatorId: -1, operatorConfirmed: 'maybe', agentFramework: 7 }), { id: 9, name: 'deepseek' });
 });
 
-test('personal submissions use authentication, preserve cursor filters and do not invent a zero score', async () => {
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test', token: 'test-token',
+test('personal history reads the authenticated unpaginated array and rejects other shapes', async () => {
+  let body = [{ attemptId: 3, challengeId: 'demo', time: '2026-11-06T16:30:00Z', authorId: 'user-5' }];
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'fixture',
     fetchImpl: async (url, init) => {
-      assert.equal(url.pathname, '/api/me/attempts');
-      assert.equal(url.searchParams.get('cursor'), 'opaque.cursor');
-      assert.equal(url.searchParams.get('challenge_id'), 'demo');
-      assert.equal(url.searchParams.get('status'), 'submitted');
-      assert.equal(init.headers.authorization, 'Bearer test-token');
-      return jsonResponse({ items: [{ id: 9, challenge_id: 'demo', challenge_title: 'My test', status: 'submitted', score: null, scoring_state: 'queued', created_at: '2026-10-27' }], next_cursor: 'next.cursor', limit: 1 });
-    },
-  });
-  const result = await client.listMyAttempts({ challengeId: 'demo', status: 'submitted', cursor: 'opaque.cursor', limit: 1 });
-  assert.equal(result.items[0].challengeTitle, 'My test');
-  assert.equal(result.items[0].score, undefined);
-  assert.equal(result.items[0].scoringState.scoreIsFinal, false);
-  assert.equal(result.nextCursor, 'next.cursor');
+      assert.equal(url.pathname, '/api/user-submissions');
+      assert.equal(url.search, '');
+      assert.equal(init.headers.authorization, 'Bearer fixture');
+      return jsonResponse(body);
+    } });
+  assert.deepEqual(await client.getUserSubmissions(), body);
+  body = { items: [] };
+  await assert.rejects(() => client.getUserSubmissions(), { code: 'invalid_response' });
 });
 
-async function listMyAttemptRows(items) {
-  const client = createPlaygroundClient({
-    baseUrl: 'https://example.test', token: 'test-token',
-    fetchImpl: async () => jsonResponse({ items, next_cursor: null, limit: items.length }),
-  });
-  return (await client.listMyAttempts()).items;
-}
+const normalizeListRows = (items) => items.map((item) => normalizeAttempt(item, { detailed: false }));
 
-test('personal submissions with a snake_case scoring_state treat only final and late_scored as a final score', async () => {
-  const rows = await listMyAttemptRows([
+test('list rows with a snake_case scoring_state treat only final and late_scored as a final score', async () => {
+  const rows = normalizeListRows([
     { id: 1, status: 'scored', score: 12, scoring_state: 'final' },
     // Observed platform shape: late_scored is a submission status paired with scoring state final.
     { id: 2, status: 'late_scored', score: 64, scoring_state: 'final' },
@@ -633,7 +623,7 @@ test('personal submissions with a snake_case scoring_state treat only final and 
 });
 
 test('personal submissions only accept a real number as the score of a final snake_case state', async () => {
-  const rows = await listMyAttemptRows([
+  const rows = normalizeListRows([
     { id: 1, status: 'scored', score: true, scoring_state: 'final' },
     { id: 2, status: 'scored', score: ' ', scoring_state: 'final' },
     { id: 3, status: 'scored', score: '12', scoring_state: 'final' },
@@ -642,7 +632,7 @@ test('personal submissions only accept a real number as the score of a final sna
 });
 
 test('personal submissions normalise an object under scoring_state like scoringState', async () => {
-  const rows = await listMyAttemptRows([
+  const rows = normalizeListRows([
     { id: 1, status: 'scored', score: 12, scoring_state: { state: 'final', scoreIsFinal: true, displayScore: 12 } },
     { id: 2, status: 'submitted', score: 0, scoring_state: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
   ]);
@@ -650,8 +640,8 @@ test('personal submissions normalise an object under scoring_state like scoringS
   assert.deepEqual(rows[1].scoringState, { state: 'queued', scoreIsFinal: false, provisionalScore: 0 });
 });
 
-test('personal submissions with a snake_case queued, evaluating or pending state never carry a final score', async () => {
-  const rows = await listMyAttemptRows([
+test('list rows with a snake_case queued, evaluating or pending state never carry a final score', async () => {
+  const rows = normalizeListRows([
     { id: 1, status: 'submitted', score: 0, scoring_state: 'queued' },
     { id: 2, status: 'submitted', score: 7, scoring_state: 'queued' },
     { id: 3, status: 'submitted', score: 41, scoring_state: 'evaluating' },
@@ -666,8 +656,8 @@ test('personal submissions with a snake_case queued, evaluating or pending state
   assert.deepEqual(rows.map((row) => row.score), [0, 7, 41, 0]);
 });
 
-test('personal submissions with a snake_case failed or rejected state are not final even with a score', async () => {
-  const rows = await listMyAttemptRows([
+test('list rows with a snake_case failed or rejected state are not final even with a score', async () => {
+  const rows = normalizeListRows([
     { id: 1, status: 'scored', score: 0, scoring_state: 'failed' },
     { id: 2, status: 'scored', score: 72, scoring_state: 'rejected' },
   ]);
@@ -678,19 +668,19 @@ test('personal submissions with a snake_case failed or rejected state are not fi
 });
 
 test('personal submissions with a final state and no numeric score are not final', async () => {
-  const rows = await listMyAttemptRows([{ id: 1, status: 'scored', score: null, scoring_state: 'final' }]);
+  const rows = normalizeListRows([{ id: 1, status: 'scored', score: null, scoring_state: 'final' }]);
   assert.deepEqual(rows[0].scoringState, { state: 'final', scoreIsFinal: false });
 });
 
 test('personal submissions with no scoring state and a numeric score get no scoring state, so the score is never final', async () => {
-  const rows = await listMyAttemptRows([{ id: 1, status: 'submitted', score: 0 }, { id: 2, status: 'scored', score: 55 }]);
+  const rows = normalizeListRows([{ id: 1, status: 'submitted', score: 0 }, { id: 2, status: 'scored', score: 55 }]);
   assert.equal(rows[0].scoringState, undefined);
   assert.equal(rows[1].scoringState, undefined);
   assert.deepEqual(rows.map((row) => row.score), [0, 55]);
 });
 
 test('personal submissions keep an explicit camelCase scoringState with its scoreIsFinal flag unchanged', async () => {
-  const rows = await listMyAttemptRows([
+  const rows = normalizeListRows([
     { id: 1, status: 'scored', score: 12, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 12 } },
     { id: 2, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
     { id: 3, status: 'submitted', score: 9, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 9 } },
@@ -704,7 +694,7 @@ test('personal submissions keep an explicit camelCase scoringState with its scor
 
 test('personal submissions refuse anonymous requests before accessing the network', async () => {
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: () => assert.fail('must not fetch') });
-  await assert.rejects(() => client.listMyAttempts(), (error) => error.code === 'authentication_required');
+  await assert.rejects(() => client.getUserSubmissions(), (error) => error.code === 'authentication_required');
 });
 
 test('listAttempts sends filters and normalizes rows', async () => {

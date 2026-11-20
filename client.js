@@ -196,6 +196,11 @@ window.__ModuleLoader__.load({
         .filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === 'platform')
         .map((item) => item.source === 'statement' ? `题面写明${period[item.period] || ''}最多 ${item.limit} 次${typeof item.excerpt === 'string' ? `（原文：${item.excerpt}）` : ''}`
           : Number.isSafeInteger(item.limit) ? `平台曾返回上限 ${item.limit} 次` : '平台曾返回已达提交上限');
+      if (counts.scope === 'current_account') {
+        const history = counts.partialReasons?.includes('history_incomplete');
+        const today = history || counts.partialReasons?.includes('time_unknown');
+        return `当前账号累计${history ? '已核实 ' : ' '}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? '已核实' : '已提交'} ${counts.total} 次，${counts.counted == null ? '占名额次数未知' : `其中占名额 ${counts.counted} 次`}${today ? '（数据不完整）' : ''}。${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
+      }
       return `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? '（可能不完整）' : ''}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes('agent_private_hidden') ? 'Agent 账号未公开的提交看不到，没有计入。' : ''}${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
     }
 
@@ -1331,7 +1336,7 @@ window.__ModuleLoader__.load({
           if (latest.controller !== controller) return;
           if (result?.ok === false) {
             if (result.error?.code === 'authentication_required') {
-              setSignedOut(true); setError(''); setHistory({ items: [], nextCursor: null, loaded: true }); setStatus('登录后可查看提交历史。');
+              setSignedOut(true); setError(''); setOverview({ counts: undefined, partial: '' }); setHistory({ items: [], nextCursor: null, loaded: true }); setStatus('登录后可查看提交历史。');
               refocusHeading();
             } else {
               // "重试" stays rendered and keeps focus; the status changes so a repeated failure is still announced.
@@ -1352,7 +1357,7 @@ window.__ModuleLoader__.load({
           setSignedOut(false); setError('');
           setHistory({ items, nextCursor, loaded: true });
           if (!cursor) setOverview({ counts: result?.submissionCounts, partial: typeof result?.partial?.note === 'string' ? result.partial.note : '' });
-          setStatus(items.length ? `已加载 ${items.length} 条提交` : '这道题还没有提交记录。');
+          setStatus(items.length ? `已加载 ${items.length} 条提交` : result?.partial ? '提交历史不完整。' : '这道题还没有提交记录。');
           // The last page removes "加载更多"; move focus to the list instead of letting it fall back to the page.
           if (cursor && !nextCursor) latest.list?.focus?.();
           // After "重试" a non-empty list takes focus when it attaches (see the `ul` ref).
@@ -1376,7 +1381,7 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'pg-guide pg-history', 'aria-label': '提交历史', 'aria-busy': busy },
         h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
         h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '提交历史'),
-        h('p', { className: 'pg-note' }, '当前账号和名下 Agent 账号在这道题上的提交，从新到旧排列；包括在终端或其他工具中完成的提交。Agent 账号的提交来自这道题的公开提交列表，看不到未公开的提交。'),
+        h('p', { className: 'pg-note' }, '当前账号在这道题上的提交，按时间从新到旧排列，包括在终端或其他工具中完成的提交。'),
         submissionCountsLine(overview.counts, limits) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(overview.counts, limits)) : null,
         overview.partial ? h('p', { className: 'pg-note pg-history-partial', role: 'status' }, overview.partial) : null,
         signedOut ? h('p', { className: 'pg-note' }, '登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。') : null,
@@ -1384,7 +1389,7 @@ window.__ModuleLoader__.load({
         error && !items.length ? h('div', { className: 'pg-actions' },
           h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => { latest.refocus = true; return load(); } }, busy ? '正在读取…' : '重试')) : null,
         busy && !history.loaded ? h('p', { className: 'pg-note' }, '正在读取提交历史…') : null,
-        history.loaded && !signedOut && !items.length && !error ? h('p', { className: 'pg-note' }, '这道题还没有提交记录。') : null,
+        history.loaded && !signedOut && !items.length && !error && !overview.partial ? h('p', { className: 'pg-note' }, '这道题还没有提交记录。') : null,
         items.length ? h('ul', { className: 'pg-list', 'aria-label': '提交历史列表', tabIndex: -1, ref: (node) => {
           latest.list = node;
           if (node && latest.refocus) { latest.refocus = false; node.focus?.(); }
