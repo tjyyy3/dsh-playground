@@ -717,8 +717,8 @@ window.__ModuleLoader__.load({
         cancel();
         const controller = new AbortController();
         latest.controller = controller;
-        setRelease({ status: check ? 'checking' : 'loading' });
-        const timer = setTimeout(() => controller.abort(new Error('release_rpc_timeout')), 10000);
+        setRelease({ ...release, status: check ? 'checking' : 'loading' });
+        const timer = setTimeout(() => controller.abort(new Error('release_rpc_timeout')), check ? 120000 : 10000);
         try {
           const next = await Promise.race([
             query({ action: 'releases', check }, controller.signal),
@@ -726,13 +726,15 @@ window.__ModuleLoader__.load({
           ]);
           if (latest.controller !== controller) return;
           if (!['ready', 'unchecked', 'unavailable'].includes(next?.status)) {
-            setRelease({ status: 'unavailable', error: 'failed' });
+            setRelease({ ...release, status: 'unavailable', error: 'failed' });
             return;
           }
           if (next.channel) setInfo(next);
-          setRelease(next);
+          setRelease(next.status === 'ready' || !release.target ? next : { ...release, ...next,
+            target: next.target ?? release.target, comparison: next.comparison ?? release.comparison,
+            warnings: next.warnings ?? release.warnings });
         } catch (error) {
-          if (latest.controller === controller) setRelease({ status: 'unavailable', error: error?.message === 'release_rpc_timeout' ? 'timeout' : 'failed' });
+          if (latest.controller === controller) setRelease({ ...release, status: 'unavailable', error: error?.message === 'release_rpc_timeout' ? 'timeout' : 'failed' });
         } finally {
           clearTimeout(timer);
         }
@@ -740,11 +742,12 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { load(false); return cancel; }, [query]);
       React.useEffect(() => {
         if (release.error !== 'rate_limited' || !release.resetAt) return;
-        const timer = setTimeout(() => setRelease({ status: 'unchecked' }), Math.max(0, Date.parse(release.resetAt) - Date.now()));
+        const timer = setTimeout(() => setRelease({ ...release, status: release.target ? 'ready' : 'unchecked',
+          error: undefined, resetAt: undefined }), Math.max(0, Date.parse(release.resetAt) - Date.now()));
         return () => clearTimeout(timer);
       }, [release.error, release.resetAt]);
       const { status, comparison } = release;
-      const target = status === 'ready' ? release.target : null;
+      const target = release.target;
       const runningChannel = RELEASE_CHANNEL_LABELS[info?.currentChannel];
       const targetChannel = target?.prerelease ? RELEASE_CHANNEL_LABELS.beta : RELEASE_CHANNEL_LABELS.stable;
       const targetLabel = target ? `${target.version}（${targetChannel}）` : '';

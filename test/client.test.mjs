@@ -5041,7 +5041,7 @@ const releaseTarget = (version, extra = {}) => ({ version, prerelease: version.i
   gitSpec: `github:tjyyy3/dsh-playground#${'a'.repeat(40)}`, ...extra });
 const runningRelease = { currentVersion: '0.5.0-preview.7', currentChannel: 'beta', channel: 'stable',
   installedVersion: '0.5.1-beta.1', restartRequired: true, source: 'git_unpinned',
-  sourceHint: '当前 Git spec 未固定完整 commit，DSH 无法更新。先卸载，再用固定 spec 重新安装。' };
+  sourceHint: '当前 Git spec 未固定完整 commit，DSH 无法更新该来源。用固定 spec 覆盖安装。仅当返回 already-installed 时才移除后重新安装。' };
 const releaseReply = (input, fields = {}) => ({ ok: true, value: { ...runningRelease,
   status: input.check ? 'ready' : 'unchecked', target: null, comparison: null, ...fields } });
 
@@ -5052,7 +5052,7 @@ test('release settings are read-only, display running and disk versions, and cop
   assert.equal(panel.find(panel.render(), (node) => node.type === 'select'), undefined);
   assert.match(text(panel.render()), /当前运行版本\s+0\.5\.0-preview\.7\s+· Beta/);
   assert.match(text(panel.render()), /磁盘版本 0\.5\.1-beta\.1.*需要重启/);
-  assert.match(text(panel.render()), /DSH 无法更新.*重新安装/);
+  assert.match(text(panel.render()), /DSH 无法更新该来源.*覆盖安装/);
   assert.match(text(panel.render()), /尚未检查更新/);
   assert.equal(panel.writes.length, 0);
 
@@ -5126,6 +5126,44 @@ test('release settings keep a capped target visible and warn about inconsistent 
   assert.match(text(panel.render()), /可升级至 0\.5\.1-beta\.1/);
   assert.match(text(panel.render()), /已读取发布中的最高版本/);
   assert.match(text(panel.render()), /预发布标志与 tag 不一致/);
+});
+
+test('the rate-limit reset re-enables checks while preserving the shown release target and warnings', async (t) => {
+  const now = Date.UTC(2026, 10, 20);
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now });
+  let checks = 0;
+  const panel = await releasePanel(t, (input) => releaseReply(input, !input.check ? {} : ++checks === 1
+    ? { target: releaseTarget('0.5.1-beta.1'), comparison: 'upgrade', warnings: ['prerelease_mismatch'] }
+    : { status: 'unavailable', error: 'rate_limited', resetAt: new Date(now + 1000).toISOString() }));
+  await panel.check();
+  await panel.check();
+  assert.match(text(panel.render()), /0\.5\.1-beta\.1.*预发布标志与 tag 不一致/);
+  assert.equal(panel.checkButton().props.disabled, true);
+  const resetEffect = panel.effects.findLast((effect) => effect.deps?.[0] === 'rate_limited');
+  assert.ok(resetEffect);
+  const cleanup = resetEffect();
+  t.after(cleanup);
+  t.mock.timers.tick(1001);
+  const tree = panel.render();
+  assert.equal(panel.checkButton().props.disabled, false);
+  assert.match(text(tree), /可升级至 0\.5\.1-beta\.1/);
+  assert.match(text(tree), /预发布标志与 tag 不一致/);
+  assert.match(text(tree), /github:tjyyy3\/dsh-playground#[a-f0-9]{40}/);
+});
+
+test('the release check RPC budget exceeds five twenty-second host pages', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const panel = await releasePanel(t, (input) => input.check ? new Promise(() => {}) : releaseReply(input));
+  const pending = panel.check();
+  t.mock.timers.tick(100001);
+  await settle();
+  assert.equal(panel.calls[1].signal.aborted, false);
+  assert.equal(panel.checkButton().props.disabled, true);
+  t.mock.timers.tick(20000);
+  await pending;
+  assert.equal(panel.calls[1].signal.aborted, true);
+  assert.equal(panel.checkButton().props.disabled, false);
+  assert.match(text(panel.render()), /超时/);
 });
 
 test('the initial release RPC times out and cannot leave the check button disabled forever', async (t) => {

@@ -11,7 +11,8 @@ export function checkReleaseTag(version, tag, existingTags = []) {
   const target = parseVersion(version);
   for (const previousTag of existingTags) {
     const previous = parseVersion(previousTag.startsWith('v') ? previousTag.slice(1) : previousTag);
-    if (!previous || compareVersions(target, previous) <= 0) {
+    if (!previous) throw new Error(`Existing release tag ${previousTag} is not a valid SemVer version.`);
+    if (compareVersions(target, previous) <= 0) {
       throw new Error(`Release must rank above existing release ${previousTag}.`);
     }
   }

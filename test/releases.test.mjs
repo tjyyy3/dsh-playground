@@ -41,7 +41,11 @@ test('unchecked reads only local versions and host bundles, with distinct source
       fetchImpl: () => assert.fail('unchecked must not access the network') })({ check: false });
     assert.equal(result.status, 'unchecked');
     hints.add(result.sourceHint);
-    if (result.source === 'git_unpinned') assert.match(result.sourceHint, /无法更新.*卸载.*重新安装/);
+    if (result.source === 'git_unpinned' || result.source === 'file') {
+      assert.match(result.sourceHint, /无法更新该来源.*覆盖安装.*仅当返回 already-installed 时才移除后重新安装/);
+      assert.doesNotMatch(result.sourceHint, /先卸载/);
+    }
+    if (result.source === 'file') assert.match(result.sourceHint, /从 GitHub Release 页面复制/);
   }
   assert.equal(hints.size, 6);
   for (const pluginManager of [() => undefined, () => ({ listBundles: () => [] }), () => ({ listBundles() { throw Error('missing'); } })]) {
@@ -133,6 +137,49 @@ test('release results are cached for three minutes without hiding fresh disk inf
   assert.equal(calls, 2);
 });
 
+test('failed and incomplete release checks can retry immediately and only ready results are cached', async () => {
+  let calls = 0;
+  const retry = query({ fetchImpl: async () => {
+    if (++calls === 1) throw Error('temporarily offline');
+    return Response.json([release('1.0.0')]);
+  } });
+  assert.equal((await retry({ check: true })).error, 'failed');
+  assert.equal((await retry({ check: true })).target.version, '1.0.0');
+  assert.equal(calls, 2);
+  await retry({ check: true });
+  assert.equal(calls, 2);
+
+  let pages = 0;
+  const incomplete = query({ fetchImpl: async () => ++pages <= 5
+    ? Response.json([], { headers: { link: '<https://other.test/>; rel="next"' } })
+    : Response.json([release('1.0.0')]) });
+  assert.equal((await incomplete({ check: true })).error, 'incomplete');
+  assert.equal((await incomplete({ check: true })).target.version, '1.0.0');
+  assert.equal(pages, 6);
+});
+
+test('each release page gets its own twenty-second budget independent of earlier pages', async (t) => {
+  const timeouts = [];
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const controller = new AbortController();
+    timeouts.push({ ms, controller });
+    return controller.signal;
+  });
+  let pages = 0;
+  const result = await query({ fetchImpl: async (_url, { signal }) => {
+    pages++;
+    if (pages === 2) {
+      timeouts[0].controller.abort(new DOMException('first page budget elapsed', 'TimeoutError'));
+      assert.equal(signal.aborted, false);
+    }
+    return Response.json([release(`${pages}.0.0`)], pages === 1
+      ? { headers: { link: '<https://other.test/>; rel="next"' } } : {});
+  } })({ check: true });
+  assert.deepEqual(timeouts.map(({ ms }) => ms), [20000, 20000]);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.target.version, '2.0.0');
+});
+
 test('403 and 429 rate limits include reset time and block requests until reset', async () => {
   for (const status of [403, 429]) {
     let time = 1000000;
@@ -166,10 +213,14 @@ test('the shared eight MiB response budget cancels oversized release bodies', as
 test('timeout covers reading the release body and caller cancellation propagates', async () => {
   const keepAlive = setTimeout(() => {}, 1000);
   try {
-    const result = await query({ timeoutMs: 20, fetchImpl: async (_url, { signal }) => new Response(new ReadableStream({
+    let hung = true;
+    const read = query({ timeoutMs: 20, fetchImpl: async (_url, { signal }) => hung ? new Response(new ReadableStream({
       start(controller) { signal.addEventListener('abort', () => controller.error(signal.reason), { once: true }); },
-    })) })({ check: true });
+    })) : Response.json([release('1.0.0')]) });
+    const result = await read({ check: true });
     assert.equal(result.error, 'timeout');
+    hung = false;
+    assert.equal((await read({ check: true })).status, 'ready');
   } finally { clearTimeout(keepAlive); }
   const controller = new AbortController();
   const reason = Error('closed');

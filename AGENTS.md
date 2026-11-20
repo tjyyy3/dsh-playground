@@ -30,10 +30,11 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 - Install from DSH's third-party plugin UI using the pinned Git spec from a
   GitHub Release. The unpinned repository URL still installs, but the host
-  cannot update it. Switching that install to a pinned spec requires removing
-  and reinstalling the plugin. The low-level `plugin_manager` command is a
-  fallback for Creator-mode debugging. This plugin never installs or updates
-  itself. Its read-only version card uses the configured `releaseChannel`.
+  cannot update it. Install the pinned spec over the existing copy; remove
+  and reinstall only if DSH returns `already-installed`. The low-level
+  `plugin_manager` command is a fallback for Creator-mode debugging. This
+  plugin never installs or updates itself. Its read-only version card uses
+  the configured `releaseChannel`.
 - Keep `docs/`, `_scratch/`, `PRODUCT.md`, `.impeccable/`, `node_modules/`, and
   logs out of Git. `docs/` and `_scratch/` are local archive or test residue.
 - Do not put Playground tokens, passwords, credentials, or local absolute paths
@@ -103,4 +104,7 @@ passes authorized material references, and tracks verified attempt IDs and resul
 It does not upload materials or run submission prechecks. Browser cancellation
 recovers stranded requests while retaining their IDs and reconciliation context.
 Historical cards remain readable without executable submission handlers.
+The read-only version card shows running and on-disk versions, install source,
+and Release-derived pinned Git specs. Checks use the configured stable or beta
+channel. DSH owns installation and updates.
 No live runtime verification is implied by the unit tests alone.

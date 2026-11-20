@@ -17,11 +17,12 @@ test('release tags exactly match the package version and only allow stable or be
 test('every previous release participates in monotonic SemVer admission', () => {
   assert.throws(() => checkReleaseTag('0.5.0-beta.99', 'v0.5.0-beta.99', ['v0.5.0-preview.7']));
   assert.equal(checkReleaseTag('0.5.1-beta.1', 'v0.5.1-beta.1', ['v0.5.0-preview.7']), true);
-  for (const previous of ['v1.0.0-beta.10', '1.0.0', 'v2.0.0', 'not-semver']) {
+  for (const previous of ['v1.0.0-beta.10', '1.0.0', 'v2.0.0']) {
     assert.throws(() => checkReleaseTag('1.0.0-beta.2', 'v1.0.0-beta.2', ['v0.1.0', previous]));
   }
   assert.equal(checkReleaseTag('1.0.0-beta.10', 'v1.0.0-beta.10', ['v1.0.0-beta.9']), true);
   assert.throws(() => checkReleaseTag('1.0.0', 'v1.0.0', ['v1.0.0']));
+  assert.throws(() => checkReleaseTag('1.0.0', 'v1.0.0', ['not-semver']), /Existing release tag not-semver is not a valid SemVer version/);
 });
 
 test('Release notes publish the exact commit and paste-ready Git spec', () => {
