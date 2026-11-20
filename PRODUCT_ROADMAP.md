@@ -5,7 +5,7 @@
 > Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
 > Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue and summarized below. Later candidates require separate product review and are not prerequisites for the submission redesign.
 
-Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78), [#81](https://github.com/tjyyy3/dsh-playground/issues/81) and [#90](https://github.com/tjyyy3/dsh-playground/issues/90). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
+Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78) and [#81](https://github.com/tjyyy3/dsh-playground/issues/81). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
 
 Repository status checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: the linked audit implementations and challenge grouping are merged, as recorded in section 6. The source-review baseline above remains the historical evidence for the original findings. Merge status does not mean this documentation review independently reran implementation or target-host tests.
 
@@ -27,7 +27,7 @@ Agent orchestration supports these journeys through existing DSH capabilities. I
 
 - **User control:** an ordinary submission needs one explicit user request or button action. Only the already-agreed quota-sensitive cases need additional confirmation. Preparing materials or finishing a solution does not authorize submission. A model-provided Boolean or an approval result without a verified human source must not be labelled as verified user consent.
 - **Official submission requirements:** the current task Agent chooses the official CLI/API route and necessary preparation, packaging and checks. The plugin does not impose a separate mandatory dry-run, check card, material snapshot or second ordinary confirmation.
-- **Evidence over claims:** use evidence appropriate to the operation, including platform receipts and, where relevant, tests, diffs and artifacts. An Agent execution ending does not establish that a submission was accepted or scored successfully.
+- **Truthful status:** distinguish Agent-reported results, host execution records and official platform receipts. An Agent execution ending does not establish that a submission was accepted or scored successfully.
 - **Task continuity:** preserve the correct task, workspace, account, material references and existing attempt information. Reuse the existing task conversation. Preserve known evidence across restarts and show unknown when reliable evidence is unavailable.
 - **Safe workspace access:** ordinary task materials inside the workspace are the default. External-file grants use the agreed hybrid policy: one logical operation by default, with optional user-selected reuse within the task, scoped by path and purpose and subject to revocation and expiry. Reading permission does not authorize upload. This policy governs the plugin's actual retained file handling and handoff; it does not make the plugin a sandbox for every Agent tool.
 - **Proportionate resource protection:** remove redundant whole-file loading from submission handoff. Protect the API responses the plugin still reads with an appropriate byte budget before full decoding/parsing, as scoped in #78. This is a client resource safeguard, not a competition-material size rule.
@@ -92,35 +92,31 @@ Within the selected workspace's controller task list, organize tasks by challeng
 - Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
 - Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
 
-This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. The C3 control-capability investigation below is separately agreed; new controls, scheduling, artifacts and review remain separate product decisions.
+This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. C3 below records the direction of reusing existing controller capabilities. New controls, scheduling and artifact management remain separate product decisions.
 
-**Agreed control direction — C3 / #90**
+**Agreed control direction — C3**
 
-Prefer the controller's existing DSH tools for stopping a task and relaying additional ideas. [#90](https://github.com/tjyyy3/dsh-playground/issues/90) asks local Codex to establish actual installed versions, configuration and controller-visible tools before proposing new controls.
+Prefer the controller's existing DSH tools for stopping a task and relaying additional ideas. The user will ask local Codex directly, through a prompt, to check installed versions, effective configuration and controller-visible tools. This one-off local check is not a separately tracked development task.
 
 - Check whether the actual controller can request a stop, and distinguish an accepted request from observed task termination. Do not infer availability from a package's default configuration alone.
 - Check message delivery to supported native DSH child sessions, distinguishing message acceptance from the child acting on it.
 - Keep the external Codex boundary explicit: the reviewed DSH adapter runs one external activation, supplies a result record, and does not create a local child conversation or accept follow-up input/resume. Verify the installed adapter rather than treating a message to the controller as a message to that running execution.
 - Starting another external execution after preserving existing work is a new delegation, not a resumed conversation or authorization to submit to the competition.
-- This is an investigation. Do not automatically enable disabled tools, change host configuration, modify adapters or add a stop/retry/reassign button set. Report concrete gaps for a separate decision; a capability report can close #90 without a code PR.
+- The local check does not automatically enable disabled tools, change host configuration, modify adapters or add a stop/retry/reassign button set. Any concrete feature gap can be discussed after the findings are available; the check itself needs no issue or code PR.
 
 **Candidate follow-ups**
 
 1. Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
 2. Task dependencies and bounded parallelism.
 3. Artifact collection and provenance.
-4. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
-5. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
 
-Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping. #90 investigates controller capabilities before any separate decision about new task controls.
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping. Local controller-tool availability is checked through a direct prompt before any separate decision about new task controls.
 
-**Suggested task lifecycle, pending product review**
+**Result presentation — C4 removed as a separate feature**
 
-`created → queued → running → awaiting_review → completed`
+Keep the existing result display. Agents may organize their reports according to the task and include explanations, failures, alternatives or next steps; the controller can ask for clarification when needed. The plugin does not require a fixed three-part report or reduce returned results to those fields. No separate completion-review panel, review state or additional submission gate is planned under C4.
 
-Alternative states: `failed`, `cancelled`, `blocked`, `unknown`.
-
-`awaiting_review` is optional for tasks that need a separate review; it is not a required stage for every submission. Completion labels must describe the verified task outcome, rather than being inferred from a missing process or notification. An Agent's execution status and the platform's submission/scoring status remain separate.
+Retain the existing distinction between Agent execution status and the platform's submission/scoring status. Use available host and platform records for their respective states, and preserve unknown when evidence is insufficient. An Agent's report is not labelled as an independent plugin verification.
 
 ### C. Author workflow
 
@@ -224,8 +220,6 @@ The linked issues define agreed scope and acceptance. Candidate priorities below
 | P2 | Bounded API response consumption and credential-free bases | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) merged; #78/#79 closed; response safeguards do not set material limits |
 | P1 | Participant history and workflow-state clarity | Core receipt migration delivered in #88; further history UI remains a candidate |
 | P1 | Challenge-grouped tasks, results and existing conversation entry points | [#89](https://github.com/tjyyy3/dsh-playground/pull/89) merged; #81 closed |
-| P1 | C3: reuse controller stop/message capabilities | Agreed investigation: [#90](https://github.com/tjyyy3/dsh-playground/issues/90); verify local availability and provider limits before deciding on new controls |
-| P1 | Evidence-based completion review | Candidate; match evidence to the task |
 | P2 | Artifact registry and Worktree isolation | Candidate; improve parallel work and review |
 | P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |
 | P3 | Organizer workflow MVP | Candidate; verify permissions and lifecycle contracts |
@@ -239,7 +233,6 @@ Measure product outcomes rather than number of tools:
 - Submission duplicate rate and ambiguous-outcome recovery rate, with actual platform receipts as evidence.
 - Percentage of task status displays supported by available DSH evidence, and preservation of known end reasons across reload/restart.
 - Unknown task states reported separately and accurately; do not improve a completion metric by guessing a terminal state.
-- Percentage of Agent completion claims backed by the appropriate test / diff / artifact / platform evidence when those review capabilities are available.
 - Time from challenge selection to a usable deliverable and to a traceable submission.
 - For future authoring and organizer features: package-preflight outcomes and actions completed without permission or lifecycle errors.
 - User-reported confusion around task state, identity and submission authorization.
