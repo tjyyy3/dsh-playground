@@ -92,7 +92,7 @@ Within the selected workspace's controller task list, organize tasks by challeng
 - Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
 - Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
 
-This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. C3 below records the direction of reusing existing controller capabilities. New controls, scheduling and artifact management remain separate product decisions.
+This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. C3 and C5 below record the direction of reusing existing controller and host capabilities. New controls and artifact management remain separate product decisions.
 
 **Agreed control direction — C3**
 
@@ -103,8 +103,7 @@ Keep request acceptance distinct from actual task termination or processing of a
 **Candidate follow-ups**
 
 1. Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
-2. Task dependencies and bounded parallelism.
-3. Artifact collection and provenance.
+2. Artifact collection and provenance.
 
 Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping.
 
@@ -113,6 +112,10 @@ Baseline references: [existing controller list, details and session links](https
 Keep the existing result display. Agents may organize their reports according to the task and include explanations, failures, alternatives or next steps; the controller can ask for clarification when needed. The plugin does not require a fixed three-part report or reduce returned results to those fields. No separate completion-review panel, review state or additional submission gate is planned under C4.
 
 Retain the existing distinction between Agent execution status and the platform's submission/scoring status. Use available host and platform records for their respective states, and preserve unknown when evidence is insufficient. An Agent's report is not labelled as an independent plugin verification.
+
+**Agreed task coordination — C5**
+
+The controller coordinates task order and parallel work using existing DSH capabilities. Reuse the host's supported child-task capacity limits. No independent plugin queue or dependency scheduler is planned; natural-language task arrangements do not constitute program-enforced dependency rules.
 
 ### C. Author workflow
 
