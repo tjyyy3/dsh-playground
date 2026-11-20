@@ -2,7 +2,7 @@
 
 ## Project
 
-This repository contains the `@playground/dsh-playground` Host/Client plugin. It
+This repository contains the `dsh-playground` Host/Client plugin. It
 adds Playground challenge discovery, task sessions, Agent submission requests, and result cards to DSH. The product name is Playground Workbench.
 
 ## Run and verify
@@ -10,8 +10,8 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 - Requires Node.js 24 or newer.
 - Install development dependencies with `npm ci`.
 - Run the offline test suite with `npm test`.
-- CI (`.github/workflows/test.yml`) runs `npm test` on Windows and macOS with
-  Node 24 and 26 for pull requests and pushes to `main`. CI sets
+- CI (`.github/workflows/test.yml`) runs `npm test` on Windows, macOS and Linux
+  with Node 24 and 26 for pull requests and pushes to `main`. CI sets
   `PLAYGROUND_API_BASE` to an unreachable address, so tests must not depend on
   the default base URL: inject a fake client or pass `baseUrl` and `fetchImpl`,
   and set and restore `PLAYGROUND_API_BASE` inside any test that needs it.
@@ -28,13 +28,22 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Repository boundaries
 
-- Install from DSH's third-party plugin UI with the repository URL. The host
-  cannot update an unpinned Git install, so updates install the pinned Git
-  spec that the version card copies from a GitHub Release over the existing
-  copy; remove and reinstall only if DSH returns `already-installed`. The low-level
-  `plugin_manager` command is a fallback for Creator-mode debugging. This
-  plugin never installs or updates itself. Its read-only version card uses
-  the configured `releaseChannel`.
+- Install from DSH's third-party plugin UI with the npm spec `dsh-playground@beta`
+  (`dsh-playground` once a stable release exists). DSH does not update
+  third-party npm plugins and refuses a registry spec whose name is already
+  installed, so npm updates remove the plugin and install the spec again; the
+  profile config overrides survive. The repository URL is the fallback: Git
+  updates install the pinned Git spec that the version card copies from a
+  GitHub Release over the existing copy; remove and reinstall only if DSH
+  returns `already-installed`. Installs before 0.6.0 use the old package name
+  `@playground/dsh-playground`; migrating means removing it before installing
+  `dsh-playground`, never keeping both. The low-level `plugin_manager` command
+  is a fallback for Creator-mode debugging. This plugin never installs or
+  updates itself. Its read-only version card uses the configured
+  `releaseChannel`.
+- Publishing the GitHub Release draft triggers `.github/workflows/publish.yml`,
+  which publishes to npm through trusted publishing (`beta` dist-tag for
+  `-beta.N`, `latest` otherwise). Do not add an npm token.
 - Keep `docs/`, `_scratch/`, `PRODUCT.md`, `.impeccable/`, `node_modules/`, and
   logs out of Git. `docs/` and `_scratch/` are local archive or test residue.
 - Do not put Playground tokens, passwords, credentials, or local absolute paths
@@ -97,7 +106,7 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Current state
 
-Version `0.5.1-beta.1`, the first Release under the `beta.N` policy.
+Version `0.6.0-beta.1`, the first version published to npm as `dsh-playground`.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.
@@ -105,6 +114,7 @@ It does not upload materials or run submission prechecks. Browser cancellation
 recovers stranded requests while retaining their IDs and reconciliation context.
 Historical cards remain readable without executable submission handlers.
 The read-only version card shows running and on-disk versions, install source,
-and Release-derived pinned Git specs. Checks use the configured stable or beta
-channel. DSH owns installation and updates.
+the npm dist-tag spec for npm installs, and Release-derived pinned Git specs for
+Git installs. Checks use the configured stable or beta channel. DSH owns
+installation and updates.
 No live runtime verification is implied by the unit tests alone.

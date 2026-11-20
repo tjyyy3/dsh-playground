@@ -52,6 +52,27 @@ test('workflow validates input before checkout and drafts only pinned commit met
   assert.doesNotMatch(testWorkflow, /release:pack|package-release/);
 });
 
+test('publish workflow publishes a released commit once with provenance and the matching dist-tag', () => {
+  const read = (name) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const workflow = read('publish.yml');
+  assert.match(workflow, /^on:\n  release:\n    types: \[published\]\n\n/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n  id-token: write\n\n/m);
+  assert.equal(workflow.match(/permissions:/g).length, 1);
+  const actions = [...workflow.matchAll(/uses: ([^\s]+)/g)].map((match) => match[1]);
+  assert.ok(actions.length > 0);
+  for (const action of actions) assert.match(action, /@[0-9a-f]{40}$/);
+  assert.match(workflow, /== \*-beta\.\* \]\]; then tag=beta; expected=true; else tag=latest; expected=false; fi/);
+  const publish = workflow.indexOf('npm publish --provenance --access public --tag "$DIST_TAG"');
+  for (const step of ['npm view "dsh-playground@$version" version', 'skipping publish', "grep -q 'E404'",
+    'npm view dsh-playground "dist-tags.$DIST_TAG"', 'compareVersions(next, current) > 0', 'refusing to move it back']) {
+    const index = workflow.indexOf(step);
+    assert.ok(index > 0 && index < publish, step);
+  }
+  assert.ok(workflow.indexOf('skipping publish') < workflow.indexOf('"dist-tags.$DIST_TAG"'));
+  assert.match(workflow, /runs-on: ubuntu-latest/);
+  for (const name of ['test.yml', 'release.yml']) assert.match(read(name), /os: \[[^\]]*ubuntu-latest[^\]]*\]/, name);
+});
+
 test('manifest version is releasable and ships compatibility metadata with the host floor', () => {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const compatibility = JSON.parse(readFileSync(new URL('../compatibility.json', import.meta.url), 'utf8'));

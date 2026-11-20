@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@playground/dsh-playground',
+  id: 'dsh-playground',
   factory(require) {
     const React = require('react');
     const { Modal } = require('@deepseek-ai/dsh-client-ui-primitives');
@@ -757,6 +757,9 @@ window.__ModuleLoader__.load({
       const canReadNotes = notesUrl?.startsWith('https://');
       const gitSource = ['git_pinned', 'git_unpinned'].includes(info?.source);
       const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
+      const registrySource = info?.source === 'registry';
+      const installSpec = gitSource ? gitSpec : registrySource && target ? `dsh-playground@${target.version}` : null;
+      const specLabel = gitSource ? 'Git spec' : 'npm spec';
       const rateLimited = release.error === 'rate_limited';
       const errorText = {
         info_timeout: '读取本地版本信息超时。请稍后重试。',
@@ -796,12 +799,13 @@ window.__ModuleLoader__.load({
         target ? h(React.Fragment, null,
           release.incomplete ? h('p', { className: 'pg-note' }, '发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。') : null,
           canReadNotes ? h('a', { className: 'pg-button pg-release-link', href: notesUrl, target: '_blank', rel: 'noopener noreferrer' }, '发布说明') : null,
-          gitSource && gitSpec ? h(React.Fragment, null,
-            h('code', { className: 'pg-release-spec' }, gitSpec),
+          installSpec ? h(React.Fragment, null,
+            h('code', { className: 'pg-release-spec' }, installSpec),
             h('button', { type: 'button', className: 'pg-button', onClick: async () => {
-              try { await navigator.clipboard.writeText(gitSpec); setCopyStatus('已复制 Git spec'); }
-              catch { setCopyStatus('无法复制，请选择上方 Git spec 后复制。'); }
-            } }, '复制 Git spec'), h('span', { role: 'status', className: 'pg-note' }, copyStatus)) : null,
+              try { await navigator.clipboard.writeText(installSpec); setCopyStatus(`已复制 ${specLabel}`); }
+              catch { setCopyStatus(`无法复制，请选择上方 ${specLabel} 后复制。`); }
+            } }, `复制 ${specLabel}`), h('span', { role: 'status', className: 'pg-note' }, copyStatus)) : null,
+          registrySource ? h('p', { className: 'pg-note' }, `也可填 ${target.prerelease ? 'dsh-playground@beta' : 'dsh-playground'} 安装此渠道当前最新版本。`) : null,
           gitSource && !gitSpec ? h('p', { className: 'pg-note' }, '此 Release 未提供完整 commit SHA，无法生成固定 Git spec。') : null) : null);
     }
 

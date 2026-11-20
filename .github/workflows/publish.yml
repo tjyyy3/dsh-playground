@@ -1,0 +1,86 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYGROUND_API_BASE: http://127.0.0.1:9
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+      RELEASE_BODY: ${{ github.event.release.body }}
+    steps:
+      - name: Validate tag before checkout
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-beta\.(0|[1-9][0-9]*))?$ ]]; then
+            echo 'Expected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-beta.N.'
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Validate release target and choose dist-tag
+        id: target
+        shell: bash
+        run: |
+          node scripts/validate-release.mjs
+          sha="$(git rev-parse HEAD)"
+          test "$sha" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor "$sha" origin/main
+          grep -qxF "Commit: $sha" <<< "${RELEASE_BODY//$'\r'/}"
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then tag=beta; expected=true; else tag=latest; expected=false; fi
+          test "$RELEASE_PRERELEASE" = "$expected"
+          echo "dist-tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Ensure npm supports trusted publishing
+        shell: bash
+        run: |
+          npm --version
+          node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm --version)" || npm install -g npm@^11.5.1
+          npm --version
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Publish
+        shell: bash
+        env:
+          DIST_TAG: ${{ steps.target.outputs.dist-tag }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if found="$(npm view "dsh-playground@$version" version 2> "$RUNNER_TEMP/npm-view.err")"; then
+            if [[ "$found" == "$version" ]]; then
+              echo "dsh-playground@$version is already on npm; skipping publish."
+              exit 0
+            fi
+            test -z "$found"
+          elif ! grep -q 'E404' "$RUNNER_TEMP/npm-view.err"; then
+            cat "$RUNNER_TEMP/npm-view.err"
+            exit 1
+          fi
+          if current="$(npm view dsh-playground "dist-tags.$DIST_TAG" 2> "$RUNNER_TEMP/npm-tag.err")"; then
+            if [[ -n "$current" ]] && ! node --input-type=module -e 'import { parseVersion, compareVersions } from "./lib/releases.js"; const [next, current] = process.argv.slice(1).map(parseVersion); process.exit(next && current && compareVersions(next, current) > 0 ? 0 : 1)' "$version" "$current"; then
+              echo "dist-tag $DIST_TAG points to dsh-playground@$current, which is not lower than $version; refusing to move it back."
+              exit 1
+            fi
+          elif ! grep -q 'E404' "$RUNNER_TEMP/npm-tag.err"; then
+            cat "$RUNNER_TEMP/npm-tag.err"
+            exit 1
+          fi
+          npm publish --provenance --access public --tag "$DIST_TAG"

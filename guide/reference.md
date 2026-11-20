@@ -508,8 +508,8 @@ plugin_manager action=install_bundle target=<absolute-path-to-dsh-playground>
 ```
 
 The bundle patch adds the `playground-competition` row with package name
-`@playground/dsh-playground` and default API base `https://play.bohrium.com`.
-The package is marked private in `package.json`. DSH installs it for the
+`dsh-playground` and default API base `https://play.bohrium.com`.
+Releases are published to npm as `dsh-playground`. DSH installs it for the
 current profile. In Creator mode, uninstall it with
 `plugin_manager action=remove_bundle` or disable the bundle in DSH.
 

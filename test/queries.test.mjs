@@ -140,7 +140,7 @@ test('session-free login accepts only the account email and never a password', a
     login: async (email, exec) => { calls.push([email, exec]); return { ok: true, authenticated: true, user: undefined }; },
   });
   const descriptor = contribution.invocations.find((item) => item.method === 'login');
-  assert.equal(descriptor.id, '@playground/dsh-playground#playgroundQueries/login');
+  assert.equal(descriptor.id, 'dsh-playground#playgroundQueries/login');
   const schema = descriptor.parameters[0].codec.create();
   const signal = new AbortController().signal;
   assert.deepEqual(await services.get('playgroundQueries').login(schema.parse({ email: ' a@example.test ' }), signal), { ok: true, authenticated: true });
