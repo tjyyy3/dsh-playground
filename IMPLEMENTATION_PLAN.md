@@ -21,7 +21,7 @@ The historical source baseline contains the old flow; #88 replaces it. Keep `AGE
 
 Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities; C6 and Tracks D-E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. Tracks D-E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -89,14 +89,14 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 
 ### Track C — Task organization and further collaboration
 
-C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existing controller capabilities, with no new controls committed. C4 is removed as a standalone feature. C5 is an agreed direction to reuse controller coordination and host capacity limits. C6 remains a candidate for separate product review; item numbers are retained.
+C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existing controller capabilities, with no new controls committed. C4 is removed as a standalone feature. C5 is an agreed direction to reuse controller coordination and host capacity limits. C6 is an agreed direction to retain existing results/material references and coordinate file assignments without new management infrastructure; item numbers are retained.
 
 | Item | Scope | Status / implementation question |
 |---|---|---|
 | C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Delivered: [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81); preserve explicit challenge association and existing records |
 | C3 | Reuse controller stop/message capabilities | Agreed direction; use supported host/provider operations, with no new control UI planned |
 | C5 | Controller-coordinated task order and parallel work, using DSH capacity limits | Agreed direction; no independent plugin queue or dependency scheduler planned |
-| C6 | Artifact registry and optional Worktree isolation | which artifact identities/conflicts justify the added infrastructure? |
+| C6 | Existing results/material references and task-appropriate directory or Worktree use | Agreed direction; no independent artifact registry or plugin-managed Worktree lifecycle planned |
 
 **C1 requirements**
 
@@ -118,6 +118,12 @@ Keep the existing result display and let the Agent choose the content, detail an
 **C5: reuse controller coordination and host limits**
 
 Let the controller arrange task order and parallel work using existing DSH delegation and result handling. Reuse the host's supported child-task capacity limits. Do not add a separate plugin queue, persistent dependency graph or scheduler; instructions to the controller are not program-enforced dependency rules.
+
+**C6: reuse results and material references**
+
+Keep existing result displays and authorized material references. Let the controller coordinate file assignments and let executors use separate directories or Git worktrees when appropriate. No independent artifact registry or automatic plugin-owned worktree creation, merging or cleanup is planned.
+
+Directory or worktree organization does not replace file-access authorization. Do not restore whole-file reads, hashes, ZIP scans or an extra review stage to populate an artifact inventory. A path reference does not certify file contents or an immutable version.
 
 #74/#88 own essential submission-result clarity and preservation of existing history/score/quota behavior; B4 must not duplicate them. C1 uses existing controller tasks and supported session associations. Keep Agent reports, host execution state and official platform results distinguishable, and preserve unknown where reliable state evidence is unavailable.
 
@@ -202,7 +208,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 
 1. Build on the merged implementations recorded below. Do not reopen or reimplement closed work solely because an older planning paragraph still described it as pending.
 2. Preserve the validation limits recorded in implementation PRs. The historical AUD-003 production-session bypass remains unproven; a documentation status update supplies no new production-path evidence.
-3. Review C6, further participant history, author/organizer/community choices and file-splitting scope separately; record the selected scope before implementation.
+3. Review further participant history, author/organizer/community choices and file-splitting scope separately; record the selected scope before implementation.
 4. Keep the audit and status table aligned with repository delivery and actual evidence.
 
 ## 6. Status tracking
@@ -217,7 +223,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | B2 Windows CLI cleanup | Merged with follow-up; #17/#85 closed | [#82](https://github.com/tjyyy3/dsh-playground/pull/82) / [#87](https://github.com/tjyyy3/dsh-playground/pull/87) | See reported Windows checks and lifecycle boundaries; no claim to supervise every Agent process |
 | B5 API response budgets / credential-free bases | Merged; #78/#79 closed | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) | Preserve response-byte budgets and secret-free base validation |
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
-| B4/C6 product extensions | Candidates; further review needed | — | Product decisions and host semantics |
+| B4 participant-history extensions | Candidate; further review needed | — | Product decisions and required scope |
 | D1-D5 file splitting | Candidate engineering plan | — | Retained boundaries and chosen scope |
 | E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 

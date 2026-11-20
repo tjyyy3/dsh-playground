@@ -92,7 +92,7 @@ Within the selected workspace's controller task list, organize tasks by challeng
 - Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
 - Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
 
-This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. C3 and C5 below record the direction of reusing existing controller and host capabilities. New controls and artifact management remain separate product decisions.
+This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. C3, C5 and C6 below record the direction of reusing existing controller, host and material-reference capabilities. Further task controls remain separate product decisions.
 
 **Agreed control direction — C3**
 
@@ -100,10 +100,9 @@ Prefer the controller's existing DSH tools for stopping a task and relaying addi
 
 Keep request acceptance distinct from actual task termination or processing of a message. For a provider without follow-up input support, a message to the controller does not reach an already-running external execution. Starting a new execution does not authorize a competition submission.
 
-**Candidate follow-ups**
+**Candidate follow-up**
 
-1. Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
-2. Artifact collection and provenance.
+Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
 
 Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping.
 
@@ -116,6 +115,12 @@ Retain the existing distinction between Agent execution status and the platform'
 **Agreed task coordination — C5**
 
 The controller coordinates task order and parallel work using existing DSH capabilities. Reuse the host's supported child-task capacity limits. No independent plugin queue or dependency scheduler is planned; natural-language task arrangements do not constitute program-enforced dependency rules.
+
+**Agreed file organization — C6**
+
+Reuse existing task results and authorized material references. The controller coordinates file assignments; executors may use separate directories or Git worktrees when appropriate. These choices organize working files and do not replace access authorization.
+
+An independent artifact registry and automatic plugin-managed worktree creation, merging or cleanup are not planned. Do not restore material scanning, whole-file reading or hashing to populate a file inventory; material references do not certify a file's contents or version.
 
 ### C. Author workflow
 
@@ -188,7 +193,6 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 | API client | Keep plugin read/query operations; enforce remote HTTPS with the documented local-development exception (#76), and bounded response consumption (#78) |
 | CLI runner | Handle arguments, timeouts and cancellation for processes the plugin itself starts, including retained login and version/update checks; preserve the Windows cleanup delivered by #82/#87 for #17/#85 without claiming control over all Agent terminal processes |
 | Task projections and observation | Reuse DSH identity, persisted notices and supported state information; preserve end reasons and retain unknown where appropriate (#77) |
-| Artifact registry, candidate | Record producing task, references and review evidence if separately approved; do not make whole-file hashing or a registry a prerequisite for submission |
 | Receipts and result tracking | Associate actual attempt IDs, report platform state and preserve evidence needed to investigate ambiguous outcomes (#74) |
 | Audit evidence | Reuse appropriate host events and operation records without secrets; distinguish observed user interaction, configured approval outcomes and unverified claims |
 
@@ -197,7 +201,7 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 Keep the existing top-level Playground areas, but clarify the task context:
 
 - **赛题:** browse challenges, competitions and seasons.
-- **工作:** current challenge tasks, controller, child agents and artifacts.
+- **工作:** current challenge tasks, controller, child agents, existing results and material references.
 - **提交:** attempts, scorecards, quota and submission receipts.
 - **出题:** authoring and task-package workflow.
 - **比赛管理:** organizer workflows.
@@ -219,7 +223,6 @@ The linked issues define agreed scope and acceptance. Candidate priorities below
 | P2 | Bounded API response consumption and credential-free bases | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) merged; #78/#79 closed; response safeguards do not set material limits |
 | P1 | Participant history and workflow-state clarity | Core receipt migration delivered in #88; further history UI remains a candidate |
 | P1 | Challenge-grouped tasks, results and existing conversation entry points | [#89](https://github.com/tjyyy3/dsh-playground/pull/89) merged; #81 closed |
-| P2 | Artifact registry and Worktree isolation | Candidate; improve parallel work and review |
 | P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |
 | P3 | Organizer workflow MVP | Candidate; verify permissions and lifecycle contracts |
 | P3 | Discussion, sharing and advanced reports | Candidate; lower-priority community features |
