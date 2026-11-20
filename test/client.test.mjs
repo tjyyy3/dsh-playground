@@ -5047,7 +5047,9 @@ const releaseReply = (input, fields = {}) => ({ ok: true, value: { ...runningRel
 
 test('release settings are read-only, display running and disk versions, and copy the Release pinned spec', async (t) => {
   const target = releaseTarget('0.4.4');
-  const panel = await releasePanel(t, (input) => releaseReply(input, input.check ? { target, comparison: 'downgrade' } : {}));
+  const nextTarget = releaseTarget('0.4.5', { gitSpec: `github:tjyyy3/dsh-playground#${'b'.repeat(40)}` });
+  let checks = 0;
+  const panel = await releasePanel(t, (input) => releaseReply(input, input.check ? { target: ++checks === 1 ? target : nextTarget, comparison: 'downgrade' } : {}));
   assert.deepEqual(panel.calls.map(({ method, input }) => [method, input]), [['playgroundQueries/query', { action: 'releases', check: false }]]);
   assert.equal(panel.find(panel.render(), (node) => node.type === 'select'), undefined);
   assert.match(text(panel.render()), /当前运行版本\s+0\.5\.0-preview\.7\s+· Beta/);
@@ -5072,6 +5074,10 @@ test('release settings are read-only, display running and disk versions, and cop
   assert.deepEqual(copied, [target.gitSpec]);
   assert.deepEqual(panel.calls.map(({ method, input }) => [method, input.check]), [['playgroundQueries/query', false], ['playgroundQueries/query', true]]);
   assert.equal(panel.writes.length, 0);
+  assert.match(text(panel.render()), /已复制 Git spec/);
+  await panel.check();
+  assert.ok(text(panel.render()).includes(nextTarget.gitSpec));
+  assert.doesNotMatch(text(panel.render()), /已复制 Git spec/);
 });
 
 test('release settings read the beta channel from host config without browser persistence', async (t) => {
@@ -5163,7 +5169,7 @@ test('the release check RPC budget exceeds five twenty-second host pages', async
   await pending;
   assert.equal(panel.calls[1].signal.aborted, true);
   assert.equal(panel.checkButton().props.disabled, false);
-  assert.match(text(panel.render()), /超时/);
+  assert.match(text(panel.render()), /检查发布版本超时/);
 });
 
 test('the initial release RPC times out and cannot leave the check button disabled forever', async (t) => {
@@ -5175,7 +5181,8 @@ test('the initial release RPC times out and cannot leave the check button disabl
   await settle();
   assert.equal(panel.calls[0].signal.aborted, true);
   assert.equal(panel.checkButton().props.disabled, false);
-  assert.match(text(panel.render()), /超时/);
+  assert.match(text(panel.render()), /读取本地版本信息超时/);
+  assert.doesNotMatch(text(panel.render()), /检查发布版本超时|GitHub/);
   await panel.check();
   hung.resolve(releaseReply({ check: false }, { currentVersion: 'stale' }));
   await settle();

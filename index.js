@@ -807,7 +807,13 @@ function createGetAttemptTool(client) {
 export function apply(ctx, config) {
   const settings = normalizeSettings(config);
   const releaseQuery = createReleaseQuery({ channel: settings.releaseChannel,
-    pluginManager: () => ctx.get?.('pluginManager') });
+    pluginManager: () => {
+      try {
+        const manager = ctx.get?.('pluginManager');
+        if (manager !== undefined) return manager;
+      } catch {}
+      return ctx.pluginManager;
+    } });
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
     baseUrl: settings.baseUrl,

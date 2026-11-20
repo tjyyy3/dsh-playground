@@ -284,7 +284,7 @@ test('#25: playground_bind_task binds the calling conversation through its tool 
 
 
 // `stateOf` must read the calling agent's session with a registered projection key.
-function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials, approval, controllerMarker = null } = {}) {
+function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', credentials, approval, controllerMarker = null, host = {} } = {}) {
   const tools = [];
   const contexts = [];
   const session = { id: 'synthetic-session' };
@@ -311,10 +311,22 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   };
   // DSH's optional approval service is read with ctx.get('approval') when playground_submit runs.
   const services = { credentials, approval };
-  apply({ tools: scope.tools, get: (key) => (Object.hasOwn(services, key) ? services[key] : undefined), inject: (_services, callback) => callback(scope) }, config);
+  apply({ tools: scope.tools, get: (key) => (Object.hasOwn(services, key) ? services[key] : undefined), inject: (_services, callback) => callback(scope), ...host }, config);
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
   return { tools, contexts, scope, session, exec, commands, services };
 }
+
+test('release install-source reads prefer ctx.get and fall back to the context property', async () => {
+  const registered = { listBundles: () => [{ name: '@playground/dsh-playground', update: 'registry' }] };
+  const property = { listBundles: () => [{ name: '@playground/dsh-playground', source: 'link:../plugin' }] };
+  for (const [get, expected] of [[() => registered, 'registry'], [() => undefined, 'link'],
+    [() => { throw Error('service accessor unavailable'); }, 'link'], [undefined, 'link']]) {
+    const { scope } = mountWorkflowScope(workflowProjection.init(), { host: {
+      get: get ? (name) => name === 'pluginManager' ? get() : undefined : undefined, pluginManager: property,
+    } });
+    assert.equal((await scope.provided.playgroundQueries.query({ action: 'releases', check: false })).source, expected);
+  }
+});
 
 test('controller association tool saves checked child identity through presentation metadata only', async (t) => withSyntheticPlatform(async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'playground-association-'));

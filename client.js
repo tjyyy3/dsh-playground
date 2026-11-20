@@ -714,6 +714,7 @@ window.__ModuleLoader__.load({
       const [latest] = React.useState(() => ({ controller: null }));
       const cancel = () => { latest.controller?.abort(); latest.controller = null; };
       const load = async (check) => {
+        setCopyStatus('');
         cancel();
         const controller = new AbortController();
         latest.controller = controller;
@@ -734,7 +735,8 @@ window.__ModuleLoader__.load({
             target: next.target ?? release.target, comparison: next.comparison ?? release.comparison,
             warnings: next.warnings ?? release.warnings });
         } catch (error) {
-          if (latest.controller === controller) setRelease({ ...release, status: 'unavailable', error: error?.message === 'release_rpc_timeout' ? 'timeout' : 'failed' });
+          if (latest.controller === controller) setRelease({ ...release, status: 'unavailable',
+            error: error?.message === 'release_rpc_timeout' ? check ? 'timeout' : 'info_timeout' : 'failed' });
         } finally {
           clearTimeout(timer);
         }
@@ -757,6 +759,7 @@ window.__ModuleLoader__.load({
       const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
       const rateLimited = release.error === 'rate_limited';
       const errorText = {
+        info_timeout: '读取本地版本信息超时。请稍后重试。',
         timeout: '检查发布版本超时。请稍后检查。',
         rate_limited: `GitHub 请求额度已用完。额度恢复时间为 ${release.resetAt || '未知'}，恢复前不会再次请求。`,
         failed: '无法读取发布版本。请检查网络后稍后检查。',

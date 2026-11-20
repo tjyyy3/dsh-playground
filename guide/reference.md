@@ -713,6 +713,7 @@ The row accepts:
 | `cliPath` | `playground` | Installed Playground CLI executable used for login and update checks |
 | `credentialsPath` | CLI default | Optional `PLAYGROUND_CREDENTIALS_PATH`-style credentials file override |
 | `cliTimeoutMs` | `120000` | Maximum duration for one CLI login (at most `2147483647`), followed by up to 5 s of shutdown |
+| `releaseChannel` | `stable` | Release channel checked by the version card. `stable` selects the highest normal release; `beta` includes prereleases |
 | `token` | — | Playground token override; it wins over every other source, including a token saved in the workbench. Prefer the workbench token login |
 
 The API base also falls back to `PLAYGROUND_API_BASE`, matching the CLI.
