@@ -10,7 +10,7 @@ See the [README](../README.md) to install the plugin and try the workspace contr
 | `playground_get_attempt` | Read one submission's status, score, scoring state, and scorecard | `GET /api/attempts/{id}` |
 | `playground_list_competitions` | List visible competitions/seasons with lifecycle status and deadlines | `GET /api/hackathon/seasons` |
 | `playground_get_competition` | Read a competition's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
-| `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/me/attempts` |
+| `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/user-submissions` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
 | `playground_open_controller` | Find a registered workspace's controller and offer to open its conversation | DSH session/workspace services |
 | `playground_set_controller` | Explicitly set the current ordinary conversation as the workspace controller | DSH session/workspace services |
@@ -368,7 +368,7 @@ receipt (a `results` query) in `bundleClosedIds`, so an earlier submission of
 the task keeps the label after a newer submission and after a reload. A
 closure seen only by the workbench's polling is held in memory, so after a
 reload an earlier submission's row shows it again only once a query has read
-it. The submission history comes from `/me/attempts`, which has
+it. The submission history comes from `/user-submissions`, which has
 no such marker, so a history row of a submission made outside this task shows
 the platform's generic failure. The platform does not re-evaluate such a
 submission. The Agent must read its current state and follow the official recovery protocol. A new submission still needs an explicit user request.
@@ -658,8 +658,7 @@ claim of consent do not constitute a request. The old submission tools and
 
 Before execution, read `playground_task status` and state
 `submitPolicy.announcement`. The policy includes today's counts for the
-signed-in account and confirmed Agent accounts, using the Beijing day.
-Counts can be partial when private Agent submissions are not visible.
+signed-in account, using the Beijing day. The plugin filters platform history by author and challenge, then deduplicates by attempt ID. Missing quota flags leave quota usage unknown.
 
 A statement limit, an already counted submission today or a recorded HTTP 429
 requires an additional user answer. For workbench requests, the workbench waits until the user chooses to continue or cancel. For a submission requested in the conversation, an explicit additional user answer in that conversation also counts. The Agent must not invent that answer. The confirmation belongs only to
@@ -779,8 +778,8 @@ platform.
   map to the platform's hackathon season endpoints; visibility and lifecycle
   come from the server. The workbench's competition selector is different: it
   uses the built-in table described above, plus the seasons that endpoint lists.
-- Personal history uses `/api/me/attempts`, not a client-side filter over public
-  submissions. Its `nextCursor` must be used with unchanged `challenge_id` and
+- Personal history uses `/api/user-submissions`, not a client-side filter over public
+  submissions. The plugin pages the returned array locally. Its `nextCursor` must be used with unchanged `challenge_id` and
   `status` filters. Empty results are an empty page, not an authentication prompt.
 - The DSH credential store is supported. Prefer it or the inherited environment
   over a plaintext token in the patch; no token is written into
