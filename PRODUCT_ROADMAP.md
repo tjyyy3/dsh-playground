@@ -196,6 +196,10 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 | Receipts and result tracking | Associate actual attempt IDs, report platform state and preserve evidence needed to investigate ambiguous outcomes (#74) |
 | Audit evidence | Reuse appropriate host events and operation records without secrets; distinguish observed user interaction, configured approval outcomes and unverified claims |
 
+### Engineering structure
+
+The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) proposes one Host/Client package with feature-based modules, explicit state owners and gradual extraction behind existing interfaces. It maps current code to target locations and records the Client bundle/publishing contract. This engineering draft does not approve additional product features, navigation or runtime changes. The product areas above describe user workflows; they do not mandate one new service or directory per area.
+
 ## 5. Suggested workbench information architecture
 
 Keep the existing top-level Playground areas, but clarify the task context:

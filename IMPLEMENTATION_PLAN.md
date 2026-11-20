@@ -21,7 +21,7 @@ The historical source baseline contains the old flow; #88 replaces it. Keep `AGE
 
 Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. D1 retains the existing material-access module without a standalone extraction. D2-D5 and Track E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. D1 retains the existing material-access module without a standalone extraction. D2-D5 share the researched architecture draft in Track D and remain subject to scope review. Track E retains candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -129,21 +129,154 @@ Directory or worktree organization does not replace file-access authorization. D
 
 ### Track D — Incremental file splitting
 
-Keep file splitting in the engineering plan, after the responsibilities of retained code are clear.
+#### Overall architecture draft
 
-| Item | Refactoring scope | Boundary to preserve |
+**Status: research-backed proposal for discussion, not an approved runtime migration.** D1 remains agreed: retain the existing material-access module without a standalone split. D2-D5 now share the target structure and migration plan below; their implementation scope still needs review.
+
+The architecture review uses plugin main `46dacaf4579e825a26657dab135db76fe7184c5a` (package `dsh-playground`, `0.6.0-beta.1`) and the official DSH `0.2.1-rc.5` source `b830ec950faba0a46dda564be3e2d854afed94f1` for the Client bundle contract. This is a separate current-code snapshot from the historical audit baseline. The review read source and existing tests; it did not build a new bundle, run tests, install a package or verify a live Host.
+
+**Recommendation:** keep one Host/Client plugin package, organize growing feature code into a few directories, retain already coherent modules, and make entry points assemble those modules. Success means that a change is easy to locate, has a limited effect on other features, and can be verified through existing interfaces. File count and a fixed lines-per-file limit are not goals.
+
+##### Design criteria and research basis
+
+| Criterion | Application to this plugin | Basis |
 |---|---|---|
-| D1 | Retain the existing material-access module; adjust small reference adapters with D2 only as needed | no standalone split planned; preserve path and authorization behavior |
-| D2 | Submission intent/quota rules, Agent handoff and receipt tracking | separate policy from host adapters; no replacement uploader |
-| D3 | Controller observers, projections and state presentation | preserve projection compatibility; no implied new task database |
-| D4 | Workbench UI by page/domain | keep appearance and interactions stable during a structural PR |
-| D5 | API request/response handling and plugin-owned CLI runner | preserve public contracts and tested cancellation/error behavior |
+| Group code around a responsibility or a design decision that can change independently | Separate quota policy, submission handoff, task lifecycle and presentation. Keep a request's duplicate guard, confirmation and cancellation together when they share its state. | [Parnas, On the Criteria To Be Used in Decomposing Systems into Modules](https://www.cs.lafayette.edu/~gexia/cs301/resources/parnas.html), especially “The Criteria” and “Conclusion”; [original DOI](https://doi.org/10.1145/361598.361623) |
+| Keep feature rules separate from how a caller or external system is connected | Workbench and tool adapters translate supported inputs and outputs; feature modules receive the specific DSH/platform capabilities they need. Plain functions and factory parameters are sufficient. | [Cockburn, original Ports and Adapters article](https://alistair.cockburn.us/hexagonal-architecture) |
+| Give each state value an owner | Keep UI selection/loading state local where appropriate; read durable task facts from existing Host projections. Apply the same ownership discipline to grants, pending requests and caches. | [React, Sharing State Between Components](https://react.dev/learn/sharing-state-between-components); extending this principle to Host state is this proposal's design judgment |
+| Make small changes that preserve observable behavior | Establish the target map, then move one coherent responsibility at a time behind existing exports and methods. Use existing behavior tests to check each move. | [Fowler, Refactoring](https://refactoring.com/) |
+| Add structure for demonstrated complexity | Split the large entry/workflow/UI files; keep the existing material-access/API/CLI boundaries where they already work. Add directories as their modules are migrated, without creating empty frameworks for future candidates. | [Fowler, Yagni](https://martinfowler.com/bliki/Yagni.html) |
 
-**D1: retain the existing module**
+These sources justify the design criteria; they do not prescribe these exact filenames or certify the plugin's implementation.
 
-The [material-access module at main `371f7c8`](https://github.com/tjyyy3/dsh-playground/blob/371f7c816ab83edcc9bd80e0df7d8f05ff04dbbe/lib/material-access.js) already owns path resolution, workspace boundaries and hybrid grants. Continue using it. Small material-reference adapters remaining in the workflow may be adjusted with D2 when needed; no independent D1 refactoring PR is planned. Preserve authorization and path revalidation without restoring full-file readers.
+##### Current responsibilities and proposed locations
 
-Use small, reviewable extractions. Do not combine a visual redesign, new product capability and broad structural rewrite. Create a module only when it clarifies a real responsibility; the table does not mandate a new service for every row.
+The target is deliberately mixed: feature directories for several related files, and standalone files for cohesive existing modules. The paths below describe a proposal, not the current tree. Do not create every possible directory before it has code to own.
+
+| Proposed location | Responsibility and source to move | Boundary |
+|---|---|---|
+| `index.js` and `lib/workflow.js` | `index.js` remains the public Host entry and wires host services. `createWorkflow` becomes a small composition/compatibility facade that assembles feature instances and exposes the current methods. | Neither should keep growing with feature implementations. Feature modules must not import the facade back. Existing exports can be re-exported during migration. |
+| `lib/host/settings.js`, `tools.js`, `views.js` | Settings/token resolution, tool definitions and registration, model-visible field selection and presentation metadata currently in `index.js` | Preserve credentials boundaries and the distinct model/UI views. Moving a schema must not expose extra stored fields. Keep the current workbench RPC adapter in `lib/queries.js` initially; a later move into this directory needs a concrete benefit. |
+| `lib/task/lifecycle.js` | Task creation/binding, workspace selection/resolution and initial task instructions from `start`, `bind` and related helpers | Preserve explicit registered-workspace selection, existing-conversation binding and controller/task separation. |
+| `lib/task/projection.js` | The current `workflowProjection`, schema, pure state interpretation and historical compatibility helpers | Keep the existing `playgroundTask` record, event shapes and state version. This is file relocation, not a new task database or a second submission store. |
+| `lib/submission/handoff.js` | `submissionContext`, `quotaContext`, `requestSubmission`, `dispatchSubmission` and the associated pending/in-flight state | One cohesive owner for a submission request's lifetime; use the existing task Agent. Receive a record callback, material-access instance and needed Host capabilities. |
+| `lib/submission/policy.js` | Pure date/count/limit calculations, `submitPolicy` and reusable submission guidance currently shared by workflow and tool context | Accept values and return policy/announcement data. It does not fetch platform data, own caches, prompt an Agent or establish user consent. |
+| `lib/submission/overview.js` | `submissionOverview`, `readOverview`, `countsFor` and the shared history/count read path | One scoped cache service for both history and policy reads, with an explicit invalidation method used by tracking. Keep current freshness, identity and partial-data behavior. |
+| `lib/submission/receipts.js` | `track`, `results` and progress/receipt handling | Verify the real attempt's challenge/account, preserve IDs and unknown outcomes, and emit the existing workflow events. Share overview invalidation and pure state helpers. |
+| `lib/catalog.js` and `lib/auth.js` | Discovery/detail/filter/cache orchestration; identity/login/CLI-status orchestration currently nested in `createWorkflow` | Retain queries that work without a task session. These responsibilities do not yet require a directory each. |
+| `lib/redaction.js` | `cleanDetail` and its related pure cleanup helpers | Give consumers a direct import for redaction instead of importing the whole workflow. Preserve current behavior rather than redesigning the cleanup rules during the move. |
+| Existing `lib/controller.js`, `material-access.js`, `api.js`, `cli.js`, `windows-process.js`, `competitions.js`, `releases.js`, `format.js`, `links.js` and `text.js` | Already separate controller, authorization, platform/process, catalog-data, release and presentation helpers | Keep them as the initial foundations. D3/D5 can later extract a demonstrated internal boundary; a uniform `platform/` directory is not required. |
+| `src/client/index.js` plus feature areas `catalog/`, `tasks/`, `controller/`, `submission/` and `settings/` | Client registration plus the corresponding components currently inside `client.js` | Start with existing JavaScript/React behavior. A language/framework conversion or navigation redesign is outside this structural migration. Shared controls/hooks belong in a small shared area only when they have actual consumers. |
+| Root `client.js` | Generated browser entry from the Client sources, retaining the current package export and ModuleLoader ID | Treat it as a reproducible deliverable after D4; edit its source modules instead of maintaining two independent implementations. |
+
+The source mapping is based on [Host registration/composition](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/index.js#L807-L847), [task projection](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/lib/workflow.js#L28-L193), [submission rules](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/lib/workflow.js#L204-L358), [overview and handoff](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/lib/workflow.js#L677-L984), [task/catalog/account operations](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/lib/workflow.js#L986-L1388), [receipts](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/lib/workflow.js#L1391-L1499), and the current [Client components](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/client.js).
+
+##### Calls, interfaces and shared state
+
+The following diagram shows the intended responsibility boundaries. Input adapters retain their different authorization rules; grouping them in the diagram does not give model tools a new user-only submission or grant endpoint.
+
+~~~mermaid
+flowchart TD
+    UI["Workbench UI"] --> Entry["Host entry adapters"]
+    Tools["Agent tools"] --> Entry
+    Entry --> Features["Task, submission and discovery modules"]
+    Features --> Pure["Pure policy and state interpretation"]
+    Features --> Capabilities["Injected DSH and platform capabilities"]
+~~~
+
+The composition code creates the existing API client, CLI runner, material-access and controller services once for their appropriate Host scope, and passes the required capabilities into the feature modules. Submission handoff uses the existing Agent through DSH; the retained API/CLI adapters do not become an uploader.
+
+Use a few concrete interfaces rather than a new framework:
+
+| Interface | Intended contract |
+|---|---|
+| Handoff `request(input, exec)` | Preserve the current request/status/confirmation/cancellation behavior and result shapes; share one in-flight/pending-request owner. |
+| Policy calculation | Input: current counts, known limits, challenge and identity. Output: the current policy and announcement. Network reads and user interaction stay outside it. |
+| Overview `read/counts/invalidate` | Share the existing identity/challenge cache and partial-data semantics across history, policy and tracking. |
+| Receipts `track/results/progress` | Read verified platform data, produce current receipt/progress events, and invalidate the shared overview when necessary. |
+| State reader and event recorder | Read the existing projection; record through the existing DSH event/command path. Initially inject the current `record` callback rather than rebuilding its protocol in each module. |
+
+Names above illustrate the internal interfaces. Preserve the externally used `createWorkflow` return methods and Host tool/RPC/command contracts during migration.
+
+**State ownership must be recorded before moving closures:**
+
+| State | Owner and lifetime |
+|---|---|
+| Task, material references, submission status, receipts and attempt IDs | Existing DSH `playgroundTask` projection. Persisted events remain the shared task record, including old records. |
+| Controller association and notices | Existing controller projections; transient observation/creation state stays in its existing controller instance. |
+| External material grants and pending authorization requests | The same `createMaterialAccess` instance used by both browser authorization and submission. Preserve current expiry/revocation behavior. |
+| In-flight submission guard and pending quota confirmation | One handoff instance per current workflow/Host scope; preserve session keys and confirmation invalidation after recreation. |
+| Pending `record_submission` changes | One recorder whose `record` operation and command consumer share the same private `changes` Map and session checks. Initially keep both in the facade; migrate them together if later needed. |
+| History/count cache and quota flags | One overview instance shared by all relevant callers; receipt tracking invalidates that instance. |
+| Filters, selected rows, drawers and loading indicators | Client components or their nearest shared owner. Host snapshots are display data, not a separate authoritative task/submission store. |
+
+These are scoped owners, not process-global singletons. Preserve operation-level token/identity consistency. A quota answer still requires fresh account/task/reference/count checks; those reads must not be removed as apparent duplication.
+
+Three dependencies need particular care:
+
+1. Move reusable pure functions to their own module before extracting consumers. Re-export old names from `workflow.js` if necessary; do not create `workflow -> submission -> workflow`.
+2. Let overview gather data and policy compute from that data. Connect them in the feature composition, so policy does not import a stateful overview service that imports policy back.
+3. Keep the recorder producer/consumer paired and reuse the same material-access instance. Do not construct a second workflow merely to obtain a helper.
+
+An actual move should state which dependency is injected and which module owns its state. Import cycles, generic mutable “shared context” bags and duplicate caches would indicate an incomplete split.
+
+##### Client build and package delivery
+
+The official rc.5 source provides a concrete multi-source-to-bundle pattern: [a UI package's configuration](https://github.com/deepseek-ai/deepseek-harness/blob/b830ec950faba0a46dda564be3e2d854afed94f1/packages/client/ui-conversation/tsdown.config.ts) uses the shared builder, whose [browser CJS configuration](https://github.com/deepseek-ai/deepseek-harness/blob/b830ec950faba0a46dda564be3e2d854afed94f1/packages/client/tsdown.client.ts#L499-L531) and [ModuleLoader wrapper](https://github.com/deepseek-ai/deepseek-harness/blob/b830ec950faba0a46dda564be3e2d854afed94f1/packages/client/tsdown.client.ts#L649-L669) produce a loadable Client entry.
+
+**Proposed D4 delivery:** use static local imports in `src/client/`, bundle them into the root `client.js`, and preserve `window.__ModuleLoader__.load` with ID `dsh-playground` and the existing plugin-object contract. Host files remain Node ESM. A small repository-owned build configuration should reproduce that contract; the official monorepo preset is a reference, not an assumed installable public build dependency.
+
+Keep the current three loader-provided dependencies explicit: `react`, `@deepseek-ai/dsh-client-ui-primitives` and `@deepseek-ai/dsh-client-store`. Bundle local modules and dependencies not supplied by the target loader. The official [external-specifier rules](https://github.com/deepseek-ai/deepseek-harness/blob/b830ec950faba0a46dda564be3e2d854afed94f1/packages/client/tsdown.client.ts#L405-L432) are distinct from service `inject` metadata; do not externalize every package with a matching name prefix. New externals need evidence that the target Host provides them.
+
+The official builder has a dedicated chunk protocol; that does not establish ordinary browser/Node relative-module loading for arbitrary split plugin files. The proposed first migration uses one static Client entry, avoiding a new chunk-delivery requirement.
+
+The current [manifest](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/package.json#L21-L48) exports the two root entries and includes `lib/*.js`, with no Client build step. Implementation must therefore address delivery in the same structural PR:
+
+- Include all runtime Host subdirectories in the package's `files` policy; inspect the actual tarball rather than assuming a wildcard includes them. Preserve `.` and `./client` exports, bundle metadata, locales and assets.
+- Add an explicit Client build before relevant tests and publishing. The current [publish workflow](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/.github/workflows/publish.yml) uses `npm ci --ignore-scripts`, so a dependency-install lifecycle hook alone is insufficient.
+- Proposed initial policy: commit the generated root `client.js` alongside its sources and verify that rebuilding it produces no unexplained diff. This preserves the existing Git-install fallback without requiring consumers to install build tooling. npm receives the same generated artifact. The exact bundler is an implementation choice; the output contract is the requirement.
+- Keep the build limited to Client output; it must not clean away `index.js` or Host modules. Decide explicitly whether source maps/resources ship and keep generated paths reproducible.
+- Inspect `npm pack --dry-run --json`, then check imports and Client registration from an unpacked package. [npm's packaging documentation](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#files) explains the inclusion policy; [npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack/) provides the artifact inspection command.
+- Preserve the existing Client behavior fixtures against the generated entry. Current [Client tests](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/test/client.test.mjs#L24-L75) load `client.js` through a fake ModuleLoader and inspect component names, so avoid incidental minification/name changes in the first move. A supported-Host load/navigation check remains separate from mock-test evidence.
+
+No build or installation success is claimed by this architecture draft.
+
+##### D1-D5 scope and migration order
+
+| Item | Scope in this draft | Decision status |
+|---|---|---|
+| D1 | Retain `lib/material-access.js`; move only small reference adapters when another extraction needs them | Agreed; no independent D1 refactoring PR planned |
+| D2 | Submission folder with handoff, policy, shared overview and receipt responsibilities | Proposed structure; preserve the existing Agent handoff and quota/receipt behavior |
+| D3 | Preserve controller and task projection/observation boundaries; extract controller internals only where the code demonstrates a useful separation | Candidate; no new task database or execution controls |
+| D4 | Split existing Client components by feature, with the single-entry build/delivery contract above | Proposed structure; preserve appearance, navigation and interactions |
+| D5 | Retain current API/CLI foundations initially; consider targeted separation of transport/normalization or credential/process handling when justified | Candidate; preserve public contracts, HTTPS/response budgets and cancellation/error behavior |
+
+Migrate toward the whole structure in small batches. The sequence below is a reviewable starting point, not a required PR count.
+
+| Batch | Concrete change | Evidence needed before moving on |
+|---|---|---|
+| 1. Establish leaf boundaries | Extract pure redaction/policy helpers and, separately, the existing projection definitions when needed; retain compatible re-exports | Existing relevant pure-policy/projection cases; no state-format or behavior change; no reverse import into the facade |
+| 2. Extract submission handoff | Move the request/confirmation/duplicate-guard lifecycle together, injecting the existing recorder, authorization and data readers | Ordinary one-action dispatch, repeated clicks, refusal/cancellation, expired/changed quota context and unknown outcomes |
+| 3. Separate overview and receipts | Move history/count reads and their single cache owner, then tracking/results/progress; connect explicit invalidation | Identity/challenge ownership, idempotent tracking, preserved IDs on failure, current cache freshness and incomplete-data labels |
+| 4. Reduce the remaining workflow and entry | Extract task lifecycle, catalog/auth operations and Host registration/views in separate coherent changes | Workspace/binding behavior, session-free reads, unchanged tool/RPC shapes, model-visible field selection and prompt guidance |
+| 5. Split Client source | First establish a reproducible equivalent bundle; then migrate existing feature components a few at a time | Generated-entry fixtures, artifact contents/imports and supported-Host UI checks, with no accompanying redesign |
+| 6. Reassess D3/D5 internals | Inspect whether controller/API/CLI modules still have a concrete change-locality problem after the earlier moves | A specific extraction and relevant existing lifecycle/transport tests; no mandatory directory churn |
+
+Keep source imports, test imports, publication metadata and repository guidance aligned with each batch. Update the current `AGENTS.md` instruction that UI changes live in `client.js` when Client source becomes the maintained location. Do not change the implementation guidance before that source/build change actually lands.
+
+##### Acceptance examples and next discussion
+
+Assess the architecture with concrete maintenance scenarios:
+
+- A quota-reminder change is located in policy/guidance, without modifying task creation or introducing a separate UI rule.
+- A submission-handoff change is localized to the request owner and the narrow DSH adapter; grants, current task identity and receipt ownership remain intact.
+- A task-list presentation change is localized to Client components and existing query shapes; opening the page stays passive.
+- A platform response/process fix stays in its existing adapter boundary, with the same error/cancellation contract.
+- A clean install receives every referenced runtime file and the same generated Client entry that was tested.
+
+Reuse the repository's relevant offline tests and required CI matrix. Add focused coverage only for a real gap introduced by a new interface or build artifact. Preserve the established distinctions between mock tests, isolated Host observations and live target-Host evidence. Structural work does not introduce a new uploader, material scanner, scheduler, result-review gate or author/organizer feature.
+
+The next review should confirm the **module responsibilities and state owners**, then select the first small migration. Exact filenames and bundler settings can be settled within that scope; they should not substitute for those decisions.
 
 ### Track E — Author, organizer and community discovery
 
@@ -229,7 +362,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
 | B4 participant-history extensions | Candidate; further review needed | — | Product decisions and required scope |
 | D1 path/material access | Agreed: retain existing module; no standalone split planned | — | Existing `lib/material-access.js`; small reference adapters may be adjusted with D2 |
-| D2-D5 file splitting | Candidate engineering plan | — | Retained boundaries and chosen scope |
+| D2-D5 file splitting | Researched architecture and migration draft; implementation scope remains under review | — | Track D: source mapping, state ownership, Client delivery and staged acceptance |
 | E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 
 Merge/issue status above was verified during this documentation review. Implementation and target-host tests were not independently rerun; use the linked PRs for their reported evidence and remaining limits.
