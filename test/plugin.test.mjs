@@ -33,6 +33,12 @@ test('plugin declares the tools service and a stable name', () => {
   assert.equal(name, 'playground-competition');
 });
 
+test('release channel comes from plugin config and defaults to stable', () => {
+  assert.equal(normalizeSettings({}).releaseChannel, 'stable');
+  assert.equal(normalizeSettings({ releaseChannel: 'beta' }).releaseChannel, 'beta');
+  assert.equal(normalizeSettings({ releaseChannel: 'preview' }).releaseChannel, 'stable');
+});
+
 test('#76: settings and environment reject remote HTTP before fetching', () => {
   const previousBase = process.env.PLAYGROUND_API_BASE;
   const previousFetch = globalThis.fetch;

@@ -4,3 +4,4 @@
       config:
         baseUrl: https://play.bohrium.com
         cliPath: playground
+        releaseChannel: stable

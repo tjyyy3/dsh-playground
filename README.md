@@ -1,6 +1,6 @@
 # Playground 比赛助手（DSH 插件）
 
-![预览版 0.5.0-preview.8](https://img.shields.io/badge/preview-0.5.0--preview.8-blue)
+![预览版 0.5.0-preview.7](https://img.shields.io/badge/preview-0.5.0--preview.7-blue)
 
 在 DeepSeek Harness（DSH）里浏览赛题，让工作区主控分派任务、汇总结果，并查看提交历史和评分。
 
@@ -11,10 +11,10 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 ## 安装插件
 
 1. 在 DSH 中打开 **插件 → 添加插件 → 安装第三方插件**。
-2. 选择 **Git 仓库**，输入 `https://github.com/tjyyy3/dsh-playground.git`。
+2. 从 [GitHub Release](https://github.com/tjyyy3/dsh-playground/releases) 复制固定完整 commit 的 Git spec，格式为 `github:tjyyy3/dsh-playground#<40 位 SHA>`，填入第三方插件安装框。
 3. 安装完成后，按提示启用或重启。左侧导航出现 **Playground** 即可开始使用。
 
-**遇到「无法访问 GitHub」时**，可以向维护者索取对应版本的 `.tgz` 安装包。下载后无需解压，在 DSH 的 **添加插件** 安装框输入文件的完整路径。
+未固定 commit 的 `https://github.com/tjyyy3/dsh-playground.git` 仍可安装，但 DSH 无法更新该来源。迁移时先卸载 Playground，再用 Release 的固定 Git spec 重新安装一次。暂无 Release 时可使用未固定的地址试用，之后再迁移。
 
 **从本地开发版切换到 Git 安装后**，如果启用时报旧目录的 `locale` 找不到，请从托盘完全退出 DSH，再重新打开。
 
@@ -48,11 +48,11 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 
 ## 更新和反馈
 
-打开 Playground 的 **连接设置**，在 **版本与更新** 中查看当前运行版本，并选择正式版或 Beta 检查更新。Beta 提供抢先功能，也更可能遇到问题。选择渠道后，点击 **检查更新** 才会访问 GitHub。正式版只列正式发布，Beta 也包含更新的正式发布。
+打开 Playground 的 **连接设置**，在 **版本与更新** 中查看运行版本、磁盘版本和安装来源。磁盘版本较新时需要重启 DSH。插件配置 `releaseChannel` 默认是 `stable`，可改为 `beta`。正式渠道选择最高正式版，Beta 选择包含预发布在内的最高版本。Beta 可能不稳定。只有点击 **检查更新** 才会访问 GitHub；结果缓存三分钟，GitHub 限流时等待额度恢复。
 
-发布版本可从卡片打开更新说明或下载 `.tgz`。旧版 DSH 可能要求先在 **插件** 页卸载 Playground，再通过 **添加插件** 输入安装包的完整路径。重新启动后，核对卡片中的运行版本。遇到问题可从 [Releases](https://github.com/tjyyy3/dsh-playground/releases) 选择已验证兼容的旧版安装包。暂无发布时，卡片会明确提示。
+卡片只读取信息，可打开发布说明或复制 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源需要重新安装。DSH 的更新操作只接受较新版本，降级需要先核对兼容性并重新安装。卡片没有安装按钮。暂无发布时会明确提示。
 
-维护者的打包、发版及回退验证流程见 [发布指南](guide/releases.md)。
+维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。当前版本保持 `0.5.0-preview.7`；新预发布统一使用 `beta.N`。因为 `beta` 排在 `preview` 前，下一版可用 `0.5.1-beta.1`，不能使用较旧的 `0.5.0-beta.N`。
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 

@@ -28,8 +28,12 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Repository boundaries
 
-- Install from DSH's third-party plugin UI using the Git repository URL; the
-  low-level `plugin_manager` command is a fallback for Creator-mode debugging.
+- Install from DSH's third-party plugin UI using the pinned Git spec from a
+  GitHub Release. The unpinned repository URL still installs, but the host
+  cannot update it. Switching that install to a pinned spec requires removing
+  and reinstalling the plugin. The low-level `plugin_manager` command is a
+  fallback for Creator-mode debugging. This plugin never installs or updates
+  itself. Its read-only version card uses the configured `releaseChannel`.
 - Keep `docs/`, `_scratch/`, `PRODUCT.md`, `.impeccable/`, `node_modules/`, and
   logs out of Git. `docs/` and `_scratch/` are local archive or test residue.
 - Do not put Playground tokens, passwords, credentials, or local absolute paths

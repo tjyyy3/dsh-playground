@@ -16,6 +16,7 @@
 import { isAbsolute } from 'node:path';
 import { createWorkflow, SUBMIT_RULE, submissionCountsText, submissionLimitsFor, taskBundleMissingIds, withoutReasonsList, workflowProjection } from './lib/workflow.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
+import { createReleaseQuery } from './lib/releases.js';
 import { controllerCommand, controllerProjection, controllerNoticesProjection, createController } from './lib/controller.js';
 import { createPlaygroundCli, DEFAULT_CLI_CREDENTIALS_PATH, displayCredentialsPath, readCliCredential } from './lib/cli.js';
 
@@ -291,7 +292,8 @@ export function normalizeSettings(config) {
   const cliTimeoutMs = Number.isFinite(Number(source.cliTimeoutMs)) && Number(source.cliTimeoutMs) > 0
     ? Math.min(Number(source.cliTimeoutMs), MAX_TIMER_MS)
     : 120000;
-  return { baseUrl, token, timeoutMs, cliPath, credentialsPath, cliTimeoutMs };
+  const releaseChannel = source.releaseChannel === 'beta' ? 'beta' : 'stable';
+  return { baseUrl, token, timeoutMs, cliPath, credentialsPath, cliTimeoutMs, releaseChannel };
 }
 
 /**
@@ -804,6 +806,8 @@ function createGetAttemptTool(client) {
  */
 export function apply(ctx, config) {
   const settings = normalizeSettings(config);
+  const releaseQuery = createReleaseQuery({ channel: settings.releaseChannel,
+    pluginManager: () => ctx.get?.('pluginManager') });
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
     baseUrl: settings.baseUrl,
@@ -834,7 +838,7 @@ export function apply(ctx, config) {
     scope.on?.('subagent/end', controller.observeEnd);
     workflow = createWorkflow({ ctx: scope, client, cli, presentationMeta,
       tokenStatus: resolveToken.status, isController: controller.owns });
-    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller));
+    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller, releaseQuery));
     scope.inject(['systemPrompt'], (promptScope) => {
       promptScope.systemPrompt.context({ name: 'playground-controller:current',
         order: promptScope.systemPrompt.getContextOrder('WORKING_DIRECTORY') + 1,
