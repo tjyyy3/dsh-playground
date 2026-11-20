@@ -53,7 +53,7 @@ test('unchecked reads only local versions and host bundles, with distinct source
     }
     if (result.source === 'file') assert.match(result.sourceHint, /从 GitHub Release 页面复制/);
     if (result.source === 'registry') {
-      assert.match(result.sourceHint, /DSH 不会更新.*already-installed.*先在 DSH 插件管理器卸载.*npm 包名.*重新安装/);
+      assert.match(result.sourceHint, /DSH 不会更新.*already-installed.*先在 DSH 插件管理器卸载.*npm spec.*重新安装/);
       assert.match(result.sourceHint, /配置会保留/);
     }
   }

@@ -59,6 +59,19 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - name: Publish
+        shell: bash
         env:
           DIST_TAG: ${{ steps.target.outputs.dist-tag }}
-        run: npm publish --provenance --access public --tag "$DIST_TAG"
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if found="$(npm view "dsh-playground@$version" version 2> "$RUNNER_TEMP/npm-view.err")"; then
+            if [[ "$found" == "$version" ]]; then
+              echo "dsh-playground@$version is already on npm; skipping publish."
+              exit 0
+            fi
+            test -z "$found"
+          elif ! grep -q 'E404' "$RUNNER_TEMP/npm-view.err"; then
+            cat "$RUNNER_TEMP/npm-view.err"
+            exit 1
+          fi
+          npm publish --provenance --access public --tag "$DIST_TAG"

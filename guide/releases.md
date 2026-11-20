@@ -12,7 +12,7 @@ DSH 插件管理器拥有安装、更新、兼容性检查和失败恢复。插�
 
 | 来源 | 更新方式 |
 | --- | --- |
-| npm（registry） | DSH 只为官方插件目录提供更新按钮，第三方 npm 插件没有。安装框对已安装的同名插件返回 `already-installed`。先卸载，再安装版本卡显示的 `dsh-playground@beta` 或 `dsh-playground`。卸载不删除 profile 中的配置覆盖。 |
+| npm（registry） | DSH 只为官方插件目录提供更新按钮，第三方 npm 插件没有。安装框对已安装的同名插件返回 `already-installed`。先卸载，再安装版本卡复制的固定版本 spec，例如 `dsh-playground@0.6.0-beta.1`。卡片同时以文字提示浮动 tag `dsh-playground@beta` 或 `dsh-playground`。卸载不删除 profile 中的配置覆盖。 |
 | 固定 commit 的 Git spec | 向 DSH 插件管理器提供新 Release 的固定 Git spec。目标必须是同一仓库和 `path:` 目录，版本必须更高。 |
 | 未固定 commit 的 Git spec | DSH 无法更新该来源。将 Release 的固定 Git spec 填入第三方插件安装框，覆盖安装当前副本，按提示重启。 |
 | `link:` | 在链接目录更新代码，再按 DSH 提示重新加载或重启。 |
@@ -49,7 +49,7 @@ releaseChannel: beta
 6. 手动运行 **Prepare release**，填写已有 tag。
 7. 核对草稿后手动发布。发布事件触发 **Publish to npm**（`.github/workflows/publish.yml`），它把同一 commit 发布到 npm。
 
-工作流在 checkout 之前验证 tag 语法，然后验证 manifest 版本、tag commit 和 main 祖先关系，并对所有已有 Release tag 检查 SemVer 递增。它在 Windows 和 macOS 的 Node 24、26 上运行离线测试，以 `npm ci --ignore-scripts` 安装测试依赖。写权限 job 的 action 固定到完整 SHA。
+工作流在 checkout 之前验证 tag 语法，然后验证 manifest 版本、tag commit 和 main 祖先关系，并对所有已有 Release tag 检查 SemVer 递增。它在 Windows、macOS 和 Linux 的 Node 24、26 上运行离线测试，以 `npm ci --ignore-scripts` 安装测试依赖。Linux 与发布工作流的运行环境一致。写权限 job 的 action 固定到完整 SHA。
 
 Host 的 [App boot 文档](https://github.com/deepseek-ai/deepseek-harness/blob/2e39e70496aa02986ca6a820c5d497e816b69d7e/packages/boot/app-boot/README.md#L54) 明确让预发布版本参与范围匹配。[Registry 更新检查](https://github.com/deepseek-ai/deepseek-harness/blob/2e39e70496aa02986ca6a820c5d497e816b69d7e/packages/boot/plugin-manager/src/index.ts#L871) 调用 `evaluatePluginCompatibility`，其 [SemVer 检查](https://github.com/deepseek-ai/deepseek-harness/blob/2e39e70496aa02986ca6a820c5d497e816b69d7e/packages/boot/app-boot/src/plugin-compatibility.ts#L52) 使用 `includePrerelease: true`。因此 `>=0.2.1-rc.5` 接受当前 Host `0.2.1-rc.5`，也接受较新的 Host 预发布版本。
 
@@ -57,11 +57,11 @@ Host 的 [App boot 文档](https://github.com/deepseek-ai/deepseek-harness/blob/
 
 ## 发布到 npm
 
-**Publish to npm** 在 Release 发布后运行，使用 npm trusted publishing（OIDC），不需要 npm token。它检查 tag 语法和 `v<version>`、tag commit 位于 main、Release 正文的 `Commit:` 等于 tag commit，以及预发布标志与 tag 一致。随后在 Node 24 上确认 npm 不低于 11.5.1，运行 `npm ci --ignore-scripts` 与 `npm test`，再执行 `npm publish --provenance --access public`。`-beta.N` 使用 dist-tag `beta`，正式版使用 `latest`。
+**Publish to npm** 在 Release 发布后运行，使用 npm trusted publishing（OIDC），不需要 npm token。它检查 tag 语法和 `v<version>`、tag commit 位于 main、Release 正文的 `Commit:` 等于 tag commit，以及预发布标志与 tag 一致。随后在 Node 24 上确认 npm 不低于 11.5.1，运行 `npm ci --ignore-scripts` 与 `npm test`。发布前用 `npm view "dsh-playground@<version>" version` 查询：该版本已在 npm 上时跳过发布并记录日志，工作流成功；返回 E404 时执行 `npm publish --provenance --access public`；其他错误使工作流失败。`-beta.N` 使用 dist-tag `beta`，正式版使用 `latest`。
 
-首次发布需要维护者在本机手动执行，因为 npm 只能为已存在的包配置 trusted publisher。首次发布后，在 npmjs.com 的包设置中添加 GitHub Actions trusted publisher：仓库 `tjyyy3/dsh-playground`，工作流文件 `publish.yml`。全新包的第一个版本即使用 `--tag beta` 发布，`latest` 也会指向它；正式版发布前，`dsh-playground` 不带 tag 时安装的是该测试版。
+首次发布由维护者手动执行，因为 npm 只能为已存在的包配置 trusted publisher。在该 tag 的干净 checkout 中运行 `npm publish --access public --tag beta`。第一个 Release 发布后，工作流查到该版本已存在，跳过发布。首次发布后，在 npmjs.com 的包设置中添加 GitHub Actions trusted publisher，各字段必须完全一致：owner `tjyyy3`，repository `dsh-playground`，workflow `publish.yml`，environment 留空。全新包的第一个版本即使用 `--tag beta` 发布，`latest` 也会指向它；正式版发布前，`dsh-playground` 不带 tag 时安装的是该测试版。
 
-工作流失败时，Release 已经公开而 npm 没有新版本。修复后在 Actions 中重新运行该工作流；npm 不允许重复发布同一版本，已发布成功时重跑会失败。
+工作流失败时，Release 已经公开而 npm 可能没有新版本。修复后在 Actions 中重新运行该工作流；已发布的版本会被跳过，重跑不会重复发布。
 
 ## 验证安装、更新和回退
 
