@@ -5080,6 +5080,26 @@ test('release settings are read-only, display running and disk versions, and cop
   assert.doesNotMatch(text(panel.render()), /已复制 Git spec/);
 });
 
+test('release settings offer the npm dist-tag for a registry install instead of a Git spec', async (t) => {
+  const replies = [{ target: releaseTarget('0.6.0-beta.2'), comparison: 'upgrade' }, { target: releaseTarget('0.6.0'), comparison: 'upgrade' }];
+  const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。先卸载再重新安装。',
+    ...(input.check ? replies.shift() : {}) }));
+  assert.doesNotMatch(text(panel.render()), /dsh-playground@beta|复制/);
+  const copied = [];
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (value) => copied.push(value) } } });
+  t.after(() => { if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor); else delete globalThis.navigator; });
+  await panel.check();
+  assert.match(text(panel.render()), /可升级至 0\.6\.0-beta\.2/);
+  assert.doesNotMatch(text(panel.render()), /github:|Git spec/);
+  await panel.find(panel.render(), (node) => node.type === 'button' && text(node) === '复制 npm 包名').props.onClick();
+  assert.deepEqual(copied, ['dsh-playground@beta']);
+  assert.match(text(panel.render()), /已复制 npm 包名/);
+  await panel.check();
+  const stable = findAll(panel.render(), (node) => node.type === 'code').map(text);
+  assert.deepEqual(stable, ['dsh-playground']);
+});
+
 test('release settings read the beta channel from host config without browser persistence', async (t) => {
   const panel = await releasePanel(t, (input) => releaseReply(input, { channel: 'beta' }));
   assert.match(text(panel.render()), /更新渠道 Beta.*插件配置 releaseChannel/);

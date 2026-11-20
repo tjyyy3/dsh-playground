@@ -1,6 +1,6 @@
 - insert:
     - id: playground-competition
-      name: '@playground/dsh-playground'
+      name: 'dsh-playground'
       config:
         baseUrl: https://play.bohrium.com
         cliPath: playground

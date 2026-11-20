@@ -1,6 +1,6 @@
 # Playground 比赛助手（DSH 插件）
 
-![测试版 0.5.1-beta.1](https://img.shields.io/badge/beta-0.5.1--beta.1-blue)
+![测试版 0.6.0-beta.1](https://img.shields.io/badge/beta-0.6.0--beta.1-blue)
 
 在 DeepSeek Harness（DSH）里浏览赛题，让工作区主控分派任务、汇总结果，并查看提交历史和评分。
 
@@ -11,10 +11,22 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 ## 安装插件
 
 1. 在 DSH 中打开 **插件 → 添加插件 → 安装第三方插件**。
-2. 填入 `https://github.com/tjyyy3/dsh-playground.git`，点击安装。
+2. 填入 `dsh-playground@beta`，点击安装。目前只有测试版；正式版发布后，填 `dsh-playground` 即可安装正式版。
 3. 安装完成后，按提示启用或重启。左侧导航出现 **Playground** 即可开始使用。
 
-更新时打开 Playground 的 **连接设置 → 版本与更新**，点击 **检查更新**，再点击 **复制 Git spec**，把复制的内容填入同一个第三方插件安装框，按提示重启。不需要手动查找 commit。想固定在某个发布版本，也可以直接复制 [GitHub Release](https://github.com/tjyyy3/dsh-playground/releases) 说明里的 `Git spec` 一行安装。
+DSH 不会自动更新第三方插件，在安装框再次填写同名插件会提示已安装。更新时打开 Playground 的 **连接设置 → 版本与更新**，点击 **检查更新**。有新版本时，先在 DSH 插件页卸载 Playground，再在第三方插件安装框重新填入 `dsh-playground@beta`（正式版填 `dsh-playground`），按提示重启。卸载和重装不会清除插件配置和 Playground 登录。想固定某个版本，可以填 `dsh-playground@<版本号>`，例如 `dsh-playground@0.6.0-beta.1`。
+
+无法访问 npm 时，也可以在安装框填 `https://github.com/tjyyy3/dsh-playground.git` 从 GitHub 安装。这种来源的更新方式是复制 **版本与更新** 里的 Git spec，填入安装框覆盖安装。
+
+### 从旧版迁移
+
+0.6.0 之前的版本只能从 GitHub 安装，插件包名是 `@playground/dsh-playground`。新版改名为 `dsh-playground`，DSH 会把它当作另一个插件。旧版用户请按以下步骤迁移：
+
+1. 在 DSH 插件页卸载旧的 Playground 插件。不要用旧版本卡片里的 **复制 Git spec** 覆盖安装新版，那样会同时装上新旧两个插件。
+2. 在第三方插件安装框填入 `dsh-playground@beta`，安装后按提示重启。
+3. 如果改过插件配置（API 地址、CLI 路径或 `releaseChannel`），在新插件中重新设置。旧配置按旧包名保存，新插件不会读取。Playground 登录、工作区里的任务对话和提交记录不受影响。
+
+不要同时保留新旧两个插件。两者注册同一个配置项，DSH 无法编辑其中任何一个，工具和命令也可能重复。
 
 **从本地开发版切换到 Git 安装后**，如果启用时报旧目录的 `locale` 找不到，请从托盘完全退出 DSH，再重新打开。
 
@@ -50,9 +62,9 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 
 打开 Playground 的 **连接设置**，在 **版本与更新** 中查看运行版本、磁盘版本和安装来源。磁盘版本较新时需要重启 DSH。插件配置 `releaseChannel` 默认是 `stable`，可改为 `beta`。正式渠道选择最高正式版，Beta 选择包含预发布在内的最高版本。Beta 可能不稳定。只有点击 **检查更新** 才会访问 GitHub；成功结果缓存三分钟，普通失败可立即重试，GitHub 限流时等待额度恢复。
 
-卡片只读取信息，可打开发布说明或复制 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源可通过第三方插件安装框覆盖安装固定 spec。DSH 的更新操作只接受较新版本，降级前请核对兼容性，再用旧版固定 spec 覆盖安装。卡片没有安装按钮。暂无发布时会明确提示。
+卡片只读取信息，可打开发布说明，并按安装来源复制 npm 包名或 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。npm 来源需要卸载后重新安装。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源可通过第三方插件安装框覆盖安装固定 spec。降级前请核对兼容性，npm 来源卸载后安装 `dsh-playground@<旧版本号>`，Git 来源用旧版固定 spec 覆盖安装。卡片没有安装按钮。暂无发布时会明确提示。
 
-维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。当前版本是 `0.5.1-beta.1`，预发布统一使用 `beta.N`。
+维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。当前版本是 `0.6.0-beta.1`，预发布统一使用 `beta.N`。
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 

@@ -16,8 +16,10 @@ const check = (channel, releases) => query({ channel, fetchImpl: async () => Res
 
 test('install source classification distinguishes every host source class', () => {
   for (const [source, update, expected] of [
-    ['@playground/dsh-playground@1.0.0', 'registry', 'registry'],
-    ['@playground/dsh-playground@^1.0.0', undefined, 'registry'],
+    ['dsh-playground@1.0.0', 'registry', 'registry'],
+    ['dsh-playground@^1.0.0', undefined, 'registry'],
+    ['dsh-playground@^0.6.0-beta.1', undefined, 'registry'],
+    ['dsh-playground@beta', undefined, 'registry'],
     [`github:tjyyy3/dsh-playground#${sha}`, 'git', 'git_pinned'],
     [`git+https://github.com/tjyyy3/dsh-playground.git#${sha}`, 'git', 'git_pinned'],
     [`https://github.com/tjyyy3/dsh-playground.git#${sha}&path:plugin`, 'git', 'git_pinned'],
@@ -41,7 +43,7 @@ test('install source classification distinguishes every host source class', () =
 test('unchecked reads only local versions and host bundles, with distinct source hints', async () => {
   const hints = new Set();
   for (const source of ['1.0.0', `github:tjyyy3/dsh-playground#${sha}`, 'github:tjyyy3/dsh-playground', 'link:../plugin', 'file:../plugin', undefined]) {
-    const result = await query({ pluginManager: () => ({ listBundles: () => [{ name: '@playground/dsh-playground', source }] }),
+    const result = await query({ pluginManager: () => ({ listBundles: () => [{ name: 'dsh-playground', source }] }),
       fetchImpl: () => assert.fail('unchecked must not access the network') })({ check: false });
     assert.equal(result.status, 'unchecked');
     hints.add(result.sourceHint);
@@ -50,6 +52,10 @@ test('unchecked reads only local versions and host bundles, with distinct source
       assert.doesNotMatch(result.sourceHint, /先卸载/);
     }
     if (result.source === 'file') assert.match(result.sourceHint, /从 GitHub Release 页面复制/);
+    if (result.source === 'registry') {
+      assert.match(result.sourceHint, /DSH 不会更新.*already-installed.*先在 DSH 插件管理器卸载.*npm 包名.*重新安装/);
+      assert.match(result.sourceHint, /配置会保留/);
+    }
   }
   assert.equal(hints.size, 6);
   for (const pluginManager of [() => undefined, () => ({ listBundles: () => [] }), () => ({ listBundles() { throw Error('missing'); } })]) {

@@ -1,10 +1,23 @@
 {
-  "name": "@playground/dsh-playground",
-  "version": "0.5.1-beta.1",
-  "private": true,
+  "name": "dsh-playground",
+  "version": "0.6.0-beta.1",
   "license": "MIT",
   "type": "module",
-  "description": "Use chat and native cards to find Playground competitions, read challenges and personal submissions, and submit ARM bundles for evaluation.",
+  "description": "DSH plugin for Playground challenges: browse challenges, dispatch tasks to Agents, and track submissions and scores.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "playground"
+  ],
+  "homepage": "https://github.com/tjyyy3/dsh-playground#readme",
+  "bugs": {
+    "url": "https://github.com/tjyyy3/dsh-playground/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjyyy3/dsh-playground.git"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

@@ -317,8 +317,8 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
 }
 
 test('release install-source reads prefer ctx.get and fall back to the context property', async () => {
-  const registered = { listBundles: () => [{ name: '@playground/dsh-playground', update: 'registry' }] };
-  const property = { listBundles: () => [{ name: '@playground/dsh-playground', source: 'link:../plugin' }] };
+  const registered = { listBundles: () => [{ name: 'dsh-playground', update: 'registry' }] };
+  const property = { listBundles: () => [{ name: 'dsh-playground', source: 'link:../plugin' }] };
   for (const [get, expected] of [[() => registered, 'registry'], [() => undefined, 'link'],
     [() => { throw Error('service accessor unavailable'); }, 'link'], [undefined, 'link']]) {
     const { scope } = mountWorkflowScope(workflowProjection.init(), { host: {
