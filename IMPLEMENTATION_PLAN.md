@@ -21,7 +21,7 @@ The historical source baseline contains the old flow; #88 replaces it. Keep `AGE
 
 Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. D1 retains the existing material-access module without a standalone extraction. D2-D5 share the researched architecture draft in Track D and remain subject to scope review. Track E retains candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 records the direction of reusing existing controller tools. C4 is removed as a standalone feature. C5 reuses existing controller and host capabilities. C6 reuses existing results and material references with task-appropriate file organization. D1 retains the existing material-access module without a standalone extraction. D2-D5 follow the agreed overall modularization direction in Track D; detailed migration scopes remain under review. Track E retains candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -131,11 +131,11 @@ Directory or worktree organization does not replace file-access authorization. D
 
 #### Overall architecture draft
 
-**Status: research-backed proposal for discussion, not an approved runtime migration.** D1 remains agreed: retain the existing material-access module without a standalone split. D2-D5 now share the target structure and migration plan below; their implementation scope still needs review.
+**Status: overall modularization direction agreed; detailed migration scopes remain under review.** Keep one Host/Client package with feature modules, explicit state ownership and gradual extraction. D1 remains agreed: retain the existing material-access module without a standalone split. The concrete module map, Client build settings and D2-D5 implementation batches below remain a review draft; this status does not record a delivered refactor.
 
 The architecture review uses plugin main `46dacaf4579e825a26657dab135db76fe7184c5a` (package `dsh-playground`, `0.6.0-beta.1`) and the official DSH `0.2.1-rc.5` source `b830ec950faba0a46dda564be3e2d854afed94f1` for the Client bundle contract. This is a separate current-code snapshot from the historical audit baseline. The review read source and existing tests; it did not build a new bundle, run tests, install a package or verify a live Host.
 
-**Recommendation:** keep one Host/Client plugin package, organize growing feature code into a few directories, retain already coherent modules, and make entry points assemble those modules. Success means that a change is easy to locate, has a limited effect on other features, and can be verified through existing interfaces. File count and a fixed lines-per-file limit are not goals.
+**Agreed direction:** keep one Host/Client plugin package, organize growing feature code into a few directories, retain already coherent modules, and make entry points assemble those modules. Success means that a change is easy to locate, has a limited effect on other features, and can be verified through existing interfaces. File count and a fixed lines-per-file limit are not goals.
 
 ##### Design criteria and research basis
 
@@ -255,7 +255,7 @@ Migrate toward the whole structure in small batches. The sequence below is a rev
 
 | Batch | Concrete change | Evidence needed before moving on |
 |---|---|---|
-| 1. Establish leaf boundaries | Extract pure redaction/policy helpers and, separately, the existing projection definitions when needed; retain compatible re-exports | Existing relevant pure-policy/projection cases; no state-format or behavior change; no reverse import into the facade |
+| 1. Establish leaf boundaries | Proposed first scope: extract pure redaction and submission-policy helpers with compatible re-exports; leave projection reducers, request Maps, network reads and dispatch in place | Existing date/count/limit/policy and redaction cases, plus affected submission cases; unchanged outputs and rules; no reverse import into the facade |
 | 2. Extract submission handoff | Move the request/confirmation/duplicate-guard lifecycle together, injecting the existing recorder, authorization and data readers | Ordinary one-action dispatch, repeated clicks, refusal/cancellation, expired/changed quota context and unknown outcomes |
 | 3. Separate overview and receipts | Move history/count reads and their single cache owner, then tracking/results/progress; connect explicit invalidation | Identity/challenge ownership, idempotent tracking, preserved IDs on failure, current cache freshness and incomplete-data labels |
 | 4. Reduce the remaining workflow and entry | Extract task lifecycle, catalog/auth operations and Host registration/views in separate coherent changes | Workspace/binding behavior, session-free reads, unchanged tool/RPC shapes, model-visible field selection and prompt guidance |
@@ -276,7 +276,7 @@ Assess the architecture with concrete maintenance scenarios:
 
 Reuse the repository's relevant offline tests and required CI matrix. Add focused coverage only for a real gap introduced by a new interface or build artifact. Preserve the established distinctions between mock tests, isolated Host observations and live target-Host evidence. Structural work does not introduce a new uploader, material scanner, scheduler, result-review gate or author/organizer feature.
 
-The next review should confirm the **module responsibilities and state owners**, then select the first small migration. Exact filenames and bundler settings can be settled within that scope; they should not substitute for those decisions.
+The next review should select the **first small migration** against the agreed direction and check its concrete module boundaries and state owners. Exact filenames and bundler settings can be settled within that scope; they should not substitute for those decisions.
 
 ### Track E — Author, organizer and community discovery
 
@@ -362,7 +362,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
 | B4 participant-history extensions | Candidate; further review needed | — | Product decisions and required scope |
 | D1 path/material access | Agreed: retain existing module; no standalone split planned | — | Existing `lib/material-access.js`; small reference adapters may be adjusted with D2 |
-| D2-D5 file splitting | Researched architecture and migration draft; implementation scope remains under review | — | Track D: source mapping, state ownership, Client delivery and staged acceptance |
+| D2-D5 file splitting | Overall modularization direction agreed; detailed migration scope remains under review | — | Track D: source mapping, state ownership, Client delivery and staged acceptance |
 | E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 
 Merge/issue status above was verified during this documentation review. Implementation and target-host tests were not independently rerun; use the linked PRs for their reported evidence and remaining limits.
