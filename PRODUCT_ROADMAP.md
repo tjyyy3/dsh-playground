@@ -1,11 +1,13 @@
 # Playground Product Roadmap
 
-> Decisions synchronized: 2026-11-19  
+> Decisions synchronized: 2026-11-20  
 > Source-review baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`  
 > Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
-> Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue. Later candidates require separate product review and are not prerequisites for the submission redesign.
+> Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue and summarized below. Later candidates require separate product review and are not prerequisites for the submission redesign.
 
-Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78) and [#81](https://github.com/tjyyy3/dsh-playground/issues/81). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
+Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78), [#81](https://github.com/tjyyy3/dsh-playground/issues/81) and [#90](https://github.com/tjyyy3/dsh-playground/issues/90). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
+
+Repository status checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: the linked audit implementations and challenge grouping are merged, as recorded in section 6. The source-review baseline above remains the historical evidence for the original findings. Merge status does not mean this documentation review independently reran implementation or target-host tests.
 
 ## 1. Product direction
 
@@ -43,9 +45,9 @@ Agent orchestration supports these journeys through existing DSH capabilities. I
 - Personal and public submission lookup, including per-challenge history with time ordering, identity and current-conversation association markers.
 - Task conversations, attempt association and score tracking. Current displays already distinguish reference/final scores, a bundle not uploaded, and an attempt closed by the platform.
 - Challenge rules and resources in detail views; submission counts and known limits, with their sources and incomplete-data notices, in submission history.
-- Legacy material checks, confirmation cards and plugin-operated submission paths. These are being replaced under #74/#75; they are not requirements to preserve in the new participant flow.
+- Legacy material checks, confirmation cards and plugin-operated submission paths existed at this baseline. They were retired by [#88](https://github.com/tjyyy3/dsh-playground/pull/88), closing #74/#75; they are not requirements to restore.
 
-**Agreed near-term changes**
+**Agreed submission behavior — implemented in #88**
 
 - One submission request goes to the correct existing task Agent, with the task, workspace, account, material references and known attempt context. Repeated clicks must not create parallel duplicate requests.
 - The Agent follows official CLI or API requirements. The plugin's old uploader and fallback must not also submit in parallel.
@@ -73,35 +75,44 @@ The participant flow has no mandatory plugin-owned "Validate → Awaiting confir
 - A controller child-task list with observed state, persisted result notices, result details and native child-session links where supported.
 - Separate challenge task conversations, their task overview, and controller conversations. These are existing views of different kinds of records.
 
-**Agreed near-term reliability work**
+**Agreed reliability behavior — #77 implemented in #84**
 
-- Under #77, preserve the structured end reason supplied by DSH in existing result projections, with compatibility for historical notices that lack it.
+- [#84](https://github.com/tjyyy3/dsh-playground/pull/84) implements #77's preservation of the structured end reason supplied by DSH in existing result projections, with compatibility for historical notices that lack it.
 - Reuse existing DSH records and supported passive state reads where available. Distinguish frontend refresh, plugin recreation and Host restart, and verify the target DSH version's capabilities.
 - Treat an old result as historical evidence when it cannot be reliably associated with the current execution. A missing notification or a non-running process is not proof of success or failure.
 - Preserve unknown when evidence is insufficient. State inspection must not wake the Agent or automatically repeat its work. No new task database or recovery action is required for this change.
 
-**Agreed task organization — #81**
+**Agreed task organization — #81 implemented in #89**
 
 Within the selected workspace's controller task list, organize tasks by challenge. Opening a challenge shows which Agents are working on it, each task's execution state, existing results and the conversations that can actually be opened.
 
 - Keep multiple execution tasks for the same challenge distinct, including their results and session context.
-- Establish explicit challenge association for new tasks using existing platform/challenge identities and supported DSH records. The current child-task rows have no structured challenge ID; verify the smallest reliable addition rather than inferring ownership from labels, timing or the most recent challenge handoff.
+- Preserve explicit challenge association for new tasks using platform/challenge identities and supported DSH records. The original baseline lacked this association; [#89](https://github.com/tjyyy3/dsh-playground/pull/89) adds explicit task linking. Do not infer ownership from labels, timing or the most recent challenge handoff.
 - Keep historical or other unassociated tasks visible in an explicitly unassociated area. Preserve the existing maintenance category and workspace/controller boundaries.
 - Reuse existing result displays and session links. Where a provider supplies no usable address, keep the available result readable.
 - Browsing groups and results remains passive. Reuse #77 state evidence and keep it distinct from #74 platform submission/scoring status.
 
-This approved scope is tracked in [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information; new task actions, scheduling, artifacts and review remain separate candidates.
+This approved scope was delivered by [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81). It uses existing task/session records with the necessary association information. The C3 control-capability investigation below is separately agreed; new controls, scheduling, artifacts and review remain separate product decisions.
+
+**Agreed control direction — C3 / #90**
+
+Prefer the controller's existing DSH tools for stopping a task and relaying additional ideas. [#90](https://github.com/tjyyy3/dsh-playground/issues/90) asks local Codex to establish actual installed versions, configuration and controller-visible tools before proposing new controls.
+
+- Check whether the actual controller can request a stop, and distinguish an accepted request from observed task termination. Do not infer availability from a package's default configuration alone.
+- Check message delivery to supported native DSH child sessions, distinguishing message acceptance from the child acting on it.
+- Keep the external Codex boundary explicit: the reviewed DSH adapter runs one external activation, supplies a result record, and does not create a local child conversation or accept follow-up input/resume. Verify the installed adapter rather than treating a message to the controller as a message to that running execution.
+- Starting another external execution after preserving existing work is a new delegation, not a resumed conversation or authorization to submit to the competition.
+- This is an investigation. Do not automatically enable disabled tools, change host configuration, modify adapters or add a stop/retry/reassign button set. Report concrete gaps for a separate decision; a capability report can close #90 without a code PR.
 
 **Candidate follow-ups**
 
 1. Further session-link and task-association improvements beyond #81, where providers expose usable addresses.
-2. Explicit cancel / retry / reassign controls, subject to DSH host support and verified semantics.
-3. Task dependencies and bounded parallelism.
-4. Artifact collection and provenance.
-5. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
-6. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
+2. Task dependencies and bounded parallelism.
+3. Artifact collection and provenance.
+4. Evidence-based completion review: Git diff, tests, lint, type checks and required output files where relevant to the task.
+5. Human review for code merging or other tasks that require it. For ordinary competition submission, the explicit submit request remains the user action; this does not add another universal review step.
 
-Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [current child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77 preserves state evidence; #81 adds the approved challenge grouping. New task actions remain separate candidates.
+Baseline references: [existing controller list, details and session links](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1818-L1885), [baseline child-task row fields](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/lib/controller.js#L274-L310), and [the separate task overview's session selection](https://github.com/tjyyy3/dsh-playground/blob/a6c88d5c65a1e95bb02cbb36ae3910111e143eaf/client.js#L1345-L1355). #77/#84 preserve state evidence; #81/#89 deliver challenge grouping. #90 investigates controller capabilities before any separate decision about new task controls.
 
 **Suggested task lifecycle, pending product review**
 
@@ -180,7 +191,7 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 | File access and references | Apply #73 hybrid grants to actual retained file handling and material references; do not restore full-file preparation removed by #75 |
 | Submission handoff | Send one request to the current task Agent, which chooses the official CLI/API process; retire the parallel plugin uploader under #74 |
 | API client | Keep plugin read/query operations; enforce remote HTTPS with the documented local-development exception (#76), and bounded response consumption (#78) |
-| CLI runner | Handle arguments, timeouts and cancellation for processes the plugin itself starts, including retained login and version/update checks; track the Windows limitation in #17 without claiming control over all Agent terminal processes |
+| CLI runner | Handle arguments, timeouts and cancellation for processes the plugin itself starts, including retained login and version/update checks; preserve the Windows cleanup delivered by #82/#87 for #17/#85 without claiming control over all Agent terminal processes |
 | Task projections and observation | Reuse DSH identity, persisted notices and supported state information; preserve end reasons and retain unknown where appropriate (#77) |
 | Artifact registry, candidate | Record producing task, references and review evidence if separately approved; do not make whole-file hashing or a registry a prerequisite for submission |
 | Receipts and result tracking | Associate actual attempt IDs, report platform state and preserve evidence needed to investigate ambiguous outcomes (#74) |
@@ -201,19 +212,19 @@ This remains a proposed information architecture. Add authoring, organizer or ot
 
 ## 6. Prioritization
 
-The linked issues define agreed near-term scope and acceptance. Candidate priorities below remain proposals, not instructions to implement the entire roadmap. #74 and #75 may be delivered together with separate acceptance evidence; no material-snapshot project is a prerequisite.
+The linked issues define agreed scope and acceptance. Candidate priorities below remain proposals, not instructions to implement the entire roadmap. #74 and #75 were delivered together in #88; their acceptance scopes remain distinct. No material-snapshot project is a prerequisite.
 
 | Priority | Capability | Status / purpose |
 |---|---|---|
-| P0 | File-use authorization and explicit submission handoff | Agreed: #73 / #74; protect the intended scope and user request |
-| P1 | Retire redundant material processing and ZIP inspection | Agreed: #75, coordinated with #74 |
-| P1 | HTTPS for the plugin's remote API requests | Implemented via merged #80; #76 closed. Merge status verified; not independently rerun in this document review |
-| P1 | Preserve end reasons and recover supported task evidence | Agreed: #77; keep unknown honest |
-| P1 | Remaining Windows CLI cleanup and host cancellation boundaries | Agreed: #17; limited to retained plugin-launched processes |
-| P2 | Bounded API response consumption | Agreed: #78; protect plugin resources without setting material limits |
-| P1 | Participant history and workflow-state clarity | Core receipts in #74; further history UI remains a candidate |
-| P1 | Challenge-grouped tasks, results and existing conversation entry points | Agreed: #81; establish reliable association and preserve existing records |
-| P1 | Further session integration and cancel / retry | Candidate; confirm host-supported operations before adding controls |
+| P0 | File-use authorization and explicit submission handoff | #73 delivered in [#83](https://github.com/tjyyy3/dsh-playground/pull/83); #74 delivered in [#88](https://github.com/tjyyy3/dsh-playground/pull/88); both issues closed |
+| P1 | Retire redundant material processing and ZIP inspection | #75 delivered with #74 in [#88](https://github.com/tjyyy3/dsh-playground/pull/88); issue closed |
+| P1 | HTTPS for the plugin's remote API requests | [#80](https://github.com/tjyyy3/dsh-playground/pull/80) merged; #76 closed |
+| P1 | Preserve end reasons and recover supported task evidence | [#84](https://github.com/tjyyy3/dsh-playground/pull/84) merged; #77 closed; preserve documented host/provider limits |
+| P1 | Windows CLI cleanup and host cancellation boundaries | [#82](https://github.com/tjyyy3/dsh-playground/pull/82) and follow-up [#87](https://github.com/tjyyy3/dsh-playground/pull/87) merged; #17/#85 closed; limited to plugin-launched processes |
+| P2 | Bounded API response consumption and credential-free bases | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) merged; #78/#79 closed; response safeguards do not set material limits |
+| P1 | Participant history and workflow-state clarity | Core receipt migration delivered in #88; further history UI remains a candidate |
+| P1 | Challenge-grouped tasks, results and existing conversation entry points | [#89](https://github.com/tjyyy3/dsh-playground/pull/89) merged; #81 closed |
+| P1 | C3: reuse controller stop/message capabilities | Agreed investigation: [#90](https://github.com/tjyyy3/dsh-playground/issues/90); verify local availability and provider limits before deciding on new controls |
 | P1 | Evidence-based completion review | Candidate; match evidence to the task |
 | P2 | Artifact registry and Worktree isolation | Candidate; improve parallel work and review |
 | P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |

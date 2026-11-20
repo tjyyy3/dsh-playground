@@ -1,12 +1,12 @@
 # Implementation Plan
 
-> Updated decisions: 2026-11-19. Source baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`.  
-> Status: current issue scopes replace the earlier snapshot/check-card plan. This document does not implement the fixes.  
-> Working rule: each PR needs a clear primary behavior change and reviewable evidence; coordinated #74/#75 work may share one PR.
+> Updated decisions: 2026-11-20. Source baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`.  
+> Status: current issue scopes replace the earlier snapshot/check-card plan. Previously agreed fixes and challenge grouping have merged; C3 is a new capability investigation. This document records scope and status, not new runtime verification.  
+> Working rule: each PR needs a clear primary behavior change and reviewable evidence; coordinated #74/#75 work was delivered together in #88.
 
 ## 1. Delivery strategy
 
-Implement the agreed issues without first rewriting `index.js`, `client.js` or `lib/workflow.js`. Identify which calls survive the handoff migration before extracting reusable modules. Do not modularize obsolete readers/uploaders merely to preserve them.
+The previously agreed audit fixes and challenge grouping have merged. Build on their retained behavior without first rewriting `index.js`, `client.js` or `lib/workflow.js`. Identify surviving calls before extracting reusable modules. Do not recreate or modularize obsolete readers/uploaders merely to preserve them.
 
 An implementation PR should explain:
 
@@ -15,13 +15,13 @@ An implementation PR should explain:
 - Actual DSH/Windows observations when a conclusion depends on the host, with unverified cases identified.
 - Compatibility or migration effects, including user/tool documentation that must change.
 
-The baseline still contains the old flow. Update outdated `AGENTS.md`, README, tool guidance and UI text alongside the relevant implementation. Do not claim the new behavior shipped because planning documents changed. A documentation-only alignment needs content/diff verification, not a claim of new runtime test results.
+The historical source baseline contains the old flow; #88 replaces it. Keep `AGENTS.md`, README, tool guidance and UI text aligned with retained behavior in future changes. Do not claim a feature shipped merely because planning documents changed. A documentation-only alignment needs content/diff verification, not a claim of new runtime test results.
 
 ## 2. Issue work and PR sequence
 
-Implementation progress checked on 2026-11-19: [#80](https://github.com/tjyyy3/dsh-playground/pull/80) is merged and #76 is closed. This confirms repository status; this documentation review did not independently rerun the implementation tests.
+Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: [#80](https://github.com/tjyyy3/dsh-playground/pull/80), [#82](https://github.com/tjyyy3/dsh-playground/pull/82), [#83](https://github.com/tjyyy3/dsh-playground/pull/83), [#84](https://github.com/tjyyy3/dsh-playground/pull/84), [#86](https://github.com/tjyyy3/dsh-playground/pull/86), [#87](https://github.com/tjyyy3/dsh-playground/pull/87), [#88](https://github.com/tjyyy3/dsh-playground/pull/88) and [#89](https://github.com/tjyyy3/dsh-playground/pull/89) are merged. Issues #17, #73–#79, #81 and #85 are closed. This confirms repository status; this documentation review did not independently rerun implementation or target-host tests. The requirements below retain the accepted scope for future changes; they are not instructions to repeat closed implementation work.
 
-The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration. Track C1 is approved under #81; C3-C6 and Tracks D-E retain candidate work for further review.
+The labels below organize scope, not one mandatory PR per row. A2 and A3 belong to the same #74 migration delivered in #88. Track C1 was delivered under #81/#89. C3 is the agreed capability investigation in #90; C4-C6 and Tracks D-E retain candidate work for further review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -55,7 +55,7 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 | Item | Scope | Main areas | Acceptance source |
 |---|---|---|---|
 | B1 | Preserve settlement reasons; reuse supported DSH evidence for state | controller projection, observers, task display | [#77](https://github.com/tjyyy3/dsh-playground/issues/77), AUD-006 |
-| B2 | Remaining Windows descendant cleanup for plugin-created processes | CLI runner, Windows fixtures, host validation | [#17](https://github.com/tjyyy3/dsh-playground/issues/17), AUD-007 |
+| B2 | Windows descendant cleanup for plugin-created processes | CLI runner, Windows fixtures, host validation | [#17](https://github.com/tjyyy3/dsh-playground/issues/17), AUD-007 |
 | B3 | Remove full material reads, hashes/conversions, ZIP inspection and plugin material gates | obsolete preparation/readers, related UI/tests | [#75](https://github.com/tjyyy3/dsh-playground/issues/75), AUD-004/AUD-009 |
 | B4 | Additional task-history filtering/grouping or attempt comparisons beyond the existing history and score displays | presentation/UI | Candidate; separate product review; existing behavior migration belongs to #74 |
 | B5 | Byte-budgeted reads of retained plugin API responses | API request layer, fake-stream tests | [#78](https://github.com/tjyyy3/dsh-playground/issues/78), AUD-008 |
@@ -80,21 +80,21 @@ The labels below organize scope, not one mandatory PR per row. A2 and A3 belong 
 - Verify actual independent uses before deleting helpers. Future author workflows need their own contract; external Worker security testing is not a prerequisite for this participant migration.
 - B5 protects response bytes rather than submitted materials. Cover actual streamed bytes, successful/error bodies, cleanup and precise errors while retaining timeouts/cancellation. Justify budgets from normal API needs; test with small fake streams.
 
-**Ordering and coordination**
+**Coordination to preserve after delivery**
 
-1. #74 and #75 should be designed together and may share a PR. Coordinate #73 with their surviving path/reference interfaces.
-2. #76, #77, #17 and #78 can proceed independently when scope is clear. Coordinate #76/#78 edits in the API layer.
-3. These fixes do not wait for a snapshot design, every product feature, or documentation PR #72 to merge.
+1. #74/#75 were delivered together in #88. Preserve #73's grants at the surviving path/reference interfaces.
+2. Keep the merged HTTPS, state-evidence, Windows cleanup and API response protections intact when changing shared code.
+3. These fixes were independent of a snapshot project, later product candidates and documentation PR #72 merging.
 4. Keep code-unit results, isolated-host observations and actual target-host acceptance distinguishable.
 
 ### Track C — Task organization and further collaboration
 
-C1 is approved under #81. C3-C6 remain candidates for separate product review.
+C1 was delivered in #89, closing #81. C3 is an agreed investigation under #90, with no new controls committed. C4-C6 remain candidates for separate product review.
 
 | Item | Scope | Status / implementation question |
 |---|---|---|
-| C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Agreed: [#81](https://github.com/tjyyy3/dsh-playground/issues/81); establish reliable challenge association using supported DSH records |
-| C3 | Cancel, retry and reassign controls | which target DSH/provider actions exist and what do they guarantee? |
+| C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Delivered: [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81); preserve explicit challenge association and existing records |
+| C3 | Reuse controller stop/message capabilities; investigate actual local availability and provider boundaries | Agreed investigation: [#90](https://github.com/tjyyy3/dsh-playground/issues/90); no stop/retry/reassign button set committed |
 | C4 | Evidence-based task review | what evidence helps without adding a universal submission gate? |
 | C5 | Bounded parallelism and dependencies | which limits and dependency behavior do actual workflows need? |
 | C6 | Artifact registry and optional Worktree isolation | which artifact identities/conflicts justify the added infrastructure? |
@@ -108,7 +108,16 @@ C1 is approved under #81. C3-C6 remain candidates for separate product review.
 - Browsing/refreshing does not dispatch work, create sessions or submit. Reuse #77 state evidence; preserve unknown and distinguish it from #74 platform state.
 - Verify same-challenge multiple tasks, different challenges, legacy records, workspace switches, association persistence, results and supported session opening with focused mock tests and actual DSH UI checks. No real competition submission is needed.
 
-#74 already owns essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate it. C1 uses existing controller tasks and their supported session associations. Unknown is valid, and cancel/retry UI needs verified host semantics.
+**C3 investigation requirements**
+
+- Record installed DSH, Playground and provider versions, enabled configuration and the controller's actual visible tools. Distinguish a missing/disabled tool from a provider limitation.
+- Use bounded, harmless examples where tools are available to check native and external stopping, and supported native message relay. Do not stop real competition work or perform a competition submission.
+- Distinguish stop-request acceptance from observed termination, and message acceptance from the child acting on the new instruction.
+- Check the installed Codex adapter explicitly. The reviewed external adapter provides one execution and a terminal result, without a local child conversation or follow-up/resume. A new delegation is not a resumed execution and does not authorize competition submission.
+- Do not enable disabled tools, change host configuration, modify adapters or add controls as part of this issue. Report concrete gaps and unverified target-session cases; decide any follow-up separately.
+- A capability report can close #90 without a code PR when the investigation questions are answered. Keep unresolved questions explicit rather than manufacturing a button implementation as a completion condition.
+
+#74/#88 own essential submission-result clarity and preservation of existing history/score/quota behavior; B4/C4 must not duplicate them. C1 uses existing controller tasks and supported session associations. Unknown remains valid. C3 investigates host semantics and available controller tools before any decision about new controls.
 
 ### Track D — Incremental file splitting
 
@@ -189,25 +198,27 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 
 ## 5. Immediate next actions
 
-1. Implement #74/#75 in coordinated increments, carrying #73's grants into actual retained boundaries.
-2. Complete focused fixes in #77, #17 and #78, coordinating shared files. #76 has been implemented via merged #80; retain its behavior in subsequent API work.
-3. Use the AUD-003 findings already recorded in #74 and investigate the remaining production boundary, rather than restarting the completed isolated investigation.
-4. Implement the approved challenge grouping in #81, coordinating with #77's state data. Review remaining product choices and file-splitting scope separately; open narrow issues for selected work.
-5. Update the audit and status table as implementation lands, not merely when discussion concludes.
+1. Complete #90's local capability investigation: which controller stop/message tools are actually available, and how native and external targets differ.
+2. Build on the merged implementations recorded below. Do not reopen or reimplement closed work solely because an older planning paragraph still described it as pending.
+3. Preserve the validation limits recorded in implementation PRs. The historical AUD-003 production-session bypass remains unproven; a documentation status update supplies no new production-path evidence.
+4. Review C4-C6, further participant history, author/organizer/community choices and file-splitting scope separately; open narrow issues only for selected work.
+5. Keep the audit and status table aligned with repository delivery and actual evidence.
 
 ## 6. Status tracking
 
-| Item | Status at this update | Issue | Remaining evidence |
+| Item | Status at this update | Issue / implementation | Evidence and limits |
 |---|---|---|---|
-| A1 hybrid policy | Agreed; implementation pending | [#73](https://github.com/tjyyy3/dsh-playground/issues/73) | retained-call integration and path/host tests |
-| A2/A3 handoff and consent migration | Agreed; implementation pending | [#74](https://github.com/tjyyy3/dsh-playground/issues/74) | new-flow regression and actual interaction channel |
-| B3 material/ZIP cleanup | Agreed; implementation pending | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) | no-read handoff and historical compatibility |
-| A4 HTTPS | #80 merged; #76 closed | [#76](https://github.com/tjyyy3/dsh-playground/issues/76) / [#80](https://github.com/tjyyy3/dsh-playground/pull/80) | merge/issue status verified; implementation tests not independently rerun in this document review |
-| B1 settlement/state evidence | Reviewed; implementation pending | [#77](https://github.com/tjyyy3/dsh-playground/issues/77) | target host/provider capabilities and recreation |
-| B2 remaining CLI cleanup | Scope corrected; Windows validation pending | [#17](https://github.com/tjyyy3/dsh-playground/issues/17) | descendants and host lifecycle |
-| B5 API response budgets | Reviewed; implementation pending | [#78](https://github.com/tjyyy3/dsh-playground/issues/78) | budget choice, streams and caller behavior |
-| C1 challenge-grouped task list | Agreed; implementation pending | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) | reliable association, legacy/workspace compatibility and actual session navigation |
-| B4/C3-C6 product extensions | Candidates; further review needed | — | product decisions and host semantics |
-| D1-D5 file splitting | Candidate engineering plan | — | retained boundaries and chosen scope |
-| E1-E8 author/organizer/community | Discovery candidates | — | official contracts, permissions and selection |
+| A1 hybrid policy | Merged; #73 closed | [#73](https://github.com/tjyyy3/dsh-playground/issues/73) / [#83](https://github.com/tjyyy3/dsh-playground/pull/83) | See implementation evidence for retained-call integration and path/host coverage |
+| A2/A3 handoff and consent migration | Merged; #74 closed | [#74](https://github.com/tjyyy3/dsh-playground/issues/74) / [#88](https://github.com/tjyyy3/dsh-playground/pull/88) | Retain reported interaction-channel limits; the historical production bypass is not newly proven |
+| B3 material/ZIP cleanup | Merged with A2/A3; #75 closed | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) / [#88](https://github.com/tjyyy3/dsh-playground/pull/88) | See no-read handoff and historical-compatibility evidence in the implementation |
+| A4 HTTPS | Merged; #76 closed | [#76](https://github.com/tjyyy3/dsh-playground/issues/76) / [#80](https://github.com/tjyyy3/dsh-playground/pull/80) | Preserve remote HTTPS and the documented local-development exception |
+| B1 settlement/state evidence | Merged; #77 closed | [#77](https://github.com/tjyyy3/dsh-playground/issues/77) / [#84](https://github.com/tjyyy3/dsh-playground/pull/84) | Preserve host/provider evidence limits and unknown states |
+| B2 Windows CLI cleanup | Merged with follow-up; #17/#85 closed | [#82](https://github.com/tjyyy3/dsh-playground/pull/82) / [#87](https://github.com/tjyyy3/dsh-playground/pull/87) | See reported Windows checks and lifecycle boundaries; no claim to supervise every Agent process |
+| B5 API response budgets / credential-free bases | Merged; #78/#79 closed | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) | Preserve response-byte budgets and secret-free base validation |
+| C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
+| C3 controller stop/message capabilities | Agreed investigation; local verification pending | [#90](https://github.com/tjyyy3/dsh-playground/issues/90) | Actual configuration/tool visibility, native/external operations and target-session limits |
+| B4/C4-C6 product extensions | Candidates; further review needed | — | Product decisions and host semantics |
+| D1-D5 file splitting | Candidate engineering plan | — | Retained boundaries and chosen scope |
+| E1-E8 author/organizer/community | Discovery candidates | — | Official contracts, permissions and selection |
 
+Merge/issue status above was verified during this documentation review. Implementation and target-host tests were not independently rerun; use the linked PRs for their reported evidence and remaining limits.
