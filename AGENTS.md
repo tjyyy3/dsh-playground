@@ -28,10 +28,10 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Repository boundaries
 
-- Install from DSH's third-party plugin UI using the pinned Git spec from a
-  GitHub Release. The unpinned repository URL still installs, but the host
-  cannot update it. Install the pinned spec over the existing copy; remove
-  and reinstall only if DSH returns `already-installed`. The low-level
+- Install from DSH's third-party plugin UI with the repository URL. The host
+  cannot update an unpinned Git install, so updates install the pinned Git
+  spec that the version card copies from a GitHub Release over the existing
+  copy; remove and reinstall only if DSH returns `already-installed`. The low-level
   `plugin_manager` command is a fallback for Creator-mode debugging. This
   plugin never installs or updates itself. Its read-only version card uses
   the configured `releaseChannel`.
@@ -97,7 +97,7 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 
 ## Current state
 
-Version `0.5.0-preview.7`.
+Version `0.5.1-beta.1`, the first Release under the `beta.N` policy.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.

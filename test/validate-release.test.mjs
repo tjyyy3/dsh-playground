@@ -52,10 +52,10 @@ test('workflow validates input before checkout and drafts only pinned commit met
   assert.doesNotMatch(testWorkflow, /release:pack|package-release/);
 });
 
-test('manifest keeps the current version and ships compatibility metadata with the host floor', () => {
+test('manifest version is releasable and ships compatibility metadata with the host floor', () => {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const compatibility = JSON.parse(readFileSync(new URL('../compatibility.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.version, '0.5.0-preview.7');
+  assert.doesNotThrow(() => checkReleaseTag(manifest.version, `v${manifest.version}`));
   assert.equal(manifest.engines.dsh, `>=${compatibility.recommendedHost}`);
   assert.equal(compatibility.schemaVersion, 1);
   assert.ok(manifest.files.includes('icon.svg'));
