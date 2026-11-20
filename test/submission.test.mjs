@@ -201,7 +201,7 @@ test('#74: an early tracked ID stays in flight and progress later records an upl
   f.record(failed);
   assert.deepEqual(f.state().attemptIds, [42]);
   assert.equal(f.state().receipt.error.code, 'upload_failed');
-  assert.equal((await f.workflow.taskPolicy(f.exec)).askFirst, true);
+  assert.equal((await f.workflow.taskPolicy(f.exec)).policy.askFirst, true);
 });
 
 test('#75: handoff never asks the material boundary to read or enumerate file contents', async (t) => {
