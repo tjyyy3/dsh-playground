@@ -23,7 +23,7 @@ Implementation progress checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf853
 
 Progress updated on 2026-11-21 at main `7050e024a047f1fe633ff18eed4ee2f799c96882`: [#96](https://github.com/tjyyy3/dsh-playground/pull/96) merged and closed #94; [#98](https://github.com/tjyyy3/dsh-playground/pull/98) merged and closed #95. The third catalog/auth/Host extraction is selected under [#99](https://github.com/tjyyy3/dsh-playground/issues/99) and remains pending. This update checked repository state and source, without independently rerunning implementation or target-host tests.
 
-The labels below organize scope, not one mandatory PR per row. A2/A3 were delivered under #74/#88; C1 under #81/#89. C3/C5/C6 reuse existing host, controller, results and material-reference capabilities. C4 is removed as a standalone feature. D1 retains the existing material-access module. The #94 helper extraction shipped in #96; #95's combined task/submission extraction and current-account statistics shipped in #98. The third scope, catalog/auth and Host integration, is selected in [#99](https://github.com/tjyyy3/dsh-playground/issues/99). Remaining migration details and Track E candidates stay under review.
+The labels below organize scope, not one mandatory PR per row. A2/A3 were delivered under #74/#88; C1 under #81/#89. The #94 helper extraction shipped in #96; #95's combined task/submission extraction and current-account statistics shipped in #98. The third scope, catalog/auth and Host integration, is selected in [#99](https://github.com/tjyyy3/dsh-playground/issues/99). Remaining migration details and Track E candidates stay under review.
 
 ### Track A — Submission handoff, authorization and transport
 
@@ -89,16 +89,13 @@ The labels below organize scope, not one mandatory PR per row. A2/A3 were delive
 3. These fixes were independent of a snapshot project, later product candidates and documentation PR #72 merging.
 4. Keep code-unit results, isolated-host observations and actual target-host acceptance distinguishable.
 
-### Track C — Task organization and further collaboration
+### Track C — Task organization
 
-C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existing controller capabilities, with no new controls committed. C4 is removed as a standalone feature. C5 is an agreed direction to reuse controller coordination and host capacity limits. C6 is an agreed direction to retain existing results/material references and coordinate file assignments without new management infrastructure; item numbers are retained.
+C1 was delivered in [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81).
 
 | Item | Scope | Status / implementation question |
 |---|---|---|
 | C1 | Group the existing controller task list by challenge; show each Agent task's state, results and supported session link | Delivered: [#89](https://github.com/tjyyy3/dsh-playground/pull/89), closing [#81](https://github.com/tjyyy3/dsh-playground/issues/81); preserve explicit challenge association and existing records |
-| C3 | Reuse controller stop/message capabilities | Agreed direction; use supported host/provider operations, with no new control UI planned |
-| C5 | Controller-coordinated task order and parallel work, using DSH capacity limits | Agreed direction; no independent plugin queue or dependency scheduler planned |
-| C6 | Existing results/material references and task-appropriate directory or Worktree use | Agreed direction; no independent artifact registry or plugin-managed Worktree lifecycle planned |
 
 **C1 requirements**
 
@@ -109,31 +106,13 @@ C1 was delivered in #89, closing #81. C3 is an agreed direction to reuse existin
 - Browsing/refreshing does not dispatch work, create sessions or submit. Reuse #77 state evidence; preserve unknown and distinguish it from #74 platform state.
 - Verify same-challenge multiple tasks, different challenges, legacy records, workspace switches, association persistence, results and supported session opening with focused mock tests and actual DSH UI checks. No real competition submission is needed.
 
-**C3: reuse existing capabilities**
-
-Reuse the controller's supported DSH stop/message operations within the target provider's capabilities. No additional stop/retry/reassign controls are planned at this stage. Preserve the distinction between a request being accepted and the target actually stopping or processing the message. Starting a new execution does not authorize competition submission.
-
-**C4 disposition: no separate result-review feature**
-
-Keep the existing result display and let the Agent choose the content, detail and organization of its report. The controller may ask for clarification when needed. Do not introduce a fixed three-part reporting template, reduce returned results to that template, or add a separate completion-review panel, review state or submission gate.
-
-**C5: reuse controller coordination and host limits**
-
-Let the controller arrange task order and parallel work using existing DSH delegation and result handling. Reuse the host's supported child-task capacity limits. Do not add a separate plugin queue, persistent dependency graph or scheduler; instructions to the controller are not program-enforced dependency rules.
-
-**C6: reuse results and material references**
-
-Keep existing result displays and authorized material references. Let the controller coordinate file assignments and let executors use separate directories or Git worktrees when appropriate. No independent artifact registry or automatic plugin-owned worktree creation, merging or cleanup is planned.
-
-Directory or worktree organization does not replace file-access authorization. Do not restore whole-file reads, hashes, ZIP scans or an extra review stage to populate an artifact inventory. A path reference does not certify file contents or an immutable version.
-
 #74/#88 delivered essential submission-result clarity and preserved the then-existing history/score/quota behavior. Current-account history/count simplification was subsequently delivered by #95/#98. Other B4 extensions remain candidates and must not repeat completed work. C1 uses existing controller tasks and supported session associations. Keep Agent reports, host state and official results distinguishable, and preserve unknown where reliable evidence is unavailable.
 
 ### Track D — Incremental file splitting
 
 #### Overall architecture draft
 
-**Status: overall modularization direction agreed; first two scopes delivered, third selected, remaining details under review.** Keep one Host/Client package, feature modules, explicit state owners and gradual extraction. D1 retains the existing material-access module. [#94](https://github.com/tjyyy3/dsh-playground/issues/94) shipped policy/redaction in [#96](https://github.com/tjyyy3/dsh-playground/pull/96). [#95](https://github.com/tjyyy3/dsh-playground/issues/95) shipped lifecycle, handoff, receipts, shared overview and current-account statistics in [#98](https://github.com/tjyyy3/dsh-playground/pull/98). [#99](https://github.com/tjyyy3/dsh-playground/issues/99) selects catalog/auth and Host integration as the third scope, normally one PR preserving behavior. Client build settings and further D3/D5 internal splitting remain under review.
+**Status: overall modularization direction agreed; first two scopes delivered, third selected, remaining details under review.** Keep one Host/Client package, feature modules, explicit state owners and gradual extraction. [#94](https://github.com/tjyyy3/dsh-playground/issues/94) shipped policy/redaction in [#96](https://github.com/tjyyy3/dsh-playground/pull/96). [#95](https://github.com/tjyyy3/dsh-playground/issues/95) shipped lifecycle, handoff, receipts, shared overview and current-account statistics in [#98](https://github.com/tjyyy3/dsh-playground/pull/98). [#99](https://github.com/tjyyy3/dsh-playground/issues/99) selects catalog/auth and Host integration as the third scope, normally one PR preserving behavior. Client build settings and further D3/D5 internal splitting remain under review.
 
 The initial architecture review used plugin main `46dacaf4579e825a26657dab135db76fe7184c5a` and official DSH `0.2.1-rc.5` source `b830ec950faba0a46dda564be3e2d854afed94f1` for the Client bundle contract. The third scope was checked against main `7050e024a047f1fe633ff18eed4ee2f799c96882` after #96/#98. These are distinct from the historical audit baseline. This documentation review did not build the proposed Client bundle or independently verify a live Host.
 
@@ -254,9 +233,9 @@ Keep the current three loader-provided dependencies explicit: `react`, `@deepsee
 
 The official builder has a dedicated chunk protocol; that does not establish ordinary browser/Node relative-module loading for arbitrary split plugin files. The proposed first migration uses one static Client entry, avoiding a new chunk-delivery requirement.
 
-The current [manifest](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/package.json#L21-L48) exports the two root entries and includes `lib/*.js`, with no Client build step. Implementation must therefore address delivery in the same structural PR:
+The current [manifest](https://github.com/tjyyy3/dsh-playground/blob/7050e024a047f1fe633ff18eed4ee2f799c96882/package.json#L21-L47) exports the two root entries and already includes `lib/**/*.js` following #96, with no Client build step yet. D4 must add Client build/delivery while preserving this existing Host packaging:
 
-- Include all runtime Host subdirectories in the package's `files` policy; inspect the actual tarball rather than assuming a wildcard includes them. Preserve `.` and `./client` exports, bundle metadata, locales and assets.
+- Preserve the existing `lib/**/*.js` package inclusion and inspect the actual tarball. Keep `.` and `./client` exports, bundle metadata, locales and assets; the Host directory inclusion change has already shipped in #96.
 - Add an explicit Client build before relevant tests and publishing. The current [publish workflow](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579e825a26657dab135db76fe7184c5a/.github/workflows/publish.yml) uses `npm ci --ignore-scripts`, so a dependency-install lifecycle hook alone is insufficient.
 - Proposed initial policy: commit the generated root `client.js` alongside its sources and verify that rebuilding it produces no unexplained diff. This preserves the existing Git-install fallback without requiring consumers to install build tooling. npm receives the same generated artifact. The exact bundler is an implementation choice; the output contract is the requirement.
 - Keep the build limited to Client output; it must not clean away `index.js` or Host modules. Decide explicitly whether source maps/resources ship and keep generated paths reproducible.
@@ -265,11 +244,10 @@ The current [manifest](https://github.com/tjyyy3/dsh-playground/blob/46dacaf4579
 
 No build or installation success is claimed by this architecture draft.
 
-##### D1-D5 scope and migration order
+##### Module boundaries and migration order
 
 | Item | Scope in this draft | Decision status |
 |---|---|---|
-| D1 | Retain `lib/material-access.js`; move only small reference adapters when another extraction needs them | Agreed; no independent D1 refactoring PR planned |
 | D2 | Submission folder with handoff, policy, shared overview and receipt responsibilities | #94 delivered in #96; combined #95 scope delivered in #98, including current-account statistics. Preserve the delivered behavior |
 | D3 | Preserve controller and task projection/observation boundaries; extract controller internals only where the code demonstrates a useful separation | Candidate; no new task database or execution controls |
 | D4 | Split existing Client components by feature, with the single-entry build/delivery contract above | Proposed structure; preserve appearance, navigation and interactions |
@@ -303,7 +281,7 @@ Assess the architecture with concrete maintenance scenarios:
 - A platform response/process fix stays in its existing adapter boundary, with the same error/cancellation contract.
 - A clean install receives every referenced runtime file and the same generated Client entry that was tested.
 
-Reuse the repository's relevant offline tests and required CI matrix. Add focused coverage only for a real gap introduced by a new interface or build artifact. Preserve the established distinctions between mock tests, isolated Host observations and live target-Host evidence. Structural work does not introduce a new uploader, material scanner, scheduler, result-review gate or author/organizer feature.
+Reuse the repository's relevant offline tests and required CI matrix. Add focused coverage only for a real gap introduced by a new interface or build artifact. Preserve the established distinctions between mock tests, isolated Host observations and live target-Host evidence. Structural work preserves the behavior specified for each batch.
 
 The **first extraction** (#94/#96) and **combined task/submission extraction with current-account statistics** (#95/#98) have merged. The **third extraction** [#99](https://github.com/tjyyy3/dsh-playground/issues/99) is selected and pending implementation. Review Client source/build choices next, then reassess D3/D5 only where a separation has a concrete benefit. Record validation in implementation PRs; this documentation review supplies no new runtime evidence.
 
@@ -390,7 +368,7 @@ Superseded snapshot, mandatory plugin material-cap and external Worker-audit pre
 | B5 API response budgets / credential-free bases | Merged; #78/#79 closed | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) | Preserve response-byte budgets and secret-free base validation |
 | C1 challenge-grouped task list | Merged; #81 closed | [#81](https://github.com/tjyyy3/dsh-playground/issues/81) / [#89](https://github.com/tjyyy3/dsh-playground/pull/89) | Preserve explicit association, legacy/workspace compatibility and supported session navigation |
 | B4 participant-history extensions | Current-account history/count simplification merged; other extensions remain candidates | [#95](https://github.com/tjyyy3/dsh-playground/issues/95) / [#98](https://github.com/tjyyy3/dsh-playground/pull/98) | Retain the sole current-account statistics source and incomplete/unknown behavior; use the implementation for evidence and limits |
-| D1 path/material access | Agreed: retain existing module; no standalone split planned | — | Existing `lib/material-access.js`; small reference adapters may be adjusted with D2 |
+
 | Architecture batch 1 | Merged; #94 closed | [#94](https://github.com/tjyyy3/dsh-playground/issues/94) / [#96](https://github.com/tjyyy3/dsh-playground/pull/96) | Pure policy/redaction extraction, compatibility and package inclusion |
 | Architecture batch 2 | Merged; #95 closed | [#95](https://github.com/tjyyy3/dsh-playground/issues/95) / [#98](https://github.com/tjyyy3/dsh-playground/pull/98) | Lifecycle, handoff, receipts and shared overview; current-account statistics |
 | Architecture batch 3 | Selected; implementation pending | [#99](https://github.com/tjyyy3/dsh-playground/issues/99) | Catalog/auth and Host integration, normally one PR; behavior and shared state preserved |
