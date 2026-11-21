@@ -58,6 +58,8 @@ jobs:
           npm --version
       - run: npm ci --ignore-scripts
       - run: npm test
+      - name: Verify the package to publish
+        run: npm run verify:package -- --output-dir "$RUNNER_TEMP/playground-package"
       - name: Publish
         shell: bash
         env:
@@ -83,4 +85,4 @@ jobs:
             cat "$RUNNER_TEMP/npm-tag.err"
             exit 1
           fi
-          npm publish --provenance --access public --tag "$DIST_TAG"
+          npm publish "$RUNNER_TEMP/playground-package/dsh-playground-$version.tgz" --provenance --access public --tag "$DIST_TAG"

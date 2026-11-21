@@ -749,11 +749,27 @@ Development and tests require Node.js 24 or newer, the same major version DSH
 bundles.
 
 ```powershell
-npm ci                   # install development dependencies
-npm test                 # unit tests, no network
+npm ci --ignore-scripts  # install development dependencies
+npm run build:client     # build after editing src/client/
+npm run check:client     # compare source with the committed client.js
+npm test                 # check freshness, build, and run offline tests
+npm run verify:package   # pack, unpack, and check the actual delivery files
 node scripts/smoke.mjs   # live read-only calls against the real platform
 npm run demo:local       # fully offline mock API demo
 ```
+
+Commit `src/client/` and the generated root `client.js` together. The build
+bundles local modules into one static entry and leaves React, DSH UI primitives,
+and the DSH snapshot store to the module loader. The factory returns the plugin
+object directly. Its service `inject` list is independent of these external
+module dependencies.
+
+The pinned development bundler writes only `client.js`. It does not clean Host
+files or resources. Source maps, Client source, and build tools are not included
+in the npm package. npm and Git installations both load the committed entry
+without a local build. CI, release verification, and publishing install with
+`--ignore-scripts`, explicitly build through `npm test`, and verify the actual
+package. Publishing uploads that verified tarball.
 
 The smoke test prints the real challenge total, one challenge
 detail, its submission table, and one submission detail. No credentials are

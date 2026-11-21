@@ -62,7 +62,9 @@ test('publish workflow publishes a released commit once with provenance and the 
   assert.ok(actions.length > 0);
   for (const action of actions) assert.match(action, /@[0-9a-f]{40}$/);
   assert.match(workflow, /== \*-beta\.\* \]\]; then tag=beta; expected=true; else tag=latest; expected=false; fi/);
-  const publish = workflow.indexOf('npm publish --provenance --access public --tag "$DIST_TAG"');
+  const publish = workflow.indexOf('npm publish "$RUNNER_TEMP/playground-package/dsh-playground-$version.tgz" --provenance --access public --tag "$DIST_TAG"');
+  assert.ok(publish > 0);
+  assert.ok(workflow.indexOf('npm run verify:package -- --output-dir "$RUNNER_TEMP/playground-package"') < publish);
   for (const step of ['npm view "dsh-playground@$version" version', 'skipping publish', "grep -q 'E404'",
     'npm view dsh-playground "dist-tags.$DIST_TAG"', 'compareVersions(next, current) > 0', 'refusing to move it back']) {
     const index = workflow.indexOf(step);
