@@ -33,6 +33,27 @@ test('plugin declares the tools service and a stable name', () => {
   assert.equal(name, 'playground-competition');
 });
 
+test('read-only tools register before injected task services become available', () => {
+  const tools = [];
+  let activate;
+  apply({ tools: { register: (tool) => tools.push(tool) },
+    inject: (_services, callback) => { activate = callback; } }, { baseUrl: 'http://127.0.0.1:1' });
+  assert.deepEqual(tools.map((tool) => tool.name), [
+    'playground_list_challenges', 'playground_get_challenge', 'playground_list_attempts',
+    'playground_get_attempt', 'playground_list_competitions', 'playground_get_competition',
+    'playground_list_my_attempts',
+  ]);
+  const projections = [];
+  activate({ tools: { register: (tool) => tools.push(tool) },
+    sessionProjections: { register: (projection) => projections.push(projection.key) },
+    commands: { register() {} }, inject() {} });
+  assert.ok(projections.includes('playgroundTask'));
+  assert.deepEqual(tools.slice(7).map((tool) => tool.name), [
+    'playground_open_controller', 'playground_set_controller', 'playground_controller_tasks',
+    'playground_controller_link_task', 'playground_start_task', 'playground_bind_task', 'playground_task',
+  ]);
+});
+
 test('release channel comes from plugin config and defaults to stable', () => {
   assert.equal(normalizeSettings({}).releaseChannel, 'stable');
   assert.equal(normalizeSettings({ releaseChannel: 'beta' }).releaseChannel, 'beta');
