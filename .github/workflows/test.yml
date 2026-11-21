@@ -44,6 +44,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # Offline suite only: scripts/smoke.mjs reaches the live platform and is not run here.
       - run: npm test
+      - run: npm run verify:package

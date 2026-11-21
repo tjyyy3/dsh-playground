@@ -8,8 +8,13 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 ## Run and verify
 
 - Requires Node.js 24 or newer.
-- Install development dependencies with `npm ci`.
-- Run the offline test suite with `npm test`.
+- Install development dependencies with `npm ci --ignore-scripts`.
+- Edit `src/client/`, run `npm run build:client`, and commit the generated
+  root `client.js` together with its source. Do not edit the generated file.
+- Run the offline test suite with `npm test`. It checks Client freshness,
+  explicitly builds the Client, and loads the generated entry in behavior tests.
+- Run `npm run verify:package` to compare the dry-run and actual npm package,
+  unpack it, load its Host and Client entries, and verify required resources.
 - CI (`.github/workflows/test.yml`) runs `npm test` on Windows, macOS and Linux
   with Node 24 and 26 for pull requests and pushes to `main`. CI sets
   `PLAYGROUND_API_BASE` to an unreachable address, so tests must not depend on
@@ -21,10 +26,21 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
 ## Structure
 
 - `index.js`, `lib/`: Host tools, API, CLI integration, and workflow projection.
-- `client.js`: DSH Client slots, workbench, task drawer, and result cards.
+- `src/client/`: Client source. `dsh.js` owns DSH actions, credentials, slots,
+  and the per-apply stores. `catalog/`, `tasks/`, `controller/`, `settings/`,
+  and `cards/` own their existing flows. `workbench.js` owns task result refresh.
+- `client.js`: generated single Client entry, used by both npm and Git installs.
+- `scripts/build-client.mjs`: deterministic Client bundle. The three loader
+  dependencies are external. No source maps or new assets are published.
 - `cordis.patch.yml`, `locale/`, `icon.svg`: bundle metadata and client assets.
 - `scripts/`, `test/`: development checks and automated tests.
 - `README.md`: the public installation and usage contract.
+
+## Git commits
+
+Write all Git commit subjects and bodies in English, including merge and squash
+commits. Set the commit message explicitly when merging a pull request whose
+title or description uses another language.
 
 ## Repository boundaries
 
@@ -48,7 +64,8 @@ adds Playground challenge discovery, task sessions, Agent submission requests, a
   logs out of Git. `docs/` and `_scratch/` are local archive or test residue.
 - Do not put Playground tokens, passwords, credentials, or local absolute paths
   into tracked files.
-- Keep UI-only changes in `client.js`; do not modify DSH host code from this repo.
+- Keep UI-only changes in `src/client/` and rebuild `client.js`; do not modify
+  DSH host code from this repo.
 - Workspace materials need no new permission. External paths require a user grant
   from the browser workbench, for this operation by default or for the task.
   A material read grant is not a submission grant.

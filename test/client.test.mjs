@@ -83,8 +83,38 @@ async function clientFixture(t, services = {}) {
     await settle();
     return render(element.type, element.props);
   }
-  return { registrations, find, render, unmount, effects, workbench, mount };
+  return { plugin, registrations, find, render, unmount, effects, workbench, mount };
 }
+
+test('each Client apply owns its stores while its registered consumers share them', async (t) => {
+  const { plugin, registrations: first } = await clientFixture(t);
+  const second = new Map();
+  plugin.apply({ effect: () => {}, slots: {
+    inject: (_name, register) => { const result = register(); if (result?.next) [...result]; },
+    register: (definition) => { second.set(definition.name === 'main' ? 'main' : definition.id || definition.key || definition.name, { definition }); },
+  } });
+  const actions = (registrations, key) => registrations.get(key).definition.inject();
+  const firstMain = actions(first, 'main');
+  const secondMain = actions(second, 'main');
+  const firstOverlay = actions(first, 'playground.task-start');
+  const secondOverlay = actions(second, 'playground.task-start');
+  assert.notEqual(firstMain.controllerSelection, secondMain.controllerSelection);
+  assert.notEqual(firstMain.hooks.controllerTarget, secondMain.hooks.controllerTarget);
+  assert.notEqual(firstOverlay.hooks.taskRequest, secondOverlay.hooks.taskRequest);
+  assert.equal(firstMain.controllerSelection, actions(first, 'playground.library').controllerSelection);
+  const request = { id: 'fixture', title: 'Fixture' };
+  actions(first, 'playground_start_task').requestTask(request);
+  assert.equal(firstOverlay.hooks.taskRequest.getSnapshot(), request);
+  assert.equal(secondOverlay.hooks.taskRequest.getSnapshot(), null);
+  firstMain.controllerSelection.workspaceId = 'workspace-one';
+  assert.equal(actions(first, 'playground.library').controllerSelection.workspaceId, 'workspace-one');
+  assert.equal(secondMain.controllerSelection.workspaceId, '');
+  const target = { workspaceId: 'workspace-one', sessionId: 'controller-one' };
+  firstMain.hooks.controllerTarget.set(target);
+  assert.equal(secondMain.hooks.controllerTarget.getSnapshot(), null);
+  actions(first, 'playground.library').clearControllerTarget(target);
+  assert.equal(firstMain.hooks.controllerTarget.getSnapshot(), null);
+});
 
 test('F-01: opening a task drawer dispatches one submit request and closes correctly', async (t) => {
   const { registrations, find, render } = await clientFixture(t);

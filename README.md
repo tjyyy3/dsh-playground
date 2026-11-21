@@ -68,4 +68,6 @@ DSH 不会自动更新第三方插件，在安装框再次填写同名插件会�
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 
+开发时编辑 `src/client/`，执行 `npm run build:client`，并将源码与生成的根目录 `client.js` 一起提交。`npm test` 检查入口是否同步后重新构建并测试；`npm run verify:package` 验证实际 npm 包。安装者直接使用已构建的入口。
+
 工具、配置和开发测试见 [技术参考](guide/reference.md)。项目采用 [MIT 许可证](LICENSE)。
