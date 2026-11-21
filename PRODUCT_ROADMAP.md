@@ -1,6 +1,6 @@
 # Playground Product Roadmap
 
-> Decisions synchronized: 2026-11-20  
+> Decisions synchronized: 2026-11-21  
 > Source-review baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`  
 > Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
 > Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue and summarized below. Later candidates require separate product review and are not prerequisites for the submission redesign.
@@ -8,6 +8,8 @@
 Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/dsh-playground/issues/73), [#74](https://github.com/tjyyy3/dsh-playground/issues/74), [#75](https://github.com/tjyyy3/dsh-playground/issues/75), [#76](https://github.com/tjyyy3/dsh-playground/issues/76), [#77](https://github.com/tjyyy3/dsh-playground/issues/77), [#17](https://github.com/tjyyy3/dsh-playground/issues/17), [#78](https://github.com/tjyyy3/dsh-playground/issues/78) and [#81](https://github.com/tjyyy3/dsh-playground/issues/81). Implementation status is recorded in the linked issues and PRs; updating this roadmap does not itself ship a feature.
 
 Repository status checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: the linked audit implementations and challenge grouping are merged, as recorded in section 6. The source-review baseline above remains the historical evidence for the original findings. Merge status does not mean this documentation review independently reran implementation or target-host tests.
+
+Update on 2026-11-21 at main `7050e024a047f1fe633ff18eed4ee2f799c96882`: [#96](https://github.com/tjyyy3/dsh-playground/pull/96) delivered #94 and [#98](https://github.com/tjyyy3/dsh-playground/pull/98) delivered #95; both issues are closed. Third-batch catalog/auth/Host extraction is selected under [#99](https://github.com/tjyyy3/dsh-playground/issues/99) and remains pending.
 
 ## 1. Product direction
 
@@ -64,13 +66,13 @@ Agent orchestration supports these journeys through existing DSH capabilities. I
 
 <a id="account-count-summary-draft"></a>
 
-**Current-account submission counts — selected for #95**
+**Current-account submission counts — delivered in #98 (#95)**
 
 Use **only `GET /api/user-submissions`** to read the current signed-in platform account's submission history/counts. For the current challenge, show cumulative and today's submission counts when the returned data supports them; “today” keeps the existing Beijing calendar day. Remove confirmed-Agent aggregation, per-Agent rows and all-account combined totals from this scope. Keep the scope visible as “current account”; it says nothing about other accounts' submissions or any shared remaining quota. This supersedes the earlier per-account-plus-combined summary draft.
 
-This is an explicit, selected behavior change within [#95](https://github.com/tjyyy3/dsh-playground/issues/95), alongside the shared overview extraction; #94 remains a behavior-preserving helper extraction. Do not fall back to `/me/attempts`, public author/challenge lists, or bulk attempt-detail reads to reconstruct these statistics. Retain current-identity reads and direct result/ownership queries for actual attempt IDs; retain verified task IDs, receipts and prior task history.
+This selected behavior change was delivered in [#98](https://github.com/tjyyy3/dsh-playground/pull/98), closing [#95](https://github.com/tjyyy3/dsh-playground/issues/95), alongside the shared overview extraction. The #94 pure helper extraction was delivered separately in #96. Do not fall back to `/me/attempts`, public author/challenge lists or bulk attempt-detail reads to reconstruct these statistics. Retain current-identity reads and direct result/ownership queries for actual attempt IDs, verified task IDs, receipts and prior task history.
 
-The [official frontend](https://play.bohrium.com/assets/index-Cpx9jxZK.js) uses `user-submissions` while signed in and reads fields such as `attemptId`, `challengeId` and `time`; its dashboard counts the returned array. That observation does not establish the authenticated response's account scope, completeness or quota semantics. During implementation, verify identity scope, field mapping, timestamp/timezone handling and any actual pagination/completeness contract. Match challenges by stable ID and count distinct attempt IDs. Do not treat a returned page/array length as a proven lifetime total. Missing fields, partial data or a failed read must remain incomplete/unknown or show a fetch error, rather than becoming a false zero.
+The [official frontend](https://play.bohrium.com/assets/index-Cpx9jxZK.js) uses `user-submissions` while signed in and reads fields such as `attemptId`, `challengeId` and `time`; its dashboard counts the returned array. That observation does not establish the authenticated response's account scope, completeness or quota semantics. Keep identity scope, field mapping, timestamp/timezone handling and completeness/pagination assumptions explicit; use [#98](https://github.com/tjyyy3/dsh-playground/pull/98) for the implementation and its validation evidence. Match challenges by stable ID and count distinct attempt IDs. Do not treat a returned page/array length as a proven lifetime total. Missing fields, partial data or a failed read must remain incomplete/unknown or show a fetch error, rather than becoming a false zero.
 
 Ordinary submission count is separate from quota consumption. Use quota information only when this same response provides reliable evidence; missing quota flags are unknown. Keep known statement limits and observed platform-limit responses on the existing confirmation path. The existing today-has-quota-use condition can use only reliable current-account data. Unknown statistics alone add no confirmation or blocking step, and do not justify a calculated “remaining N” value. Isolate cached statistics by platform/account/challenge and invalidate them after relevant tracked submissions or an identity change.
 
@@ -210,7 +212,9 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 
 ### Engineering structure
 
-The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records the agreed direction: one Host/Client package with feature-based modules, explicit state owners and gradual extraction behind existing interfaces. The first pure-policy/redaction extraction is scoped in [#94](https://github.com/tjyyy3/dsh-playground/issues/94). [#95](https://github.com/tjyyy3/dsh-playground/issues/95) combines task creation/binding, submission handoff, receipt tracking and their shared overview reader into one work item, normally one implementation PR after #94. It also includes the explicitly selected current-account `/api/user-submissions` history/count simplification above; other behavior remains unchanged. Both scopes remain pending implementation. Remaining module placement and migration scopes stay under review; separate modules do not require separate issues. The draft maps current code to target locations and records the Client bundle/publishing contract. Apart from that selected statistics change, it does not approve additional product features, navigation or runtime changes. The product areas above describe user workflows; they do not mandate one new service or directory per area.
+The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records one Host/Client package with feature modules, explicit state owners and gradual extraction. [#94](https://github.com/tjyyy3/dsh-playground/issues/94) shipped policy/redaction in [#96](https://github.com/tjyyy3/dsh-playground/pull/96); [#95](https://github.com/tjyyy3/dsh-playground/issues/95) shipped lifecycle, handoff, receipts, shared overview and the selected current-account statistics in [#98](https://github.com/tjyyy3/dsh-playground/pull/98). The third scope [#99](https://github.com/tjyyy3/dsh-playground/issues/99) groups catalog/auth and Host settings/tools/views, normally one implementation PR, preserving delivered behavior. It is selected and pending implementation.
+
+The [third-batch boundary rationale](IMPLEMENTATION_PLAN.md#selected-third-batch-and-module-granularity) groups code by common changes and shared state. Separate files are useful when their responsibilities change independently; smaller files are not a goal by themselves. Client build settings and further D3/D5 internal splitting remain under review. The target Client bundle is not yet implemented by these changes; product areas do not mandate one new service or directory each.
 
 ## 5. Suggested workbench information architecture
 
@@ -237,7 +241,7 @@ The linked issues define agreed scope and acceptance. Candidate priorities below
 | P1 | Preserve end reasons and recover supported task evidence | [#84](https://github.com/tjyyy3/dsh-playground/pull/84) merged; #77 closed; preserve documented host/provider limits |
 | P1 | Windows CLI cleanup and host cancellation boundaries | [#82](https://github.com/tjyyy3/dsh-playground/pull/82) and follow-up [#87](https://github.com/tjyyy3/dsh-playground/pull/87) merged; #17/#85 closed; limited to plugin-launched processes |
 | P2 | Bounded API response consumption and credential-free bases | [#86](https://github.com/tjyyy3/dsh-playground/pull/86) merged; #78/#79 closed; response safeguards do not set material limits |
-| P1 | Participant history and workflow-state clarity | Core receipt migration delivered in #88; current-account history/counts from `/api/user-submissions` selected in #95, pending implementation; other history UI remains a candidate |
+| P1 | Participant history and workflow-state clarity | Core receipt migration delivered in #88; current-account history/counts delivered in #98 (#95); other history UI remains a candidate |
 | P1 | Challenge-grouped tasks, results and existing conversation entry points | [#89](https://github.com/tjyyy3/dsh-playground/pull/89) merged; #81 closed |
 | P2 | Author workflow MVP | Candidate; verify official contracts and review product scope |
 | P3 | Organizer workflow MVP | Candidate; verify permissions and lifecycle contracts |
