@@ -310,9 +310,11 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   const contexts = [];
   const session = { id: 'synthetic-session' };
   const commands = [];
+  const events = new Map();
   const scope = {
     tools: { register: (tool) => tools.push(tool) },
     commands: { register: (command) => commands.push(command) },
+    on: (name, handler) => events.set(name, handler),
     sessionProjections: {
       register() {},
       stateOf(requestedSession, key) {
@@ -334,7 +336,7 @@ function mountWorkflowScope(state, { config, cwd = '/synthetic/workspace', crede
   const services = { credentials, approval };
   apply({ tools: scope.tools, get: (key) => (Object.hasOwn(services, key) ? services[key] : undefined), inject: (_services, callback) => callback(scope), ...host }, config);
   const exec = { agent: { id: 'synthetic-agent', session }, signal: new AbortController().signal };
-  return { tools, contexts, scope, session, exec, commands, services };
+  return { tools, contexts, scope, session, exec, commands, services, events };
 }
 
 test('release install-source reads prefer ctx.get and fall back to the context property', async () => {
@@ -412,6 +414,37 @@ test('the controller tool offers the native session of the explicitly named work
   const { playground } = tool.output.presentationMeta({ cwd }, result);
   assert.equal(playground.sessionId, 'controller-session');
   assert.equal(playground.workspaceId, workspace.id);
+});
+
+test('the controller task query sees subagent events registered by the Host', async () => {
+  const cwd = process.cwd();
+  const workspaceId = 'workspace';
+  const { scope, exec, services, events } = mountWorkflowScope(workflowProjection.init(), { cwd });
+  const sessionId = exec.agent.id;
+  const workspace = { id: workspaceId, path: cwd, sessionIds: [sessionId] };
+  scope.workspaceRegistry = { list: () => [workspace], archivedSessionIds: [], resolveByPath: async () => workspace };
+  scope.agents = { get: (id) => id === sessionId ? exec.agent : undefined };
+  scope.sessionController = { projections: async () => ({ kind: 'sequenced', values: {
+    playgroundController: { workspaceId, sessionId }, playgroundTask: { task: null },
+    playgroundControllerNotices: [],
+  } }) };
+  services.subagents = { async listChildren(parentId) {
+    assert.equal(parentId, sessionId);
+    return [{ id: 'child', mode: 'external', createdAt: 1 }];
+  } };
+  const tasks = () => scope.provided.playgroundQueries.controllerTasks({ workspaceId, sessionId }, exec.signal);
+  const event = { id: 'child', runId: 'run', provider: 'codex' };
+
+  events.get('subagent/start')(event);
+  assert.deepEqual(await tasks(), { kind: 'ready', rows: [
+    { childId: 'child', mode: 'external', createdAt: 1, provider: 'codex', state: 'running' },
+  ] });
+
+  events.get('subagent/end')({ ...event, stopReason: 'completed' });
+  assert.deepEqual(await tasks(), { kind: 'ready', rows: [
+    { childId: 'child', mode: 'external', createdAt: 1, provider: 'codex', state: 'ended',
+      liveEnd: { stopReason: 'completed' } },
+  ] });
 });
 
 const CHECK_ID = '5f3c1a52-0d6e-4d6e-9a53-1f0a7c2b9e11';
