@@ -366,7 +366,9 @@ test('controller association tool saves checked child identity through presentat
   } }), create: () => { throw Error('must not create'); }, prompt: () => { throw Error('must not prompt'); } };
   services.subagents = { listChildren: async () => [{ id: 'actual-child', mode: 'external', createdAt: 1 }] };
   const tool = tools.find((item) => item.name === 'playground_controller_link_task');
-  const input = { child_id: 'actual-child', challenge_id: 'challenge-a', base_url: 'https://association.example.test/api' };
+  const input = { child_id: 'actual-child', challenge_id: 'challenge-a' };
+  assert.deepEqual(tool.parameters.required, ['child_id', 'challenge_id']);
+  assert.equal(Object.hasOwn(tool.parameters.properties, 'base_url'), false);
   const result = await tool.execute(input, exec);
   assert.equal(result.ok, true);
   const meta = tool.output.presentationMeta(input, result);
@@ -375,7 +377,7 @@ test('controller association tool saves checked child identity through presentat
   });
   state = controllerProjection.apply(state, { seq: 1, type: 'tool/result', data: { meta } });
   assert.deepEqual(controllerProjection.wire.view(state).taskChallenges, {
-    'actual-child': { baseUrl: input.base_url, id: input.challenge_id, title: 'Synthetic challenge' },
+    'actual-child': { baseUrl: `${config.baseUrl}/api`, id: input.challenge_id, title: 'Synthetic challenge' },
   });
   const refused = await tool.execute({ ...input, child_id: 'not-a-child' }, exec);
   assert.equal(refused.error.code, 'child_not_found');
