@@ -310,6 +310,8 @@ test('controller guidance delegates solution work to a separate DSH child when C
   const context = f.controller.context(agent);
   assert.ok(context.includes(JSON.stringify(f.workspaces[0].path)));
   assert.match(context, /subagent_codex/);
+  assert.match(context, /playground_controller_link_task.*explicit challenge_id/);
+  assert.doesNotMatch(context, /base_url/);
   assert.match(context, /native DSH subagent tool.*Codex is unavailable.*fresh separate DSH conversation/);
   assert.match(context, /If Codex cannot start or ends with a failure.*delegate the unfinished work/);
   assert.match(context, /Never solve the challenge in this controller conversation/);
