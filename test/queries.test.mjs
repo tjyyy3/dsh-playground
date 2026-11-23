@@ -246,7 +246,7 @@ test('the catalog query takes strict page, origin, discipline and sort filters, 
   assert.equal(schema.safeParse({ action: 'auth', origin: 'arena' }).success, false);
 });
 
-test('the catalog query takes a period only as a slug of the chosen competition\'s periods', async () => {
+test('the catalog query forwards current and future period slugs so the Host can check membership', async () => {
   const services = new Map();
   const calls = [];
   let contribution;
@@ -254,14 +254,16 @@ test('the catalog query takes a period only as a slug of the chosen competition\
     catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
   });
   const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
-  for (const period of ['1', '2']) {
+  for (const period of ['1', '2', '3', '4', '5', '12']) {
     const input = { action: 'catalog', search: '', competition: 'bohr-product', period, sort: 'attempts', page: 2, per_page: 20 };
     await services.get('playgroundQueries').query(schema.parse(input), new AbortController().signal);
     assert.deepEqual(calls.at(-1), input);
   }
   assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product' }).success, true, 'no period is all periods');
-  // Exactly one of the competition's slugs; nothing is trimmed or coerced.
-  for (const period of ['3', '', ' 1', '1 ', '01', 'all', '第一期', 1, null, ['1'], {}]) {
+  assert.equal(schema.safeParse({ action: 'catalog', competition: 'pku', period: 'efficiency-2', refresh: true }).success, true);
+  assert.equal(schema.safeParse({ action: 'catalog', competition: 'pku', period: '../science-1' }).success, false);
+  assert.equal(schema.safeParse({ action: 'catalog', refresh: 'yes' }).success, false);
+  for (const period of ['', ' 1', '1 ', '01', '0', 'all', '第一期', '../1', '1'.repeat(41), 1, null, ['1'], {}]) {
     assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product', period }).success, false, JSON.stringify(period));
   }
   // A competition without periods, a season or no competition at all takes no period.
@@ -269,14 +271,12 @@ test('the catalog query takes a period only as a slug of the chosen competition\
     { season: 's5', period: '1' }, { period: '1' }, { competition: 'nope', period: '1' }]) {
     assert.equal(schema.safeParse({ action: 'catalog', ...input }).success, false, JSON.stringify(input));
   }
-  // Each refusal names its own reason: no competition, a competition without periods, or an unknown slug.
   const periodMessage = (input) => schema.safeParse({ action: 'catalog', ...input }).error.issues.find((issue) => issue.path.join('.') === 'period')?.message;
   assert.equal(periodMessage({ period: '1' }), 'period needs a competition');
   assert.equal(periodMessage({ season: 's5', period: '1' }), 'period needs a competition');
   assert.equal(periodMessage({ competition: 'agent', period: '1' }), 'the chosen competition has no periods');
-  assert.equal(periodMessage({ competition: 'bohr-product', period: '3' }), 'period must be one of 1, 2');
   assert.equal(schema.safeParse({ action: 'challenge', challengeId: 'c', period: '1' }).success, false);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 6);
 });
 
 

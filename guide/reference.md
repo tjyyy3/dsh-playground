@@ -127,43 +127,50 @@ shows its status, its time range, its rounds when it has any, and **在网页中
 for its page on the website (for example `<site root>/competition/harness`).
 Search still applies inside the chosen competition.
 
-`玻尔产品周赛` is listed by period, as on the website. Choosing it adds a period
-choice to that row: **全部期**, **第一期** (`2026.10.21 16:00 — 2026.11.03 24:00`)
-and **第二期** (`2026.11.04 16:00 — 2026.11.11 16:00`), each option with its own
-status and time. It starts on the period that is live, else the one that
-started most recently, else the first. With a period chosen, the row shows that
+`玻尔AI产品周赛` is listed by period, as on the website. Choosing it adds a period
+choice to that row. It offers **全部期** and the periods published by the
+website, each with its own status and time. The selector defaults to the live
+period, the most recently started period, or the first, in that order. With a period chosen, the row shows that
 period's status and time, and **在网页中打开** goes to
 `<site root>/competition/bohr-product?period=<slug>`; **全部期** shows the
-competition's own time and rounds and opens `<site root>/competition/bohr-product`.
-As on the website, `玻尔产品周赛` itself has no end date and stays **进行中** after
-both periods have ended, while each period shows its own status (**已结束**).
+competition's own time and opens `<site root>/competition/bohr-product`.
+The contest stays **进行中** after its periods have ended because it has no end date.
 Changing the period reads page 1 again with the search and filters.
 
-The competition list is built into the plugin (`lib/competitions.js`). The
-website keeps its menu in front-end code, not behind an API, and the plugin does
-not read the site. **A competition the website adds appears here only in a new
-plugin release.** Status is computed from each entry's start and end time when
-the workbench loads. Challenges are selected by the tag (`追光者计划·招募赛`),
+**刷新目录** checks the official site for the published schedules of
+`玻尔AI产品周赛`, `大科学装置专项赛`, and `科学骑士大师赛 · 北大专区`. The Host reads
+the published script as data with an anonymous request. Later pages use the last
+validated periods. When a schedule cannot be read, the row reports it and keeps the
+last successful schedule for that competition, or its bundled schedule on a cold
+read. If the website withdraws the selected period, the selector switches to
+**全部期** and keeps the other filters.
+`大科学装置专项赛` shows each announced period. Its cards become available when
+the website's scheduled start is reached. A period with a date still pending
+shows zero cards. The PKU Zone lists the website's units by track and round and
+opens the selected unit's event page. Each unit's cards become available at its
+scheduled start.
+
+Other competition entries come from the plugin's table (`lib/competitions.js`)
+and the platform's season API. The workbench computes status from each entry's
+start and end time. Challenges are selected by the tag (`追光者计划·招募赛`),
 the season (`科学骑士大师赛`, the Paper2Arm hackathons) or a fixed list of
 challenge ids (`模型部署赛` with both arena rounds, `DPA 部署赛`, `Harness 优化赛`, `Agent 赛`,
-`科研 Agent Harness 优化赛`, `科学骑士大师赛 · 北大专区`, and each period of
-`玻尔产品周赛`), which the Host reads one by one. An id that cannot be read is
+`科研 Agent Harness 优化赛`, and the published membership of a period or PKU unit).
+The Host reads each id individually. An id that cannot be read is
 skipped and counted: the page carries `missing: n`, the screen-reader status says
 `赛题目录已更新，有 n 道赛题读取失败。`, and the competition row says
 `有 n 道赛题读取失败，列表不完整。` with **重试**, which reads page 1 of the
 shown list's own query again (search text typed but not submitted is not
 applied). After **加载更多** the row keeps the larger of the counts read so far;
-only a page-1 read resets it. A read where every id fails is an error. `玻尔产品周赛` lists only the website's fixed ids: 第一期 has
-`skill-13890f6a`, `ai-github-98fdb6f0` and `ai-635bc8b5` (the Skill, GitHub and
-小红书 tracks, in that order), 第二期 has the ten `product-arena-01` to
-`product-arena-10` challenges in the website's order, and 全部期 lists both
-periods in order, 13 challenges. It is not read by the `product-arena` tag:
-that tag also holds community challenges in no period (for example
-`challenge-9313ad0a`, 写作19), which stay findable under **全部比赛**.
+only a page-1 read resets it. A read where every id fails is an error. For
+`玻尔AI产品周赛`, the challenge IDs follow the website's order. **全部期** combines
+the periods in order and lists each challenge ID once. The `product-arena`
+tag can include challenges outside a selected period. **全部比赛** remains
+searchable for published challenges independently of the period list.
 Seasons that `GET /api/hackathon/seasons` returns and the table does not hold
 are still listed, so a season the platform adds later does not disappear; one
 whose slug is not a plain `[A-Za-z0-9_-]` word has no **在网页中打开**. If that
-seasons read fails, the catalog still answers with the built-in table alone:
+seasons read fails, the catalog uses the table and any available published periods:
 the result carries `seasonsUnavailable: true`, API-only seasons are missing,
 and the table's season entries keep their own dates and the status computed
 from them. Dates are shown as written in the table or by the API, without
@@ -173,13 +180,15 @@ converting time zones, as the website does (`科学骑士大师赛` reads
 `2026.10.10 20:00 — 2026.10.11 20:00`); times in any other offset, including the
 API's `+00:00` season times and `Z`, show the date only. The workbench query
 accepts a competition only by one of the table's ids and rejects any other.
-It takes an optional `period` only as one of the chosen competition's period
-slugs (`1` or `2` for `玻尔产品周赛`) and rejects any other value, a `period`
-for a competition without periods, and a `period` without a competition;
-without `period`, a competition with periods lists all of them.
+It accepts an optional `period` slug for competitions with periods. The weekly
+contest and Scientific Facilities use numeric slugs, and the PKU Zone uses unit
+slugs such as `science-1`. The Host checks membership against the schedule used
+for that request. Omitting `period` lists all periods of the chosen competition.
 
 If the chosen competition is missing from a later list, the selector returns to
-**全部比赛**, the period choice is cleared, and the catalog is read again.
+**全部比赛**, the period choice is cleared, and the catalog is read again. If a
+fresh official schedule omits the chosen period, the workbench switches to
+**全部期** for that competition and keeps the search and other filters.
 
 ### Catalog paging and filters
 
@@ -235,7 +244,7 @@ The workbench query takes these as `page` (integer 1–100000), `origin`,
 `discipline` (1–100 characters, trimmed) and `sort`, each validated strictly;
 it has no `status` field. For plain lists, tags and seasons the Host forwards
 them to `GET /api/challenges` as `page`, `origin`, `disc` and `sort`. For a
-competition with fixed ids (each period of `玻尔产品周赛` included) the Host
+competition with fixed ids (each period of `玻尔AI产品周赛` included) the Host
 applies search, origin and discipline itself, pages the list, and returns an
 empty page with `hasMore: false` past the end. 提交最多 sorts the list by
 attempts; 最新 keeps the table order (the website's order for the periods),
@@ -245,17 +254,18 @@ Pages after the first do not read `/api/hackathon/seasons` and carry only
 `webBase` and `challenges`; the competition selector keeps the first page's
 table.
 
-The 学科 choices come from `GET /api/challenges/facets`. The Host reads it at
-most once per 10 minutes, shared by all callers, and adds the result as
+The 学科 choices come from `GET /api/challenges/facets`. The Host caches it for
+10 minutes and requests it again on **刷新目录**. All callers share an in-flight
+read. The Host adds the result as
 `disciplineFacets` (`{ top, otherCount, otherKeys }`) to first-page catalog
 answers only. `top` is `formalDisciplines` by count (or the 10 largest
 `disciplines` keys when that set is missing or empty); `otherKeys` and
 `otherCount` cover every other `disciplines` key. A failed facets read leaves
-the field out and is remembered for 60 seconds, during which first pages
-neither read the facets again nor wait for them; a slow one holds a catalog
-answer for at most one second. Either way the catalog still answers, and 学科
-then offers only 全部学科 and 其他. The workbench keeps the first choices it
-receives for as long as the panel is open.
+the field out. Ordinary first-page requests wait 60 seconds before retrying.
+A slow facets read holds the catalog answer for at most one second after the
+other reads. The workbench keeps the choices it already has and updates them
+when **刷新目录** returns new choices. A selected discipline stays available
+while the filter is active.
 
 Click a challenge card or its **查看详情** button to open the detail drawer on the right.
 The card and each button have their own hover state.

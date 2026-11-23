@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  COMPETITION_IDS, COMPETITIONS, competitionDateText, competitionList, competitionPeriodSlugs, competitionSelection, competitionStatus,
+  COMPETITION_IDS, COMPETITIONS, PUBLISHED_SCHEDULE_IDS, competitionDateText, competitionList, competitionSelection, competitionStatus,
   competitionTimeText, defaultPeriod, findCompetition,
 } from '../lib/competitions.js';
 import { publicPageUrl } from '../lib/links.js';
@@ -14,14 +14,14 @@ const PERIOD_2 = ['product-arena-08-3027d350', 'product-arena-01-5a9928c1', 'pro
   'product-arena-05-64faa4a2', 'product-arena-07-865de7e4'];
 
 test('the built-in table is well formed', () => {
-  assert.deepEqual(COMPETITION_IDS, ['bohr-product', 'light-chasing', 'pku', 'llm-deploy', 'dpa-deploy', 'harness', 'agent',
+  assert.deepEqual(COMPETITION_IDS, ['bohr-product', 'scientific-facilities', 'light-chasing', 'pku', 'llm-deploy', 'dpa-deploy', 'harness', 'agent',
     'science-reliability', 'knight-s4', 'paper2arm-s3', 'paper2arm-s2', 'paper2arm-s1']);
   assert.equal(new Set(COMPETITION_IDS).size, COMPETITIONS.length);
   assert.equal(new Set(COMPETITIONS.map((item) => item.nameZh)).size, COMPETITIONS.length, 'names differ, including the three hackathons');
   for (const item of COMPETITIONS) {
     assert.match(item.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.ok(item.nameZh, `${item.id} has a Chinese name`);
-    assert.match(item.pagePath, /^(?:competition|hackathon-s)[a-z0-9/-]+$/, `${item.id} page path is relative`);
+    assert.match(item.pagePath, /^(?:competition|hackathon-s)[A-Za-z0-9/-]+$/, `${item.id} page path is relative`);
     const { tag, season, challengeIds } = item.select;
     assert.ok(tag || season || challengeIds?.length || item.periods?.length, `${item.id} selects its challenges`);
     if (season) assert.ok(!tag && !challengeIds, `${item.id} selects by season only`);
@@ -34,7 +34,9 @@ test('the built-in table is well formed', () => {
     }
     for (const period of item.periods || []) {
       assert.match(period.slug, /^[A-Za-z0-9_-]+$/, `${item.id} period slug is a plain word`);
-      assert.ok(period.labelZh && Number.isFinite(at(period.startAt)) && Number.isFinite(at(period.endAt)) && at(period.startAt) < at(period.endAt));
+      assert.ok(period.labelZh);
+      if (period.startAt !== undefined) assert.ok(Number.isFinite(at(period.startAt)));
+      if (period.endAt !== undefined) assert.ok(Number.isFinite(at(period.endAt)) && at(period.startAt) < at(period.endAt));
       assert.ok(Object.isFrozen(period) && Object.isFrozen(period.challengeIds));
     }
     if (item.periods) assert.equal(new Set(item.periods.map((period) => period.slug)).size, item.periods.length);
@@ -56,15 +58,31 @@ test('the table selects challenges the way the website does', () => {
   assert.deepEqual(competitionSelection('science-reliability').challengeIds, ['scimaster-harness-arena-0ece77a4']);
   // Both rounds of the website's arena list; the second one (v2) is closed but still listed.
   assert.deepEqual(competitionSelection('llm-deploy').challengeIds, ['llm-challenge-arena-v1', 'llm-challenge-arena-v2']);
-  const fixed = COMPETITIONS.flatMap((item) => [...(item.select.challengeIds || []), ...(item.periods || []).flatMap((period) => period.challengeIds)]);
-  assert.equal(fixed.length, 23, 'the DPA id is listed twice (DPA deploy and the PKU zone)');
-  assert.equal(new Set(fixed).size, 22);
   assert.deepEqual(competitionSelection('dpa-deploy').challengeIds, ['optimize-the-complete-dpa4c-nano-lammps-md-step-ac-6a1e56aa']);
-  assert.equal(competitionSelection('pku').challengeIds.length, 3);
+  const pku = competitionSelection('pku', undefined, undefined, at('2026-11-22T12:00:00+08:00'));
+  assert.equal(pku.challengeIds.length, 41, 'the fallback lists all distinct challenges across the six PKU units');
   for (const unknown of ['', 'nope', 'BOHR-PRODUCT', 's4', undefined, null, 4, {}]) assert.equal(competitionSelection(unknown), undefined);
   // The returned ids are a copy: changing them cannot change the table.
   competitionSelection('agent').challengeIds.push('x');
   assert.deepEqual(findCompetition('agent').select.challengeIds, ['agent-optimization-v1']);
+});
+
+test('Scientific Facilities lists each period but reads its challenges only after its official start', () => {
+  const first = { slug: '1', labelZh: '第一期', startAt: '2026-11-13T20:00:00+08:00', endAt: '2026-11-14T20:00:00+08:00', challengeIds: ['first'] };
+  const waiting = { slug: '2', labelZh: '第二期', challengeIds: ['second'] };
+  const second = { ...waiting, startAt: '2026-12-01T20:00:00+08:00', endAt: '2026-12-02T20:00:00+08:00' };
+  const id = 'scientific-facilities';
+  const now = at('2026-11-22T12:00:00+08:00');
+  assert.deepEqual(competitionSelection(id, undefined, [first, waiting], now), { challengeIds: ['first'] });
+  assert.deepEqual(competitionSelection(id, '2', [first, waiting], now), { challengeIds: [] });
+  assert.deepEqual(competitionSelection(id, '2', [first, second], at(second.startAt) - 1), { challengeIds: [] });
+  assert.deepEqual(competitionSelection(id, '2', [first, second], at(second.startAt)), { challengeIds: ['second'] });
+  const projected = (periods, clock) => competitionList({ now: clock, publishedSchedules: { [id]: { periods } } }).find((item) => item.id === id);
+  const pending = projected([first, waiting], now);
+  assert.equal(pending.status, 'live');
+  assert.deepEqual(pending.periods.map(({ slug, status }) => [slug, status]), [['1', 'ended'], ['2', 'upcoming']]);
+  assert.equal(pending.periods[1].pagePath, 'competition/ScientificFacilities/events');
+  assert.equal(projected([first, second], at(second.endAt)).status, 'ended');
 });
 
 test('competitionStatus follows start and end at a fixed time', () => {
@@ -94,7 +112,7 @@ test('table statuses at one fixed time', () => {
   const now = at('2026-11-02T12:00:00Z');
   const statuses = Object.fromEntries(COMPETITIONS.map((item) => [item.id, competitionStatus(item, now)]));
   assert.deepEqual(statuses, {
-    'bohr-product': 'live', 'light-chasing': 'ended', pku: 'upcoming', 'llm-deploy': 'live', 'dpa-deploy': 'live', harness: 'live',
+    'bohr-product': 'live', 'scientific-facilities': 'upcoming', 'light-chasing': 'ended', pku: 'upcoming', 'llm-deploy': 'live', 'dpa-deploy': 'live', harness: 'live',
     agent: 'live', 'science-reliability': 'live', 'knight-s4': 'live', 'paper2arm-s3': 'ended', 'paper2arm-s2': 'ended', 'paper2arm-s1': 'ended',
   });
   // Before the website launched them, the later contests are not live yet.
@@ -109,8 +127,8 @@ test('dates are shown as written; a time of day only with +08:00', () => {
   assert.equal(competitionTimeText(find('light-chasing')), '2026.10.10 20:00 — 2026.10.11 20:00');
   assert.equal(competitionDateText(find('bohr-product')), '2026.10.21 起');
   assert.equal(competitionTimeText(find('bohr-product')), '2026.10.21 16:00 起');
-  assert.equal(competitionDateText(find('pku')), '日期待定');
-  assert.equal(competitionTimeText(find('pku')), '日期待定');
+  assert.equal(competitionDateText(find('pku')), '2026.11.06 — 2026.11.27');
+  assert.equal(competitionTimeText(find('pku')), '2026.11.06 20:00 — 2026.11.27 20:00');
   // Z times are not Beijing clock times (s1 ran 13:00 to 17:00 there), so the season shows its date only.
   assert.equal(competitionDateText(find('paper2arm-s1')), '2026.04.17', 'one day collapses to one date');
   assert.equal(competitionTimeText(find('paper2arm-s1')), '2026.04.17', 'no time of day for a Z string');
@@ -158,7 +176,7 @@ test('competitionList computes status now, groups live first and keeps API seaso
   const items = competitionList({ seasons, now });
   assert.deepEqual(items.map((item) => `${item.status}:${item.id}`), [
     'live:science-reliability', 'live:bohr-product', 'live:agent', 'live:harness', 'live:dpa-deploy', 'live:llm-deploy', 'live:knight-s4',
-    'upcoming:season:s5', 'upcoming:pku',
+    'upcoming:season:s5', 'upcoming:scientific-facilities', 'upcoming:pku',
     'ended:light-chasing', 'ended:paper2arm-s3', 'ended:paper2arm-s2', 'ended:paper2arm-s1',
   ]);
   // s1-s4 are in the table, so only s5 is added from the API.
@@ -170,8 +188,8 @@ test('competitionList computes status now, groups live first and keeps API seaso
   const bohr = items.find((item) => item.id === 'bohr-product');
   assert.equal(bohr.rounds, '第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
   assert.equal(bohr.pagePath, 'competition/bohr-product');
-  assert.equal(bohr.nameZh, '玻尔产品周赛');
-  assert.equal(bohr.name, 'Bohrium Product Weekly Contest');
+  assert.equal(bohr.nameZh, '玻尔AI产品周赛');
+  assert.equal(bohr.name, 'Bohrium AI Product Weekly Contest');
   assert.match(items.find((item) => item.id === 'harness').rounds, /第二季 10\.30 20:00 起/);
   assert.equal('rounds' in items.find((item) => item.id === 'dpa-deploy'), false);
   // Statuses move with the clock.
@@ -232,13 +250,12 @@ test('publicPageUrl adds a query string after the encoded path', () => {
   assert.equal(publicPageUrl('https://play.bohrium.com', 'competition/x', { period: undefined }), 'https://play.bohrium.com/competition/x');
 });
 
-test('玻尔产品周赛 lists the website\'s periods and fixed ids, not its tag', () => {
+test('the bundled 玻尔产品周赛 fallback preserves the first two periods and their fixed ids', () => {
   const bohr = findCompetition('bohr-product');
   assert.equal('tag' in bohr.select, false);
   assert.deepEqual(bohr.periods.map(({ slug, labelZh, startAt, endAt }) => ({ slug, labelZh, startAt, endAt })), [
     { slug: '1', labelZh: '第一期', startAt: '2026-10-21T16:00:00+08:00', endAt: '2026-11-03T24:00:00+08:00' },
     { slug: '2', labelZh: '第二期', startAt: '2026-11-04T16:00:00+08:00', endAt: '2026-11-11T16:00:00+08:00' }]);
-  assert.deepEqual(competitionPeriodSlugs('bohr-product'), ['1', '2']);
   // All periods: the de-duplicated concatenation in period order, 13 challenges.
   const all = competitionSelection('bohr-product').challengeIds;
   assert.equal(all.length, 13);
@@ -251,9 +268,6 @@ test('玻尔产品周赛 lists the website\'s periods and fixed ids, not its tag
   assert.equal(competitionSelection('agent', '1'), undefined);
   assert.equal(competitionSelection('light-chasing', '1'), undefined);
   assert.equal(competitionSelection('nope', '1'), undefined);
-  for (const id of COMPETITION_IDS.filter((value) => value !== 'bohr-product')) assert.deepEqual(competitionPeriodSlugs(id), [], id);
-  assert.deepEqual(competitionPeriodSlugs('nope'), []);
-  assert.deepEqual(competitionPeriodSlugs(undefined), []);
   // A copy: changing it cannot change the table.
   competitionSelection('bohr-product', '1').challengeIds.push('x');
   assert.deepEqual([...findCompetition('bohr-product').periods[0].challengeIds], PERIOD_1);
@@ -308,5 +322,5 @@ test('competitionList gives the product contest its periods with status, time an
   assert.equal(bohr('2026-12-01T00:00:00Z').defaultPeriod, '2');
   // Other entries and API seasons have no periods, even when the API sends a field of that name.
   const items = competitionList({ seasons: [{ slug: 's9', status: 'active', periods: [{ slug: 'x' }] }], now: at('2026-11-05T00:00:00Z') });
-  assert.ok(items.filter((item) => item.id !== 'bohr-product').every((item) => !('periods' in item) && !('defaultPeriod' in item)));
+  assert.ok(items.filter((item) => !PUBLISHED_SCHEDULE_IDS.includes(item.id)).every((item) => !('periods' in item) && !('defaultPeriod' in item)));
 });
