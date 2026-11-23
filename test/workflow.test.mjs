@@ -5,7 +5,7 @@ import { basename, isAbsolute, join, resolve, toNamespacedPath } from 'node:path
 import { createHash } from 'node:crypto';
 import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
-import { COMPETITION_IDS } from '../lib/competitions.js';
+import { COMPETITION_IDS, PUBLISHED_SCHEDULE_IDS } from '../lib/competitions.js';
 import { apply, presentationMeta } from '../index.js';
 import { createPlaygroundCli } from '../lib/cli.js';
 import { windowsJobLaunch } from '../lib/windows-process.js';
@@ -792,18 +792,18 @@ test('fixed-id competitions read each challenge in parallel and answer in table 
   f.client.getChallenge = (id) => { started.push(id); return new Promise((resolve) => release.push(() => resolve({
     id, title: `Title ${id}`, titleZh: `题 ${id}`, discipline: 'chem', difficulty: 3, attempts: 4, origin: 'official', status: 'open', tags: ['a'],
     content: 'long statement', resources: [{ name: 'r' }], reviewStatus: 'approved' }))); };
-  const pending = f.workflow.catalog({ competition: 'pku' }, f.exec);
+  const pending = f.workflow.catalog({ competition: 'harness' }, f.exec);
   await new Promise((resolve) => setImmediate(resolve));
-  // All three reads started before any finished.
-  assert.equal(started.length, 3);
+  // Both reads started before either finished.
+  assert.equal(started.length, 2);
   release.reverse().forEach((done) => done());
   const result = await pending;
-  const ids = ['optimize-the-complete-dpa4c-nano-lammps-md-step-ac-6a1e56aa', 'abacus-fractional-charge-nao-basis-a8033ccd', 'flowforge-periodic-regular-tetrahedra-packing-f45cec7b'];
+  const ids = ['biomaster-harness-optimization-4f6eec24', 'harness-45c4688b'];
   assert.deepEqual(started, ids);
   assert.deepEqual(result.challenges.items.map((item) => item.id), ids);
   assert.deepEqual(result.challenges.items[0], { id: ids[0], title: `Title ${ids[0]}`, titleZh: `题 ${ids[0]}`, discipline: 'chem', difficulty: 3,
     attempts: 4, origin: 'official', status: 'open', tags: ['a'], webUrl: `http://127.0.0.1:15000/challenge/${ids[0]}` });
-  assert.equal(result.challenges.total, 3);
+  assert.equal(result.challenges.total, 2);
   assert.equal(result.challenges.hasMore, false);
   assert.equal(JSON.stringify(result).includes('long statement'), false, 'cards carry no statement');
 });
@@ -869,10 +869,10 @@ test('the catalog returns the competition table with status computed now, web ad
     const table = result.competitionTable;
     assert.deepEqual(table.map((item) => item.id).filter((id) => COMPETITION_IDS.includes(id)).sort(), [...COMPETITION_IDS].sort());
     assert.deepEqual(table.map((item) => item.id).filter((id) => !COMPETITION_IDS.includes(id)), ['season:s5']);
-    assert.deepEqual(table.map((item) => item.status), ['live', 'live', 'live', 'live', 'live', 'live', 'live', 'upcoming', 'upcoming', 'ended', 'ended', 'ended', 'ended']);
+    assert.deepEqual(table.map((item) => item.status), ['live', 'live', 'live', 'live', 'live', 'live', 'live', 'upcoming', 'upcoming', 'upcoming', 'ended', 'ended', 'ended', 'ended']);
     const bohr = table.find((item) => item.id === 'bohr-product');
     assert.equal(bohr.webUrl, 'https://play.bohrium.com/competition/bohr-product');
-    assert.equal(bohr.nameZh, '玻尔产品周赛');
+    assert.equal(bohr.nameZh, '玻尔AI产品周赛');
     assert.equal(bohr.dateText, '2026.10.21 起');
     assert.match(bohr.rounds, /第二期/);
     assert.equal(table.find((item) => item.id === 'season:s5').webUrl, 'https://play.bohrium.com/hackathon-s5');
@@ -943,7 +943,7 @@ test('the product weekly contest lists the website\'s periods by fixed id from a
       ['1', '第一期', 'ended', '2026.10.21 16:00 — 2026.11.03 24:00', 'https://play.bohrium.com/competition/bohr-product?period=1'],
       ['2', '第二期', 'live', '2026.11.04 16:00 — 2026.11.11 16:00', 'https://play.bohrium.com/competition/bohr-product?period=2']]);
     assert.equal(JSON.stringify(result.competitionTable).includes('product-arena-08'), false, 'challenge ids stay on the Host');
-    assert.ok(result.competitionTable.filter((item) => item.id !== 'bohr-product').every((item) => !('periods' in item)));
+    assert.ok(result.competitionTable.filter((item) => !PUBLISHED_SCHEDULE_IDS.includes(item.id)).every((item) => !('periods' in item)));
     assert.equal([all, first, second].some((page) => 'missing' in page), false, 'a complete read carries no missing count');
     // A challenge the platform has dropped is skipped and counted; the rest of the period stays in order.
     delete details['product-arena-06-6d8cf72b'];
@@ -1128,6 +1128,9 @@ test('a fixed-id competition is filtered, sorted and paged on the Host; a page p
   const f = await fixture();
   f.client.listChallenges = async () => assert.fail('a fixed-id list does not use the list API');
   const [dpa, abacus, flow] = ['optimize-the-complete-dpa4c-nano-lammps-md-step-ac-6a1e56aa', 'abacus-fractional-charge-nao-basis-a8033ccd', 'flowforge-periodic-regular-tetrahedra-packing-f45cec7b'];
+  f.client.getCompetitionSchedules = async () => ({ pku: { periods: [
+    { slug: 'science-1', labelZh: '科学挑战 · 第一期', startAt: '2000-01-01', endAt: '2000-01-02', challengeIds: [dpa, abacus, flow] },
+  ] } });
   fixedCards(f, { [dpa]: { origin: 'arena', attempts: 1248 }, [abacus]: { origin: 'community', discipline: 'materials', attempts: 3 },
     [flow]: { origin: 'community', discipline: 'math', attempts: 40 } });
   const ids = async (args) => (await f.workflow.catalog({ competition: 'pku', ...args }, f.exec)).challenges;
@@ -1281,6 +1284,43 @@ test('a load-more page skips the seasons read and carries no competition fields'
     for (const field of ['competitions', 'competitionTable', 'seasonsUnavailable', 'disciplineFacets']) assert.equal(field in more, false, field);
   }
   assert.equal(seasons, 1);
+});
+
+test('an explicit catalog refresh gets updated disciplines before the cached choices expire', async () => {
+  const f = await fixture();
+  let keys = { materials: 100 };
+  f.client.getChallengeFacets = async () => ({ disciplines: keys });
+  const top = async (args) => (await f.workflow.catalog(args, f.exec)).disciplineFacets.top.map(({ key }) => key);
+  assert.deepEqual(await top({}), ['materials']);
+  keys = { physics: 120 };
+  assert.deepEqual(await top({ discipline: 'materials' }), ['materials']);
+  assert.deepEqual(await top({ discipline: 'materials', refresh: true }), ['physics']);
+  assert.deepEqual(await top({}), ['physics']);
+});
+
+test('official Scientific Facilities and PKU selections use their scheduled cards and event links', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-22T12:00:00+08:00'));
+  const f = await fixture();
+  const unit = { slug: 'efficiency-2', labelZh: '学术效率 · 第二期', startAt: '2026-11-21T20:00:00+08:00',
+    endAt: '2026-11-24T20:00:00+08:00', challengeIds: ['practice'] };
+  f.client.getCompetitionSchedules = async () => ({
+    pku: { periods: [unit] }, 'scientific-facilities': { periods: [{ slug: '2', labelZh: '第二期', challengeIds: ['unreleased'] }] },
+  });
+  const reads = [];
+  f.client.getChallenge = async (id) => { reads.push(id); return { id }; };
+  f.client.listChallenges = async () => assert.fail('scheduled competitions use their published challenge ids');
+  const selected = await f.workflow.catalog({ competition: 'pku', period: unit.slug }, f.exec);
+  assert.deepEqual(selected.challenges.items.map(({ id }) => id), ['practice']);
+  const pku = selected.competitionTable.find(({ id }) => id === 'pku');
+  assert.equal(pku.startAt, unit.startAt);
+  assert.equal(pku.periods[0].webUrl, 'http://127.0.0.1:15000/competition/pku/events/efficiency-2');
+  const pending = await f.workflow.catalog({ competition: 'scientific-facilities', period: '2' }, f.exec);
+  const facilities = pending.competitionTable.find(({ id }) => id === 'scientific-facilities');
+  assert.equal(pending.challenges.total, 0);
+  assert.equal(facilities.periods[0].webUrl, 'http://127.0.0.1:15000/competition/ScientificFacilities/events');
+  assert.equal('pagePath' in facilities, false);
+  assert.equal('pagePath' in facilities.periods[0], false);
+  assert.deepEqual(reads, ['practice']);
 });
 
 test('a slow facets read does not hold the catalog, and its answer serves the next first page', async () => {
