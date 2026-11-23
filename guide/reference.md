@@ -200,10 +200,12 @@ The query accepts an optional `group` key together with `competition` and
 `period`. A key is a letter followed by up to 39 letters, digits, `_` or `-`.
 The Host narrows the period to that group before it reads any challenge, so a
 page of the group reads only the group's challenges. A `group` without `period`
-is rejected. If a fresh official schedule has no such group in the chosen
+is rejected. If a fresh official schedule cannot give that group for the chosen
 period, the query fails with `invalid_argument` and reason
-`group_not_available`; with a stale or bundled schedule it fails without a
-reason.
+`group_not_available`. This covers a group that the website no longer lists and
+a period whose grouping the Host could not read this time, which lists the
+period without `groups` while its challenges stay available. With a stale or
+bundled schedule the query fails without a reason.
 
 If the chosen competition is missing from a later list, the selector returns to
 **全部比赛**, the period choice is cleared, and the catalog is read again. If a

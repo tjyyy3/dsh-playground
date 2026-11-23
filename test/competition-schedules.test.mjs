@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createCatalog } from '../lib/catalog.js';
 import { createCompetitionSchedulesReader } from '../lib/competition-schedules.js';
 
 const pageUrl = new URL('https://play.example/competition/bohr-product');
@@ -337,12 +338,13 @@ test('passes an abort signal for the read deadline and returns a stale result on
   assert.equal(aborted, true);
 });
 
-test('explicit grouped slots control membership when they differ from group metadata', async () => {
+test('explicit grouped slots control membership when they differ from group metadata, and keep the groups', async () => {
   const { reader, files } = fixture();
   files.set(firstEntry, firstBundle.replace('slots: makeSlots(fourthGroups, null)', 'slots: [{ challengeId: "search-z" }]'));
   const schedules = await reader.read();
   assert.equal(schedules[bohrProduct].stale, undefined);
-  assert.deepEqual(schedules[bohrProduct].periods.at(-1).challengeIds, ['search-z']);
+  assert.deepEqual(schedules[bohrProduct].periods.at(-1),
+    { ...fourPeriods[3], challengeIds: ['search-z'], groups: [{ key: 'search', challengeIds: ['search-z'] }] });
 });
 
 // The weekly contest's periods 3 and 4 as the website published them on 2026-11-23 (index-BBQAq2fa.js): group
@@ -392,6 +394,18 @@ async function readBundle(bundle) {
   files.set(firstEntry, bundle);
   return reader.read();
 }
+// The real catalog over the schedules parsed from `bundle`; `reads` records every challenge detail read.
+async function catalogOver(bundle) {
+  const schedules = await readBundle(bundle);
+  const reads = [];
+  const { catalog } = createCatalog({ client: {
+    baseUrl: `${pageUrl.origin}/api`, getCompetitionSchedules: async () => schedules, listCompetitions: async () => ({ items: [] }),
+    getChallenge: async (id) => { reads.push(id); return { id, title: id }; },
+  } });
+  return { schedules, reads, query: (args) => catalog(args, { signal: new AbortController().signal }) };
+}
+const groupCounts = (result, competition, slug) => result.competitionTable.find((item) => item.id === competition)
+  .periods.find((period) => period.slug === slug).groups?.map(({ key, count }) => [key, count]);
 
 test('keeps the weekly contest\'s official groups, their order and names, and the shared bonus challenge last', async () => {
   const { periods, stale } = (await readBundle(weeklyBundle()))[bohrProduct];
@@ -416,6 +430,83 @@ test('leaves weekly groups unnamed when their Chinese names cannot be told apart
   for (const [reason, [copy, expected]] of cases) {
     assert.deepEqual((await readBundle(weeklyBundle({ copy })))[bohrProduct], { periods: expected }, reason);
   }
+});
+
+test('leaves only the weekly group unnamed whose own Chinese name cannot be read', async () => {
+  const searchUnnamed = [weeklyPeriods[0], { ...weeklyPeriods[1],
+    groups: weeklyPeriods[1].groups.map(({ labelZh, ...group }) => (group.key === 'search' ? group : { ...group, labelZh })) }];
+  for (const [reason, name] of [['not a literal', 'translate("文献检索")'], ['not a string', '42'], ['empty', '" "']]) {
+    const bundle = weeklyBundle().replace('"search":"文献检索"', `"search":${name}`);
+    assert.deepEqual((await readBundle(bundle))[bohrProduct], { periods: searchUnnamed }, reason);
+  }
+});
+
+test('names the groups of every period from its own copy when periods share one', async () => {
+  const later = (period, slug, labelZh, startAt, endAt) => ({ ...period, slug, labelZh, startAt, endAt });
+  const bundle = weeklyBundle().replace('slots:n2(t2,null)}]', 'slots:n2(t2,null)},' +
+    '{slug:"5",labelZh:"第五期",startAt:"2026-11-25T21:00:00+08:00",endAt:"2026-12-02T21:00:00+08:00",layout:"trackGroups",groups:t2,bonusId:null,copy:"p4",slots:n2(t2,null)},' +
+    '{slug:"6",labelZh:"第六期",startAt:"2026-12-02T21:00:00+08:00",endAt:"2026-12-09T21:00:00+08:00",layout:"trackGroups",groups:JT,bonusId:e2,copy:"p3",slots:n2(JT,e2)}]');
+  assert.deepEqual((await readBundle(bundle))[bohrProduct], { periods: [...weeklyPeriods,
+    later(weeklyPeriods[1], '5', '第五期', '2026-11-25T21:00:00+08:00', '2026-12-02T21:00:00+08:00'),
+    later(weeklyPeriods[0], '6', '第六期', '2026-12-02T21:00:00+08:00', '2026-12-09T21:00:00+08:00')] });
+});
+
+test('written-out weekly slots keep the official groups, limited to the challenges the slots list', async () => {
+  const slots = (period, bonus) => JSON.stringify(period.groups.flatMap(({ key, challengeIds }) => (key === 'bonus'
+    ? [{ key, challengeId: bonus, track: null }]
+    : challengeIds.map((challengeId, index) => ({ key: `${key}-${String(index + 1).padStart(2, '0')}`, challengeId, track: key })))));
+  const written = weeklyBundle().replace('slots:n2(JT,e2)', `slots:${slots(weeklyPeriods[0], 'p3-bonus')}`)
+    .replace('slots:n2(t2,null)', `slots:${slots(weeklyPeriods[1])}`);
+  const { schedules, reads, query } = await catalogOver(written);
+  assert.deepEqual(schedules[bohrProduct], { periods: weeklyPeriods });
+  const graphics = await query({ competition: bohrProduct, period: '4', group: 'graphics' });
+  assert.deepEqual(graphics.challenges.items.map((item) => item.id), trackIds(4, 'graphics', 5));
+  assert.deepEqual(reads, trackIds(4, 'graphics', 5));
+  assert.deepEqual(groupCounts(graphics, bohrProduct, '4'), fourthTracks.map(([key, , , count]) => [key, count]));
+
+  const withoutGraphics = weeklyBundle().replace('slots:n2(t2,null)',
+    `slots:${slots({ groups: weeklyPeriods[1].groups.filter((group) => group.key !== 'graphics') })}`);
+  const fourth = (await readBundle(withoutGraphics))[bohrProduct].periods[1];
+  assert.equal(fourth.challengeIds.length, 72);
+  assert.deepEqual(fourth.groups.map(({ key, challengeIds }) => [key, challengeIds.length]),
+    fourthTracks.map(([key, , , count]) => [key, key === 'graphics' ? 0 : count]));
+
+  const unreadableGroups = written.replace('groups:t2,', 'groups:unknownGroups,');
+  assert.deepEqual((await readBundle(unreadableGroups))[bohrProduct], { periods: [weeklyPeriods[0], ungrouped(weeklyPeriods[1])] });
+});
+
+test('keeps each challenge once in a period and in a group, while one challenge can sit in two groups', async () => {
+  const official = weeklyPeriods[1].groups;
+  const search = official[0].challengeIds;
+  const listedTwice = search[0];
+  const fourthGroups = official.map(({ key, challengeIds }) => ({ key,
+    challengeIds: { search: [listedTwice, ...challengeIds], reading: [...challengeIds, listedTwice] }[key] ?? challengeIds }));
+  const { schedules, reads, query } = await catalogOver(weeklyBundle({ fourthGroups }));
+  const fourth = schedules[bohrProduct].periods[1];
+  assert.deepEqual(fourth.challengeIds, weeklyPeriods[1].challengeIds);
+  assert.deepEqual(fourth.groups.map((group) => group.challengeIds),
+    official.map(({ key, challengeIds }) => (key === 'reading' ? [...challengeIds, listedTwice] : challengeIds)));
+
+  const page = await query({ competition: bohrProduct, period: '4', group: 'search', per_page: 2 });
+  assert.deepEqual(reads, search, 'each challenge of the group is read once');
+  assert.deepEqual(page.challenges.items.map((item) => item.id), search.slice(0, 2));
+  assert.equal(page.challenges.total, 11);
+  assert.deepEqual(groupCounts(page, bohrProduct, '4').slice(0, 2), [['search', 11], ['reading', 15]]);
+  reads.length = 0;
+  assert.equal((await query({ competition: bohrProduct, period: '4' })).challenges.total, 77);
+  assert.equal(reads.length, 77);
+});
+
+test('a fresh schedule whose grouping cannot be read answers group_not_available and still lists the whole period', async () => {
+  const fourthGroups = weeklyPeriods[1].groups.map((group) => (group.key === 'search' ? { ...group, key: 'reading' } : group));
+  const { schedules, reads, query } = await catalogOver(weeklyBundle({ fourthGroups }));
+  assert.equal(schedules[bohrProduct].stale, undefined);
+  const graphics = await query({ competition: bohrProduct, period: '4', group: 'graphics' });
+  assert.deepEqual([graphics.error?.code, graphics.error?.reason], ['invalid_argument', 'group_not_available']);
+  assert.deepEqual(reads, []);
+  const whole = await query({ competition: bohrProduct, period: '4' });
+  assert.equal(whole.challenges.total, 77);
+  assert.equal(groupCounts(whole, bohrProduct, '4'), undefined);
 });
 
 test('lists a weekly period ungrouped when its group keys cannot be chosen by key', async () => {
@@ -449,22 +540,28 @@ test('groups Scientific Facilities periods by the website\'s research directions
   `;
   const facilities = facilitiesBundle(true) + directions;
   const schedules = await readBundle(bohrBundle(true) + facilities + pkuBundle(true));
-  assert.deepEqual(schedules[scientificFacilities], { periods: [
+  const grouped = [
     { ...publishedFacilitiesPeriods[0], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-a'] },
       { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-z'] }] },
     { ...publishedFacilitiesPeriods[1], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-future'] },
       { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-new'] }] },
-  ] });
+  ];
+  assert.deepEqual(schedules[scientificFacilities], { periods: grouped });
   assert.deepEqual(schedules[pku], nextSchedules[pku]);
 
-  // An unreadable grouping leaves the periods listed, ungrouped.
-  for (const [reason, source] of [
-    ['direction without a title record', facilities.replace('title: {zh: "显微", en: "Microscopy"}', 'title: "显微"')],
-    ['two direction tables', facilities + directions.replace('const cg', 'const copy')],
-  ]) {
+  // A direction whose Chinese name cannot be read keeps its group, unnamed.
+  const microscopyUnnamed = grouped.map((period) => ({ ...period,
+    groups: period.groups.map(({ labelZh, ...group }) => (group.key === 'microscopy' ? group : { ...group, labelZh })) }));
+  for (const [reason, title] of [['title not a record', 'title: "显微"'], ['no title', 'heading: {zh: "显微", en: "Microscopy"}'],
+    ['no Chinese title', 'title: {en: "Microscopy"}']]) {
+    const source = facilities.replace('title: {zh: "显微", en: "Microscopy"}', title);
     assert.deepEqual((await readBundle(bohrBundle(true) + source + pkuBundle(true)))[scientificFacilities],
-      { periods: publishedFacilitiesPeriods }, reason);
+      { periods: microscopyUnnamed }, reason);
   }
+  // An unreadable grouping leaves the periods listed, ungrouped.
+  const twoTables = facilities + directions.replace('const cg', 'const copy');
+  assert.deepEqual((await readBundle(bohrBundle(true) + twoTables + pkuBundle(true)))[scientificFacilities],
+    { periods: publishedFacilitiesPeriods });
   const unreadableUnit = pkuBundle(true).replace('{key: "writing", title: {zh: "写作", en: "Writing"}}', 'unknownGroup');
   assert.deepEqual((await readBundle(bohrBundle(true) + facilities + unreadableUnit))[pku],
     { periods: [...extendedPkuPeriods.slice(0, 2), ungrouped(extendedPkuPeriods[2])] });
