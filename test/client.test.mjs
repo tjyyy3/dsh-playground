@@ -2719,9 +2719,9 @@ test('refreshing the weekly contest discovers newly published periods and loads 
     { slug: '2', labelZh: '第二期', seasonId: '2026-11-04', startAt: '2026-11-04T16:00:00+08:00', endAt: '2026-11-11T16:00:00+08:00',
       layout: 'challenges', slots: [{ key: 'second', challengeId: 'second' }] },
     { slug: '3', labelZh: '第三期', seasonId: '2026-11-11', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
-      layout: 'trackGroups', slots: [], groups: [{ key: 'reading', challengeIds: ['reading'] }], bonusId: 'bonus' },
+      layout: 'trackGroups', slots: [{ challengeId: 'reading' }, { challengeId: 'bonus' }], groups: [{ key: 'reading', challengeIds: ['reading'] }], bonusId: 'bonus' },
     { slug: '4', labelZh: '第四期', seasonId: '2026-11-18', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
-      layout: 'trackGroups', slots: [], groups: [{ key: 'search', challengeIds: ['search-b', 'search-a'] }], bonusId: null },
+      layout: 'trackGroups', slots: [{ challengeId: 'search-b' }, { challengeId: 'search-a' }], groups: [{ key: 'search', challengeIds: ['search-b', 'search-a'] }], bonusId: null },
     { slug: '5', labelZh: '第五期', seasonId: '2026-11-25', startAt: '2026-11-25T21:00:00+08:00', endAt: '2026-12-02T21:00:00+08:00',
       layout: 'challenges', slots: [{ key: 'fifth', challengeId: 'fifth' }] },
   ];

@@ -2297,3 +2297,17 @@ test('#63: track refuses an unknown author, an unreadable Agent list and a missi
     assert.equal(result.workflow, undefined, code);
   }
 });
+
+test('a catalog cancelled while shared schedules finish never returns success', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  const schedules = Promise.withResolvers();
+  f.client.getCompetitionSchedules = () => schedules.promise;
+  f.client.listCompetitions = async () => ({ items: [] });
+  f.client.listChallenges = async () => ({ items: [] });
+  const pending = f.workflow.catalog({}, { ...f.exec, signal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort(new Error('user left'));
+  schedules.resolve({});
+  await assert.rejects(() => pending, /user left/);
+});

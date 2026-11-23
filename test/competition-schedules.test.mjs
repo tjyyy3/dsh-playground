@@ -35,7 +35,7 @@ function bohrBundle(includeFifth = false) {
       {slug: "4", labelZh: "第四期", startAt: "2026-11-18T21:00:00+08:00", endAt: "2026-11-25T21:00:00+08:00",
         layout: "trackGroups", groups: fourthGroups, bonusId: null, slots: makeSlots(fourthGroups, null)},
       ${includeFifth ? `{slug: "5", labelZh: "第五期", startAt: "2026-11-25T21:00:00+08:00", endAt: "2026-12-02T21:00:00+08:00",
-        layout: "trackGroups", groups: Object.freeze([]), slots: makeSlots([])},` : ''}
+        layout: "trackGroups", groups: Object.freeze([]), slots: []},` : ''}
     ].map(period => Object.freeze({
       ...period, challengeIds: Object.freeze(period.slots.map(slot => slot.challengeId).filter(Boolean)),
     })));
@@ -225,6 +225,9 @@ test('keeps the whole Bohr schedule stale when its table fails and refreshes the
     ['leading zero', original.replace('slug: "2"', 'slug: "02"')],
     ['non-ASCII slug', original.replace('slug: "2"', 'slug: "２"')],
     ['slug longer than 40 digits', original.replace('slug: "2"', `slug: "${'2'.repeat(41)}"`)],
+    ['missing timezone', original.replace('2026-11-18T21:00:00+08:00', '2026-11-18T21:00:00')],
+    ['inverted range', original.replace('2026-11-25T21:00:00+08:00', '2026-11-17T21:00:00+08:00')],
+    ['different slot groups', original.replace('slots: makeSlots(fourthGroups, null)', 'slots: makeSlots(thirdGroups, null)')],
     ['invalid date', original.replace('T24:00:00', 'T24:01:00')],
     ['wrong mapped parameter', original.replace('challengeId: challenge', 'challengeId: index')],
     ['non-segment ID', original.replace('"read-a"', '"read/a"')],
@@ -253,6 +256,8 @@ test('keeps the whole Scientific Facilities schedule stale when either table fai
     ['absent question table', original.slice(0, original.indexOf('const xJ'))],
     ['absent period table', original.slice(original.indexOf('const hR'))],
     ['duplicate period', original.replace('key: "p2"', 'key: "p1"')],
+    ['missing timezone', original.replace('2026-12-10T20:00:00+08:00', '2026-12-10T20:00:00')],
+    ['inverted range', original.replace('2026-11-14T20:00:00+08:00', '2026-11-12T20:00:00+08:00')],
     ['invalid future date', original.replace('2026-12-10T20:00:00+08:00', '12')],
     ['missing future date field', original.replace('openAt: cV, ', '')],
     ['unresolved future date', original.replace('openAt: cV', 'openAt: unknown')],
@@ -327,4 +332,12 @@ test('passes an abort signal for the read deadline and returns a stale result on
   });
   assert.deepEqual(await reader.read(), unavailableSchedules);
   assert.equal(aborted, true);
+});
+
+test('explicit grouped slots control membership when they differ from group metadata', async () => {
+  const { reader, files } = fixture();
+  files.set(firstEntry, firstBundle.replace('slots: makeSlots(fourthGroups, null)', 'slots: [{ challengeId: "search-z" }]'));
+  const schedules = await reader.read();
+  assert.equal(schedules[bohrProduct].stale, undefined);
+  assert.deepEqual(schedules[bohrProduct].periods.at(-1).challengeIds, ['search-z']);
 });
