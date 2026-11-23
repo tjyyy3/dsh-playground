@@ -212,6 +212,17 @@ If the chosen competition is missing from a later list, the selector returns to
 fresh official schedule omits the chosen period, the workbench switches to
 **全部期** for that competition and keeps the search and other filters.
 
+A chosen period with `groups` gets a **分类** row below the competition row. It
+shows **全部**, then each group with its count, in the website's order. A group
+without `labelZh` shows the plugin's own name for its key (`bonus` reads
+附加题), else the key. Choosing a group reads page 1 of that group with the
+search and filters, and **加载更多** pages through the same group. Cards show
+only under the group they were read for. Changing the competition or the
+period returns to **全部**. A refresh keeps the chosen group while the query
+accepts it. When the query answers `group_not_available`, the row switches to
+**全部** of the period, keeps the other filters, and says the group is not
+available now. Periods and competitions without groups show no 分类 row.
+
 ### Catalog paging and filters
 
 The catalog shows `共 N 道` for the current competition, search and filters,
@@ -252,9 +263,9 @@ the search box, a filter bar holds:
   open, and the count line reads `共 N 道 · 已加载 M 道 · 其中开放 K 道` with a
   note that it filters only what is loaded.
 
-Changing 来源, 学科, 排序, the competition, its period or the search reads page 1
-again, and the filters combine with each other, the competition, its period and
-the search. Only the
+Changing 来源, 学科, 排序, the competition, its period, its group or the search
+reads page 1 again, and the filters combine with each other, the competition,
+its period and group, and the search. Only the
 newest read can change the panel: a filter change aborts a running read,
 including a **加载更多** page. A failed read keeps the loaded challenges and
 shows fixed text with **重试**: `赛题目录读取失败。`,
