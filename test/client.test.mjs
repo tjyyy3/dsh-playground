@@ -2712,6 +2712,90 @@ test('a competition with periods gets a period choice that starts on the default
   }
 });
 
+test('refreshing the weekly contest discovers newly published periods and loads their cards', async (t) => {
+  const periods = [
+    { slug: '1', labelZh: '第一期', seasonId: '2026-10-21', startAt: '2026-10-21T16:00:00+08:00', endAt: '2026-11-04T00:00:00+08:00',
+      layout: 'tracks', slots: [{ key: 'first', challengeId: 'first' }] },
+    { slug: '2', labelZh: '第二期', seasonId: '2026-11-04', startAt: '2026-11-04T16:00:00+08:00', endAt: '2026-11-11T16:00:00+08:00',
+      layout: 'challenges', slots: [{ key: 'second', challengeId: 'second' }] },
+    { slug: '3', labelZh: '第三期', seasonId: '2026-11-11', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
+      layout: 'trackGroups', slots: [{ challengeId: 'reading' }, { challengeId: 'bonus' }], groups: [{ key: 'reading', challengeIds: ['reading'] }], bonusId: 'bonus' },
+    { slug: '4', labelZh: '第四期', seasonId: '2026-11-18', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
+      layout: 'trackGroups', slots: [{ challengeId: 'search-b' }, { challengeId: 'search-a' }], groups: [{ key: 'search', challengeIds: ['search-b', 'search-a'] }], bonusId: null },
+    { slug: '5', labelZh: '第五期', seasonId: '2026-11-25', startAt: '2026-11-25T21:00:00+08:00', endAt: '2026-12-02T21:00:00+08:00',
+      layout: 'challenges', slots: [{ key: 'fifth', challengeId: 'fifth' }] },
+  ];
+  let published = 2;
+  let siteAvailable = true;
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-api-token', fetchImpl: async (url, options) => {
+    const { pathname } = url;
+    if (pathname === '/competition/bohr-product' || pathname.startsWith('/assets/')) {
+      assert.equal(new Headers(options.headers).has('authorization'), false);
+      if (pathname === '/competition/bohr-product') {
+        return siteAvailable ? new Response(`<script type="module" src="/assets/catalog-${published}.js"></script>`)
+          : new Response(null, { status: 503 });
+      }
+      const count = Number(pathname.match(/catalog-([0-9]+)\.js$/)?.[1]);
+      return new Response(`const periods = Object.freeze(${JSON.stringify(periods.slice(0, count))}
+        .map(p => Object.freeze({ ...p, challengeIds: Object.freeze(p.slots.map(s => s.challengeId).filter(Boolean)) })));`);
+    }
+    if (pathname === '/api/hackathon/seasons') return Response.json([]);
+    if (pathname === '/api/challenges/facets') return Response.json({ disciplines: {} });
+    if (pathname === '/api/challenges') return Response.json({ items: [{ id: 'tagged-extra', title: 'Outside these periods' }] });
+    const id = pathname.split('/').at(-1);
+    return Response.json({ id, title: `Title ${id}`, status: 'open' });
+  } });
+  const query = historyRpc(client, []);
+  let reading;
+  const f = await clientFixture(t, { connection: { rpc: { call: (...args) => (reading = query(...args)) } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  const select = (label) => f.find(view(), (node) => node.props?.['aria-label'] === label);
+  const periodChoice = () => select('选择分期');
+  const slugs = () => findAll(periodChoice(), (node) => node.type === 'option').map((node) => node.props.value);
+  const renderAfterRead = async () => { await reading; await settle(); };
+  const choose = async (label, value) => { select(label).props.onChange({ target: { value } }); await renderAfterRead(); };
+  const refresh = () => f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
+
+  await f.mount(catalog);
+  await renderAfterRead();
+  await choose('选择比赛', 'competition:bohr-product');
+  await choose('选择分期', '2');
+  assert.deepEqual(slugs(), ['', '1', '2']);
+  assert.deepEqual(cardIds(view()), ['second']);
+
+  published = 4;
+  await refresh();
+  assert.deepEqual(slugs(), ['', '1', '2', '3', '4']);
+  assert.equal(periodChoice().props.value, '2');
+  await choose('选择分期', '3');
+  assert.deepEqual(cardIds(view()), ['reading', 'bonus']);
+  await choose('选择分期', '2');
+  assert.deepEqual(cardIds(view()), ['second']);
+  await choose('选择分期', '4');
+  assert.deepEqual(cardIds(view()), ['search-b', 'search-a']);
+
+  published = 5;
+  await refresh();
+  assert.deepEqual(slugs(), ['', '1', '2', '3', '4', '5']);
+  await choose('选择分期', '5');
+  assert.deepEqual(cardIds(view()), ['fifth']);
+
+  siteAvailable = false;
+  await refresh();
+  assert.deepEqual(slugs(), ['', '1', '2', '3', '4', '5']);
+  assert.deepEqual(cardIds(view()), ['fifth']);
+  assert.match(text(view()), /赛程暂未同步/);
+
+  siteAvailable = true;
+  published = 4;
+  await refresh();
+  assert.deepEqual(slugs(), ['', '1', '2', '3', '4']);
+  assert.equal(periodChoice().props.value, '');
+  assert.deepEqual(cardIds(view()), ['first', 'second', 'reading', 'bonus', 'search-b', 'search-a']);
+  assert.match(text(view()), /已改为显示全部期/);
+});
+
 test('the default period follows the Host; a missing or unknown default starts on 全部期', async (t) => {
   const withDefault = (defaultPeriod) => competitionTable.map((item) => (item.id === 'bohr-product' ? { ...item, defaultPeriod } : item));
   for (const [defaultPeriod, expected] of [['1', '1'], [undefined, ''], ['3', ''], ['', '']]) {
@@ -3016,7 +3100,7 @@ test('a chosen competition the new table no longer lists resets the selector to 
   table = competitionTable.filter((item) => item.id !== 'season:s5');
   await f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
   await settle();
-  assert.deepEqual(calls.slice(2), [{ action: 'catalog', search: '', season: 's5', per_page: 20 }, { action: 'catalog', search: '', per_page: 20 }]);
+  assert.deepEqual(calls.slice(2), [{ action: 'catalog', search: '', season: 's5', per_page: 20, refresh: true }, { action: 'catalog', search: '', per_page: 20 }]);
   const panel = view();
   assert.equal(f.find(panel, (node) => node.type === 'select').props.value, '');
   assert.equal(infoRow(panel), undefined);
@@ -3049,7 +3133,7 @@ test('a chosen competition with a period that the new table no longer lists rese
   table = competitionTable.filter((item) => item.id !== 'bohr-product');
   await refresh();
   // The read for the vanished competition, then 全部比赛 without any period.
-  assert.deepEqual(calls.slice(3), [{ action: 'catalog', search: '', competition: 'bohr-product', period: '1', per_page: 20 }, { action: 'catalog', search: '', per_page: 20 }]);
+  assert.deepEqual(calls.slice(3), [{ action: 'catalog', search: '', competition: 'bohr-product', period: '1', per_page: 20, refresh: true }, { action: 'catalog', search: '', per_page: 20 }]);
   assert.equal(control('选择比赛').props.value, '');
   assert.equal(control('选择分期'), undefined);
   assert.deepEqual(cardIds(view()), ['c5']);
@@ -3131,7 +3215,7 @@ test('a reset whose reload fails shows the notice and the error, without cards',
   table = competitionTable.filter((item) => item.id !== 'knight-s4');
   await f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
   await settle();
-  assert.deepEqual(calls.slice(2), [{ action: 'catalog', search: '', competition: 'knight-s4', per_page: 20 }, { action: 'catalog', search: '', per_page: 20 }]);
+  assert.deepEqual(calls.slice(2), [{ action: 'catalog', search: '', competition: 'knight-s4', per_page: 20, refresh: true }, { action: 'catalog', search: '', per_page: 20 }]);
   const panel = view();
   assert.equal(f.find(panel, (node) => node.type === 'select').props.value, '');
   assert.equal(infoRow(panel), undefined);
@@ -3145,7 +3229,7 @@ test('a reset whose reload fails shows the notice and the error, without cards',
   await f.find(panel, (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick();
   await settle();
   assert.equal(calls.length, 5);
-  assert.deepEqual(calls[4], { action: 'catalog', search: '', per_page: 20 });
+  assert.deepEqual(calls[4], { action: 'catalog', search: '', per_page: 20, refresh: true });
   assert.deepEqual(cardIds(view()), ['c5']);
 });
 
@@ -3386,6 +3470,28 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   other().props.onChange({ target: { value: 'cosmology' } });
   button('筛选').props.onClick();
   assert.deepEqual(pending[3].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'cosmology', per_page: 20 });
+});
+
+test('manual catalog refresh updates discipline choices while retaining the active filter', async (t) => {
+  const { pending, control, button } = await pagedCatalog(t);
+  pending[0].resolve(catalogPage(['c1'], { total: 1 }, { disciplineFacets: { top: [{ key: 'materials', count: 100 }], otherKeys: [] } }));
+  await settle();
+  control('按学科筛选').props.onChange({ target: { value: 'materials' } });
+  pending[1].resolve(catalogPage(['c2'], { total: 1 }));
+  await settle();
+  button('刷新目录').props.onClick();
+  assert.equal(pending[2].input.discipline, 'materials');
+  assert.equal(pending[2].input.refresh, true);
+  pending[2].resolve(catalogPage(['c3'], { total: 1 }, { disciplineFacets: { top: [{ key: 'physics', count: 120 }], otherKeys: [] } }));
+  await settle();
+  const select = control('按学科筛选');
+  assert.equal(select.props.value, 'materials');
+  assert.deepEqual(findAll(select, (node) => node.type === 'option').map((node) => node.props.value), ['', 'physics', 'materials', '__other__']);
+  button('刷新目录').props.onClick();
+  pending[3].resolve(catalogPage(['c4'], { total: 1 }));
+  await settle();
+  control('按学科筛选').props.onChange({ target: { value: '' } });
+  assert.deepEqual(findAll(control('按学科筛选'), (node) => node.type === 'option').map((node) => node.props.value), ['', 'physics', '__other__']);
 });
 
 test('without discipline facets the catalog still shows its challenges and 学科 offers only 全部学科 and 其他', async (t) => {

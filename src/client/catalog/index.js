@@ -88,7 +88,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // and the selector and period values it was read for; the grid stays hidden while they differ from
   // `season` and `period`.
   const [list, setList] = React.useState(null);
-  // The 学科 choices of the first catalog answer that had them; later answers do not replace them.
+  // The first available 学科 choices, replaced by an explicit refresh that returns new choices.
   const [facets, setFacets] = React.useState(null);
   // '' when idle, 'load' for a first page, 'more' for an appended page.
   const [busy, setBusy] = React.useState('');
@@ -103,9 +103,18 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
   const [detail, setDetail] = React.useState(null);
   const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+  const handleReadFailure = (kind, requestedFilters, error, refresh = false) => {
+    if (requestedFilters.period && error?.reason === 'period_not_available') {
+      setPeriod('');
+      return load({ ...requestedFilters, period: '' }, { refresh, notice: '之前选择的分期已不在列表中，已改为显示全部期。' });
+    }
+    const firstPage = kind === 'load';
+    setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
+    setStatus(firstPage ? '赛题目录读取失败。' : '加载更多赛题失败。');
+  };
   // Page 1 for the current filters with `changes` applied; it replaces the list. Any read still running,
   // an appended page included, is aborted and can no longer change the panel.
-  const load = async (changes = {}, nextNotice = '') => {
+  const load = async (changes = {}, { refresh = false, notice: nextNotice = '' } = {}) => {
     const next = { ...filters, ...changes };
     latest.controller?.abort();
     const controller = new AbortController();
@@ -113,26 +122,26 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setBusy('load'); setFailure(null); setNotice(nextNotice); setStatus('正在读取比赛和赛题…');
     try {
       const input = catalogInput(next);
-      const result = await query(input, controller.signal);
+      const result = await query(refresh ? { ...input, refresh: true } : input, controller.signal);
       if (latest.controller !== controller) return;
+      if (result?.ok === false) return handleReadFailure('load', next, result.error, refresh);
       setCatalog(result);
       const facts = pageFacts(result?.challenges);
       // `filters` keeps the controls this list was read with, so its own 重试 can read the same query again.
       setList({ season: next.season, period: next.period, filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
-      const received = latest.facets ? undefined : catalogFacets(result?.disciplineFacets);
+      const received = refresh || !latest.facets ? catalogFacets(result?.disciplineFacets) : undefined;
       if (received) { latest.facets = received; setFacets(received); }
       if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
       // A chosen competition the new table no longer lists: go back to 全部比赛 and read once more.
       const table = Array.isArray(result?.competitionTable) ? result.competitionTable : undefined;
       if (next.season && table && !table.some((item) => item && typeof item === 'object' && competitionValue(item) === next.season)) {
         setSeason(''); setPeriod('');
-        load({ ...next, season: '', period: '' }, '之前选择的比赛已不在列表中，已改为显示全部比赛。');
+        load({ ...next, season: '', period: '' }, { notice: '之前选择的比赛已不在列表中，已改为显示全部比赛。' });
         return;
       }
       setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : '赛题目录已更新。');
     } catch {
-      if (latest.controller !== controller) return;
-      setFailure({ kind: 'load', filters: next }); setStatus('赛题目录读取失败。');
+      if (latest.controller === controller) handleReadFailure('load', next, undefined, refresh);
     } finally {
       if (latest.controller === controller) { latest.controller = null; setBusy(''); }
     }
@@ -156,6 +165,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       const page = shown.page + 1;
       const result = await query({ ...shown.input, page }, controller.signal);
       if (latest.controller !== controller) return;
+      if (result?.ok === false) return handleReadFailure('more', shown.filters, result.error);
       const facts = pageFacts(result?.challenges);
       const added = uniqueCards(result?.challenges?.items, new Set(shown.items.map((item) => String(item.id))));
       // An empty page ends the list even if it claims more.
@@ -168,8 +178,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         missing: Math.max(shown.missing, facts.missing), hasMore });
       setStatus(added.length ? `已加载 ${added.length} 道赛题。` : '没有更多赛题。');
     } catch {
-      if (latest.controller !== controller) return;
-      setFailure({ kind: 'more' }); setStatus('加载更多赛题失败。');
+      if (latest.controller === controller) handleReadFailure('more', shown.filters);
     } finally {
       if (latest.controller === controller) { latest.controller = null; setBusy(''); }
     }
@@ -179,7 +188,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // nothing (and is disabled): any read then would be the unfiltered list.
   const retry = () => {
     if (otherPending) return undefined;
-    return failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters);
+    return failure?.kind === 'more' ? (canLoadMore ? loadMore() : load()) : load(failure?.filters, { refresh: failure?.refresh });
   };
   React.useEffect(() => {
     load();
@@ -215,11 +224,13 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const infoName = [selectedCompetition?.nameZh || selectedCompetition?.name, selectedPeriod?.labelZh].filter(Boolean).join(' · ');
   const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
     : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
+  const disciplineOptions = facets?.top || [];
+  const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
   const applyOther = () => { if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() }); };
   return h('section', { className: 'pg-guide pg-catalog', 'aria-label': 'Playground 赛题目录', 'aria-busy': Boolean(busy) },
     h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status),
     h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, '选择比赛或赛题'),
-      h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load() }, busy === 'load' ? '正在刷新…' : '刷新目录')),
+      h('button', { className: 'pg-button', disabled: busy === 'load', onClick: () => load({}, { refresh: true }) }, busy === 'load' ? '正在刷新…' : '刷新目录')),
     h('div', { className: 'pg-search' },
       h('input', { className: 'pg-input', 'aria-label': '搜索 Playground 赛题', placeholder: '按题目名称、方向或关键词搜索', value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
       h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => {
@@ -246,7 +257,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
         } },
           h('option', { value: '' }, '全部学科'),
-          (facets?.top || []).map((key) => h('option', { key, value: key }, key)),
+          disciplineOptions.map((key) => h('option', { key, value: key }, key)),
+          activeDisciplineMissing ? h('option', { value: disciplineChoice }, disciplineChoice) : null,
           h('option', { value: OTHER_DISCIPLINE }, '其他（输入学科）'))),
       disciplineChoice === OTHER_DISCIPLINE ? h('div', { className: 'pg-filter pg-filter-other' },
         h('label', { htmlFor: 'pg-other-discipline' }, '其他学科（英文学科名，精确匹配）'),
@@ -273,6 +285,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         ` ${infoTime}`,
         !selectedPeriod && selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
       openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
+      selectedCompetition.periodsStale ? h('p', { className: 'pg-note', role: 'status' }, '赛程暂未同步，当前显示已有分期。') : null,
       // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
       // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
       // one is left out.
