@@ -256,7 +256,7 @@ The current [manifest](https://github.com/tjyyy3/dsh-playground/blob/7050e024a04
 - Existing [Client behavior fixtures](https://github.com/tjyyy3/dsh-playground/blob/7050e024a047f1fe633ff18eed4ee2f799c96882/test/client.test.mjs#L24-L85) against the generated root entry. Preserve component names in this first migration and verify affected state behavior through existing coverage or targeted gaps. A supported-Host load/navigation check is separate from mocks.
 - README/AGENTS maintenance guidance updated to edit source, build and verify the generated entry.
 
-The selected build is pending implementation; this documentation update does not claim build, package-install or live-Host validation success.
+The Client source split and reproducible build were delivered in [#102](https://github.com/tjyyy3/dsh-playground/pull/102). Its implementation PR records generated-entry tests, package verification and Host validation limits; this document update does not claim new independent runtime verification.
 
 ##### Module boundaries and migration order
 
