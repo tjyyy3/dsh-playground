@@ -48,9 +48,11 @@ const fourPeriods = [
   { slug: '2', labelZh: '第二期', startAt: '2026-11-04T16:00:00+08:00', endAt: '2026-11-11T16:00:00+08:00',
     challengeIds: ['mapped-z', 'mapped-a'] },
   { slug: '3', labelZh: '第三期', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
-    challengeIds: ['read-z', 'read-a', 'write-z', 'bonus-3'] },
+    challengeIds: ['read-z', 'read-a', 'write-z', 'bonus-3'],
+    groups: [{ key: 'reading', challengeIds: ['read-z', 'read-a'] }, { key: 'writing', challengeIds: ['write-z'] },
+      { key: 'bonus', challengeIds: ['bonus-3'] }] },
   { slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
-    challengeIds: ['mapped-a', 'search-z'] },
+    challengeIds: ['mapped-a', 'search-z'], groups: [{ key: 'search', challengeIds: ['mapped-a', 'search-z'] }] },
 ];
 const fifthPeriod = {
   slug: '5', labelZh: '第五期', startAt: '2026-11-25T21:00:00+08:00', endAt: '2026-12-02T21:00:00+08:00',
@@ -117,6 +119,7 @@ const pkuPeriods = [
 const extendedPkuPeriods = [pkuPeriods[0], { ...pkuPeriods[1], labelZh: '学术效率赛道 · 第一期' }, {
   slug: 'efficiency-3', labelZh: '学术效率赛道 · 第三期', startAt: '2026-11-20T20:00:00+08:00', endAt: '2026-11-27T20:00:00+08:00',
   challengeIds: ['pku-slides-z', 'pku-writing-a'],
+  groups: [{ key: 'writing', labelZh: '写作', challengeIds: ['pku-writing-a'] }, { key: 'slides', labelZh: '幻灯片', challengeIds: ['pku-slides-z'] }],
 }];
 const firstBundle = bohrBundle() + facilitiesBundle() + pkuBundle();
 const nextBundle = bohrBundle(true) + facilitiesBundle(true) + pkuBundle(true);
@@ -340,4 +343,129 @@ test('explicit grouped slots control membership when they differ from group meta
   const schedules = await reader.read();
   assert.equal(schedules[bohrProduct].stale, undefined);
   assert.deepEqual(schedules[bohrProduct].periods.at(-1).challengeIds, ['search-z']);
+});
+
+// The weekly contest's periods 3 and 4 as the website published them on 2026-11-23 (index-BBQAq2fa.js): group
+// keys, Chinese and English names and challenge counts are the site's; the ids are made up and count down, so
+// a sorted list would not match the official order.
+const thirdTracks = [['reading', '文献阅读', 'Scientific Literature Reading', 10], ['writing', '学术写作', 'Academic Writing', 14],
+  ['graphics', '科研绘图', 'Scientific Illustration and Visualization', 5], ['slides', '学术 PPT', 'Academic Presentations', 4]];
+const fourthTracks = [['search', '文献检索', 'Literature Search', 11], ['reading', '文献阅读', 'Literature Reading', 14],
+  ['writing', '学术写作', 'Academic Writing', 17], ['library', '资料管理', 'Research Library', 5],
+  ['research', '深度研究与文献综述', 'Deep Research & Literature Review', 5], ['review', '学术审查', 'Academic Review', 5],
+  ['analysis', '科研数据分析', 'Research Data Analysis', 6], ['graphics', '科研绘图', 'Scientific Graphics', 5],
+  ['slides', '学术 PPT', 'Academic Slides', 4], ['experiment', '实验方案设计', 'Experimental Design', 5]];
+const trackIds = (period, key, count) => Array.from({ length: count }, (_, index) => `p${period}-${key}-${String(count - index).padStart(2, '0')}`);
+const trackNames = (tracks, language) => Object.fromEntries(tracks.map(([key, zh, en]) => [key, language === 'zh' ? zh : en]));
+const weeklyCopy = {
+  zh: { p3: { tracks: { ...trackNames(thirdTracks, 'zh'), bonus: '附加题' }, challengesTitle: '第三期赛题' },
+    p4: { tracks: trackNames(fourthTracks, 'zh'), challengesTitle: '第四期赛题' } },
+  en: { p3: { tracks: { ...trackNames(thirdTracks, 'en'), bonus: 'Bonus challenge' }, challengesTitle: 'Period 3 challenges' },
+    p4: { tracks: trackNames(fourthTracks, 'en'), challengesTitle: 'Period 4 challenges' } },
+};
+
+function weeklyBundle({ copy = weeklyCopy, fourthGroups = fourthTracks.map(([key, , , count]) => ({ key, challengeIds: trackIds(4, key, count) })) } = {}) {
+  const groups = (list) => `Object.freeze([${list.map(({ key, challengeIds }) =>
+    `Object.freeze({key:${JSON.stringify(key)},challengeIds:${typeof challengeIds === 'string' ? challengeIds : `Object.freeze(${JSON.stringify(challengeIds)})`}})`).join(',')}])`;
+  const third = thirdTracks.map(([key, , , count]) => ({ key, challengeIds: trackIds(3, key, count) }));
+  return `
+    const JT=${groups(third)},e2="p3-bonus",t2=${groups(fourthGroups)};
+    function n2(e,n){return Object.freeze([...e.flatMap(a=>a.challengeIds.map((i,o)=>Object.freeze({key:\`\${a.key}-\${String(o+1).padStart(2,"0")}\`,challengeId:i,track:a.key}))),...n?[Object.freeze({key:"bonus",challengeId:n,track:null})]:[]])}
+    const Ss=Object.freeze([{slug:"3",labelZh:"第三期",labelEn:"Period 3",seasonId:"2026-11-11",startAt:"2026-11-11T16:00:00+08:00",endAt:"2026-11-18T16:00:00+08:00",layout:"trackGroups",groups:JT,bonusId:e2,copy:"p3",liveBoard:!0,slots:n2(JT,e2)},{slug:"4",labelZh:"第四期",labelEn:"Period 4",seasonId:"2026-11-18",startAt:"2026-11-18T21:00:00+08:00",endAt:"2026-11-25T21:00:00+08:00",layout:"trackGroups",groups:t2,bonusId:null,copy:"p4",liveBoard:!1,slots:n2(t2,null)}].map(e=>Object.freeze({...e,challengeIds:Object.freeze(e.slots.map(n=>n.challengeId).filter(Boolean))})));
+    const Wi=${JSON.stringify(copy)};
+  `;
+}
+
+const namedGroups = (period, tracks) => tracks.map(([key, labelZh, , count]) => ({ key, labelZh, challengeIds: trackIds(period, key, count) }));
+const weeklyPeriods = [
+  { slug: '3', labelZh: '第三期', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
+    challengeIds: [...namedGroups(3, thirdTracks).flatMap((group) => group.challengeIds), 'p3-bonus'],
+    groups: [...namedGroups(3, thirdTracks), { key: 'bonus', labelZh: '附加题', challengeIds: ['p3-bonus'] }] },
+  { slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
+    challengeIds: namedGroups(4, fourthTracks).flatMap((group) => group.challengeIds), groups: namedGroups(4, fourthTracks) },
+];
+const unnamed = (periods) => periods.map((period) => ({ ...period, groups: period.groups.map(({ labelZh, ...group }) => group) }));
+const ungrouped = ({ groups, ...period }) => period;
+// A fresh reader for each bundle: one reader parses an entry URL only once.
+async function readBundle(bundle) {
+  const { reader, files } = fixture();
+  files.set(firstEntry, bundle);
+  return reader.read();
+}
+
+test('keeps the weekly contest\'s official groups, their order and names, and the shared bonus challenge last', async () => {
+  const { periods, stale } = (await readBundle(weeklyBundle()))[bohrProduct];
+  assert.equal(stale, undefined);
+  assert.deepEqual(periods, weeklyPeriods);
+  assert.deepEqual(periods.map((period) => [period.challengeIds.length, period.groups.length]), [[34, 5], [77, 10]]);
+  assert.deepEqual(periods[1].groups.find((group) => group.key === 'graphics').challengeIds,
+    ['p4-graphics-05', 'p4-graphics-04', 'p4-graphics-03', 'p4-graphics-02', 'p4-graphics-01']);
+  assert.ok(periods.every((period) => Object.isFrozen(period.groups) &&
+    period.groups.every((group) => Object.isFrozen(group) && Object.isFrozen(group.challengeIds))));
+});
+
+test('leaves weekly groups unnamed when their Chinese names cannot be told apart', async () => {
+  const { library, ...withoutLibrary } = weeklyCopy.zh.p4.tracks;
+  const cases = new Map([
+    ['no page text', [{}, unnamed(weeklyPeriods)]],
+    ['only names without Han characters', [{ en: weeklyCopy.en }, unnamed(weeklyPeriods)]],
+    ['two Chinese tables', [{ ...weeklyCopy, tw: weeklyCopy.zh }, unnamed(weeklyPeriods)]],
+    ['a name missing', [{ ...weeklyCopy, zh: { ...weeklyCopy.zh, p4: { tracks: withoutLibrary } } }, [weeklyPeriods[0], {
+      ...weeklyPeriods[1], groups: weeklyPeriods[1].groups.map(({ labelZh, ...group }) => (group.key === 'library' ? group : { ...group, labelZh })) }]]],
+  ]);
+  for (const [reason, [copy, expected]] of cases) {
+    assert.deepEqual((await readBundle(weeklyBundle({ copy })))[bohrProduct], { periods: expected }, reason);
+  }
+});
+
+test('lists a weekly period ungrouped when its group keys cannot be chosen by key', async () => {
+  const groups = weeklyPeriods[1].groups;
+  for (const [reason, key] of [['duplicate key', 'search'], ['not a group key', '科研 绘图'], ['missing key', undefined]]) {
+    const fourthGroups = groups.map((group, index) => (index === 1 ? { ...group, key } : group));
+    assert.deepEqual((await readBundle(weeklyBundle({ fourthGroups })))[bohrProduct],
+      { periods: [weeklyPeriods[0], ungrouped(weeklyPeriods[1])] }, reason);
+  }
+});
+
+test('keeps the last good weekly groups when the grouped table stops parsing', async () => {
+  const { reader, files } = fixture();
+  files.set(firstEntry, weeklyBundle());
+  await reader.read();
+  files.set(pageUrl.pathname, page(nextEntry));
+  const broken = fourthTracks.map(([key, , , count]) => ({ key, challengeIds: key === 'graphics' ? 'unresolvedIds' : trackIds(4, key, count) }));
+  files.set(nextEntry, weeklyBundle({ fourthGroups: broken }));
+  assert.deepEqual((await reader.read())[bohrProduct], { periods: weeklyPeriods, stale: true });
+  files.set(nextEntry, weeklyBundle());
+  assert.deepEqual((await reader.read())[bohrProduct], { periods: weeklyPeriods });
+});
+
+test('groups Scientific Facilities periods by the website\'s research directions and PKU units by their own groups', async () => {
+  const directions = `
+    const cg = [
+      {key: "imaging", sources: ["imaging"], title: {zh: "成像与结构重建", en: "Imaging"}, summary: {zh: "成像", en: "Imaging"}},
+      {key: "unused", sources: ["fib"], title: {zh: "未出题方向", en: "Unused"}, summary: {zh: "无", en: "None"}},
+      {key: "microscopy", sources: ["fib"], title: {zh: "显微", en: "Microscopy"}, summary: {zh: "显微", en: "Microscopy"}},
+    ];
+  `;
+  const facilities = facilitiesBundle(true) + directions;
+  const schedules = await readBundle(bohrBundle(true) + facilities + pkuBundle(true));
+  assert.deepEqual(schedules[scientificFacilities], { periods: [
+    { ...publishedFacilitiesPeriods[0], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-a'] },
+      { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-z'] }] },
+    { ...publishedFacilitiesPeriods[1], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-future'] },
+      { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-new'] }] },
+  ] });
+  assert.deepEqual(schedules[pku], nextSchedules[pku]);
+
+  // An unreadable grouping leaves the periods listed, ungrouped.
+  for (const [reason, source] of [
+    ['direction without a title record', facilities.replace('title: {zh: "显微", en: "Microscopy"}', 'title: "显微"')],
+    ['two direction tables', facilities + directions.replace('const cg', 'const copy')],
+  ]) {
+    assert.deepEqual((await readBundle(bohrBundle(true) + source + pkuBundle(true)))[scientificFacilities],
+      { periods: publishedFacilitiesPeriods }, reason);
+  }
+  const unreadableUnit = pkuBundle(true).replace('{key: "writing", title: {zh: "写作", en: "Writing"}}', 'unknownGroup');
+  assert.deepEqual((await readBundle(bohrBundle(true) + facilities + unreadableUnit))[pku],
+    { periods: [...extendedPkuPeriods.slice(0, 2), ungrouped(extendedPkuPeriods[2])] });
 });

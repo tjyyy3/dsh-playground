@@ -986,6 +986,73 @@ test('a period is refused unless it is a slug of the chosen competition\'s perio
   assert.equal(seasons, 0);
 });
 
+// Period 4 of the weekly contest with the website's group keys and counts (77 challenges); the ids are made up.
+const FOURTH_GROUPS = [['search', 11], ['reading', 14], ['writing', 17], ['library', 5], ['research', 5], ['review', 5],
+  ['analysis', 6], ['graphics', 5], ['slides', 4], ['experiment', 5]]
+  .map(([key, count]) => ({ key, challengeIds: Array.from({ length: count }, (_, index) => `p4-${key}-${count - index}`) }));
+const FOURTH_PERIOD = { slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
+  challengeIds: FOURTH_GROUPS.flatMap((group) => group.challengeIds),
+  groups: FOURTH_GROUPS.map((group) => (group.key === 'graphics' ? { ...group, labelZh: '科研绘图' } : group)) };
+const GRAPHICS = ['p4-graphics-5', 'p4-graphics-4', 'p4-graphics-3', 'p4-graphics-2', 'p4-graphics-1'];
+
+test('a chosen group narrows its period before any challenge is read and pages through that group only', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-23T12:00:00+08:00'));
+  const f = await fixture();
+  f.client.getCompetitionSchedules = async () => ({ 'bohr-product': { periods: [FOURTH_PERIOD] } });
+  f.client.listChallenges = async () => assert.fail('a group list does not use the list API');
+  const reads = fixedCards(f, Object.fromEntries(FOURTH_PERIOD.challengeIds.map((id) => [id, {}])));
+  assert.ok(FOURTH_PERIOD.challengeIds.indexOf(GRAPHICS[0]) > 20, 'the group starts past the first page of the whole period');
+  const seen = [];
+  const pages = [];
+  for (let page = 1, hasMore = true; hasMore; page += 1) {
+    reads.length = 0;
+    const { challenges } = await f.workflow.catalog({ competition: 'bohr-product', period: '4', group: 'graphics', per_page: 2, page }, f.exec);
+    assert.deepEqual(reads, GRAPHICS, `page ${page} reads only the group`);
+    seen.push(...challenges.items.map((item) => item.id));
+    pages.push([challenges.page, challenges.pages, challenges.total]);
+    hasMore = challenges.hasMore;
+  }
+  assert.deepEqual(seen, GRAPHICS);
+  assert.deepEqual(pages, [[1, 3, 5], [2, 3, 5], [3, 3, 5]]);
+
+  const first = await f.workflow.catalog({ competition: 'bohr-product', period: '4', group: 'graphics', search: 'graphics-4' }, f.exec);
+  assert.deepEqual(first.challenges.items.map((item) => item.id), ['p4-graphics-4'], 'filters apply inside the group');
+  const listed = first.competitionTable.find((item) => item.id === 'bohr-product').periods[0];
+  assert.deepEqual(listed.groups, FOURTH_GROUPS.map(({ key, challengeIds }) =>
+    ({ key, ...(key === 'graphics' ? { labelZh: '科研绘图' } : {}), count: challengeIds.length })));
+  assert.equal(JSON.stringify(first.competitionTable).includes('p4-'), false, 'challenge ids stay on the Host');
+});
+
+test('a group is refused without a period or once a fresh schedule no longer has it', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-23T12:00:00+08:00'));
+  const f = await fixture();
+  let schedules;
+  f.client.getCompetitionSchedules = async () => schedules;
+  f.client.getChallenge = async () => assert.fail('a refused group reads no challenge');
+  const read = (args) => f.workflow.catalog({ competition: 'bohr-product', period: '4', group: 'graphics', ...args }, f.exec);
+  const { groups, ...ungrouped } = FOURTH_PERIOD;
+  const withdrawn = { ...FOURTH_PERIOD, groups: groups.filter((group) => group.key !== 'graphics') };
+  for (const [reason, published, expected] of [
+    ['withdrawn group', { periods: [withdrawn] }, 'group_not_available'],
+    ['ungrouped period', { periods: [ungrouped] }, 'group_not_available'],
+    ['stale schedule', { periods: [withdrawn], stale: true }, undefined],
+  ]) {
+    schedules = { 'bohr-product': published };
+    const result = await read({});
+    assert.deepEqual(result.error, { code: 'invalid_argument', message: '未知的分组。请从分组选择器中选择。', ...(expected ? { reason: expected } : {}) }, reason);
+  }
+  const alone = await f.workflow.catalog({ competition: 'bohr-product', group: 'graphics' }, f.exec);
+  assert.deepEqual(alone.error, { code: 'invalid_argument', message: '指定 group 时必须选择分期。' });
+
+  // A group of a Scientific Facilities period that has not opened yet exists and lists nothing.
+  schedules = { 'scientific-facilities': { periods: [{ slug: '2', labelZh: '第二期', challengeIds: ['facility-a'],
+    groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-a'] }] }] } };
+  const pending = await f.workflow.catalog({ competition: 'scientific-facilities', period: '2', group: 'imaging' }, f.exec);
+  assert.deepEqual([pending.ok, pending.challenges.total], [true, 0]);
+  assert.deepEqual(pending.competitionTable.find((item) => item.id === 'scientific-facilities').periods[0].groups,
+    [{ key: 'imaging', labelZh: '成像与结构重建', count: 0 }]);
+});
+
 test('fixed-id reads share an internal signal that is released once the read is over', async () => {
   const f = await fixture();
   const signals = [];
