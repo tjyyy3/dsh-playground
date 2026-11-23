@@ -1,6 +1,6 @@
 # Playground Product Roadmap
 
-> Decisions synchronized: 2026-11-21  
+> Decisions synchronized: 2026-11-23  
 > Source-review baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`  
 > Product centre: Playground competitions and the workflows around participating, authoring and organizing them.  
 > Status: agreed items and remaining candidates are separated below. Implementation and verification status is tracked per issue and summarized below. Later candidates require separate product review and are not prerequisites for the submission redesign.
@@ -9,7 +9,16 @@ Near-term scope and acceptance are tracked in [#73](https://github.com/tjyyy3/ds
 
 Repository status checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: the linked audit implementations and challenge grouping are merged, as recorded in section 6. The source-review baseline above remains the historical evidence for the original findings. Merge status does not mean this documentation review independently reran implementation or target-host tests.
 
-Update on 2026-11-21 at main `7050e024a047f1fe633ff18eed4ee2f799c96882`: [#96](https://github.com/tjyyy3/dsh-playground/pull/96) delivered #94 and [#98](https://github.com/tjyyy3/dsh-playground/pull/98) delivered #95; both issues are closed. Third-batch catalog/auth/Host extraction is selected under [#99](https://github.com/tjyyy3/dsh-playground/issues/99); fourth-batch Client source splitting and build delivery is selected under [#100](https://github.com/tjyyy3/dsh-playground/issues/100). Both remain pending.
+Update on 2026-11-23 at main `9ab61f829f0350095529005d395043d7229b6daf`: architecture batches 1–4 are delivered: #94/#96, #95/#98, #99/#101 and #100/#102. The D3 controller split was delivered in [#105](https://github.com/tjyyy3/dsh-playground/pull/105); the redundant `base_url` task-association parameter was removed in [#104](https://github.com/tjyyy3/dsh-playground/pull/104), closing [#103](https://github.com/tjyyy3/dsh-playground/issues/103). API/CLI internals were reviewed and deliberately left as they are; no D5 split is planned unless a concrete maintenance need appears.
+
+## 0. Latest delivery update (2026-11-23)
+
+Since the previous roadmap snapshot, the repository also merged:
+- [#106](https://github.com/tjyyy3/dsh-playground/pull/106): refresh published competition schedules so the catalog can discover current official periods.
+- [#107](https://github.com/tjyyy3/dsh-playground/pull/107): allow controller users to inspect the native trajectory when the Host exposes that view in developer mode.
+- [#108](https://github.com/tjyyy3/dsh-playground/pull/108): verify npm package availability before offering upgrade instructions and prepare the beta.2 candidate. This PR does not itself mean beta.2 has been published; publication remains a separate maintainer decision.
+
+These are delivered repository changes, not new commitments to expand the roadmap. Check their implementation PRs for exact scope and verification limits.
 
 ## 1. Product direction
 
@@ -190,7 +199,7 @@ Reuse existing capabilities where they meet the actual workflow's needs. This ta
 
 ### Engineering structure
 
-The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records one Host/Client package with feature modules, explicit state owners and gradual extraction. [#94](https://github.com/tjyyy3/dsh-playground/issues/94) shipped policy/redaction in [#96](https://github.com/tjyyy3/dsh-playground/pull/96); [#95](https://github.com/tjyyy3/dsh-playground/issues/95) shipped lifecycle, handoff, receipts, shared overview and the selected current-account statistics in [#98](https://github.com/tjyyy3/dsh-playground/pull/98). The third scope [#99](https://github.com/tjyyy3/dsh-playground/issues/99) groups catalog/auth and Host settings/tools/views. The fourth [#100](https://github.com/tjyyy3/dsh-playground/issues/100) groups Client source splitting with build and package verification. Each normally uses one implementation PR, preserves delivered behavior and remains pending.
+The [overall architecture draft in the implementation plan](IMPLEMENTATION_PLAN.md#overall-architecture-draft) records one Host/Client package with feature modules, explicit state owners and gradual extraction. All four planned batches are now delivered: #94/#96 (policy/redaction), #95/#98 (task/submission modules and current-account statistics), #99/#101 (catalog/auth/Host integration), and #100/#102 (Client source modules and build/package verification). The controller internals were subsequently split in [#105](https://github.com/tjyyy3/dsh-playground/pull/105). The API/CLI review concluded that no further split is justified now. The association-tool bug #103 was fixed by #104. These are completed changes; future structural work requires a concrete maintenance problem rather than following the old batch list mechanically.
 
 The [third-batch boundary rationale](IMPLEMENTATION_PLAN.md#selected-third-batch-and-module-granularity) groups code by common changes and shared state. Separate files are useful when their responsibilities change independently; smaller files are not a goal by themselves. The [selected fourth batch](IMPLEMENTATION_PLAN.md#client-build-and-package-delivery) maintains feature sources under `src/client/` and generates the existing root `client.js`. Development and CI build it; tests and packages use that same output, and installed users receive a ready-to-load plugin. Existing UI and state ownership are preserved. This build is agreed but not implemented; further D3/D5 extraction remains under review. Build supports delivery, while clear responsibilities and limited coupling determine whether the architecture is useful. Product areas do not mandate one service or directory each.
 
