@@ -196,6 +196,46 @@ test('explicit concurrent creation writes one native session and cold reopening 
   assert.deepEqual(f.promptRequests.map(({ sessionId }) => sessionId), ['session-1', 'session-2']);
 });
 
+test('a cancelled dispatch waits behind initialization and sends no prompt', async (t) => {
+  const f = await fixture(t);
+  const enteredFlush = Promise.withResolvers();
+  const finishFlush = Promise.withResolvers();
+  f.options.enteredFlush = enteredFlush.resolve;
+  f.options.flushGate = finishFlush.promise;
+  const execute = f.ctx.commands.execute;
+  let ownsBeforeMarker;
+  f.ctx.commands.execute = (agent, ...args) => {
+    ownsBeforeMarker = f.controller.owns(agent);
+    return execute(agent, ...args);
+  };
+
+  const openingAbort = new AbortController();
+  const request = { ...handoff, sessionId: 'session-1' };
+  const opening = f.controller.open({ workspaceId: request.workspaceId, createIfMissing: true }, openingAbort.signal);
+  await Promise.race([enteredFlush.promise, opening]);
+
+  const dispatchAbort = new AbortController();
+  const cancelled = f.controller.dispatch(request, dispatchAbort.signal);
+  let dispatchSettled = false;
+  void cancelled.finally(() => { dispatchSettled = true; }).catch(() => {});
+  openingAbort.abort();
+  dispatchAbort.abort();
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ownsBeforeMarker, true);
+    assert.equal(dispatchSettled, false);
+    assert.deepEqual(f.promptRequests, []);
+  } finally {
+    finishFlush.resolve();
+  }
+  assert.deepEqual(await opening, { kind: 'opened', sessionId: 'session-1', created: true });
+  await assert.rejects(cancelled, { name: 'AbortError' });
+  assert.deepEqual(f.promptRequests.map(({ requestId }) => requestId), ['playground-controller:session-1']);
+  assert.deepEqual(await f.controller.dispatch(request), { kind: 'accepted', sessionId: 'session-1' });
+  assert.deepEqual(f.promptRequests.map(({ requestId }) => requestId),
+    ['playground-controller:session-1', `playground-dispatch:${request.requestId}`]);
+});
+
 test('forks do not own inherited controller markers and archived controllers are never replaced', async (t) => {
   const f = await fixture(t);
   const marker = { workspaceId: 'one', sessionId: 'original' };
@@ -315,6 +355,12 @@ test('controller guidance delegates solution work to a separate DSH child when C
   assert.match(context, /native DSH subagent tool.*Codex is unavailable.*fresh separate DSH conversation/);
   assert.match(context, /If Codex cannot start or ends with a failure.*delegate the unfinished work/);
   assert.match(context, /Never solve the challenge in this controller conversation/);
+  assert.match(context, /task conversation for the specific challenge.*playground_task materials.*authorized paths/);
+  assert.match(context, /Ask the user to grant access through Playground Workbench.*outside the workspace/);
+  assert.match(context, /The Agent in that task conversation submits only after an explicit user request/);
+  assert.match(context, /official CLI or API.*inspection, packaging, and upload/);
+  assert.match(context, /playground_task status.*submitPolicy\.announcement.*additional user confirmation/);
+  assert.match(context, /The plugin records authorized material references only/);
   assert.match(context, /Do not delegate Playground submissions/);
   assert.equal(f.controller.initialize({ agent }).kind, 'error', 'chat commands cannot reinitialize the controller');
   agent.session.cwd = `${f.workspaces[0].path}/.`;
@@ -330,7 +376,12 @@ test('projection replays only the current session marker after its inherited pre
   const marker = (seq, sessionId) => ({ seq, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: { workspaceId: 'one', sessionId } }) } });
   state = controllerProjection.apply(state, marker(0, 'ancestor'));
   state = controllerProjection.apply(state, marker(2, 'fork'));
-  assert.deepEqual(controllerProjection.wire.view(state), { workspaceId: 'one', sessionId: 'fork' });
+  const legacyMarker = { workspaceId: 'one', sessionId: 'fork' };
+  assert.deepEqual(controllerProjection.wire.view(state), legacyMarker);
+  const legacyState = { sessionId: 'fork', inheritedEventCount: 2, marker: legacyMarker };
+  assert.deepEqual(controllerProjection.stateSchema.parse(legacyState), legacyState);
+  assert.deepEqual(controllerProjection.wire.viewSchema.parse(legacyMarker), legacyMarker);
+  assert.equal(controllerProjection.key, 'playgroundController');
   assert.equal(controllerProjection.stateVersion, 2);
 });
 
@@ -385,10 +436,28 @@ test('task rows require catalog membership and preserve notice and observed term
 
 test('settlement projection excludes inherited events and keeps bounded text', () => {
   let state = controllerNoticesProjection.init({ id: 'fork' }, 1);
-  const event = (seq, id) => ({ seq, type: 'agent/inbox/spliced', data: { inserted: [{ source: { kind: 'subagent-settled', senderSessionId: id }, content: [{ type: 'text', text: 'result' }] }] } });
+  const event = (seq, id, text = 'result') => ({ seq, type: 'agent/inbox/spliced', data: { inserted: [{
+    source: { kind: 'subagent-settled', senderSessionId: id }, content: [{ type: 'text', text }],
+  }] } });
   state = controllerNoticesProjection.apply(state, event(0, 'ancestor-child'));
   state = controllerNoticesProjection.apply(state, event(1, 'own-child'));
-  assert.deepEqual(controllerNoticesProjection.wire.view(state), [{ childId: 'own-child', text: 'result' }]);
+  const legacyNotices = [{ childId: 'own-child', text: 'result' }];
+  assert.deepEqual(controllerNoticesProjection.wire.view(state), legacyNotices);
+  const legacyState = { inheritedEventCount: 1, notices: legacyNotices };
+  assert.deepEqual(controllerNoticesProjection.stateSchema.parse(legacyState), legacyState);
+  assert.deepEqual(controllerNoticesProjection.wire.viewSchema.parse(legacyNotices), legacyNotices);
+  assert.equal(controllerNoticesProjection.key, 'playgroundControllerNotices');
+  assert.equal(controllerNoticesProjection.stateVersion, 2);
+
+  for (let seq = 2; seq <= 100; seq++) {
+    state = controllerNoticesProjection.apply(state, event(seq, `child-${seq}`));
+  }
+  const textLimit = 'x'.repeat(12_000);
+  state = controllerNoticesProjection.apply(state, event(101, 'last-child', textLimit + 'overflow'));
+  const notices = controllerNoticesProjection.wire.view(state);
+  assert.equal(notices.length, 100);
+  assert.equal(notices[0].childId, 'child-2');
+  assert.deepEqual(notices.at(-1), { childId: 'last-child', text: textLimit });
 });
 
 
