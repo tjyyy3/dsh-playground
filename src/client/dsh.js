@@ -2,7 +2,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store';
 import { h } from './shared/react.js';
 import { queryFailure, safeMessage } from './shared/errors.js';
 import { locales } from './shared/locale.js';
-import { ControllerPanel, ControllerSession } from './controller/index.js';
+import { ControllerPanel, ControllerSession, ControllerSessionContent, TRAJECTORY_VIEW_ID } from './controller/index.js';
 import { PlaygroundWorkbench } from './workbench.js';
 import { TaskStartOverlay } from './tasks/start.js';
 import { PlaygroundToolCard } from './cards/tool.js';
@@ -33,11 +33,21 @@ async function changeArchive(uiWorkspace, method, sessionId) {
 }
 
 const plugin = {
-  inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions'],
+  inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions', 'configForms'],
   apply(ctx) {
     const taskRequest = createSnapshotStore(null);
     const controllerTarget = createSnapshotStore(null);
     const controllerSelection = { workspaceId: '', sessionId: '' };
+    const developerTools = ctx.configForms?.developerTools?.enabled;
+    const controllerTrajectory = {
+      getSnapshot: () => developerTools?.getSnapshot() === true
+        && ctx.slots.entries('conversation.view').some(({ options }) => options.id === TRAJECTORY_VIEW_ID),
+      subscribe(listener) {
+        const disposeDeveloperTools = developerTools?.subscribe(listener);
+        const disposeView = ctx.slots.subscribe('conversation.view', listener);
+        return () => { disposeDeveloperTools?.(); disposeView(); };
+      },
+    };
     const requestHost = async (method, input, signal) => {
       const result = await ctx.connection.rpc.call('/api', `playgroundQueries/${method}`, { args: { input } }, signal)
         .catch(() => ({ ok: false, error: { code: 'transport' } }));
@@ -128,7 +138,15 @@ const plugin = {
       children: { 'playground.controller.session': { kind: 'single', scope: 'session-maybe' }, 'playground.library': { kind: 'single', scope: 'root' } },
     }, ControllerPanel));
     ctx.slots.inject('playground.library', () => ctx.slots.register({ name: 'playground.library', locale: 'playground', inject: () => actions }, PlaygroundWorkbench));
-    ctx.slots.inject('playground.controller.session', () => ctx.slots.register({ name: 'playground.controller.session' }, ControllerSession));
+    ctx.slots.inject('playground.controller.session', () => ctx.slots.register({
+      name: 'playground.controller.session', children: { 'playground.controller.content': { kind: 'single', scope: 'session' } },
+    }, ControllerSession));
+    ctx.slots.inject('conversation.view', () => ctx.slots.inject('playground.controller.content', () => {
+      // Its owner has registered the shared Session store by the time it declares conversation.view.
+      const store = ctx.slots.entries('conversation.session').find((entry) => entry.children?.['conversation.view'])?.store;
+      return ctx.slots.register({ name: 'playground.controller.content', store: typeof store === 'object' ? store : undefined,
+        inject: () => ({ hooks: { controllerTrajectory } }) }, ControllerSessionContent);
+    }));
     ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
       name: 'sidebar.panellist', id: 'playground', order: 20, label: () => 'Playground', locale: 'playground',
     }, PlaygroundPanelIcon));
