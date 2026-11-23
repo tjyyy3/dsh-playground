@@ -48,6 +48,8 @@ DSH 不会自动更新第三方插件，在安装框再次填写同名插件会�
 
 想沿用已有的普通对话时，可以在该对话所在的工作区点击 **把当前对话设为主控**。每个工作区使用一个主控。
 
+Playground 主控面板默认显示对话。DSH 开启开发者工具并提供轨迹视图时，可以在主控内容区上方切换 **对话** 和 **轨迹**。从工具记录打开轨迹会定位到对应的调用。
+
 ## 查看提交和评分
 
 在 **提交** 页查看已关联的任务、提交历史和评分。浏览公开赛题通常可以直接开始。查看个人提交或提交评测前，打开右上角的 **连接设置**，[登录 Playground](guide/reference.md#log-in-with-an-api-token)。需要 CLI 的题目可安装 [Playground CLI](guide/reference.md#install-or-update-the-playground-cli)。

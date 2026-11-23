@@ -53,6 +53,8 @@ async function clientFixture(t, services = {}) {
   plugin.apply({ effect: () => {}, ...services, slots: {
     inject: (_name, fn) => { const result = fn(); if (result?.next) [...result]; },
     register: (definition, Component) => { registrations.set(definition.name === 'main' ? 'main' : definition.id || definition.key || definition.name, { definition, Component }); },
+    entries: () => [],
+    ...services.slots,
   } });
   function find(node, predicate) {
     if (!node || typeof node !== 'object') return;
@@ -92,6 +94,7 @@ test('each Client apply owns its stores while its registered consumers share the
   plugin.apply({ effect: () => {}, slots: {
     inject: (_name, register) => { const result = register(); if (result?.next) [...result]; },
     register: (definition) => { second.set(definition.name === 'main' ? 'main' : definition.id || definition.key || definition.name, { definition }); },
+    entries: () => [],
   } });
   const actions = (registrations, key) => registrations.get(key).definition.inject();
   const firstMain = actions(first, 'main');
@@ -4616,12 +4619,116 @@ test('the scoped controller renderer mounts native content only for the verified
   const calls = [];
   const props = { sessionId: 'other', expectedId: 'controller', useSession: (select) => select({ openState: 'open', blank: false, awaitingFirstTurn: false, running: false }),
     useConversation: (select) => select({ activeTargets: new Set() }), useSessions: (select) => select({ byId: { other: { blank: false } } }),
-    renderFactorySlot: (...args) => { calls.push(args); return 'native'; } };
+    renderSlot: (...args) => { calls.push(args); return 'native'; } };
   assert.notEqual(render(child, props), 'native');
   assert.equal(calls.length, 0);
-  assert.equal(render(child, { ...props, sessionId: 'controller' }), 'native');
-  assert.deepEqual(calls, [['conversation.content', { variant: 'embedded', phase: 'active', hero: false }]]);
+  assert.equal(text(render(child, { ...props, sessionId: 'controller' })).trim(), 'native');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], ['playground.controller.content', { phase: 'active', hero: false, canSwitchView: true }]);
   assert.notEqual(render(child, { ...props, sessionId: 'controller', useSession: (select) => select({ openState: 'error' }) }), 'native');
+  assert.equal(calls.length, 1);
+});
+
+test('controller trajectory availability follows developer tools and registered views and disposes both subscriptions', async (t) => {
+  let enabled = false;
+  let views = ['chat', 'trajectory'];
+  const listeners = new Map();
+  const disposed = [];
+  const subscribe = (key) => (listener) => {
+    listeners.set(key, listener);
+    return () => { listeners.delete(key); disposed.push(key); };
+  };
+  const f = await clientFixture(t, {
+    configForms: { developerTools: { enabled: { getSnapshot: () => enabled, subscribe: subscribe('developerTools') } } },
+    slots: {
+      entries: (name) => name === 'conversation.view' ? views.map((id) => ({ options: { id } })) : [],
+      subscribe: (name, listener) => subscribe(name)(listener),
+    },
+  });
+  const store = f.registrations.get('playground.controller.content').definition.inject().hooks.controllerTrajectory;
+  const snapshots = [];
+  const dispose = store.subscribe(() => snapshots.push(store.getSnapshot()));
+  assert.equal(store.getSnapshot(), false);
+  enabled = true;
+  listeners.get('developerTools')();
+  views = ['chat'];
+  listeners.get('conversation.view')();
+  views = ['chat', 'trajectory'];
+  listeners.get('conversation.view')();
+  enabled = false;
+  listeners.get('developerTools')();
+  assert.deepEqual(snapshots, [true, false, true, false]);
+  dispose();
+  assert.deepEqual(disposed, ['developerTools', 'conversation.view']);
+  assert.equal(listeners.size, 0);
+});
+
+test('the embedded controller starts in chat and can switch to and from the native trajectory', async (t) => {
+  let developerTools = true;
+  let views = ['chat', 'trajectory'];
+  const nativeStoreHandle = {};
+  let nativeViewRequest = null;
+  const f = await clientFixture(t, {
+    configForms: { developerTools: { enabled: { getSnapshot: () => developerTools } } },
+    slots: { entries: (name) => name === 'conversation.view' ? views.map((id) => ({ options: { id } }))
+      : name === 'conversation.session' ? [{ children: { 'conversation.view': {} }, store: nativeStoreHandle }] : [] },
+  });
+  const { Component, definition } = f.registrations.get('playground.controller.content');
+  assert.equal(definition.store, nativeStoreHandle);
+  const trajectory = definition.inject?.().hooks.controllerTrajectory;
+  const renderNative = (name, { view }) => {
+    assert.equal(name, 'conversation.session');
+    return { type: 'native-view', props: { view: view ?? 'trajectory', focus: view === 'trajectory' ? nativeViewRequest?.focus : undefined,
+      inspect: (id) => { nativeViewRequest = { view: 'trajectory', focus: id }; } } };
+  };
+  const props = {
+    sessionId: 'controller', phase: 'active', hero: false, canSwitchView: true,
+    useControllerTrajectory: (select) => select(trajectory?.getSnapshot()),
+    useStore: (select) => select({ view: 'trajectory', viewRequest: nativeViewRequest }),
+    renderFactorySlot: (name, _input, options) => {
+      assert.equal(name, 'conversation.content');
+      return options?.slots?.views({ renderSlot: renderNative }) ?? renderNative('conversation.session', {});
+    },
+  };
+  const renderedView = (tree) => f.find(tree, (node) => node.type === 'native-view').props.view;
+  const switcher = (tree) => f.find(tree, (node) => node.props?.['aria-label'] === '主控视图');
+  const button = (tree, label) => f.find(switcher(tree), (node) => node.type === 'button' && text(node) === label);
+  let tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'chat');
+  assert.equal(button(tree, '对话').props['aria-pressed'], true);
+
+  button(tree, '轨迹').props.onClick();
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'trajectory');
+  assert.equal(button(tree, '轨迹').props['aria-pressed'], true);
+  assert.equal(renderedView(f.render(Component, { ...props, sessionId: 'second' })), 'chat');
+
+  button(tree, '对话').props.onClick();
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'chat');
+  f.effects.length = 0;
+  f.find(tree, (node) => node.type === 'native-view').props.inspect('tool-call-123');
+  f.render(Component, props);
+  f.effects.splice(0).forEach((effect) => effect());
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'trajectory');
+  assert.equal(f.find(tree, (node) => node.type === 'native-view').props.focus, 'tool-call-123');
+  nativeViewRequest = null;
+  assert.equal(renderedView(f.render(Component, props)), 'trajectory', 'the view stays open after DSH acknowledges the focus request');
+  button(tree, '对话').props.onClick();
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'chat');
+  button(tree, '轨迹').props.onClick();
+  developerTools = false;
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'chat');
+  assert.equal(switcher(tree), undefined);
+
+  developerTools = true;
+  views = ['chat'];
+  tree = f.render(Component, props);
+  assert.equal(renderedView(tree), 'chat');
+  assert.equal(switcher(tree), undefined);
 });
 
 test('controller tabs keep the chat occurrence while routing separate library sections and resizing the task pane', async (t) => {
