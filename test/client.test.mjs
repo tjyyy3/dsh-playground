@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
 import { publicChallengeUrl } from '../lib/links.js';
+import { createReleaseQuery } from '../lib/releases.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 
@@ -5285,9 +5286,9 @@ test('release settings are read-only, display running and disk versions, and cop
   assert.doesNotMatch(text(panel.render()), /已复制 Git spec/);
 });
 
-test('release settings copy the exact npm version for a registry install and name the floating tag as text', async (t) => {
+test('release settings copy only the confirmed exact npm version for a registry install', async (t) => {
   const replies = [{ target: releaseTarget('0.6.0-beta.2'), comparison: 'upgrade' }, { target: releaseTarget('0.6.0'), comparison: 'upgrade' }];
-  const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。先卸载再重新安装。',
+  const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。', registry: { status: 'ready' },
     ...(input.check ? replies.shift() : {}) }));
   assert.doesNotMatch(text(panel.render()), /dsh-playground@beta|复制/);
   const copied = [];
@@ -5297,14 +5298,72 @@ test('release settings copy the exact npm version for a registry install and nam
   await panel.check();
   assert.match(text(panel.render()), /可升级至 0\.6\.0-beta\.2/);
   assert.doesNotMatch(text(panel.render()), /github:|Git spec/);
-  assert.match(text(panel.render()), /也可填 dsh-playground@beta 安装/);
+  assert.match(text(panel.render()), /公开安装包已就绪.*先在 DSH 插件管理器卸载.*配置会保留/);
   await panel.find(panel.render(), (node) => node.type === 'button' && text(node) === '复制 npm spec').props.onClick();
   assert.deepEqual(copied, ['dsh-playground@0.6.0-beta.2']);
   assert.match(text(panel.render()), /已复制 npm spec/);
   await panel.check();
   const stable = findAll(panel.render(), (node) => node.type === 'code').map(text);
   assert.deepEqual(stable, ['dsh-playground@0.6.0']);
-  assert.match(text(panel.render()), /也可填 dsh-playground 安装/);
+  assert.doesNotMatch(text(panel.render()), /也可填/);
+});
+
+test('registry settings withhold upgrade and uninstall guidance until both npm checks succeed', async (t) => {
+  let registry = { status: 'pending', stage: 'version' };
+  const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。',
+    ...(input.check ? { target: releaseTarget('0.6.0-beta.2'), comparison: 'upgrade', registry } : {}) }));
+  const withheld = () => assert.doesNotMatch(text(panel.render()), /可升级至|卸载|重新安装|复制 npm spec|dsh-playground@/);
+  withheld();
+  await panel.check();
+  withheld();
+  assert.match(text(panel.render()), /npm 版本尚未就绪（404）/);
+  assert.equal(panel.checkButton().props.disabled, false);
+  assert.equal(findAll(panel.render(), (node) => node.type === 'a').length, 1);
+  registry = { status: 'pending', stage: 'tarball' };
+  await panel.check();
+  withheld();
+  assert.match(text(panel.render()), /npm 安装包尚未就绪（404）/);
+  for (const error of ['failed', 'timeout']) {
+    registry = { status: 'error', stage: 'tarball', error };
+    await panel.check();
+    withheld();
+    assert.match(text(panel.render()), /无法确认 npm 版本及安装包.*重试/);
+    assert.doesNotMatch(text(panel.render()), /404/);
+    assert.equal(panel.checkButton().props.disabled, false);
+  }
+  registry = { status: 'ready' };
+  await panel.check();
+  assert.match(text(panel.render()), /可升级至.*复制 npm spec.*卸载/);
+  registry = { status: 'pending', stage: 'tarball' };
+  const pending = panel.check();
+  withheld();
+  await pending;
+  withheld();
+});
+
+test('registry card waits for the exact public tarball before exposing installation guidance', async (t) => {
+  const tarball = deferred();
+  const requests = [];
+  const read = createReleaseQuery({ channel: 'beta', readVersion: () => '0.6.0-beta.1',
+    pluginManager: () => ({ listBundles: () => [{ name: 'dsh-playground', update: 'registry' }] }),
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      if (url.startsWith('https://api.github.com/')) return Response.json([{ draft: false, tag_name: 'v0.6.0-beta.2', prerelease: true }]);
+      if (url.endsWith('/0.6.0-beta.2')) return Response.json({ name: 'dsh-playground', version: '0.6.0-beta.2',
+        dist: { tarball: 'https://registry.npmjs.org/dsh-playground/-/dsh-playground-0.6.0-beta.2.tgz' } });
+      return tarball.promise;
+    } });
+  const panel = await releasePanel(t, async (input) => ({ ok: true, value: await read(input) }));
+  assert.deepEqual(requests, []);
+  const checking = panel.check();
+  await settle();
+  assert.equal(requests.length, 3);
+  assert.equal(requests[2].init.method, 'HEAD');
+  assert.equal(panel.checkButton().props.disabled, true);
+  assert.doesNotMatch(text(panel.render()), /可升级至|卸载|复制 npm spec/);
+  tarball.resolve(new Response(null));
+  await checking;
+  assert.match(text(panel.render()), /可升级至 0\.6\.0-beta\.2.*复制 npm spec.*卸载/);
 });
 
 test('release settings read the beta channel from host config without browser persistence', async (t) => {
@@ -5384,15 +5443,15 @@ test('the rate-limit reset re-enables checks while preserving the shown release 
   assert.match(text(tree), /github:tjyyy3\/dsh-playground#[a-f0-9]{40}/);
 });
 
-test('the release check RPC budget exceeds five twenty-second host pages', async (t) => {
+test('the release check RPC budget exceeds five host pages and two registry requests', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const panel = await releasePanel(t, (input) => input.check ? new Promise(() => {}) : releaseReply(input));
   const pending = panel.check();
-  t.mock.timers.tick(100001);
+  t.mock.timers.tick(140001);
   await settle();
   assert.equal(panel.calls[1].signal.aborted, false);
   assert.equal(panel.checkButton().props.disabled, true);
-  t.mock.timers.tick(20000);
+  t.mock.timers.tick(10000);
   await pending;
   assert.equal(panel.calls[1].signal.aborted, true);
   assert.equal(panel.checkButton().props.disabled, false);

@@ -599,7 +599,7 @@ function ReleaseStatusPanel({ query }) {
     const controller = new AbortController();
     latest.controller = controller;
     setRelease({ ...release, status: check ? "checking" : "loading" });
-    const timer = setTimeout(() => controller.abort(new Error("release_rpc_timeout")), check ? 12e4 : 1e4);
+    const timer = setTimeout(() => controller.abort(new Error("release_rpc_timeout")), check ? 15e4 : 1e4);
     try {
       const next = await Promise.race([
         query({ action: "releases", check }, controller.signal),
@@ -616,11 +616,13 @@ function ReleaseStatusPanel({ query }) {
         ...next,
         target: next.target ?? release.target,
         comparison: next.comparison ?? release.comparison,
-        warnings: next.warnings ?? release.warnings
+        warnings: next.warnings ?? release.warnings,
+        registry: next.registry
       });
     } catch (error) {
       if (latest.controller === controller) setRelease({
         ...release,
+        registry: void 0,
         status: "unavailable",
         error: error?.message === "release_rpc_timeout" ? check ? "timeout" : "info_timeout" : "failed"
       });
@@ -652,7 +654,8 @@ function ReleaseStatusPanel({ query }) {
   const gitSource = ["git_pinned", "git_unpinned"].includes(info?.source);
   const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
   const registrySource = info?.source === "registry";
-  const installSpec = gitSource ? gitSpec : registrySource && target ? `dsh-playground@${target.version}` : null;
+  const registryReady = status === "ready" && release.registry?.status === "ready";
+  const installSpec = gitSource ? gitSpec : registrySource && registryReady && target ? `dsh-playground@${target.version}` : null;
   const specLabel = gitSource ? "Git spec" : "npm spec";
   const rateLimited = release.error === "rate_limited";
   const errorText = {
@@ -668,7 +671,7 @@ function ReleaseStatusPanel({ query }) {
     unchecked: "尚未检查更新。",
     checking: "正在检查发布版本…",
     unavailable: errorText,
-    ready: target ? {
+    ready: target && registrySource && !registryReady ? release.registry?.status === "pending" ? `GitHub 已发布 ${targetLabel}，npm ${release.registry.stage === "tarball" ? "安装包" : "版本"}尚未就绪（404）。请稍后再次检查更新。` : `GitHub 已发布 ${targetLabel}，无法确认 npm 版本及安装包是否就绪${release.registry?.error === "timeout" ? "（检查超时）" : ""}。请检查网络后重试。` : target ? {
       current: `当前已运行此版本（${targetChannel}）。`,
       upgrade: `可升级至 ${targetLabel}。`,
       downgrade: `此渠道最新版本 ${targetLabel} 早于运行版本。降级前请核对兼容性；DSH 更新操作不接受旧版本。`
@@ -714,7 +717,7 @@ function ReleaseStatusPanel({ query }) {
         }, "onClick") }, `复制 ${specLabel}`),
         h("span", { role: "status", className: "pg-note" }, copyStatus)
       ) : null,
-      registrySource ? h("p", { className: "pg-note" }, `也可填 ${target.prerelease ? "dsh-playground@beta" : "dsh-playground"} 安装此渠道当前最新版本。`) : null,
+      registrySource && registryReady ? h("p", { className: "pg-note" }, "npm 版本及公开安装包已就绪。DSH 不会更新第三方 npm 插件，再次安装同名插件会返回 already-installed。先在 DSH 插件管理器卸载本插件，再把上方 npm spec 填入第三方插件安装框重新安装，可能提示重启。插件配置会保留。") : null,
       gitSource && !gitSpec ? h("p", { className: "pg-note" }, "此 Release 未提供完整 commit SHA，无法生成固定 Git spec。") : null
     ) : null
   );

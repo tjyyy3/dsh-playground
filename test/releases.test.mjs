@@ -53,13 +53,125 @@ test('unchecked reads only local versions and host bundles, with distinct source
     }
     if (result.source === 'file') assert.match(result.sourceHint, /从 GitHub Release 页面复制/);
     if (result.source === 'registry') {
-      assert.match(result.sourceHint, /DSH 不会更新.*already-installed.*先在 DSH 插件管理器卸载.*npm spec.*重新安装/);
-      assert.match(result.sourceHint, /配置会保留/);
+      assert.match(result.sourceHint, /npm.*核实目标版本及其公开安装包/);
+      assert.doesNotMatch(result.sourceHint, /卸载|重新安装/);
     }
   }
   assert.equal(hints.size, 6);
   for (const pluginManager of [() => undefined, () => ({ listBundles: () => [] }), () => ({ listBundles() { throw Error('missing'); } })]) {
     assert.equal((await query({ pluginManager })({ check: false })).source, 'unknown');
+  }
+});
+
+const npmVersion = '0.6.0-beta.2';
+const npmUrl = `https://registry.npmjs.org/dsh-playground/${npmVersion}`;
+const npmTarball = `https://registry.npmjs.org/dsh-playground/-/dsh-playground-${npmVersion}.tgz`;
+const npmMetadata = () => Response.json({ name: 'dsh-playground', version: npmVersion, dist: { tarball: npmTarball } });
+const registryQuery = (options) => query({ channel: 'beta',
+  pluginManager: () => ({ listBundles: () => [{ name: 'dsh-playground', update: 'registry' }] }), ...options });
+
+test('registry version and tarball availability retry independently of the three-minute GitHub cache', async () => {
+  const calls = [];
+  let available = 'neither';
+  const read = registryQuery({ fetchImpl: async (url, init) => {
+    calls.push(url);
+    if (url.startsWith(api)) return Response.json([release(npmVersion)]);
+    assert.equal(new Headers(init.headers).has('authorization'), false);
+    assert.equal(new Headers(init.headers).has('cookie'), false);
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.redirect, 'error');
+    assert.ok(init.signal);
+    if (url === npmUrl) {
+      assert.equal(init.method, 'GET');
+      return available === 'neither' ? new Response(null, { status: 404 }) : npmMetadata();
+    }
+    assert.equal(url, npmTarball);
+    assert.equal(init.method, 'HEAD');
+    return new Response(null, { status: available === 'both' ? 200 : 404 });
+  } });
+  await read({ check: false });
+  assert.deepEqual(calls, []);
+  assert.deepEqual((await read({ check: true })).registry, { status: 'pending', stage: 'version' });
+  available = 'metadata';
+  assert.deepEqual((await read({ check: true })).registry, { status: 'pending', stage: 'tarball' });
+  available = 'both';
+  assert.deepEqual((await read({ check: true })).registry, { status: 'ready' });
+  assert.equal(calls.filter((url) => url.startsWith(api)).length, 1);
+  assert.equal(calls.filter((url) => url === npmUrl).length, 3);
+});
+
+test('registry failures stay retryable and do not masquerade as pending publication', async () => {
+  for (const stage of ['version', 'tarball']) {
+    for (const failure of [() => new Response(null, { status: 500 }), () => new Response(null, { status: 429 }),
+      () => { throw Error('offline'); }, () => new Response(null, { status: 302 })]) {
+      let broken = true;
+      const read = registryQuery({ fetchImpl: async (url) => {
+        if (url.startsWith(api)) return Response.json([release(npmVersion)]);
+        if (broken && url === (stage === 'version' ? npmUrl : npmTarball)) return failure();
+        return url === npmUrl ? npmMetadata() : new Response(null);
+      } });
+      const failed = (await read({ check: true })).registry;
+      assert.equal(failed.status, 'error');
+      assert.equal(failed.stage, stage);
+      broken = false;
+      assert.deepEqual((await read({ check: true })).registry, { status: 'ready' });
+    }
+  }
+});
+
+test('registry metadata must identify the exact package version and canonical public tarball', async () => {
+  for (const metadata of [null, {}, { name: 'wrong', version: npmVersion, dist: { tarball: npmTarball } },
+    { name: 'dsh-playground', version: '0.6.0-beta.1', dist: { tarball: npmTarball } },
+    { name: 'dsh-playground', version: npmVersion, dist: { tarball: 'https://private.test/file.tgz' } }]) {
+    const calls = [];
+    const result = await registryQuery({ fetchImpl: async (url) => {
+      calls.push(url);
+      return url.startsWith(api) ? Response.json([release(npmVersion)]) : Response.json(metadata);
+    } })({ check: true });
+    assert.equal(result.registry.status, 'error');
+    assert.equal(calls.length, 2);
+  }
+});
+
+test('Git, link, file and unknown installs never request registry readiness', async () => {
+  for (const source of [`github:tjyyy3/dsh-playground#${sha}`, 'github:tjyyy3/dsh-playground', 'link:../plugin', 'file:../plugin', undefined]) {
+    const read = query({ pluginManager: () => ({ listBundles: () => [{ name: 'dsh-playground', source }] }),
+      fetchImpl: async (url) => { assert.ok(url.startsWith(api)); return Response.json([release('1.0.0')]); } });
+    const result = await read({ check: true });
+    assert.equal(result.registry, undefined);
+    assert.equal(result.target.gitSpec, `github:tjyyy3/dsh-playground#${sha}`);
+  }
+});
+
+test('registry metadata is bounded and registry requests obey timeout and caller cancellation', async () => {
+  let cancelled = false;
+  const oversized = await registryQuery({ fetchImpl: async (url) => url.startsWith(api)
+    ? Response.json([release(npmVersion)]) : new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array(DEFAULT_MAX_RESPONSE_BYTES + 1)); },
+      cancel() { cancelled = true; },
+    })) })({ check: true });
+  assert.equal(oversized.registry.status, 'error');
+  assert.equal(cancelled, true);
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    for (const stage of ['version', 'tarball']) {
+      const result = await registryQuery({ timeoutMs: 10, fetchImpl: async (url, { signal }) => {
+        if (url.startsWith(api)) return Response.json([release(npmVersion)]);
+        if (stage === 'tarball' && url === npmUrl) return npmMetadata();
+        return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      } })({ check: true });
+      assert.deepEqual(result.registry, { status: 'error', stage, error: 'timeout' });
+    }
+  } finally { clearTimeout(keepAlive); }
+  for (const urlToCancel of [npmUrl, npmTarball]) {
+    const controller = new AbortController();
+    const reason = Error('panel closed');
+    const read = registryQuery({ fetchImpl: async (url, { signal }) => {
+      if (url.startsWith(api)) return Response.json([release(npmVersion)]);
+      if (url === urlToCancel) { controller.abort(reason); signal.throwIfAborted(); }
+      return npmMetadata();
+    } });
+    await assert.rejects(read({ check: true }, { signal: controller.signal }), (error) => error === reason);
   }
 });
 

@@ -14,7 +14,7 @@ Playground 是一个面向 AI Agent 的科研与实践挑战平台。参赛者�
 2. 填入 `dsh-playground@beta`，点击安装。目前只有测试版；正式版发布后，填 `dsh-playground` 即可安装正式版。
 3. 安装完成后，按提示启用或重启。左侧导航出现 **Playground** 即可开始使用。
 
-DSH 不会自动更新第三方插件，在安装框再次填写同名插件会提示已安装。更新时打开 Playground 的 **连接设置 → 版本与更新**，点击 **检查更新**。有新版本时，先在 DSH 插件页卸载 Playground，再在第三方插件安装框重新填入 `dsh-playground@beta`（正式版填 `dsh-playground`），按提示重启。卸载和重装不会清除插件配置和 Playground 登录。想固定某个版本，可以填 `dsh-playground@<版本号>`，例如 `dsh-playground@0.6.0-beta.1`。
+DSH 不会自动更新第三方插件，在安装框再次填写同名插件会提示已安装。更新时打开 Playground 的 **连接设置 → 版本与更新**，点击 **检查更新**。卡片确认新版本的 npm 安装包已就绪后，复制卡片中的精确 npm spec，先在 DSH 插件页卸载 Playground，再将复制的 spec 填入第三方插件安装框，按提示重启。尚未就绪时请稍后重试检查。卸载和重装不会清除插件配置和 Playground 登录。精确版本格式为 `dsh-playground@<版本号>`，例如 `dsh-playground@0.6.0-beta.1`。
 
 无法访问 npm 时，也可以在安装框填 `https://github.com/tjyyy3/dsh-playground.git` 从 GitHub 安装。这种来源的更新方式是复制 **版本与更新** 里的 Git spec，填入安装框覆盖安装。
 
@@ -62,7 +62,9 @@ Playground 主控面板默认显示对话。DSH 开启开发者工具并提供�
 
 ## 更新和反馈
 
-打开 Playground 的 **连接设置**，在 **版本与更新** 中查看运行版本、磁盘版本和安装来源。磁盘版本较新时需要重启 DSH。插件配置 `releaseChannel` 默认是 `stable`，可改为 `beta`。正式渠道选择最高正式版，Beta 选择包含预发布在内的最高版本。Beta 可能不稳定。只有点击 **检查更新** 才会访问 GitHub；成功结果缓存三分钟，普通失败可立即重试，GitHub 限流时等待额度恢复。
+打开 Playground 的 **连接设置**，在 **版本与更新** 中查看运行版本、磁盘版本和安装来源。磁盘版本较新时需要重启 DSH。插件配置 `releaseChannel` 默认是 `stable`，可改为 `beta`。正式渠道选择最高正式版，Beta 选择包含预发布在内的最高版本。Beta 可能不稳定。只有点击 **检查更新** 才会访问 GitHub；成功的发布列表结果缓存三分钟，普通失败可立即重试，GitHub 限流时等待额度恢复。
+
+npm 来源还会检查该精确版本的公开 registry 元数据及安装包。两者均可访问后，卡片才显示可升级、卸载重装说明和可复制的精确 npm spec。版本或安装包返回 404 时显示尚未就绪，网络错误或超时则提示重试；再次点击会立即重查 npm，不受 GitHub 列表缓存影响。检查不会发送 Playground 凭据或下载安装包内容。Git、本地链接和本地文件来源不检查 npm。
 
 卡片只读取信息，可打开发布说明，并按安装来源复制带版本号的 npm spec（如 `dsh-playground@0.6.0-beta.1`）或 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。npm 来源需要卸载后重新安装。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源可通过第三方插件安装框覆盖安装固定 spec。降级前请核对兼容性，npm 来源卸载后安装 `dsh-playground@<旧版本号>`，Git 来源用旧版固定 spec 覆盖安装。卡片没有安装按钮。暂无发布时会明确提示。
 

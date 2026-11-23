@@ -123,7 +123,7 @@ title or description uses another language.
 
 ## Current state
 
-Version `0.6.0-beta.1`, the first version published to npm as `dsh-playground`.
+Version `0.6.0-beta.2` candidate. Version `0.6.0-beta.1` was the first version published to npm as `dsh-playground`.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.
@@ -131,7 +131,7 @@ It does not upload materials or run submission prechecks. Browser cancellation
 recovers stranded requests while retaining their IDs and reconciliation context.
 Historical cards remain readable without executable submission handlers.
 The read-only version card shows running and on-disk versions, install source,
-the npm dist-tag spec for npm installs, and Release-derived pinned Git specs for
-Git installs. Checks use the configured stable or beta channel. DSH owns
+the exact npm version spec only after its public metadata and tarball are available,
+and Release-derived pinned Git specs for Git installs. Checks use the configured stable or beta channel. DSH owns
 installation and updates.
 No live runtime verification is implied by the unit tests alone.
