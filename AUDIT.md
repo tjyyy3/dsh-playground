@@ -2,7 +2,7 @@
 
 > Original source review: 2026-11-16; decisions and issue alignment updated: 2026-11-20.  
 > Source baseline: `a6c88d5c65a1e95bb02cbb36ae3910111e143eaf`.  
-> Status: AUD-001 through AUD-009 have a recorded review disposition, and their linked implementation PRs have merged. Original findings retain their historical source baseline. Merge status is not independent runtime or target-host verification.
+> Status: AUD-001 through AUD-009 have a recorded review disposition, and their linked implementation PRs have merged. Original findings retain their historical source baseline. The controller split and redundant-platform-parameter fix are also merged (#105 and #104). Merge status is not independent runtime or target-host verification.
 
 The baseline observations come from source and test inspection. AUD-003 additionally includes a local Codex investigation supplied by the user. That report used fake submissions in an isolated host; it does not establish a complete production-session bypass. No real competition submission or production memory/crash test was performed during this review.
 
@@ -37,7 +37,7 @@ Priorities below describe the original concern. The current disposition and link
 | AUD-008 | Bound the API response bodies the plugin actually consumes | [#78](https://github.com/tjyyy3/dsh-playground/issues/78) |
 | AUD-009 | Retire ZIP inspection with the old material-preparation path | [#75](https://github.com/tjyyy3/dsh-playground/issues/75) |
 
-Repository status checked on 2026-11-20 at main `4eb4e4b6d0c3611a80ebdf85398ec0f8b087edba`: the implementations listed in section 5 are merged and their linked issues are closed. The findings below preserve the original evidence and accepted scope; they do not describe every finding as still present on current main. This documentation review did not independently rerun the implementation tests.
+Repository status synchronized on 2026-11-23 at main `9ab61f829f0350095529005d395043d7229b6daf`: the audit fixes listed below are merged. The later controller-association issue #103 was fixed by #104; the D3 controller split was delivered by #105. The findings below preserve the original evidence and accepted scope; they do not describe every finding as still present on current main. Implementation PRs contain their own verification reports; this document update did not independently rerun those tests.
 
 ## 3. Findings
 
