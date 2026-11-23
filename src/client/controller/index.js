@@ -29,6 +29,8 @@ const controllerPanelCss = `
   .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
   .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
   .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+  .pg-controller-view-switch { display:flex; flex:none; gap:4px; padding:4px 12px; border-bottom:1px solid var(--dsw-alias-border-l3); }
+  .pg-controller-view-switch [aria-pressed=true] { border-color:var(--pg-accent, #087f78); font-weight:600; }
   .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
   .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
   .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
@@ -77,7 +79,13 @@ function taskOutput(row) {
   return marker === 'Its closing message:' && endings.some((ending) => summary === prefix + ending) ? rest.join('\n') : text;
 }
 
-function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, expectedId, onPromote, busy }) {
+const TRAJECTORY_VIEW_ID = 'trajectory';
+const controllerViews = [['chat', '对话'], [TRAJECTORY_VIEW_ID, '轨迹']].map(([id, label]) => ({
+  id, label, slots: { views: ({ renderSlot }) => renderSlot('conversation.session', { view: id }) },
+}));
+const [chatView, trajectoryView] = controllerViews;
+
+function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderSlot, expectedId, onPromote, busy }) {
   const session = useSession((value) => value);
   const conversation = useConversation((value) => value);
   const blank = useSessions((value) => sessionId === undefined ? undefined : value.byId[sessionId]?.blank);
@@ -90,7 +98,24 @@ function ControllerSession({ sessionId, useSession, useConversation, useSessions
   const settling = shellPhase === 'blank' && session.openState === 'loading' && blank !== true
     || session.subagent?.address.mode === 'continuable' && session.subagent.parentAvailable === undefined;
   const hero = shellPhase === 'blank' && (session.openState === 'open' || blank === true);
-  return renderFactorySlot('conversation.content', { variant: 'embedded', phase: settling ? 'settling' : hero ? 'hero' : 'active', hero });
+  return renderSlot('playground.controller.content', { phase: settling ? 'settling' : hero ? 'hero' : 'active', hero,
+    canSwitchView: shellPhase === 'active' && !settling });
+}
+
+function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
+  const trajectoryAvailable = useControllerTrajectory((value) => value);
+  const viewRequest = useStore?.((value) => value.viewRequest);
+  const [traceSessionId, setTraceSessionId] = React.useState(null);
+  const showViewSwitch = trajectoryAvailable && canSwitchView;
+  React.useEffect(() => {
+    if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
+  }, [sessionId, showViewSwitch, viewRequest]);
+  const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
+  return h(React.Fragment, null,
+    showViewSwitch ? h('div', { className: 'pg-controller-view-switch', role: 'group', 'aria-label': '主控视图' },
+      controllerViews.map((item) => h('button', { key: item.id, className: 'pg-controller-action', type: 'button', 'aria-pressed': view === item,
+        onClick: () => setTraceSessionId(item === trajectoryView ? sessionId : null) }, item.label))) : null,
+    renderFactorySlot('conversation.content', { variant: 'embedded', phase, hero }, { slots: view.slots }));
 }
 
 function ControllerPanel(props) {
@@ -395,5 +420,5 @@ function ControllerPanel(props) {
 
 }
 
-export { ControllerPanel, ControllerSession };
+export { ControllerPanel, ControllerSession, ControllerSessionContent, TRAJECTORY_VIEW_ID };
 

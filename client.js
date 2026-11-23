@@ -854,6 +854,8 @@ var controllerPanelCss = `
   .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
   .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
   .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+  .pg-controller-view-switch { display:flex; flex:none; gap:4px; padding:4px 12px; border-bottom:1px solid var(--dsw-alias-border-l3); }
+  .pg-controller-view-switch [aria-pressed=true] { border-color:var(--pg-accent, #087f78); font-weight:600; }
   .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
   .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
   .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
@@ -902,7 +904,14 @@ function taskOutput(row) {
   return marker === "Its closing message:" && endings.some((ending) => summary === prefix + ending) ? rest.join("\n") : text;
 }
 __name(taskOutput, "taskOutput");
-function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, expectedId, onPromote, busy }) {
+var TRAJECTORY_VIEW_ID = "trajectory";
+var controllerViews = [["chat", "对话"], [TRAJECTORY_VIEW_ID, "轨迹"]].map(([id, label]) => ({
+  id,
+  label,
+  slots: { views: /* @__PURE__ */ __name(({ renderSlot }) => renderSlot("conversation.session", { view: id }), "views") }
+}));
+var [chatView, trajectoryView] = controllerViews;
+function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderSlot, expectedId, onPromote, busy }) {
   const session = useSession((value) => value);
   const conversation = useConversation((value) => value);
   const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
@@ -913,9 +922,40 @@ function ControllerSession({ sessionId, useSession, useConversation, useSessions
   const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running ? "active" : session.promptAttempted ? "engaging" : "blank";
   const settling = shellPhase === "blank" && session.openState === "loading" && blank !== true || session.subagent?.address.mode === "continuable" && session.subagent.parentAvailable === void 0;
   const hero = shellPhase === "blank" && (session.openState === "open" || blank === true);
-  return renderFactorySlot("conversation.content", { variant: "embedded", phase: settling ? "settling" : hero ? "hero" : "active", hero });
+  return renderSlot("playground.controller.content", {
+    phase: settling ? "settling" : hero ? "hero" : "active",
+    hero,
+    canSwitchView: shellPhase === "active" && !settling
+  });
 }
 __name(ControllerSession, "ControllerSession");
+function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
+  const trajectoryAvailable = useControllerTrajectory((value) => value);
+  const viewRequest = useStore?.((value) => value.viewRequest);
+  const [traceSessionId, setTraceSessionId] = React5.useState(null);
+  const showViewSwitch = trajectoryAvailable && canSwitchView;
+  React5.useEffect(() => {
+    if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
+  }, [sessionId, showViewSwitch, viewRequest]);
+  const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
+  return h(
+    React5.Fragment,
+    null,
+    showViewSwitch ? h(
+      "div",
+      { className: "pg-controller-view-switch", role: "group", "aria-label": "主控视图" },
+      controllerViews.map((item) => h("button", {
+        key: item.id,
+        className: "pg-controller-action",
+        type: "button",
+        "aria-pressed": view === item,
+        onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
+      }, item.label))
+    ) : null,
+    renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
+  );
+}
+__name(ControllerSessionContent, "ControllerSessionContent");
 function ControllerPanel(props) {
   const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
   const workspaces = useWorkspaces((value) => value);
@@ -3461,11 +3501,23 @@ async function changeArchive(uiWorkspace, method, sessionId) {
 }
 __name(changeArchive, "changeArchive");
 var plugin = {
-  inject: ["slots", "locale", "remote", "remote.commands", "remote.credentials", "connection", "uiWorkspace", "workspaces", "layout", "sessions"],
+  inject: ["slots", "locale", "remote", "remote.commands", "remote.credentials", "connection", "uiWorkspace", "workspaces", "layout", "sessions", "configForms"],
   apply(ctx) {
     const taskRequest = (0, import_dsh_client_store.createSnapshotStore)(null);
     const controllerTarget = (0, import_dsh_client_store.createSnapshotStore)(null);
     const controllerSelection = { workspaceId: "", sessionId: "" };
+    const developerTools = ctx.configForms?.developerTools?.enabled;
+    const controllerTrajectory = {
+      getSnapshot: /* @__PURE__ */ __name(() => developerTools?.getSnapshot() === true && ctx.slots.entries("conversation.view").some(({ options }) => options.id === TRAJECTORY_VIEW_ID), "getSnapshot"),
+      subscribe(listener) {
+        const disposeDeveloperTools = developerTools?.subscribe(listener);
+        const disposeView = ctx.slots.subscribe("conversation.view", listener);
+        return () => {
+          disposeDeveloperTools?.();
+          disposeView();
+        };
+      }
+    };
     const requestHost = /* @__PURE__ */ __name(async (method, input, signal) => {
       const result = await ctx.connection.rpc.call("/api", `playgroundQueries/${method}`, { args: { input } }, signal).catch(() => ({ ok: false, error: { code: "transport" } }));
       if (result.ok) return result.value;
@@ -3564,7 +3616,18 @@ var plugin = {
       children: { "playground.controller.session": { kind: "single", scope: "session-maybe" }, "playground.library": { kind: "single", scope: "root" } }
     }, ControllerPanel));
     ctx.slots.inject("playground.library", () => ctx.slots.register({ name: "playground.library", locale: "playground", inject: /* @__PURE__ */ __name(() => actions, "inject") }, PlaygroundWorkbench));
-    ctx.slots.inject("playground.controller.session", () => ctx.slots.register({ name: "playground.controller.session" }, ControllerSession));
+    ctx.slots.inject("playground.controller.session", () => ctx.slots.register({
+      name: "playground.controller.session",
+      children: { "playground.controller.content": { kind: "single", scope: "session" } }
+    }, ControllerSession));
+    ctx.slots.inject("conversation.view", () => ctx.slots.inject("playground.controller.content", () => {
+      const store = ctx.slots.entries("conversation.session").find((entry) => entry.children?.["conversation.view"])?.store;
+      return ctx.slots.register({
+        name: "playground.controller.content",
+        store: typeof store === "object" ? store : void 0,
+        inject: /* @__PURE__ */ __name(() => ({ hooks: { controllerTrajectory } }), "inject")
+      }, ControllerSessionContent);
+    }));
     ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
       name: "sidebar.panellist",
       id: "playground",
