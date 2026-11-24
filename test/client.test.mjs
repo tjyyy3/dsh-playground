@@ -22,13 +22,19 @@ function findAll(node, predicate, found = []) {
   return found;
 }
 
-async function clientFixture(t, services = {}) {
+async function clientFixture(t, services = {}, browser = {}) {
   let plugin;
   const states = new Map();
   const effects = [];
   let hooks;
   let cursor;
   const React = {
+    useId: () => 'fixture-id',
+    useRef: (initial) => {
+      const index = cursor++;
+      return hooks[index] ??= { current: initial };
+    },
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useState: (initial) => {
       const values = hooks;
@@ -40,7 +46,7 @@ async function clientFixture(t, services = {}) {
     useEffect: (effect, deps) => { effects.push(Object.assign(() => effect(), { deps })); }, Fragment: Symbol('fragment'),
   };
   t.after(() => { delete globalThis.window; });
-  globalThis.window = { __ModuleLoader__: { load: (module) => { plugin = module.factory((name) => {
+  globalThis.window = { ...browser, __ModuleLoader__: { load: (module) => { plugin = module.factory((name) => {
     if (name === 'react') return React;
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Modal: 'native-modal' };
     if (name === '@deepseek-ai/dsh-client-store') return { createSnapshotStore: (initial) => {
@@ -5214,6 +5220,49 @@ test('controller login indicator follows verified auth status and opens connecti
   }
   indicator().props.onClick();
   assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
+});
+
+test('the toolbar language menu follows DSH, remembers overrides, and closes after selection', async (t) => {
+  const values = new Map();
+  const browser = { localStorage: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) } };
+  let active = 'en';
+  const listeners = new Set();
+  const locale = { register() {}, getSnapshot: () => ({ active }), subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); } };
+  const changeHost = (language) => { active = language; for (const listener of listeners) listener(); };
+  const props = { controllerSelection: {}, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }), useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null };
+  const panel = async () => {
+    const fixture = await clientFixture(t, { effect: (effect) => effect(), locale }, browser);
+    const render = () => fixture.render(fixture.registrations.get('main').Component, props);
+    const menu = () => fixture.render(fixture.find(render(), (node) => node.type?.name === 'LanguageMenu').type, {});
+    const trigger = () => fixture.find(menu(), (node) => node.props?.['aria-haspopup'] === 'menu');
+    const option = (index) => {
+      if (!trigger().props['aria-expanded']) trigger().props.onClick();
+      return findAll(menu(), (node) => node.props?.role === 'menuitemradio')[index];
+    };
+    const tabs = () => findAll(render(), (node) => node.props?.role === 'tab');
+    return { option, tabs, trigger };
+  };
+  const first = await panel();
+  assert.equal(first.trigger().props['aria-expanded'], false);
+  assert.equal(first.option(0).props['aria-checked'], true);
+  assert.equal(text(first.tabs()[1]), 'Challenges');
+  first.tabs()[1].props.onClick();
+  changeHost('zh-CN');
+  assert.equal(text(first.tabs()[1]), '赛题');
+  first.option(2).props.onClick();
+  assert.equal(first.trigger().props['aria-expanded'], false);
+  assert.deepEqual(first.tabs().map(text), ['Chat', 'Challenges', 'Submissions']);
+  assert.equal(first.tabs()[1].props['aria-selected'], true);
+  const reopened = await panel();
+  assert.equal(reopened.option(2).props['aria-checked'], true);
+  assert.match(text(reopened.option(0)), /中文/);
+  assert.equal(text(reopened.tabs()[1]), 'Challenges');
+  reopened.option(0).props.onClick();
+  assert.deepEqual(reopened.tabs().map(text), ['对话', '赛题', '提交']);
+  changeHost('en-US');
+  assert.equal(text(reopened.tabs()[1]), 'Challenges');
+  assert.equal((await panel()).option(0).props['aria-checked'], true);
 });
 
 async function releasePanel(t, reply) {

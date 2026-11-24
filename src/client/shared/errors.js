@@ -1,17 +1,18 @@
+import { msg } from './language.js';
 
 // Gateway codes come from the DSH API gateway; a business throw reaches the Client as gateway/internal.
 function queryFailure(error) {
   const code = typeof error?.code === 'string' ? error.code : '';
-  if (code === 'transport') return '无法连接 DSH 服务，请检查连接后重试。';
-  if (code === 'remote-access/denied') return '当前连接没有读取 Playground 数据的权限。';
+  if (code === 'transport') return msg('无法连接 DSH 服务，请检查连接后重试。', 'Cannot connect to DSH. Check your connection and try again.');
+  if (code === 'remote-access/denied') return msg('当前连接没有读取 Playground 数据的权限。', 'This connection does not have permission to read Playground data.');
   if (code === 'gateway/internal') {
     const detail = safeMessage(error.message);
-    return `Playground 平台请求失败${detail ? `：${detail}` : ''}。请稍后重试。`;
+    return msg(`Playground 平台请求失败${detail ? `：${detail}` : ''}。请稍后重试。`, `Playground request failed${detail ? `: ${detail}` : ''}. Try again later.`);
   }
   if (/^gateway\/(invocation|definition|service|method)-unavailable$/.test(code)) {
-    return 'Playground 查询服务未加载。请重启 DSH；若仍失败，当前 DSH 版本可能不支持插件查询通道。';
+    return msg('Playground 查询服务未加载。请重启 DSH；若仍失败，当前 DSH 版本可能不支持插件查询通道。', 'The Playground query service is unavailable. Restart DSH. If the problem persists, your DSH version may not support plugin queries.');
   }
-  return `Playground 查询失败${code ? `（${code}）` : ''}，请重试。`;
+  return msg(`Playground 查询失败${code ? `（${code}）` : ''}，请重试。`, `Playground query failed${code ? ` (${code})` : ''}. Try again.`);
 }
 
 // Error text may come from the platform, the CLI or an older plugin version. Show it only when it

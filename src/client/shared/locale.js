@@ -1,3 +1,4 @@
+import { currentLanguage } from './language.js';
 
 const locales = {
   zh: {
@@ -62,9 +63,7 @@ function stateLabel(state, t) {
   return Object.hasOwn(locales.en.states, state) ? t(`states.${state}`) : state || t('unknown');
 }
 
-// Chinese lookup for workbench text that stays Chinese regardless of the host language, such as
-// the task list row, which sits among hard-coded Chinese labels. The workbench does receive `t`.
-const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales.zh) ?? key;
+const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key;
 
 export { locales, stateLabel, zhText };
 

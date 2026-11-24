@@ -1,3 +1,4 @@
+import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
 
 // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
@@ -47,17 +48,23 @@ function submissionLimitsOf(state, challengeId) {
 // `limits` overrides the counts' own list (the task state holds the latest). No remaining count is shown.
 function submissionCountsLine(counts, limits) {
   if (!counts || typeof counts !== 'object' || !Number.isInteger(counts.total)) return undefined;
-  const period = { day: '每天', total: '每人' };
+  const period = { day: msg('每天', ' per day'), total: msg('每人', ' per person') };
   const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : [])
     .filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === 'platform')
-    .map((item) => item.source === 'statement' ? `题面写明${period[item.period] || ''}最多 ${item.limit} 次${typeof item.excerpt === 'string' ? `（原文：${item.excerpt}）` : ''}`
-      : Number.isSafeInteger(item.limit) ? `平台曾返回上限 ${item.limit} 次` : '平台曾返回已达提交上限');
+    .map((item) => item.source === 'statement'
+      ? msg(`题面写明${period[item.period] || ''}最多 ${item.limit} 次${typeof item.excerpt === 'string' ? `（原文：${item.excerpt}）` : ''}`,
+        `The statement allows up to ${item.limit} submissions${period[item.period] || ''}${typeof item.excerpt === 'string' ? ` (“${item.excerpt}”)` : ''}`)
+      : Number.isSafeInteger(item.limit) ? msg(`平台曾返回上限 ${item.limit} 次`, `The platform reported a limit of ${item.limit}`)
+        : msg('平台曾返回已达提交上限', 'The platform reported that the submission limit was reached'));
+  const limitText = known.length ? `Submission limits: ${known.join('. ')}.` : 'No submission limit found.';
   if (counts.scope === 'current_account') {
     const history = counts.partialReasons?.includes('history_incomplete');
     const today = history || counts.partialReasons?.includes('time_unknown');
-    return `当前账号累计${history ? '已核实 ' : ' '}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? '已核实' : '已提交'} ${counts.total} 次，${counts.counted == null ? '占名额次数未知' : `其中占名额 ${counts.counted} 次`}${today ? '（数据不完整）' : ''}。${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
+    return msg(`当前账号累计${history ? '已核实 ' : ' '}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? '已核实' : '已提交'} ${counts.total} 次，${counts.counted == null ? '占名额次数未知' : `其中占名额 ${counts.counted} 次`}${today ? '（数据不完整）' : ''}。${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`,
+      `Current account, lifetime submissions${history ? ' verified' : ''}: ${counts.lifetime}. Today (Beijing time, ${counts.date}): ${counts.total}${today ? ' verified' : ' submitted'}. ${counts.counted == null ? 'Quota usage unknown' : `Counted against quota: ${counts.counted}`}.${today ? ' Data is incomplete.' : ''} ${limitText}`);
   }
-  return `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? '（可能不完整）' : ''}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes('agent_private_hidden') ? 'Agent 账号未公开的提交看不到，没有计入。' : ''}${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`;
+  return msg(`今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? '（可能不完整）' : ''}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes('agent_private_hidden') ? 'Agent 账号未公开的提交看不到，没有计入。' : ''}${known.length ? `次数上限：${known.join('；')}。` : '未查到次数上限。'}`,
+    `Today (Beijing time, ${counts.date}): ${counts.total} submitted, ${counts.counted} counted against quota across your account and its Agent accounts.${counts.partial ? ' Counts may be incomplete.' : ''}${counts.partialReasons?.includes('agent_private_hidden') ? ' Private Agent submissions are excluded.' : ''} ${limitText}`);
 }
 
 // Historical ZIP directory metadata, never evidence about the current material.
@@ -65,16 +72,16 @@ function bundleSummaryLine(summary) {
   if (!summary || typeof summary !== 'object' || !Number.isFinite(summary.files)) return undefined;
   const size = (bytes) => !Number.isFinite(bytes) ? '?' : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB`
     : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
-  const named = (item) => `${String(item?.name ?? '').split('/').pop()}（${size(item?.bytes)}）`;
-  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join('、') : '';
-  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join('、') : '';
-  return [`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`,
-    largest ? `最大：${largest}` : '',
-    summary.nonTextCount ? `非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? ' 等' : ''}` : '非文本文件（按扩展名）0 个',
-    summary.symlinkCount ? `符号链接 ${summary.symlinkCount} 个` : '',
+  const named = (item) => `${String(item?.name ?? '').split('/').pop()}${msg('（', ' (')}${size(item?.bytes)}${msg('）', ')')}`;
+  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join(msg('、', ', ')) : '';
+  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join(msg('、', ', ')) : '';
+  return [msg(`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`, `Historical ZIP directory: ${summary.files} files, ${size(summary.totalBytes)} total`),
+    largest ? msg(`最大：${largest}`, `Largest: ${largest}`) : '',
+    summary.nonTextCount ? msg(`非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? ' 等' : ''}`, `Non-text files by extension: ${summary.nonTextCount} (${nonText}${summary.nonTextCount > 3 ? ', …' : ''})`) : msg('非文本文件（按扩展名）0 个', 'No non-text files by extension'),
+    summary.symlinkCount ? msg(`符号链接 ${summary.symlinkCount} 个`, `Symbolic links: ${summary.symlinkCount}`) : '',
     summary.layout && typeof summary.layout === 'object'
-      ? `外层结构：outputs/ ${summary.layout.hasOutputs ? '有文件' : '无文件'}，arm_manifest.json ${summary.layout.hasManifest ? '有' : '缺失'}` : '',
-    summary.complete === false ? 'ZIP 目录未能读完' : ''].filter(Boolean).join('；');
+      ? msg(`外层结构：outputs/ ${summary.layout.hasOutputs ? '有文件' : '无文件'}，arm_manifest.json ${summary.layout.hasManifest ? '有' : '缺失'}`, `Top level: outputs/ ${summary.layout.hasOutputs ? 'contains files' : 'has no files'}, arm_manifest.json ${summary.layout.hasManifest ? 'present' : 'missing'}`) : '',
+    summary.complete === false ? msg('ZIP 目录未能读完', 'ZIP directory listing incomplete') : ''].filter(Boolean).join(msg('；', '. '));
 }
 
 // Stage, badge and score display for one submission receipt. The task list row, the drawer summary

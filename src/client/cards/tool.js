@@ -1,13 +1,16 @@
+import { languagePreference, msg, usePluginLanguage } from '../shared/language.js';
 import { CodexChats } from '../controller/codex-chats.js';
 import * as React from 'react';
-import { locales, stateLabel } from '../shared/locale.js';
+import { locales, stateLabel, zhText } from '../shared/locale.js';
 import { h } from '../shared/react.js';
 import { css } from '../shared/styles.js';
 import { statusTone } from '../shared/display.js';
 import { StartTaskButton } from '../tasks/start.js';
 import { bundleSummaryLine, scoreLabel, submissionCountsLine } from '../tasks/attempts.js';
 
-function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
+function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
+  const language = usePluginLanguage();
+  const t = languagePreference() ? zhText : hostText || zhText;
   const external = phase === 'result' && block.meta?.codexChats;
   if (external && external.sessionId === sessionId) return h(CodexChats, { key: `${sessionId}:${block.id || ''}`, initial: external, workspaceId: external.workspaceId, sessionId, query: codexChats });
   const data = phase === 'result' ? block.meta?.playground : undefined;
@@ -35,22 +38,22 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
     data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
       ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
         ? openControllerChat(data.sessionId, data.workspaceId || '') : openTask(data.sessionId) },
-        toolName === 'playground_open_controller' ? '打开主控对话' : '打开任务对话') : null,
-    data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, '打开工作台') : null,
+        toolName === 'playground_open_controller' ? msg('打开主控对话', 'Open controller chat') : msg('打开任务对话', 'Open task chat')) : null,
+    data?.status === 'awaiting_confirmation' && openWorkbench ? h('button', { className: 'pg-button', onClick: () => openWorkbench(sessionId) }, msg('打开工作台', 'Open workbench')) : null,
     data ? h(React.Fragment, null,
       h('div', { className: 'pg-facts' },
         data.attemptId !== undefined || data.id !== undefined ? h('span', null, `${t(isAttempt ? 'submissionId' : 'id')}: ${data.attemptId ?? data.id}`) : null,
         data.challengeId ? h('span', null, `${t('challenge')}: ${data.challengeId}`) : null,
         data.bundleStatus ? h('span', null, `${t('bundle')}: ${stateLabel(data.bundleStatus, t)}`) : null,
         data.traceCount !== undefined ? h('span', null, `${t('trace')}: ${data.traceCount}`) : null,
-        data.endAt ? h('span', null, `${t('deadline')}: ${new Date(data.endAt).toLocaleString()}`) : null,
+        data.endAt ? h('span', null, `${t('deadline')}: ${new Date(data.endAt).toLocaleString(language)}`) : null,
         data.challengeCount !== undefined ? h('span', null, `${t('challengeCount')}: ${data.challengeCount}`) : null,
         data.completionThreshold !== undefined ? h('span', null, `${t('threshold')}: ${data.completionThreshold}`) : null,
         data.total !== undefined ? h('span', null, `${t('total')}: ${data.total}`) : null),
       isAttempt && !data.items && data.ok && scoreLabel(data, t) ? h('div', { className: 'pg-score' }, scoreLabel(data, t)) : null,
       data.items ? h('ul', { className: 'pg-list' }, data.items.length ? data.items.map((item) => h('li', { key: item.id, className: 'pg-row' },
         h('div', { className: 'pg-row-main' }, item.title || String(item.id),
-          h('div', { className: 'pg-row-sub' }, `${t('id')}: ${item.id}`, item.endAt ? ` · ${new Date(item.endAt).toLocaleString()}` : '',
+          h('div', { className: 'pg-row-sub' }, `${t('id')}: ${item.id}`, item.endAt ? ` · ${new Date(item.endAt).toLocaleString(language)}` : '',
             isAttempt && scoreLabel(item, t) ? h('div', null, scoreLabel(item, t)) : null)),
         h('span', { className: 'pg-badge' }, stateLabel(item.scoringState?.state || item.status, t)))) : h('li', { className: 'pg-note' }, t('empty'))) : null,
       data.hasMore ? h('p', { className: 'pg-note' }, t('more')) : null,
@@ -64,7 +67,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
       // The checked bundle: a material check carries its summary, a failed confirmation the one it checked.
       bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)
         ? h('p', { className: 'pg-note pg-bundle-summary' }, bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)) : null,
-      typeof data.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, '评测包未改动'), ' ', data.bundleWarning) : null,
+      typeof data.bundleWarning === 'string' ? h('p', { className: 'pg-note pg-bundle-warning', role: 'status' }, h('span', { className: 'pg-badge', 'data-tone': 'warning' }, msg('评测包未改动', 'Bundle unchanged')), ' ', data.bundleWarning) : null,
       submissionCountsLine(data.submissionCounts) ? h('p', { className: 'pg-note pg-submission-counts' }, submissionCountsLine(data.submissionCounts)) : null,
       isAttempt && (data.attemptId ?? data.id) ? h('p', { className: 'pg-note' }, `${t('nextAttempt')} ${data.attemptId ?? data.id}`) : null) : null,
     phase === 'result' && text ? h('details', { className: 'pg-raw', open: !data }, h('summary', null, t('raw')), h('pre', null, text)) : null,
