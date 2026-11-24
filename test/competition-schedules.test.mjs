@@ -120,7 +120,7 @@ const pkuPeriods = [
 const extendedPkuPeriods = [pkuPeriods[0], { ...pkuPeriods[1], labelZh: '学术效率赛道 · 第一期' }, {
   slug: 'efficiency-3', labelZh: '学术效率赛道 · 第三期', startAt: '2026-11-20T20:00:00+08:00', endAt: '2026-11-27T20:00:00+08:00',
   challengeIds: ['pku-slides-z', 'pku-writing-a'],
-  groups: [{ key: 'writing', labelZh: '写作', challengeIds: ['pku-writing-a'] }, { key: 'slides', labelZh: '幻灯片', challengeIds: ['pku-slides-z'] }],
+  groups: [{ key: 'writing', labelZh: '写作', labelEn: 'Writing', challengeIds: ['pku-writing-a'] }, { key: 'slides', labelZh: '幻灯片', labelEn: 'Slides', challengeIds: ['pku-slides-z'] }],
 }];
 const firstBundle = bohrBundle() + facilitiesBundle() + pkuBundle();
 const nextBundle = bohrBundle(true) + facilitiesBundle(true) + pkuBundle(true);
@@ -378,15 +378,16 @@ function weeklyBundle({ copy = weeklyCopy, fourthGroups = fourthTracks.map(([key
   `;
 }
 
-const namedGroups = (period, tracks) => tracks.map(([key, labelZh, , count]) => ({ key, labelZh, challengeIds: trackIds(period, key, count) }));
+const namedGroups = (period, tracks) => tracks.map(([key, labelZh, labelEn, count]) => ({ key, labelZh, labelEn, challengeIds: trackIds(period, key, count) }));
 const weeklyPeriods = [
   { slug: '3', labelZh: '第三期', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
     challengeIds: [...namedGroups(3, thirdTracks).flatMap((group) => group.challengeIds), 'p3-bonus'],
-    groups: [...namedGroups(3, thirdTracks), { key: 'bonus', labelZh: '附加题', challengeIds: ['p3-bonus'] }] },
+    groups: [...namedGroups(3, thirdTracks), { key: 'bonus', labelZh: '附加题', labelEn: 'Bonus challenge', challengeIds: ['p3-bonus'] }] },
   { slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
     challengeIds: namedGroups(4, fourthTracks).flatMap((group) => group.challengeIds), groups: namedGroups(4, fourthTracks) },
 ];
-const unnamed = (periods) => periods.map((period) => ({ ...period, groups: period.groups.map(({ labelZh, ...group }) => group) }));
+const withoutNames = (periods, ...labels) => periods.map((period) => ({ ...period,
+  groups: period.groups.map((group) => Object.fromEntries(Object.entries(group).filter(([key]) => !labels.includes(key)))) }));
 const ungrouped = ({ groups, ...period }) => period;
 // A fresh reader for each bundle: one reader parses an entry URL only once.
 async function readBundle(bundle) {
@@ -421,9 +422,10 @@ test('keeps the weekly contest\'s official groups, their order and names, and th
 test('leaves weekly groups unnamed when their Chinese names cannot be told apart', async () => {
   const { library, ...withoutLibrary } = weeklyCopy.zh.p4.tracks;
   const cases = new Map([
-    ['no page text', [{}, unnamed(weeklyPeriods)]],
-    ['only names without Han characters', [{ en: weeklyCopy.en }, unnamed(weeklyPeriods)]],
-    ['two Chinese tables', [{ ...weeklyCopy, tw: weeklyCopy.zh }, unnamed(weeklyPeriods)]],
+    ['no page text', [{}, withoutNames(weeklyPeriods, 'labelZh', 'labelEn')]],
+    ['only Chinese labels', [{ zh: weeklyCopy.zh }, withoutNames(weeklyPeriods, 'labelEn')]],
+    ['only names without Han characters', [{ en: weeklyCopy.en }, withoutNames(weeklyPeriods, 'labelZh')]],
+    ['two Chinese tables', [{ ...weeklyCopy, tw: weeklyCopy.zh }, withoutNames(weeklyPeriods, 'labelZh')]],
     ['a name missing', [{ ...weeklyCopy, zh: { ...weeklyCopy.zh, p4: { tracks: withoutLibrary } } }, [weeklyPeriods[0], {
       ...weeklyPeriods[1], groups: weeklyPeriods[1].groups.map(({ labelZh, ...group }) => (group.key === 'library' ? group : { ...group, labelZh })) }]]],
   ]);
@@ -541,22 +543,29 @@ test('groups Scientific Facilities periods by the website\'s research directions
   const facilities = facilitiesBundle(true) + directions;
   const schedules = await readBundle(bohrBundle(true) + facilities + pkuBundle(true));
   const grouped = [
-    { ...publishedFacilitiesPeriods[0], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-a'] },
-      { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-z'] }] },
-    { ...publishedFacilitiesPeriods[1], groups: [{ key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-future'] },
-      { key: 'microscopy', labelZh: '显微', challengeIds: ['facility-new'] }] },
+    { ...publishedFacilitiesPeriods[0], groups: [{ key: 'imaging', labelZh: '成像与结构重建', labelEn: 'Imaging', challengeIds: ['facility-a'] },
+      { key: 'microscopy', labelZh: '显微', labelEn: 'Microscopy', challengeIds: ['facility-z'] }] },
+    { ...publishedFacilitiesPeriods[1], groups: [{ key: 'imaging', labelZh: '成像与结构重建', labelEn: 'Imaging', challengeIds: ['facility-future'] },
+      { key: 'microscopy', labelZh: '显微', labelEn: 'Microscopy', challengeIds: ['facility-new'] }] },
   ];
   assert.deepEqual(schedules[scientificFacilities], { periods: grouped });
   assert.deepEqual(schedules[pku], nextSchedules[pku]);
 
-  // A direction whose Chinese name cannot be read keeps its group, unnamed.
-  const microscopyUnnamed = grouped.map((period) => ({ ...period,
-    groups: period.groups.map(({ labelZh, ...group }) => (group.key === 'microscopy' ? group : { ...group, labelZh })) }));
-  for (const [reason, title] of [['title not a record', 'title: "显微"'], ['no title', 'heading: {zh: "显微", en: "Microscopy"}'],
-    ['no Chinese title', 'title: {en: "Microscopy"}']]) {
+  const { query } = await catalogOver(bohrBundle(true) + facilities + pkuBundle(true));
+  const page = await query({ competition: scientificFacilities });
+  const groups = page.competitionTable.find((item) => item.id === scientificFacilities).periods[0].groups;
+  assert.deepEqual(groups.find((group) => group.key === 'microscopy'), { key: 'microscopy', labelZh: '显微', labelEn: 'Microscopy', count: 1 });
+
+  for (const [reason, title, labels] of [
+    ['title not a record', 'title: "显微"', {}], ['no title', 'heading: {zh: "显微", en: "Microscopy"}', {}],
+    ['no Chinese title', 'title: {en: "Microscopy"}', { labelEn: 'Microscopy' }],
+    ['no English title', 'title: {zh: "显微"}', { labelZh: '显微' }],
+  ]) {
     const source = facilities.replace('title: {zh: "显微", en: "Microscopy"}', title);
+    const expected = grouped.map((period) => ({ ...period, groups: period.groups.map((group) =>
+      group.key === 'microscopy' ? { key: group.key, challengeIds: group.challengeIds, ...labels } : group) }));
     assert.deepEqual((await readBundle(bohrBundle(true) + source + pkuBundle(true)))[scientificFacilities],
-      { periods: microscopyUnnamed }, reason);
+      { periods: expected }, reason);
   }
   // An unreadable grouping leaves the periods listed, ungrouped.
   const twoTables = facilities + directions.replace('const cg', 'const copy');

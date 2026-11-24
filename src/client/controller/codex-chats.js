@@ -98,8 +98,9 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
         busy ? msg('等待原会话回复…', 'Waiting for a reply from the original chat…') : msg('发送追问', 'Send follow-up'))) : null,
     response ? h('div', { role: 'status' },
       response.source ? h('strong', null, label(response.source)) : null,
+      response.kind === 'sent' && response.turnStatus ? h('p', null, msg(`该轮状态：${response.turnStatus}`, `Turn status: ${response.turnStatus}`)) : null,
       h('p', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } },
-        response.kind === 'sent' ? response.text || msg(`该轮状态为 ${response.turnStatus}，暂无最终回复。`, `Turn status: ${response.turnStatus}. No final reply yet.`) :
+        response.kind === 'sent' ? response.text || msg('暂无最终回复。', 'No final reply yet.') :
         response.kind === 'unknown' && response.code === 'interaction_required' ? msg('该轮需要权限或用户输入，请在原 Codex 会话查看。', 'This turn needs permission or input. Open the original Codex chat.') :
         response.kind === 'unknown' ? msg('发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。', 'Delivery is unconfirmed. Check the turn in the original Codex chat before resending.') :
         reasons()[response.code] || msg('无法连接可接收追问的本机 Codex 服务。请在原会话继续。', 'Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.')),

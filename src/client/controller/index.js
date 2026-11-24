@@ -6,6 +6,7 @@ import { css } from '../shared/styles.js';
 import { AuthStatusPanel } from '../settings/auth.js';
 import { LanguageMenu } from '../settings/language.js';
 import { ReleaseStatusPanel } from '../settings/releases.js';
+import { controllerMessage } from './messages.js';
 import { CodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog } from './handoff.js';
 
@@ -64,63 +65,6 @@ const controllerPanelCss = `
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
 `;
-
-const controllerMessages = new Map([
-  ['该子任务关联的平台与当前平台不一致，未更改已有归属。', 'The child task belongs to another platform. Its association was preserved.'],
-  ['该子任务已关联另一道赛题，未更改已有归属。', 'The child task already belongs to another challenge. Its association was preserved.'],
-  ['该编号不属于当前主控可见的直接子任务。', 'This ID is not a direct child task visible to this controller.'],
-  ['主控对话已归档，请先取消归档。', 'The controller chat is archived. Unarchive it to continue.'],
-  ['主控对话已归档。请先在 DSH 中取消归档。', 'Unarchive the controller chat in DSH first.'],
-  ['已创建对话，但未能关联到工作区。请在 DSH 中按对话编号找回；不会重复创建。', 'The chat was created but could not be attached to the workspace. Find it by its ID in DSH.'],
-  ['所选主控已变更，请重新核对工作区。', 'The selected controller changed. Check the workspace again.'],
-  ['该对话的主控记录与工作区或赛题任务冲突，无法打开主控。', 'The controller record conflicts with the workspace or challenge task. The controller cannot open.'],
-  ['该对话已有赛题记录，不能设为主控。', 'This chat already has challenge records and cannot become the controller.'],
-  ['该工作区有多个主控记录，请先在 DSH 中核对这些对话。', 'This workspace has multiple controller records. Check these chats in DSH.'],
-  ['无法确认唯一的主控对话，请检查工作区。', 'Could not identify a unique controller chat. Check the workspace.'],
-  ['无法创建主控对话，请检查 DSH 工作区后重试。', 'Could not create the controller chat. Check the DSH workspace and retry.'],
-  ['无法确认保存主控记录，请重试。', 'Could not confirm that the controller record was saved. Try again.'],
-  ['主控对话已创建，但未完成初始化。请重试。', 'The controller chat was created but initialization is incomplete. Try again.'],
-  ['主控对话已创建，但无法保存初始化记录。请重试。', 'The controller chat was created but its initialization record could not be saved. Try again.'],
-  ['主控对话已创建，但无法加载。请在 DSH 中打开该对话后重试。', 'The controller chat was created but could not be loaded. Open it in DSH and retry.'],
-  ['主控记录已保存，但未能初始化空对话。', 'The controller record was saved but the empty chat could not be initialized.'],
-  ['DSH 未确认保存主控记录。请重试。', 'DSH did not confirm saving the controller record. Try again.'],
-  ['DSH 未确认接收主控的首条消息。请重试。', 'DSH did not acknowledge the first controller message. Try again.'],
-  ['DSH 未确认启动并保存主控对话。请重试。', 'DSH did not confirm starting and saving the controller chat. Try again.'],
-  ['请先完成主控初始化。', 'Complete controller initialization first.'],
-  ['请在原对话中重试设为主控。', 'Retry making the original chat the controller from that chat.'],
-  ['现有主控尚未初始化，请先完成初始化。', 'Initialize the existing controller first.'],
-  ['主控对话尚未初始化。请在 Playground 工作台确认初始化。', 'Confirm controller initialization in the Playground workbench.'],
-  ['该工作区没有主控对话。', 'This workspace has no controller chat.'],
-  ['未找到主控对话，请重新选择工作区并确认创建。', 'Controller chat not found. Select the workspace again and confirm creation.'],
-  ['当前 DSH 版本无法初始化主控对话，请更新 DSH 后重试。', 'Update DSH to a version that can initialize controller chats and retry.'],
-  ['当前 DSH 无法保存主控记录。', 'This DSH instance cannot save controller records.'],
-  ['无法核对当前工作区的主控任务，未关联任务。', 'Could not verify the workspace controller tasks. No task was linked.'],
-  ['所选工作区目录不存在或不可访问，请重新选择。', 'The selected workspace folder is missing or inaccessible. Choose another.'],
-  ['DSH 未确认接收请求，请重试。', 'DSH did not acknowledge the request. Try again.'],
-  ['请提供明确的赛题编号和已有子任务编号。', 'Provide a challenge ID and an existing child task ID.'],
-  ['请先在 DSH 中打开该对话，完成会话迁移后再试。', 'Open this chat in DSH to migrate it, then try again.'],
-  ['当前对话不是工作区主控。', 'This chat is not the workspace controller.'],
-  ['找不到赛题，未关联任务。请确认 challenge_id。', 'Challenge not found. Check challenge_id. No task was linked.'],
-  ['无法核对该工作区的对话记录，请重启 DSH 后重试。', 'Could not verify the workspace chat history. Restart DSH and retry.'],
-  ['无法核对该工作区的对话记录，请重试。', 'Could not verify the workspace chat history. Try again.'],
-  ['当前对话已归档，请先取消归档。', 'Unarchive this chat first.'],
-  ['当前对话不可用，请先打开该对话。', 'This chat is unavailable. Open it first.'],
-  ['无法加载主控对话，请先在 DSH 中打开该对话。', 'Could not load the controller chat. Open it in DSH first.'],
-  ['主控对话的目录不属于所选工作区。', 'The controller chat folder is outside the selected workspace.'],
-  ['当前对话不属于所选的已注册工作区。', 'This chat does not belong to the selected registered workspace.'],
-  ['当前对话已离开所选工作区。', 'This chat has left the selected workspace.'],
-  ['所选工作区已移除，请重新选择。', 'The selected workspace was removed. Choose another.'],
-  ['无法打开主控对话，请重试。', 'Could not open the controller chat. Try again.'],
-  ['无法交给主控，请重试。', 'Could not hand off to the controller. Try again.'],
-  ['无法添加工作区，请重试。', 'Could not add the workspace. Try again.'],
-  ['无法打开子智能体对话，请重试。', 'Could not open the subagent chat. Try again.'],
-  ['已复制结果', 'Result copied'],
-  ['无法复制，请选择文本后复制。', 'Could not copy. Select the text and copy it manually.'],
-]);
-
-function controllerMessage(value) {
-  return msg(value, controllerMessages.get(value) ?? value);
-}
 
 const stopReasonLabels = () => ({
   completed: { detail: msg('完成', 'Completed') }, aborted: { detail: msg('已中止', 'Aborted'), state: msg('已中止', 'Aborted') },

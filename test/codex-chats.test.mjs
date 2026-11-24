@@ -95,6 +95,17 @@ test('duplicate titles never send; choosing an exact ID replies only to that tur
     [{ threadId: items[1].id, input: [{ type: 'text', text: message, text_elements: [] }] }]);
 });
 
+test('only the full chat title can select a thread by name', async () => {
+  const prefix = 'x'.repeat(150);
+  const named = thread(prefix + ' end');
+  const unnamed = thread(null, { preview: prefix });
+  const { run, calls } = fixture([named, unnamed]);
+  assert.equal((await run({ action: 'send', target: prefix, message: 'Hello' })).code, 'target_missing');
+  assert.ok(!calls.some(({ method }) => method === 'turn/start'));
+  const reply = await run({ action: 'send', target: named.name, message: 'Hello' });
+  assert.equal(reply.source.threadId, named.id);
+});
+
 test('foreign, archived-controller, stale and busy targets are refused before dispatch', async () => {
   const mine = thread('A');
   for (const f of [fixture([thread('foreign', { id: mine.id, cwd: join(cwd, 'other') })]),

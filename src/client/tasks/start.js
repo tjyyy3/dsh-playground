@@ -1,6 +1,7 @@
 import { msg, usePluginLanguage } from '../shared/language.js';
 import * as React from 'react';
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives';
+import { controllerMessage } from '../controller/messages.js';
 import { h } from '../shared/react.js';
 import { taskModalCss } from '../shared/styles.js';
 import { workspaceOptions } from '../shared/workspaces.js';
@@ -41,7 +42,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   const actionLabel = controller ? (snapshot?.kind === 'absent' ? msg('创建主控对话', 'Create controller chat') : snapshot?.kind === 'incomplete' ? msg('初始化主控对话', 'Initialize controller chat') : msg('打开主控对话', 'Open controller chat'))
     : request.mode === 'author' ? msg('创建出题任务', 'Create authoring task') : msg('创建参赛任务', 'Create participation task');
   const title = controller ? msg('打开工作区主控', 'Open workspace controller') : actionLabel;
-  const controllerError = snapshot?.kind === 'blocked' ? `${snapshot.reason}${snapshot.sessionIds?.length ? msg(` 对话编号：${snapshot.sessionIds.join('、')}`, ` Chat IDs: ${snapshot.sessionIds.join(', ')}`) : ''}`
+  const controllerError = snapshot?.kind === 'blocked' ? blockedReason(snapshot)
     : archived ? msg('主控对话已归档。请先在 DSH 中取消归档。', 'The controller chat is archived. Unarchive it in DSH first.') : '';
   // DSH keeps `phase` at 'pending' after a terminal list failure and reports it through `state`.
   const listError = workspaces.state === 'error' ? msg(`无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ''}。请重启 DSH 后重试。`, `Could not load DSH workspaces${workspaces.error?.message ? `: ${workspaces.error.message}` : ''}. Restart DSH and try again.`) : '';
@@ -54,7 +55,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       try {
         const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
         if (result.kind !== 'opened') {
-          setError(`${result.reason}${result.sessionIds?.length ? msg(` 对话编号：${result.sessionIds.join('、')}`, ` Chat IDs: ${result.sessionIds.join(', ')}`) : ''}`);
+          setError(blockedReason(result));
           if (result.code === 'controller_init_failed' || result.code === 'controller_init_required') setInspection({ workspaceId: inspectId, snapshot: { kind: 'incomplete', codex: snapshot.codex } });
           if (result.code === 'controller_attach_failed') setInspection({ workspaceId: inspectId, snapshot: result });
         } else {
@@ -63,7 +64,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
           closeTaskStart();
           return;
         }
-      } catch (failure) { setError(failure.message || msg('无法打开主控对话，请重试。', 'Could not open the controller chat. Try again.')); }
+      } catch (failure) { setError(controllerMessage(failure.message || '无法打开主控对话，请重试。')); }
       setBusy(false);
       return;
     }
@@ -123,6 +124,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
         disabled: !workspace || workspaces.phase !== 'ready' || busy || adding || (controller && (!snapshot || Boolean(controllerError))), onClick: confirm },
         busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
         busy ? (controller ? msg('正在打开…', 'Opening…') : msg('正在创建…', 'Creating…')) : actionLabel))));
+}
+
+function blockedReason({ reason, sessionIds }) {
+  const message = controllerMessage(reason);
+  return sessionIds?.length ? message + msg(` 对话编号：${sessionIds.join('、')}`, ` Chat IDs: ${sessionIds.join(', ')}`) : message;
 }
 
 export { StartTaskButton, TaskStartOverlay };

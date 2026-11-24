@@ -323,7 +323,33 @@ var locales = {
       evidence: "Evidence",
       total: "Total"
     },
-    challengeGroups: { bonus: "Bonus" }
+    challengeGroups: { bonus: "Bonus" },
+    groupNames: {
+      "附加题": "Bonus",
+      "文献检索": "Literature Search",
+      "文献阅读": "Literature Reading",
+      "资料管理": "Research Library",
+      "学术写作": "Academic Writing",
+      "学术审查": "Academic Review",
+      "深度研究与文献综述": "Deep Research and Literature Review",
+      "科研数据分析": "Research Data Analysis",
+      "科研绘图": "Scientific Graphics",
+      "学术 PPT": "Academic Slides",
+      "实验方案设计": "Experimental Design",
+      "论文复现": "Paper Reproduction",
+      "软件构造": "Software Construction",
+      "红蓝对抗": "Red vs. Blue",
+      "科学狐狸": "Science Fox",
+      "材料科研 Agent 全栈开发实习生": "Full-stack Intern, Materials Research Agents",
+      "AI for Science药物研发研究员/实习生": "AI for Drug Discovery Researcher / Intern",
+      "科研 Agent 全栈开发工程师／实习生": "Full-stack Engineer / Intern, Research Agents",
+      "FDE 前线部署工程师／实习生": "Forward-Deployed Engineer / Intern",
+      "AI4S 智能大装置工程开发实习生": "AI4S Research Facilities Engineering Intern",
+      "创新算法研究员/实习生(解谱方向)": "Algorithm Researcher / Intern, Spectral Analysis",
+      "创新算法研究员／实习生(LKM 方向)": "Algorithm Researcher / Intern, LKM",
+      "产品实习生": "Product Intern",
+      "运营实习生": "Operations Intern"
+    }
   }
 };
 function stateLabel(state, t) {
@@ -900,6 +926,64 @@ function ReleaseStatusPanel({ query }) {
 }
 __name(ReleaseStatusPanel, "ReleaseStatusPanel");
 
+// src/client/controller/messages.js
+var controllerMessages = /* @__PURE__ */ new Map([
+  ["该子任务关联的平台与当前平台不一致，未更改已有归属。", "The child task belongs to another platform. Its association was preserved."],
+  ["该子任务已关联另一道赛题，未更改已有归属。", "The child task already belongs to another challenge. Its association was preserved."],
+  ["该编号不属于当前主控可见的直接子任务。", "This ID is not a direct child task visible to this controller."],
+  ["主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue."],
+  ["主控对话已归档。请先在 DSH 中取消归档。", "Unarchive the controller chat in DSH first."],
+  ["已创建对话，但未能关联到工作区。请在 DSH 中按对话编号找回；不会重复创建。", "The chat was created but could not be attached to the workspace. Find it by its ID in DSH."],
+  ["所选主控已变更，请重新核对工作区。", "The selected controller changed. Check the workspace again."],
+  ["该对话的主控记录与工作区或赛题任务冲突，无法打开主控。", "The controller record conflicts with the workspace or challenge task. The controller cannot open."],
+  ["该对话已有赛题记录，不能设为主控。", "This chat already has challenge records and cannot become the controller."],
+  ["该工作区有多个主控记录，请先在 DSH 中核对这些对话。", "This workspace has multiple controller records. Check these chats in DSH."],
+  ["无法确认唯一的主控对话，请检查工作区。", "Could not identify a unique controller chat. Check the workspace."],
+  ["无法创建主控对话，请检查 DSH 工作区后重试。", "Could not create the controller chat. Check the DSH workspace and retry."],
+  ["无法确认保存主控记录，请重试。", "Could not confirm that the controller record was saved. Try again."],
+  ["主控对话已创建，但未完成初始化。请重试。", "The controller chat was created but initialization is incomplete. Try again."],
+  ["主控对话已创建，但无法保存初始化记录。请重试。", "The controller chat was created but its initialization record could not be saved. Try again."],
+  ["主控对话已创建，但无法加载。请在 DSH 中打开该对话后重试。", "The controller chat was created but could not be loaded. Open it in DSH and retry."],
+  ["主控记录已保存，但未能初始化空对话。", "The controller record was saved but the empty chat could not be initialized."],
+  ["DSH 未确认保存主控记录。请重试。", "DSH did not confirm saving the controller record. Try again."],
+  ["DSH 未确认接收主控的首条消息。请重试。", "DSH did not acknowledge the first controller message. Try again."],
+  ["DSH 未确认启动并保存主控对话。请重试。", "DSH did not confirm starting and saving the controller chat. Try again."],
+  ["请先完成主控初始化。", "Complete controller initialization first."],
+  ["请在原对话中重试设为主控。", "Retry making the original chat the controller from that chat."],
+  ["现有主控尚未初始化，请先完成初始化。", "Initialize the existing controller first."],
+  ["主控对话尚未初始化。请在 Playground 工作台确认初始化。", "Confirm controller initialization in the Playground workbench."],
+  ["该工作区没有主控对话。", "This workspace has no controller chat."],
+  ["未找到主控对话，请重新选择工作区并确认创建。", "Controller chat not found. Select the workspace again and confirm creation."],
+  ["当前 DSH 版本无法初始化主控对话，请更新 DSH 后重试。", "Update DSH to a version that can initialize controller chats and retry."],
+  ["当前 DSH 无法保存主控记录。", "This DSH instance cannot save controller records."],
+  ["无法核对当前工作区的主控任务，未关联任务。", "Could not verify the workspace controller tasks. No task was linked."],
+  ["所选工作区目录不存在或不可访问，请重新选择。", "The selected workspace folder is missing or inaccessible. Choose another."],
+  ["DSH 未确认接收请求，请重试。", "DSH did not acknowledge the request. Try again."],
+  ["请提供明确的赛题编号和已有子任务编号。", "Provide a challenge ID and an existing child task ID."],
+  ["请先在 DSH 中打开该对话，完成会话迁移后再试。", "Open this chat in DSH to migrate it, then try again."],
+  ["当前对话不是工作区主控。", "This chat is not the workspace controller."],
+  ["找不到赛题，未关联任务。请确认 challenge_id。", "Challenge not found. Check challenge_id. No task was linked."],
+  ["无法核对该工作区的对话记录，请重启 DSH 后重试。", "Could not verify the workspace chat history. Restart DSH and retry."],
+  ["无法核对该工作区的对话记录，请重试。", "Could not verify the workspace chat history. Try again."],
+  ["当前对话已归档，请先取消归档。", "Unarchive this chat first."],
+  ["当前对话不可用，请先打开该对话。", "This chat is unavailable. Open it first."],
+  ["无法加载主控对话，请先在 DSH 中打开该对话。", "Could not load the controller chat. Open it in DSH first."],
+  ["主控对话的目录不属于所选工作区。", "The controller chat folder is outside the selected workspace."],
+  ["当前对话不属于所选的已注册工作区。", "This chat does not belong to the selected registered workspace."],
+  ["当前对话已离开所选工作区。", "This chat has left the selected workspace."],
+  ["所选工作区已移除，请重新选择。", "The selected workspace was removed. Choose another."],
+  ["无法打开主控对话，请重试。", "Could not open the controller chat. Try again."],
+  ["无法交给主控，请重试。", "Could not hand off to the controller. Try again."],
+  ["无法添加工作区，请重试。", "Could not add the workspace. Try again."],
+  ["无法打开子智能体对话，请重试。", "Could not open the subagent chat. Try again."],
+  ["已复制结果", "Result copied"],
+  ["无法复制，请选择文本后复制。", "Could not copy. Select the text and copy it manually."]
+]);
+function controllerMessage(value) {
+  return msg(value, controllerMessages.get(value) ?? value);
+}
+__name(controllerMessage, "controllerMessage");
+
 // src/client/controller/codex-chats.js
 var React4 = __toESM(require("react"), 1);
 var reasons = /* @__PURE__ */ __name(() => ({
@@ -1065,10 +1149,11 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
       "div",
       { role: "status" },
       response.source ? h("strong", null, label(response.source)) : null,
+      response.kind === "sent" && response.turnStatus ? h("p", null, msg(`该轮状态：${response.turnStatus}`, `Turn status: ${response.turnStatus}`)) : null,
       h(
         "p",
         { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
-        response.kind === "sent" ? response.text || msg(`该轮状态为 ${response.turnStatus}，暂无最终回复。`, `Turn status: ${response.turnStatus}. No final reply yet.`) : response.kind === "unknown" && response.code === "interaction_required" ? msg("该轮需要权限或用户输入，请在原 Codex 会话查看。", "This turn needs permission or input. Open the original Codex chat.") : response.kind === "unknown" ? msg("发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。", "Delivery is unconfirmed. Check the turn in the original Codex chat before resending.") : reasons()[response.code] || msg("无法连接可接收追问的本机 Codex 服务。请在原会话继续。", "Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.")
+        response.kind === "sent" ? response.text || msg("暂无最终回复。", "No final reply yet.") : response.kind === "unknown" && response.code === "interaction_required" ? msg("该轮需要权限或用户输入，请在原 Codex 会话查看。", "This turn needs permission or input. Open the original Codex chat.") : response.kind === "unknown" ? msg("发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。", "Delivery is unconfirmed. Check the turn in the original Codex chat before resending.") : reasons()[response.code] || msg("无法连接可接收追问的本机 Codex 服务。请在原会话继续。", "Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.")
       ),
       response.kind === "unavailable" && draft ? h("button", { type: "button", onClick: /* @__PURE__ */ __name(async () => {
         try {
@@ -1248,62 +1333,6 @@ var controllerPanelCss = `
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
 `;
-var controllerMessages = /* @__PURE__ */ new Map([
-  ["该子任务关联的平台与当前平台不一致，未更改已有归属。", "The child task belongs to another platform. Its association was preserved."],
-  ["该子任务已关联另一道赛题，未更改已有归属。", "The child task already belongs to another challenge. Its association was preserved."],
-  ["该编号不属于当前主控可见的直接子任务。", "This ID is not a direct child task visible to this controller."],
-  ["主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue."],
-  ["主控对话已归档。请先在 DSH 中取消归档。", "Unarchive the controller chat in DSH first."],
-  ["已创建对话，但未能关联到工作区。请在 DSH 中按对话编号找回；不会重复创建。", "The chat was created but could not be attached to the workspace. Find it by its ID in DSH."],
-  ["所选主控已变更，请重新核对工作区。", "The selected controller changed. Check the workspace again."],
-  ["该对话的主控记录与工作区或赛题任务冲突，无法打开主控。", "The controller record conflicts with the workspace or challenge task. The controller cannot open."],
-  ["该对话已有赛题记录，不能设为主控。", "This chat already has challenge records and cannot become the controller."],
-  ["该工作区有多个主控记录，请先在 DSH 中核对这些对话。", "This workspace has multiple controller records. Check these chats in DSH."],
-  ["无法确认唯一的主控对话，请检查工作区。", "Could not identify a unique controller chat. Check the workspace."],
-  ["无法创建主控对话，请检查 DSH 工作区后重试。", "Could not create the controller chat. Check the DSH workspace and retry."],
-  ["无法确认保存主控记录，请重试。", "Could not confirm that the controller record was saved. Try again."],
-  ["主控对话已创建，但未完成初始化。请重试。", "The controller chat was created but initialization is incomplete. Try again."],
-  ["主控对话已创建，但无法保存初始化记录。请重试。", "The controller chat was created but its initialization record could not be saved. Try again."],
-  ["主控对话已创建，但无法加载。请在 DSH 中打开该对话后重试。", "The controller chat was created but could not be loaded. Open it in DSH and retry."],
-  ["主控记录已保存，但未能初始化空对话。", "The controller record was saved but the empty chat could not be initialized."],
-  ["DSH 未确认保存主控记录。请重试。", "DSH did not confirm saving the controller record. Try again."],
-  ["DSH 未确认接收主控的首条消息。请重试。", "DSH did not acknowledge the first controller message. Try again."],
-  ["DSH 未确认启动并保存主控对话。请重试。", "DSH did not confirm starting and saving the controller chat. Try again."],
-  ["请先完成主控初始化。", "Complete controller initialization first."],
-  ["请在原对话中重试设为主控。", "Retry making the original chat the controller from that chat."],
-  ["现有主控尚未初始化，请先完成初始化。", "Initialize the existing controller first."],
-  ["主控对话尚未初始化。请在 Playground 工作台确认初始化。", "Confirm controller initialization in the Playground workbench."],
-  ["该工作区没有主控对话。", "This workspace has no controller chat."],
-  ["未找到主控对话，请重新选择工作区并确认创建。", "Controller chat not found. Select the workspace again and confirm creation."],
-  ["当前 DSH 版本无法初始化主控对话，请更新 DSH 后重试。", "Update DSH to a version that can initialize controller chats and retry."],
-  ["当前 DSH 无法保存主控记录。", "This DSH instance cannot save controller records."],
-  ["无法核对当前工作区的主控任务，未关联任务。", "Could not verify the workspace controller tasks. No task was linked."],
-  ["所选工作区目录不存在或不可访问，请重新选择。", "The selected workspace folder is missing or inaccessible. Choose another."],
-  ["DSH 未确认接收请求，请重试。", "DSH did not acknowledge the request. Try again."],
-  ["请提供明确的赛题编号和已有子任务编号。", "Provide a challenge ID and an existing child task ID."],
-  ["请先在 DSH 中打开该对话，完成会话迁移后再试。", "Open this chat in DSH to migrate it, then try again."],
-  ["当前对话不是工作区主控。", "This chat is not the workspace controller."],
-  ["找不到赛题，未关联任务。请确认 challenge_id。", "Challenge not found. Check challenge_id. No task was linked."],
-  ["无法核对该工作区的对话记录，请重启 DSH 后重试。", "Could not verify the workspace chat history. Restart DSH and retry."],
-  ["无法核对该工作区的对话记录，请重试。", "Could not verify the workspace chat history. Try again."],
-  ["当前对话已归档，请先取消归档。", "Unarchive this chat first."],
-  ["当前对话不可用，请先打开该对话。", "This chat is unavailable. Open it first."],
-  ["无法加载主控对话，请先在 DSH 中打开该对话。", "Could not load the controller chat. Open it in DSH first."],
-  ["主控对话的目录不属于所选工作区。", "The controller chat folder is outside the selected workspace."],
-  ["当前对话不属于所选的已注册工作区。", "This chat does not belong to the selected registered workspace."],
-  ["当前对话已离开所选工作区。", "This chat has left the selected workspace."],
-  ["所选工作区已移除，请重新选择。", "The selected workspace was removed. Choose another."],
-  ["无法打开主控对话，请重试。", "Could not open the controller chat. Try again."],
-  ["无法交给主控，请重试。", "Could not hand off to the controller. Try again."],
-  ["无法添加工作区，请重试。", "Could not add the workspace. Try again."],
-  ["无法打开子智能体对话，请重试。", "Could not open the subagent chat. Try again."],
-  ["已复制结果", "Result copied"],
-  ["无法复制，请选择文本后复制。", "Could not copy. Select the text and copy it manually."]
-]);
-function controllerMessage(value) {
-  return msg(value, controllerMessages.get(value) ?? value);
-}
-__name(controllerMessage, "controllerMessage");
 var stopReasonLabels = /* @__PURE__ */ __name(() => ({
   completed: { detail: msg("完成", "Completed") },
   aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
@@ -2316,7 +2345,7 @@ function scheduleText(value) {
 }
 __name(scheduleText, "scheduleText");
 var competitionName = /* @__PURE__ */ __name((item) => item && (msg(item.nameZh || item.name, item.nameEn || item.name || item.nameZh) || item.id), "competitionName");
-var periodName = /* @__PURE__ */ __name((item) => item && (msg(item.labelZh, item.labelEn || scheduleText(item.labelZh)) || item.slug), "periodName");
+var periodName = /* @__PURE__ */ __name((item) => item && (msg(item.labelZh, item.labelEn || (/^第[一二三四五六七八九十百\d]+期$/.test(item.labelZh) && /^\d+$/.test(item.slug) ? `Period ${item.slug}` : scheduleText(item.labelZh))) || item.slug), "periodName");
 var competitionLabel = /* @__PURE__ */ __name((item) => [competitionName(item), competitionStatusText(item.status), scheduleText(item.dateText)].filter(Boolean).join(" · "), "competitionLabel");
 function competitionFilter(value) {
   if (!value) return {};
@@ -2327,7 +2356,18 @@ __name(competitionFilter, "competitionFilter");
 var competitionPeriods = /* @__PURE__ */ __name((item) => Array.isArray(item?.periods) ? item.periods.filter((period) => period && typeof period === "object" && typeof period.slug === "string" && period.slug) : [], "competitionPeriods");
 var startingPeriod = /* @__PURE__ */ __name((item) => competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : "", "startingPeriod");
 var officialGroups = /* @__PURE__ */ __name((source) => Array.isArray(source?.groups) ? source.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "officialGroups");
-var groupLabel = /* @__PURE__ */ __name((group) => group.labelZh || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key), "groupLabel");
+function groupLabel(group) {
+  const language = currentLanguage();
+  if (language === "en") {
+    if (group.labelEn) return group.labelEn;
+    if (Object.hasOwn(locales.en.groupNames, group.labelZh)) return locales.en.groupNames[group.labelZh];
+    const round = /^第\s*(\d+)\s*轮$/.exec(group.labelZh);
+    if (round) return `Round ${round[1]}`;
+  }
+  const fallback = locales[language].challengeGroups;
+  return group.labelZh || (Object.hasOwn(fallback, group.key) ? fallback[group.key] : group.key);
+}
+__name(groupLabel, "groupLabel");
 var listSelection = /* @__PURE__ */ __name(({ season, period, group }) => JSON.stringify([season, period, group]), "listSelection");
 var CATALOG_PER_PAGE = 20;
 var OTHER_DISCIPLINE = "__other__";
@@ -2875,7 +2915,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   const needsInitialization = snapshot2?.kind === "absent" || snapshot2?.kind === "incomplete";
   const actionLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
   const title = controller ? msg("打开工作区主控", "Open workspace controller") : actionLabel;
-  const controllerError = snapshot2?.kind === "blocked" ? `${snapshot2.reason}${snapshot2.sessionIds?.length ? msg(` 对话编号：${snapshot2.sessionIds.join("、")}`, ` Chat IDs: ${snapshot2.sessionIds.join(", ")}`) : ""}` : archived ? msg("主控对话已归档。请先在 DSH 中取消归档。", "The controller chat is archived. Unarchive it in DSH first.") : "";
+  const controllerError = snapshot2?.kind === "blocked" ? blockedReason(snapshot2) : archived ? msg("主控对话已归档。请先在 DSH 中取消归档。", "The controller chat is archived. Unarchive it in DSH first.") : "";
   const listError = workspaces.state === "error" ? msg(`无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ""}。请重启 DSH 后重试。`, `Could not load DSH workspaces${workspaces.error?.message ? `: ${workspaces.error.message}` : ""}. Restart DSH and try again.`) : "";
   const loading = workspaces.phase !== "ready" && !listError;
   const hint = listError || (loading ? msg("正在读取 DSH 工作区列表…", "Loading DSH workspaces…") : workspaces.items.length ? msg("选择已有工作区，或添加一个专用目录。", "Select an existing workspace or add a dedicated folder.") : msg("还没有工作区，请先添加。", "Add a workspace to get started."));
@@ -2887,7 +2927,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       try {
         const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
         if (result.kind !== "opened") {
-          setError(`${result.reason}${result.sessionIds?.length ? msg(` 对话编号：${result.sessionIds.join("、")}`, ` Chat IDs: ${result.sessionIds.join(", ")}`) : ""}`);
+          setError(blockedReason(result));
           if (result.code === "controller_init_failed" || result.code === "controller_init_required") setInspection({ workspaceId: inspectId, snapshot: { kind: "incomplete", codex: snapshot2.codex } });
           if (result.code === "controller_attach_failed") setInspection({ workspaceId: inspectId, snapshot: result });
         } else {
@@ -2897,7 +2937,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
           return;
         }
       } catch (failure) {
-        setError(failure.message || msg("无法打开主控对话，请重试。", "Could not open the controller chat. Try again."));
+        setError(controllerMessage(failure.message || "无法打开主控对话，请重试。"));
       }
       setBusy(false);
       return;
@@ -3029,6 +3069,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   );
 }
 __name(TaskStartDialog, "TaskStartDialog");
+function blockedReason({ reason, sessionIds }) {
+  const message = controllerMessage(reason);
+  return sessionIds?.length ? message + msg(` 对话编号：${sessionIds.join("、")}`, ` Chat IDs: ${sessionIds.join(", ")}`) : message;
+}
+__name(blockedReason, "blockedReason");
 
 // src/client/cards/tool.js
 function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {

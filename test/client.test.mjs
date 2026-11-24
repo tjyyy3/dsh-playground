@@ -578,6 +578,25 @@ test('a created task closes the dialog even when opening the new conversation fa
   assert.equal(warn.mock.callCount(), 1);
 });
 
+test('the English controller dialog explains conflicting records and identifies both chats', async (t) => {
+  const f = await clientFixture(t, {}, { localStorage: { getItem: () => 'en' } });
+  const overlay = f.registrations.get('playground.task-start');
+  const dialog = f.render(overlay.Component, {
+    useTaskRequest: (select) => select({ kind: 'controller' }),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'w', path: '/workspace' }] }),
+    inspectController: async () => ({ kind: 'blocked', reason: '该工作区有多个主控记录，请先在 DSH 中核对这些对话。', sessionIds: ['first', 'second'] }),
+  });
+  let tree = f.render(dialog.type, dialog.props);
+  f.find(tree, (n) => n.type === 'select').props.onChange({ target: { value: 'w' } });
+  f.effects.length = 0;
+  f.render(dialog.type, dialog.props);
+  f.effects.splice(0).forEach((effect) => effect());
+  await settle();
+  tree = f.render(dialog.type, dialog.props);
+  assert.equal(text(f.find(tree, (n) => n.props?.role === 'alert')),
+    'This workspace has multiple controller records. Check these chats in DSH. Chat IDs: first, second');
+});
+
 test('the controller dialog inspects the selected workspace and opens native chat only after confirmation', async (t) => {
   const calls = [];
   let inspection = { kind: 'absent', codex: 'unavailable' };
@@ -6188,6 +6207,7 @@ test('Codex follow-up cards preserve the text until the user picks one exact sou
   assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: rows[1].threadId, message: 'Edited reply' }]);
   tree = f.render(card.type, card.props);
   assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), /Exact source reply/);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), /completed/);
   assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), new RegExp(rows[1].threadId));
 });
 
