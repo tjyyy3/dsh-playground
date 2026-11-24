@@ -4,12 +4,12 @@ See the [README](../README.md) to install the plugin and try the workspace contr
 
 | Tool | Purpose | Platform endpoint |
 |---|---|---|
-| `playground_list_challenges` | Query the real challenge list with search, filters, sorting, pagination | `GET /api/challenges` |
+| `playground_list_challenges` | Query the real challenge list with search, filters, sorting, pagination, or list one built-in contest, period, and group through the catalog | `GET /api/challenges`, or the catalog's fixed challenge ids |
 | `playground_get_challenge` | Read one challenge's metadata, resources, and markdown problem statement | `GET /api/challenges/{id}` |
 | `playground_list_attempts` | List submissions for one challenge, best score first | `GET /api/challenges/{id}/attempts` |
 | `playground_get_attempt` | Read one submission's status, score, scoring state, and scorecard | `GET /api/attempts/{id}` |
-| `playground_list_competitions` | List visible competitions/seasons with lifecycle status and deadlines | `GET /api/hackathon/seasons` |
-| `playground_get_competition` | Read a competition's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
+| `playground_list_competitions` | List visible competitions/seasons with lifecycle status and deadlines. `view: "contests"` lists the workbench competition table with periods, counts, and official groups | `GET /api/hackathon/seasons`. The contests view adds the built-in table and published schedules |
+| `playground_get_competition` | Read one hackathon season's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
 | `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/user-submissions` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
 | `playground_open_controller` | Find a registered workspace's controller and offer to open its conversation | DSH session/workspace services |
@@ -191,10 +191,18 @@ The weekly contest's grouped periods list their tracks, and period 3 lists its
 shared bonus challenge last as the group `bonus`. A Scientific Facilities period
 lists the website's research directions that hold its challenges, in the
 website's direction order. A PKU unit lists its own groups. `labelZh` is the
-website's Chinese name and is left out when the Host cannot read it. `count`
-follows the period's opening time like its cards, so every group of a period
-that has not opened counts 0. A period that the website does not group has no
-`groups` field.
+website's Chinese name and is left out when the Host cannot read it. A group's
+`count` follows the period's opening time like its cards. In `大科学装置专项赛`
+and `科学骑士大师赛 · 北大专区`, whose challenges open at the official start, every
+group of a period that has not opened counts 0. Each period also carries
+`count`, the number of challenges that period lists at the same time. That
+count is also 0 before the start in those two contests. An announced weekly
+period lists and counts its challenges before it starts. A grouped period also
+carries `groupedCount`, the number of distinct challenges in its groups. One
+challenge can belong to several groups, so the group counts can add up to more
+than `groupedCount`. `count` can be greater than `groupedCount` when some
+challenges belong to no official group. A period that the website does not
+group has no `groups` field.
 
 The query accepts an optional `group` key together with `competition` and
 `period`. A key is a letter followed by up to 39 letters, digits, `_` or `-`.
@@ -205,7 +213,9 @@ period, the query fails with `invalid_argument` and reason
 `group_not_available`. This covers a group that the website no longer lists and
 a period whose grouping the Host could not read this time, which lists the
 period without `groups` while its challenges stay available. With a stale or
-bundled schedule the query fails without a reason.
+bundled schedule the query fails without a reason. These are errors, not empty
+lists. A read of one period carries `periodCounts` (`count` and `groupedCount`)
+on every page, including the pages after the first.
 
 If the chosen competition is missing from a later list, the selector returns to
 **全部比赛**, the period choice is cleared, and the catalog is read again. If a
@@ -834,9 +844,41 @@ platform.
   yet; `playground_get_attempt` already pulls the latest worker result for one
   submission.
 - The agent tools `playground_list_competitions` and `playground_get_competition`
-  map to the platform's hackathon season endpoints; visibility and lifecycle
-  come from the server. The workbench's competition selector is different: it
-  uses the built-in table described above, plus the seasons that endpoint lists.
+  map to the platform's hackathon season endpoints by default; visibility and
+  lifecycle come from the server. The default view (`view: "seasons"`) returns
+  the platform rows with numeric `id`, `slug`, `seasonLabel`, `visibility`,
+  `completionThreshold`, and `challengeIds`, and accepts the `status` filter
+  (`draft`, `active`, `ended`, `archived`). `playground_get_competition` reads
+  one of those rows by its numeric `id`.
+- `playground_list_competitions` with `view: "contests"` returns the workbench
+  selector's competition table instead, and rejects `status`. Each period
+  carries `count` and, when grouped, `groupedCount` and its official groups
+  (`key`, `labelZh` when known, and `count`), without challenge ids. The
+  controller uses this view when the user names a built-in contest or a
+  period, reports `count` and `groupedCount`, and does not present the sum of
+  the group counts as the whole period. A period of `大科学装置专项赛` or
+  `科学骑士大师赛 · 北大专区` counts 0 until its official start. The text says
+  when the seasons read failed (`seasonsUnavailable`) and when a contest's
+  schedule is stale (`periodsStale`). A row with kind `season` has no contest
+  id and is shown as `season=<slug>`, the value to pass as `season`. `season`
+  does not select a period.
+- `playground_list_challenges` accepts the contest `id`, period `slug`, and
+  group `key` copied from that view as `competition`, `period`, and `group`,
+  and reads the selection through the catalog one page at a time. `order`
+  says whether a page is in official order, sorted by attempts, or newest
+  first for a contest read by tag or season. Every page of a period carries
+  `period` with its `count` and `groupedCount`. `hasMore` means the page is
+  part of the list, and the next page must keep the same arguments and the
+  same `per_page`. `missing` counts challenges that could not be read. When it
+  is present the text says the page is incomplete and asks for a new read
+  from page 1 before the list is called complete. An empty page says whether
+  it is past the last page, a search or filter miss, or a selection with
+  nothing open. `per_page` is 1 to 50, and a contest read rejects any other
+  value. Argument errors carry a reason: `unknown_competition`,
+  `period_needs_competition`, `competition_has_no_periods`,
+  `group_needs_period`, and, from a fresh official schedule,
+  `period_not_available` and `group_not_available`. Without `competition`,
+  `period`, and `group` the tool queries `GET /api/challenges` as before.
 - Personal history uses `/api/user-submissions`, not a client-side filter over public
   submissions. The plugin pages the returned array locally. Its `nextCursor` must be used with unchanged `challenge_id` and
   `status` filters. Empty results are an empty page, not an authentication prompt.
