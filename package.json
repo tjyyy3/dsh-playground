@@ -34,6 +34,7 @@
     "compatibility.json",
     "release-notes/*.md",
     "README.md",
+    "README.en.md",
     "guide/*.md",
     "assets/*.png"
   ],
@@ -45,7 +46,7 @@
     "build:client": "node scripts/build-client.mjs",
     "check:client": "node scripts/build-client.mjs --check",
     "verify:package": "npm run check:client && node scripts/verify-package.mjs",
-    "test": "npm run check:client && npm run build:client && node test/build-client.test.mjs && node test/api.test.mjs && node test/competition-schedules.test.mjs && node test/competitions.test.mjs && node test/challenge-groups.test.mjs && node test/plugin.test.mjs && node test/catalog-tools.test.mjs && node test/controller.test.mjs && node test/workflow.test.mjs && node test/submission.test.mjs && node test/material-access.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs && node test/releases.test.mjs && node test/validate-release.test.mjs",
+    "test": "npm run check:client && npm run build:client && node test/build-client.test.mjs && node test/api.test.mjs && node test/competition-schedules.test.mjs && node test/competitions.test.mjs && node test/challenge-groups.test.mjs && node test/plugin.test.mjs && node test/catalog-tools.test.mjs && node test/controller.test.mjs && node test/codex-chats.test.mjs && node test/workflow.test.mjs && node test/submission.test.mjs && node test/material-access.test.mjs && node test/client.test.mjs && node test/queries.test.mjs && node test/cli.test.mjs && node test/releases.test.mjs && node test/validate-release.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo:local": "node scripts/demo-local.mjs"
   },
@@ -69,6 +70,7 @@
   },
   "dependencies": {
     "acorn": "8.19.0",
+    "ws": "8.23.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

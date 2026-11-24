@@ -1,3 +1,4 @@
+import { currentLanguage } from './language.js';
 
 const locales = {
   zh: {
@@ -7,7 +8,7 @@ const locales = {
       playground_submit_attempt: '提交与评测', playground_list_competitions: '比赛与赛季',
       playground_get_competition: '比赛详情', playground_list_my_attempts: '我的提交',
       playground_start_task: '新建任务对话', playground_bind_task: '绑定当前对话', playground_check_materials: '提交前检查', playground_task: '任务状态',
-      playground_open_controller: '打开工作区主控',
+      playground_open_controller: '打开工作区主控', playground_controller_codex_chats: '工作区 Codex 对话',
       playground_submit: '提交到 Playground',
     },
     preparing: '正在准备参数…', running: '正在查询…', uploading: '正在提交评测包…', approving: '正在提交…', failed: '操作未完成', loaded: '查询完成',
@@ -36,7 +37,7 @@ const locales = {
       playground_submit_attempt: 'Submit for evaluation', playground_list_competitions: 'Competitions',
       playground_get_competition: 'Competition details', playground_list_my_attempts: 'My submissions',
       playground_start_task: 'New task conversation', playground_bind_task: 'Bind this conversation', playground_check_materials: 'Submission checks', playground_task: 'Task status',
-      playground_open_controller: 'Open workspace controller',
+      playground_open_controller: 'Open workspace controller', playground_controller_codex_chats: 'Workspace Codex chats',
       playground_submit: 'Submit to Playground',
     },
     preparing: 'Preparing arguments…', running: 'Querying…', uploading: 'Submitting bundle…', approving: 'Submitting…', failed: 'Operation incomplete', loaded: 'Query complete',
@@ -57,6 +58,18 @@ const locales = {
     metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
       result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
     challengeGroups: { bonus: 'Bonus' },
+    groupNames: {
+      '附加题': 'Bonus', '文献检索': 'Literature Search', '文献阅读': 'Literature Reading', '资料管理': 'Research Library',
+      '学术写作': 'Academic Writing', '学术审查': 'Academic Review', '深度研究与文献综述': 'Deep Research and Literature Review',
+      '科研数据分析': 'Research Data Analysis', '科研绘图': 'Scientific Graphics', '学术 PPT': 'Academic Slides', '实验方案设计': 'Experimental Design',
+      '论文复现': 'Paper Reproduction', '软件构造': 'Software Construction', '红蓝对抗': 'Red vs. Blue', '科学狐狸': 'Science Fox',
+      '材料科研 Agent 全栈开发实习生': 'Full-stack Intern, Materials Research Agents',
+      'AI for Science药物研发研究员/实习生': 'AI for Drug Discovery Researcher / Intern',
+      '科研 Agent 全栈开发工程师／实习生': 'Full-stack Engineer / Intern, Research Agents',
+      'FDE 前线部署工程师／实习生': 'Forward-Deployed Engineer / Intern', 'AI4S 智能大装置工程开发实习生': 'AI4S Research Facilities Engineering Intern',
+      '创新算法研究员/实习生(解谱方向)': 'Algorithm Researcher / Intern, Spectral Analysis',
+      '创新算法研究员／实习生(LKM 方向)': 'Algorithm Researcher / Intern, LKM', '产品实习生': 'Product Intern', '运营实习生': 'Operations Intern',
+    },
   },
 };
 
@@ -64,9 +77,7 @@ function stateLabel(state, t) {
   return Object.hasOwn(locales.en.states, state) ? t(`states.${state}`) : state || t('unknown');
 }
 
-// Chinese lookup for workbench text that stays Chinese regardless of the host language, such as
-// the task list row, which sits among hard-coded Chinese labels. The workbench does receive `t`.
-const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales.zh) ?? key;
+const zhText = (key) => key.split('.').reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key;
 
 export { locales, stateLabel, zhText };
 

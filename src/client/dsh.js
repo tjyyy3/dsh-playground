@@ -1,5 +1,6 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store';
 import { h } from './shared/react.js';
+import { followHostLocale, msg } from './shared/language.js';
 import { queryFailure, safeMessage } from './shared/errors.js';
 import { locales } from './shared/locale.js';
 import { ControllerPanel, ControllerSession, ControllerSessionContent, TRAJECTORY_VIEW_ID } from './controller/index.js';
@@ -19,22 +20,23 @@ function PlaygroundPanelIcon({ size = 20 }) {
 // an rpcError, such as unarchiveSession's "workspace session unarchive failed: <code>: <message>", get only
 // the generic message.
 async function changeArchive(uiWorkspace, method, sessionId) {
-  const verb = method === 'archiveSession' ? '归档' : '取消归档';
-  if (typeof uiWorkspace?.[method] !== 'function') return { ok: false, message: `当前 DSH 版本不支持${verb}对话。` };
+  const verb = method === 'archiveSession' ? msg('归档', 'archive') : msg('取消归档', 'unarchive');
+  if (typeof uiWorkspace?.[method] !== 'function') return { ok: false, message: msg(`当前 DSH 版本不支持${verb}对话。`, `This version of DSH cannot ${verb} conversations.`) };
   try {
     await uiWorkspace[method](sessionId);
     return { ok: true };
   } catch (failure) {
     const rpcError = failure?.rpcError;
-    if (rpcError?.code === 'workspace/session-active') return { ok: false, message: '对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。' };
+    if (rpcError?.code === 'workspace/session-active') return { ok: false, message: msg('对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。', 'Stop active replies, subagents, background jobs, and scheduled tasks before archiving this conversation.') };
     const detail = typeof rpcError?.message === 'string' ? safeMessage(rpcError.message) : undefined;
-    return { ok: false, message: detail ? `${verb}未完成：${detail}。请重试。` : `${verb}未完成，请重试。` };
+    return { ok: false, message: detail ? msg(`${verb}未完成：${detail}。请重试。`, `Could not ${verb} this conversation: ${detail}. Please try again.`) : msg(`${verb}未完成，请重试。`, `Could not ${verb} this conversation. Please try again.`) };
   }
 }
 
 const plugin = {
   inject: ['slots', 'locale', 'remote', 'remote.commands', 'remote.credentials', 'connection', 'uiWorkspace', 'workspaces', 'layout', 'sessions', 'configForms'],
   apply(ctx) {
+    ctx.effect(() => followHostLocale(ctx.locale));
     const taskRequest = createSnapshotStore(null);
     const controllerTarget = createSnapshotStore(null);
     const controllerSelection = { workspaceId: '', sessionId: '' };
@@ -72,6 +74,7 @@ const plugin = {
         return opened;
       },
       promoteController: (input) => requestHost('promoteController', input),
+      codexChats: (input, signal) => requestHost('codexChats', input, signal),
       controllerTasks: (input, signal) => requestHost('controllerTasks', input, signal),
       dispatchChallenge: (input, signal) => requestHost('dispatchChallenge', input, signal),
       inspectController: (input, signal) => requestHost('inspectController', input, signal),
@@ -92,9 +95,9 @@ const plugin = {
       run: async (sessionId, input) => {
         const result = await ctx.remote.commands.execute(sessionId, `/playground ${JSON.stringify(input)}`, []);
         if (!result.ok) throw new Error(result.error.message);
-        if (!result.value) throw new Error('Playground 命令未注册，请重启 DSH 加载插件。');
+        if (!result.value) throw new Error(msg('Playground 命令未注册，请重启 DSH 加载插件。', 'Restart DSH to register the Playground command.'));
         const text = result.value.result.text;
-        if (!text?.startsWith('{')) throw new Error(text || 'Playground 未返回操作结果。');
+        if (!text?.startsWith('{')) throw new Error(text || msg('Playground 未返回操作结果。', 'Playground returned no result.'));
         return JSON.parse(text);
       },
       // Session-free: the password goes to the DSH credential store, never into the call or a conversation.
@@ -105,7 +108,7 @@ const plugin = {
           const result = await ctx.connection.rpc.call('/api', 'playgroundQueries/login', { args: { input: { email } } })
             .catch(() => ({ ok: false, error: { code: 'transport' } }));
           if (!result.ok) throw new Error(queryFailure(result.error));
-          if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || 'Playground 登录失败，请重试。');
+          if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || msg('Playground 登录失败，请重试。', 'Playground sign-in failed. Please try again.'));
           return result.value;
         } finally {
           await Promise.resolve().then(() => ctx.remote.credentials.unset?.('PLAYGROUND_PASSWORD')).catch(() => {});
@@ -115,15 +118,15 @@ const plugin = {
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
       saveToken: async (value) => {
         const token = typeof value === 'string' ? value.trim() : '';
-        if (!token) throw new Error('请先粘贴 API 令牌。');
-        if (/\s/.test(token)) throw new Error('令牌中不能有空格或换行，请从网站重新复制。');
+        if (!token) throw new Error(msg('请先粘贴 API 令牌。', 'Paste an API token first.'));
+        if (/\s/.test(token)) throw new Error(msg('令牌中不能有空格或换行，请从网站重新复制。', 'Copy the token again without spaces or line breaks.'));
         try { await ctx.remote.credentials.set('PLAYGROUND_TOKEN', token); }
-        catch { throw new Error('无法把令牌保存到 DSH 凭据存储，请重试。'); }
+        catch { throw new Error(msg('无法把令牌保存到 DSH 凭据存储，请重试。', 'Could not save the token in DSH. Please try again.')); }
       },
       // Clears only the DSH copy; the CLI credentials file is never modified.
       clearToken: async () => {
         try { await ctx.remote.credentials.unset('PLAYGROUND_TOKEN'); }
-        catch { throw new Error('无法清除 DSH 凭据存储中的令牌，请重试。'); }
+        catch { throw new Error(msg('无法清除 DSH 凭据存储中的令牌，请重试。', 'Could not remove the token from DSH. Please try again.')); }
       },
     };
     ctx.effect(() => ctx.locale.register('playground', Object.fromEntries(

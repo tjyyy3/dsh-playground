@@ -1,3 +1,4 @@
+import { msg } from './language.js';
 import { h } from './react.js';
 
 function statusTone(state) {
@@ -46,8 +47,9 @@ function taskWebUrl(task, webBase) {
 function openWebButton(value, title) {
   const url = openableWebUrl(value);
   if (!url) return null;
-  return h('button', { type: 'button', className: 'pg-button', 'aria-label': title ? `在网页中打开：${title}` : '在网页中打开',
-    onClick: () => { window.open(url, '_blank', 'noopener,noreferrer'); } }, '在网页中打开');
+  const label = msg('在网页中打开', 'Open in browser');
+  return h('button', { type: 'button', className: 'pg-button', 'aria-label': title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label,
+    onClick: () => { window.open(url, '_blank', 'noopener,noreferrer'); } }, label);
 }
 
 export { openWebButton, openableWebUrl, statusTone, taskWebUrl, webRootOf };

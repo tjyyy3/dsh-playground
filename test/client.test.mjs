@@ -22,13 +22,19 @@ function findAll(node, predicate, found = []) {
   return found;
 }
 
-async function clientFixture(t, services = {}) {
+async function clientFixture(t, services = {}, browser = {}) {
   let plugin;
   const states = new Map();
   const effects = [];
   let hooks;
   let cursor;
   const React = {
+    useId: () => 'fixture-id',
+    useRef: (initial) => {
+      const index = cursor++;
+      return hooks[index] ??= { current: initial };
+    },
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
     useState: (initial) => {
       const values = hooks;
@@ -40,7 +46,7 @@ async function clientFixture(t, services = {}) {
     useEffect: (effect, deps) => { effects.push(Object.assign(() => effect(), { deps })); }, Fragment: Symbol('fragment'),
   };
   t.after(() => { delete globalThis.window; });
-  globalThis.window = { __ModuleLoader__: { load: (module) => { plugin = module.factory((name) => {
+  globalThis.window = { ...browser, __ModuleLoader__: { load: (module) => { plugin = module.factory((name) => {
     if (name === 'react') return React;
     if (name === '@deepseek-ai/dsh-client-ui-primitives') return { Modal: 'native-modal' };
     if (name === '@deepseek-ai/dsh-client-store') return { createSnapshotStore: (initial) => {
@@ -570,6 +576,25 @@ test('a created task closes the dialog even when opening the new conversation fa
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(render(overlay.Component, props), null);
   assert.equal(warn.mock.callCount(), 1);
+});
+
+test('the English controller dialog explains conflicting records and identifies both chats', async (t) => {
+  const f = await clientFixture(t, {}, { localStorage: { getItem: () => 'en' } });
+  const overlay = f.registrations.get('playground.task-start');
+  const dialog = f.render(overlay.Component, {
+    useTaskRequest: (select) => select({ kind: 'controller' }),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'w', path: '/workspace' }] }),
+    inspectController: async () => ({ kind: 'blocked', reason: '该工作区有多个主控记录，请先在 DSH 中核对这些对话。', sessionIds: ['first', 'second'] }),
+  });
+  let tree = f.render(dialog.type, dialog.props);
+  f.find(tree, (n) => n.type === 'select').props.onChange({ target: { value: 'w' } });
+  f.effects.length = 0;
+  f.render(dialog.type, dialog.props);
+  f.effects.splice(0).forEach((effect) => effect());
+  await settle();
+  tree = f.render(dialog.type, dialog.props);
+  assert.equal(text(f.find(tree, (n) => n.props?.role === 'alert')),
+    'This workspace has multiple controller records. Check these chats in DSH. Chat IDs: first, second');
 });
 
 test('the controller dialog inspects the selected workspace and opens native chat only after confirmation', async (t) => {
@@ -5643,6 +5668,49 @@ test('controller login indicator follows verified auth status and opens connecti
   assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
 });
 
+test('the toolbar language menu follows DSH, remembers overrides, and closes after selection', async (t) => {
+  const values = new Map();
+  const browser = { localStorage: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) } };
+  let active = 'en';
+  const listeners = new Set();
+  const locale = { register() {}, getSnapshot: () => ({ active }), subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); } };
+  const changeHost = (language) => { active = language; for (const listener of listeners) listener(); };
+  const props = { controllerSelection: {}, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }), useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null };
+  const panel = async () => {
+    const fixture = await clientFixture(t, { effect: (effect) => effect(), locale }, browser);
+    const render = () => fixture.render(fixture.registrations.get('main').Component, props);
+    const menu = () => fixture.render(fixture.find(render(), (node) => node.type?.name === 'LanguageMenu').type, {});
+    const trigger = () => fixture.find(menu(), (node) => node.props?.['aria-haspopup'] === 'menu');
+    const option = (index) => {
+      if (!trigger().props['aria-expanded']) trigger().props.onClick();
+      return findAll(menu(), (node) => node.props?.role === 'menuitemradio')[index];
+    };
+    const tabs = () => findAll(render(), (node) => node.props?.role === 'tab');
+    return { option, tabs, trigger };
+  };
+  const first = await panel();
+  assert.equal(first.trigger().props['aria-expanded'], false);
+  assert.equal(first.option(0).props['aria-checked'], true);
+  assert.equal(text(first.tabs()[1]), 'Challenges');
+  first.tabs()[1].props.onClick();
+  changeHost('zh-CN');
+  assert.equal(text(first.tabs()[1]), '赛题');
+  first.option(2).props.onClick();
+  assert.equal(first.trigger().props['aria-expanded'], false);
+  assert.deepEqual(first.tabs().map(text), ['Chat', 'Challenges', 'Submissions']);
+  assert.equal(first.tabs()[1].props['aria-selected'], true);
+  const reopened = await panel();
+  assert.equal(reopened.option(2).props['aria-checked'], true);
+  assert.match(text(reopened.option(0)), /中文/);
+  assert.equal(text(reopened.tabs()[1]), 'Challenges');
+  reopened.option(0).props.onClick();
+  assert.deepEqual(reopened.tabs().map(text), ['对话', '赛题', '提交']);
+  changeHost('en-US');
+  assert.equal(text(reopened.tabs()[1]), 'Challenges');
+  assert.equal((await panel()).option(0).props['aria-checked'], true);
+});
+
 async function releasePanel(t, reply) {
   const calls = [];
   const writes = [];
@@ -6114,4 +6182,75 @@ test('workspace selection hides old controller tasks immediately and ignores a l
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
   assert.match(text(render()), /two-task/);
   assert.doesNotMatch(text(render()), /one-task/);
+});
+
+
+test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const rows = [{ title: 'Same', threadId: '018ee808-f10c-7000-b000-000000000001' },
+    { title: 'Same', threadId: '018ee808-f10c-7000-b000-000000000002' }];
+  const calls = [];
+  const initial = { kind: 'choose', workspaceId: 'ws', sessionId: 'ctrl', rows, message: 'Keep this draft.' };
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => {
+      calls.push(input);
+      return { kind: 'sent', source: rows[1], turnStatus: 'completed', text: 'Exact source reply' };
+    } });
+  let tree = await f.mount(card);
+  assert.equal(calls.length, 0);
+  const edit = f.find(tree, (n) => n.type === 'textarea');
+  assert.equal(edit.props.value, initial.message);
+  edit.props.onChange({ target: { value: 'Edited reply' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (n) => n.type === 'button' && text(n).includes('发送给') && text(n).includes(rows[1].threadId)).props.onClick();
+  assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: rows[1].threadId, message: 'Edited reply' }]);
+  tree = f.render(card.type, card.props);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), /Exact source reply/);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), /completed/);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), new RegExp(rows[1].threadId));
+});
+
+test('Codex summary reply goes back to its selected source and retains the draft when unavailable', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000003', result: 'reply', text: 'Earlier result' };
+  const initial = { kind: 'summary', workspaceId: 'ws', sessionId: 'ctrl', rows: [source] };
+  const calls = [];
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => { calls.push(input); return { kind: 'unavailable' }; } });
+  let tree = await f.mount(card);
+  f.find(tree, (n) => n.type === 'button' && text(n).includes(source.threadId)).props.onClick();
+  f.find(tree, (n) => n.type === 'textarea').props.onChange({ target: { value: 'Follow up' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (n) => n.type === 'button' && text(n) === '发送追问').props.onClick();
+  assert.equal(calls[0].threadId, source.threadId);
+  tree = f.render(card.type, card.props);
+  assert.equal(f.find(tree, (n) => n.type === 'textarea').props.value, 'Follow up');
+});
+
+
+test('sending to the sole displayed Codex chat uses its ID even if another chat takes its title', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const original = { title: 'Reusable title', threadId: '018ee808-f10c-7000-b000-000000000004' };
+  const initial = { kind: 'ready', workspaceId: 'ws', sessionId: 'ctrl', rows: [original] };
+  let sent;
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => {
+      sent = input;
+      return { kind: 'unavailable', code: 'target_missing' };
+    } });
+  let tree = await f.mount(card);
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Follow up here' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (node) => node.type === 'button' && text(node) === '发送追问').props.onClick();
+  assert.deepEqual(sent, { workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: original.threadId, message: 'Follow up here' });
+  tree = f.render(card.type, card.props);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Follow up here');
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: original.title } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (node) => node.type === 'button' && text(node) === '发送追问').props.onClick();
+  assert.deepEqual(sent, { workspaceId: 'ws', sessionId: 'ctrl', action: 'send', target: original.title,
+    expectedThreadId: original.threadId, message: 'Follow up here' });
 });

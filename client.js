@@ -46,19 +46,77 @@ var import_dsh_client_store = require("@deepseek-ai/dsh-client-store");
 var React = __toESM(require("react"), 1);
 var h = React.createElement;
 
+// src/client/shared/language.js
+var import_react = require("react");
+var storageKey = "dsh-playground.ui-language";
+var listeners = /* @__PURE__ */ new Set();
+function readPreference() {
+  try {
+    const value = globalThis.window?.localStorage?.getItem(storageKey);
+    return value === "en" || value === "zh" ? value : null;
+  } catch {
+    return null;
+  }
+}
+__name(readPreference, "readPreference");
+var preference = readPreference();
+var hostLanguage;
+var languagePreference = /* @__PURE__ */ __name(() => preference, "languagePreference");
+var currentHostLanguage = /* @__PURE__ */ __name(() => /^en(?:-|$)/i.test(hostLanguage ?? globalThis.document?.documentElement?.lang ?? "") ? "en" : "zh", "currentHostLanguage");
+var currentLanguage = /* @__PURE__ */ __name(() => preference ?? currentHostLanguage(), "currentLanguage");
+var msg = /* @__PURE__ */ __name((chinese, english) => currentLanguage() === "en" ? english : chinese, "msg");
+function followHostLocale(locale) {
+  if (!locale?.getSnapshot || !locale.subscribe) return;
+  const update = /* @__PURE__ */ __name(() => {
+    const previous = currentHostLanguage();
+    hostLanguage = locale.getSnapshot().active;
+    if (currentHostLanguage() !== previous) for (const notify of listeners) notify();
+  }, "update");
+  update();
+  const unsubscribe = locale.subscribe(update);
+  return () => {
+    unsubscribe();
+    hostLanguage = void 0;
+  };
+}
+__name(followHostLocale, "followHostLocale");
+function setLanguage(value) {
+  if (value !== null && value !== "zh" && value !== "en" || value === preference) return;
+  preference = value;
+  try {
+    const storage = globalThis.window?.localStorage;
+    if (value === null) storage?.removeItem(storageKey);
+    else storage?.setItem(storageKey, value);
+  } catch {
+  }
+  for (const notify of listeners) notify();
+}
+__name(setLanguage, "setLanguage");
+function subscribe(notify) {
+  listeners.add(notify);
+  return () => listeners.delete(notify);
+}
+__name(subscribe, "subscribe");
+var snapshot = /* @__PURE__ */ __name(() => `${preference ?? "follow"}-${currentHostLanguage()}`, "snapshot");
+function usePluginLanguage() {
+  (0, import_react.useSyncExternalStore)(subscribe, snapshot, snapshot);
+  return currentLanguage();
+}
+__name(usePluginLanguage, "usePluginLanguage");
+
 // src/client/shared/errors.js
 function queryFailure(error) {
   const code = typeof error?.code === "string" ? error.code : "";
-  if (code === "transport") return "无法连接 DSH 服务，请检查连接后重试。";
-  if (code === "remote-access/denied") return "当前连接没有读取 Playground 数据的权限。";
+  if (code === "transport") return msg("无法连接 DSH 服务，请检查连接后重试。", "Cannot connect to DSH. Check your connection and try again.");
+  if (code === "remote-access/denied") return msg("当前连接没有读取 Playground 数据的权限。", "This connection does not have permission to read Playground data.");
   if (code === "gateway/internal") {
     const detail = safeMessage(error.message);
-    return `Playground 平台请求失败${detail ? `：${detail}` : ""}。请稍后重试。`;
+    return msg(`Playground 平台请求失败${detail ? `：${detail}` : ""}。请稍后重试。`, `Playground request failed${detail ? `: ${detail}` : ""}. Try again later.`);
   }
   if (/^gateway\/(invocation|definition|service|method)-unavailable$/.test(code)) {
-    return "Playground 查询服务未加载。请重启 DSH；若仍失败，当前 DSH 版本可能不支持插件查询通道。";
+    return msg("Playground 查询服务未加载。请重启 DSH；若仍失败，当前 DSH 版本可能不支持插件查询通道。", "The Playground query service is unavailable. Restart DSH. If the problem persists, your DSH version may not support plugin queries.");
   }
-  return `Playground 查询失败${code ? `（${code}）` : ""}，请重试。`;
+  return msg(`Playground 查询失败${code ? `（${code}）` : ""}，请重试。`, `Playground query failed${code ? ` (${code})` : ""}. Try again.`);
 }
 __name(queryFailure, "queryFailure");
 function safeMessage(value) {
@@ -90,6 +148,7 @@ var locales = {
       playground_check_materials: "提交前检查",
       playground_task: "任务状态",
       playground_open_controller: "打开工作区主控",
+      playground_controller_codex_chats: "工作区 Codex 对话",
       playground_submit: "提交到 Playground"
     },
     preparing: "正在准备参数…",
@@ -185,6 +244,7 @@ var locales = {
       playground_check_materials: "Submission checks",
       playground_task: "Task status",
       playground_open_controller: "Open workspace controller",
+      playground_controller_codex_chats: "Workspace Codex chats",
       playground_submit: "Submit to Playground"
     },
     preparing: "Preparing arguments…",
@@ -263,21 +323,47 @@ var locales = {
       evidence: "Evidence",
       total: "Total"
     },
-    challengeGroups: { bonus: "Bonus" }
+    challengeGroups: { bonus: "Bonus" },
+    groupNames: {
+      "附加题": "Bonus",
+      "文献检索": "Literature Search",
+      "文献阅读": "Literature Reading",
+      "资料管理": "Research Library",
+      "学术写作": "Academic Writing",
+      "学术审查": "Academic Review",
+      "深度研究与文献综述": "Deep Research and Literature Review",
+      "科研数据分析": "Research Data Analysis",
+      "科研绘图": "Scientific Graphics",
+      "学术 PPT": "Academic Slides",
+      "实验方案设计": "Experimental Design",
+      "论文复现": "Paper Reproduction",
+      "软件构造": "Software Construction",
+      "红蓝对抗": "Red vs. Blue",
+      "科学狐狸": "Science Fox",
+      "材料科研 Agent 全栈开发实习生": "Full-stack Intern, Materials Research Agents",
+      "AI for Science药物研发研究员/实习生": "AI for Drug Discovery Researcher / Intern",
+      "科研 Agent 全栈开发工程师／实习生": "Full-stack Engineer / Intern, Research Agents",
+      "FDE 前线部署工程师／实习生": "Forward-Deployed Engineer / Intern",
+      "AI4S 智能大装置工程开发实习生": "AI4S Research Facilities Engineering Intern",
+      "创新算法研究员/实习生(解谱方向)": "Algorithm Researcher / Intern, Spectral Analysis",
+      "创新算法研究员／实习生(LKM 方向)": "Algorithm Researcher / Intern, LKM",
+      "产品实习生": "Product Intern",
+      "运营实习生": "Operations Intern"
+    }
   }
 };
 function stateLabel(state, t) {
   return Object.hasOwn(locales.en.states, state) ? t(`states.${state}`) : state || t("unknown");
 }
 __name(stateLabel, "stateLabel");
-var zhText = /* @__PURE__ */ __name((key) => key.split(".").reduce((value, part) => value?.[part], locales.zh) ?? key, "zhText");
+var zhText = /* @__PURE__ */ __name((key) => key.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key, "zhText");
 
 // src/client/controller/index.js
-var React5 = __toESM(require("react"), 1);
+var React6 = __toESM(require("react"), 1);
 
 // src/client/shared/workspaces.js
 function workspaceOptions(items) {
-  return items.map((item) => h("option", { key: item.workspaceId, value: item.workspaceId }, item.title || "未命名工作区"));
+  return items.map((item) => h("option", { key: item.workspaceId, value: item.workspaceId }, item.title || msg("未命名工作区", "Untitled workspace")));
 }
 __name(workspaceOptions, "workspaceOptions");
 
@@ -297,7 +383,7 @@ var taskModalCss = `
     .pg-task-select{appearance:none;display:block;width:100%;height:44px;padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--pg-task-error)}
     .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9ecf0);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
     .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--pg-task-error);font-size:12px;line-height:20px;overflow-wrap:anywhere}
-    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;gap:8px}
+    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
     .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
     .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent);outline-offset:2px}
     @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
@@ -354,21 +440,22 @@ __name(taskWebUrl, "taskWebUrl");
 function openWebButton(value, title) {
   const url = openableWebUrl(value);
   if (!url) return null;
+  const label2 = msg("在网页中打开", "Open in browser");
   return h("button", {
     type: "button",
     className: "pg-button",
-    "aria-label": title ? `在网页中打开：${title}` : "在网页中打开",
+    "aria-label": title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label2,
     onClick: /* @__PURE__ */ __name(() => {
       window.open(url, "_blank", "noopener,noreferrer");
     }, "onClick")
-  }, "在网页中打开");
+  }, label2);
 }
 __name(openWebButton, "openWebButton");
 
 // src/client/settings/auth.js
-var TOKEN_SOURCES = { dsh: "DSH 凭据", dsh_other: "DSH 凭据（来源未确认）", cli_file: "CLI 凭据文件", env: "环境变量", config: "插件配置" };
-var ABOVE_CLI_FILE = { dsh: "DSH 凭据中保存的令牌", dsh_other: "DSH 凭据存储提供的令牌（来源未确认）", env: "环境变量 PLAYGROUND_TOKEN 中的令牌", config: "插件配置中的令牌" };
-var TOKEN_PAGE = "网站“我的面板 → API 与 Agent”";
+var TOKEN_SOURCES = /* @__PURE__ */ __name(() => ({ dsh: msg("DSH 凭据", "DSH credentials"), dsh_other: msg("DSH 凭据（来源未确认）", "DSH credentials (source unconfirmed)"), cli_file: msg("CLI 凭据文件", "CLI credentials file"), env: msg("环境变量", "Environment variable"), config: msg("插件配置", "Plugin configuration") }), "TOKEN_SOURCES");
+var ABOVE_CLI_FILE = /* @__PURE__ */ __name(() => ({ dsh: msg("DSH 凭据中保存的令牌", "the token saved in DSH credentials"), dsh_other: msg("DSH 凭据存储提供的令牌（来源未确认）", "the token from the DSH credential store (source unconfirmed)"), env: msg("环境变量 PLAYGROUND_TOKEN 中的令牌", "the PLAYGROUND_TOKEN environment variable"), config: msg("插件配置中的令牌", "the token in the plugin configuration") }), "ABOVE_CLI_FILE");
+var TOKEN_PAGE = /* @__PURE__ */ __name(() => msg("网站“我的面板 → API 与 Agent”", "My Dashboard → API & Agent on the website"), "TOKEN_PAGE");
 var isAgentUser = /* @__PURE__ */ __name((user) => typeof user?.userType === "string" && user.userType.trim().toLowerCase() === "agent", "isAgentUser");
 function tokenPageUrl(apiBase) {
   const root = typeof apiBase === "string" && apiBase ? webRootOf(apiBase) : "";
@@ -378,24 +465,24 @@ __name(tokenPageUrl, "tokenPageUrl");
 var authCss = ".pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}";
 function tokenProblem(state) {
   const source = state.tokenSource;
-  const fromFile = state.cliFilePath ? `CLI 凭据文件 ${state.cliFilePath}` : "CLI 凭据文件";
-  const next = source === "dsh" ? `请到${TOKEN_PAGE}生成新令牌，粘贴到下方保存（会替换当前令牌），或点击“清除令牌”。` : source === "cli_file" ? `当前令牌来自${fromFile}。请在下方保存新令牌（DSH 凭据优先于该文件），或在终端运行 playground auth login 重新登录。` : source === "env" ? "当前令牌来自环境变量 PLAYGROUND_TOKEN。请在下方保存新令牌（DSH 凭据优先于环境变量），或更新该环境变量后重启 DSH。" : source === "config" ? "当前令牌来自插件配置，它优先于其他来源，在这里保存的令牌不会生效。请修改或删除插件配置中的令牌。" : source === "dsh_other" ? "当前令牌由 DSH 凭据存储提供，但插件无法确认它保存在 DSH 中还是来自 DSH 的环境变量。请在下方保存新令牌（会替换 DSH 中保存的令牌），或检查 DSH 环境中的 PLAYGROUND_TOKEN 变量。" : `请到${TOKEN_PAGE}生成新令牌并保存。`;
-  if (state.reason === "rejected") return ["令牌无效", `令牌无效、已过期或已撤销。${next}`];
-  return ["无权访问", `Playground 拒绝了当前账号的访问（HTTP 403）。请确认账号状态，或换用其他账号的令牌。${next}`];
+  const fromFile = state.cliFilePath ? msg(`CLI 凭据文件 ${state.cliFilePath}`, `CLI credentials file ${state.cliFilePath}`) : msg("CLI 凭据文件", "the CLI credentials file");
+  const next = source === "dsh" ? msg(`请到${TOKEN_PAGE()}生成新令牌，粘贴到下方保存（会替换当前令牌），或点击“清除令牌”。`, `Generate a token in ${TOKEN_PAGE()}, paste it below to replace the current token, or select Clear token.`) : source === "cli_file" ? msg(`当前令牌来自${fromFile}。请在下方保存新令牌（DSH 凭据优先于该文件），或在终端运行 playground auth login 重新登录。`, `The current token comes from ${fromFile}. Save a new token below to override it with DSH credentials, or run playground auth login in a terminal.`) : source === "env" ? msg("当前令牌来自环境变量 PLAYGROUND_TOKEN。请在下方保存新令牌（DSH 凭据优先于环境变量），或更新该环境变量后重启 DSH。", "The current token comes from PLAYGROUND_TOKEN. Save a new token below to override it with DSH credentials, or update the environment variable and restart DSH.") : source === "config" ? msg("当前令牌来自插件配置，它优先于其他来源，在这里保存的令牌不会生效。请修改或删除插件配置中的令牌。", "The plugin configuration supplies the current token and takes priority over other sources. Edit or remove it in the plugin configuration.") : source === "dsh_other" ? msg("当前令牌由 DSH 凭据存储提供，但插件无法确认它保存在 DSH 中还是来自 DSH 的环境变量。请在下方保存新令牌（会替换 DSH 中保存的令牌），或检查 DSH 环境中的 PLAYGROUND_TOKEN 变量。", "DSH supplies the current token, but its source could be either saved credentials or the environment. Save a new token below to replace the saved DSH token, or check PLAYGROUND_TOKEN in the DSH environment.") : msg(`请到${TOKEN_PAGE()}生成新令牌并保存。`, `Generate and save a new token in ${TOKEN_PAGE()}.`);
+  if (state.reason === "rejected") return [msg("令牌无效", "Invalid token"), msg(`令牌无效、已过期或已撤销。${next}`, `The token is invalid, expired or revoked. ${next}`)];
+  return [msg("无权访问", "Access denied"), msg(`Playground 拒绝了当前账号的访问（HTTP 403）。请确认账号状态，或换用其他账号的令牌。${next}`, `Playground denied access to this account (HTTP 403). Check the account status or use another account token. ${next}`)];
 }
 __name(tokenProblem, "tokenProblem");
 function clearNote(state) {
   if (state.tokenSource !== "dsh") return "";
-  if (state.envToken) return `DSH 的环境中还有 PLAYGROUND_TOKEN 变量。清除 DSH 中保存的令牌后，插件会改用该变量中的令牌（它优先于 CLI 凭据文件）；插件不会修改环境变量${state.cliFileToken ? "或 CLI 凭据文件" : ""}。`;
-  if (state.cliFileToken) return `CLI 凭据文件 ${state.cliFilePath || ""} 中也有令牌。清除 DSH 中的令牌后，插件仍会使用该文件中的令牌；插件不会修改这个文件。`;
+  if (state.envToken) return msg(`DSH 的环境中还有 PLAYGROUND_TOKEN 变量。清除 DSH 中保存的令牌后，插件会改用该变量中的令牌（它优先于 CLI 凭据文件）；插件不会修改环境变量${state.cliFileToken ? "或 CLI 凭据文件" : ""}。`, `The DSH environment also contains PLAYGROUND_TOKEN. Clearing the saved token switches to the environment token, which overrides the CLI credentials file. The environment variable${state.cliFileToken ? " and CLI credentials file remain unchanged" : " remains unchanged"}.`);
+  if (state.cliFileToken) return msg(`CLI 凭据文件 ${state.cliFilePath || ""} 中也有令牌。清除 DSH 中的令牌后，插件仍会使用该文件中的令牌；插件不会修改这个文件。`, `The CLI credentials file ${state.cliFilePath || ""} also contains a token. After you clear the saved DSH token, the plugin uses the token in that file without modifying it.`);
   return "";
 }
 __name(clearNote, "clearNote");
 function loginOverridden(state) {
-  const what = ABOVE_CLI_FILE[state.tokenSource];
+  const what = ABOVE_CLI_FILE()[state.tokenSource];
   if (!what) return "";
-  const next = state.tokenSource === "dsh" ? state.envToken ? "清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。" : "点击“清除令牌”后，插件改用刚登录的账号。" : state.tokenSource === "config" ? "如需改用刚登录的账号，请删除插件配置中的令牌。" : state.tokenSource === "env" ? "如需改用刚登录的账号，请移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH。" : "如需改用刚登录的账号，请移除 DSH 凭据中的 PLAYGROUND_TOKEN，以及 DSH 环境中的同名变量，然后重启 DSH。";
-  return `CLI 登录成功，但插件仍在使用${what}，它优先于 CLI 凭据文件。${next}`;
+  const next = state.tokenSource === "dsh" ? state.envToken ? msg("清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。", "Clearing the token will switch to PLAYGROUND_TOKEN in the DSH environment. To use the account you just signed in to, remove that variable and restart DSH.") : msg("点击“清除令牌”后，插件改用刚登录的账号。", "Select Clear token to use the account you just signed in to.") : state.tokenSource === "config" ? msg("如需改用刚登录的账号，请删除插件配置中的令牌。", "Remove the token from the plugin configuration to use the account you just signed in to.") : state.tokenSource === "env" ? msg("如需改用刚登录的账号，请移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH。", "Remove PLAYGROUND_TOKEN from the DSH environment and restart DSH to use the account you just signed in to.") : msg("如需改用刚登录的账号，请移除 DSH 凭据中的 PLAYGROUND_TOKEN，以及 DSH 环境中的同名变量，然后重启 DSH。", "Remove PLAYGROUND_TOKEN from both DSH credentials and the DSH environment, then restart DSH to use the account you just signed in to.");
+  return msg(`CLI 登录成功，但插件仍在使用${what}，它优先于 CLI 凭据文件。${next}`, `CLI sign-in succeeded. The plugin still uses ${what}, which takes priority over the CLI credentials file. ${next}`);
 }
 __name(loginOverridden, "loginOverridden");
 function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }) {
@@ -487,8 +574,8 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
   const user = current.user || {};
   const agent = isAgentUser(user);
   const operator = user.operatorName || (user.operatorId !== void 0 && user.operatorId !== null && user.operatorId !== "" ? `#${user.operatorId}` : "");
-  const operatorState = user.operatorConfirmed === true ? "（已确认）" : user.operatorConfirmed === false ? "（未确认）" : "";
-  const sourceLabel = TOKEN_SOURCES[current.tokenSource];
+  const operatorState = user.operatorConfirmed === true ? msg("（已确认）", " (confirmed)") : user.operatorConfirmed === false ? msg("（未确认）", " (unconfirmed)") : "";
+  const sourceLabel = TOKEN_SOURCES()[current.tokenSource];
   const stored = current.tokenSource === "dsh";
   const fromConfig = current.tokenSource === "config";
   const pageUrl = tokenPageUrl(current.baseUrl);
@@ -497,35 +584,35 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
   const failedCheck = current.reason === "network" || current.reason === "unavailable";
   const note = clearNote(current);
   const overridden = loginDone && !loading ? loginOverridden(current) : "";
-  const badge = /* @__PURE__ */ __name((tone, label) => h("span", { className: "pg-badge", "data-tone": tone }, label), "badge");
-  const sourceTail = sourceLabel ? ` 令牌来源：${sourceLabel}` : "";
-  const summary = loading ? "正在检查当前 DSH 是否已配置 Playground 凭据…" : current.authenticated ? h(React2.Fragment, null, badge("success", "已登录"), " ", user.name || user.email || "Playground 用户") : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", "检测失败"), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? "检测失败" : "未登录"), " 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。");
-  const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: removeToken }, "清除令牌") : null;
+  const badge = /* @__PURE__ */ __name((tone, label2) => h("span", { className: "pg-badge", "data-tone": tone }, label2), "badge");
+  const sourceTail = sourceLabel ? msg(` 令牌来源：${sourceLabel}`, ` Token source: ${sourceLabel}`) : "";
+  const summary = loading ? msg("正在检查当前 DSH 是否已配置 Playground 凭据…", "Checking DSH for Playground credentials…") : current.authenticated ? h(React2.Fragment, null, badge("success", msg("已登录", "Signed in")), " ", user.name || user.email || msg("Playground 用户", "Playground user")) : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", msg("检测失败", "Check failed")), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? msg("检测失败", "Check failed") : msg("未登录", "Signed out")), msg(" 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。", " You can browse public challenges. Sign in to view your submissions and upload evaluation packages."));
+  const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: removeToken }, msg("清除令牌", "Clear token")) : null;
   const tokenForm = h(
     "form",
-    { className: "pg-form pg-auth-token", "aria-label": "API 令牌登录", onSubmit: /* @__PURE__ */ __name((event) => {
+    { className: "pg-form pg-auth-token", "aria-label": msg("API 令牌登录", "Sign in with an API token"), onSubmit: /* @__PURE__ */ __name((event) => {
       event.preventDefault();
       if (!tokenBusy) submitToken();
     }, "onSubmit") },
-    h("p", { className: "pg-note" }, `在${TOKEN_PAGE}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`),
+    h("p", { className: "pg-note" }, msg(`在${TOKEN_PAGE()}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`, `Sign in to ${TOKEN_PAGE()} and generate a personal or agent account token. Paste it here to save it in DSH credentials and check sign-in automatically. The token stays out of chats, commands and logs.`)),
     pageUrl ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(() => {
       window.open(pageUrl, "_blank", "noopener,noreferrer");
-    }, "onClick") }, "去网站生成令牌")) : null,
-    h("label", { className: "pg-field" }, "API 令牌", h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, onChange: /* @__PURE__ */ __name((event) => setToken(event.target.value), "onChange") })),
+    }, "onClick") }, msg("去网站生成令牌", "Generate token on website"))) : null,
+    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, onChange: /* @__PURE__ */ __name((event) => setToken(event.target.value), "onChange") })),
     // Enabled while the field is empty, so a click explains what is missing instead of doing nothing.
-    h("div", { className: "pg-actions" }, h("button", { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy }, tokenBusy ? "正在保存…" : "保存令牌")),
-    tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError) : null
+    h("div", { className: "pg-actions" }, h("button", { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy }, tokenBusy ? msg("正在保存…", "Saving…") : msg("保存令牌", "Save token"))),
+    tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError === "请先粘贴 API 令牌。" ? msg(tokenError, "Paste your API token first.") : tokenError) : null
   );
-  const configNote = fromConfig ? h("p", { className: "pg-note pg-auth-config" }, "令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌。") : null;
+  const configNote = fromConfig ? h("p", { className: "pg-note pg-auth-config" }, msg("令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌。", "The configured plugin token takes priority over tokens saved in the workbench. Edit or remove it in the plugin configuration to change tokens.")) : null;
   return h(
     "section",
-    { className: "pg-guide pg-auth", "aria-label": "Playground 登录状态", "aria-busy": checking || loginBusy || tokenBusy },
+    { className: "pg-guide pg-auth", "aria-label": msg("Playground 登录状态", "Playground sign-in status"), "aria-busy": checking || loginBusy || tokenBusy },
     h("style", null, authCss),
     h(
       "div",
       { className: "pg-head" },
-      h("h2", { className: "pg-brand" }, "Playground 连接状态"),
-      h("button", { className: "pg-button", disabled: checking, onClick: check }, checking ? "正在检测…" : "重新检测")
+      h("h2", { className: "pg-brand" }, msg("Playground 连接状态", "Playground connection status")),
+      h("button", { className: "pg-button", disabled: checking, onClick: check }, checking ? msg("正在检测…", "Checking…") : msg("重新检测", "Check again"))
     ),
     h(
       "div",
@@ -533,43 +620,43 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
         latest.status = node;
       }, "ref") },
       h("p", { className: "pg-note" }, summary),
-      !loading && checking ? h("p", { className: "pg-note" }, "正在重新检测登录状态…") : null,
-      overridden ? h("p", { className: "pg-note pg-auth-login-note" }, badge("warning", "仍在使用原令牌"), " ", overridden) : null
+      !loading && checking ? h("p", { className: "pg-note" }, msg("正在重新检测登录状态…", "Checking sign-in status again…")) : null,
+      overridden ? h("p", { className: "pg-note pg-auth-login-note" }, badge("warning", msg("仍在使用原令牌", "Still using the previous token")), " ", overridden) : null
     ),
-    !loading && current.cliUpdate?.warning ? h("p", { className: "pg-note pg-cli-update" }, badge("warning", "CLI 需更新"), " ", current.cliUpdate.warning) : null,
+    !loading && current.cliUpdate?.warning ? h("p", { className: "pg-note pg-cli-update" }, badge("warning", msg("CLI 需更新", "CLI update needed")), " ", msg(current.cliUpdate.warning, `Playground CLI ${current.cliUpdate.current} is outdated. Version ${current.cliUpdate.latest} is available. This may affect scoring. Update using the official script at https://play.bohrium.com/install.sh. On Windows, download the .tgz linked in the script, verify its SHA-256, then run npm install -g <file>.`)) : null,
     loading ? null : current.authenticated ? h(
       React2.Fragment,
       null,
-      h("p", { className: "pg-note pg-auth-identity" }, `身份：${agent ? "Agent 账号" : "本人"}。提交会记在这个身份名下。`),
-      agent && operator ? h("p", { className: "pg-note" }, `操作人：${operator}${operatorState}`) : null,
-      agent && user.agentFramework ? h("p", { className: "pg-note" }, `Agent 框架：${user.agentFramework}`) : null,
+      h("p", { className: "pg-note pg-auth-identity" }, msg(`身份：${agent ? "Agent 账号" : "本人"}。提交会记在这个身份名下。`, `Identity: ${agent ? "Agent account" : "Personal account"}. Submissions are attributed to this identity.`)),
+      agent && operator ? h("p", { className: "pg-note" }, msg(`操作人：${operator}${operatorState}`, `Operator: ${operator}${operatorState}`)) : null,
+      agent && user.agentFramework ? h("p", { className: "pg-note" }, msg(`Agent 框架：${user.agentFramework}`, `Agent framework: ${user.agentFramework}`)) : null,
       user.email ? h("p", { className: "pg-note" }, user.email) : null,
-      sourceLabel ? h("p", { className: "pg-note" }, `令牌来源：${sourceLabel}`) : null,
+      sourceLabel ? h("p", { className: "pg-note" }, msg(`令牌来源：${sourceLabel}`, `Token source: ${sourceLabel}`)) : null,
       note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
       current.baseUrl ? h("p", { className: "pg-note pg-path" }, `API：${current.baseUrl}`) : null,
       clearButton ? h("div", { className: "pg-actions" }, clearButton) : null,
-      fromConfig ? configNote : h("details", { className: "pg-auth-other" }, h("summary", null, "更换令牌"), tokenForm)
+      fromConfig ? configNote : h("details", { className: "pg-auth-other" }, h("summary", null, msg("更换令牌", "Change token")), tokenForm)
     ) : h(
       React2.Fragment,
       null,
-      refused ? h("p", { className: "pg-error", role: "alert" }, refusedText) : failedCheck ? h("p", { className: "pg-error", role: "alert" }, current.reason === "network" ? "无法连接 Playground 平台，暂时无法确认登录状态。请检查网络后点击“重新检测”。" : "Playground 平台暂时无法确认登录状态，请稍后点击“重新检测”。") : current.error ? h("p", { className: "pg-error", role: "alert" }, current.error) : null,
+      refused ? h("p", { className: "pg-error", role: "alert" }, refusedText) : failedCheck ? h("p", { className: "pg-error", role: "alert" }, current.reason === "network" ? msg("无法连接 Playground 平台，暂时无法确认登录状态。请检查网络后点击“重新检测”。", "Could not connect to Playground to verify sign-in. Check the network and select Check again.") : msg("Playground 平台暂时无法确认登录状态，请稍后点击“重新检测”。", "Playground could not verify sign-in. Select Check again later.")) : current.error ? h("p", { className: "pg-error", role: "alert" }, current.error) : null,
       note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
       clearButton ? h("div", { className: "pg-actions" }, clearButton) : null,
       fromConfig ? configNote : tokenForm,
       h(
         "details",
         { className: "pg-auth-other" },
-        h("summary", null, "其他登录方式"),
-        h("p", { className: "pg-note" }, "用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。"),
+        h("summary", null, msg("其他登录方式", "Other sign-in methods")),
+        h("p", { className: "pg-note" }, msg("用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。", "Accounts registered with the Playground CLI and a password can sign in with email and password. The plugin passes the password to the installed CLI through DSH credentials and removes it after sign-in. The password stays out of the chat. Sign-in writes to the CLI credentials file. DSH credentials, environment tokens and plugin configuration take priority over that file. You can also run playground auth login before starting DSH, then select Check again.")),
         h(
           "form",
           { className: "pg-form", onSubmit: /* @__PURE__ */ __name((event) => {
             event.preventDefault();
             if (!loginBusy && email.trim() && password) submitLogin();
           }, "onSubmit") },
-          h("label", { className: "pg-field" }, "Playground 邮箱", h("input", { className: "pg-input", type: "email", value: email, autoComplete: "username", onChange: /* @__PURE__ */ __name((event) => setEmail(event.target.value), "onChange") })),
-          h("label", { className: "pg-field" }, "Playground 密码", h("input", { className: "pg-input", type: "password", value: password, autoComplete: "current-password", onChange: /* @__PURE__ */ __name((event) => setPassword(event.target.value), "onChange") })),
-          h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || !email.trim() || !password }, loginBusy ? "正在登录…" : "登录 Playground"),
+          h("label", { className: "pg-field" }, msg("Playground 邮箱", "Playground email"), h("input", { className: "pg-input", type: "email", value: email, autoComplete: "username", onChange: /* @__PURE__ */ __name((event) => setEmail(event.target.value), "onChange") })),
+          h("label", { className: "pg-field" }, msg("Playground 密码", "Playground password"), h("input", { className: "pg-input", type: "password", value: password, autoComplete: "current-password", onChange: /* @__PURE__ */ __name((event) => setPassword(event.target.value), "onChange") })),
+          h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || !email.trim() || !password }, loginBusy ? msg("正在登录…", "Signing in…") : msg("登录 Playground", "Sign in to Playground")),
           loginError ? h("p", { className: "pg-error", role: "alert" }, loginError) : null
         )
       )
@@ -578,9 +665,114 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
 }
 __name(AuthStatusPanel, "AuthStatusPanel");
 
+// src/client/settings/language.js
+var import_react5 = require("react");
+function LanguageMenu() {
+  usePluginLanguage();
+  const id = (0, import_react5.useId)();
+  const root = (0, import_react5.useRef)(null);
+  const trigger = (0, import_react5.useRef)(null);
+  const menu = (0, import_react5.useRef)(null);
+  const [open, setOpen] = (0, import_react5.useState)(false);
+  const preference2 = languagePreference();
+  const label2 = msg("界面语言", "Interface language");
+  const follow = msg("跟随 DSH", "Follow DSH") + " · " + (currentHostLanguage() === "en" ? "English" : "中文");
+  const options = [[null, follow], ["zh", "中文"], ["en", "English"]];
+  const selected = options.findIndex(([value]) => value === preference2);
+  (0, import_react5.useEffect)(() => {
+    if (!open) return;
+    const node = root.current;
+    menu.current?.querySelector("[aria-checked=true]")?.focus();
+    const dismissOutside = /* @__PURE__ */ __name((event) => {
+      if (!node.contains(event.target)) setOpen(false);
+    }, "dismissOutside");
+    node.ownerDocument.addEventListener("pointerdown", dismissOutside, true);
+    return () => node.ownerDocument.removeEventListener("pointerdown", dismissOutside, true);
+  }, [open]);
+  function close() {
+    setOpen(false);
+    trigger.current?.focus();
+  }
+  __name(close, "close");
+  return h(
+    "div",
+    {
+      className: "pg-language",
+      ref: root,
+      onBlur: /* @__PURE__ */ __name((event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }, "onBlur"),
+      onKeyDown: /* @__PURE__ */ __name((event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      }, "onKeyDown")
+    },
+    h("button", {
+      type: "button",
+      className: "pg-controller-icon",
+      ref: trigger,
+      "aria-label": label2,
+      "aria-describedby": open ? void 0 : id + "-tip",
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      "aria-controls": open ? id : void 0,
+      onClick: /* @__PURE__ */ __name(() => setOpen(!open), "onClick"),
+      onKeyDown: /* @__PURE__ */ __name((event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setOpen(true);
+        }
+      }, "onKeyDown")
+    }, h(
+      "svg",
+      {
+        width: 18,
+        height: 18,
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 1.7,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": true
+      },
+      h("path", { d: "M3 5h12M9 2v3m3 0c-.7 5.4-4.3 9.2-9 12m2-9c1.3 3.2 3.5 5.6 6.5 7.4M13 21l4.5-11L22 21m-7.4-3.5h5.8" })
+    )),
+    open ? h("div", {
+      id,
+      role: "menu",
+      "aria-label": label2,
+      className: "pg-language-menu",
+      ref: menu,
+      onKeyDown: /* @__PURE__ */ __name((event) => {
+        const rows = Array.from(event.currentTarget.children);
+        const index = rows.indexOf(event.target);
+        const target = { ArrowDown: (index + 1) % rows.length, ArrowUp: (index + rows.length - 1) % rows.length, Home: 0, End: rows.length - 1 }[event.key];
+        if (target !== void 0) {
+          event.preventDefault();
+          rows[target].focus();
+        }
+      }, "onKeyDown")
+    }, options.map(([value, text]) => h("button", {
+      key: value ?? "follow",
+      type: "button",
+      role: "menuitemradio",
+      "aria-checked": preference2 === value,
+      tabIndex: -1,
+      onClick: /* @__PURE__ */ __name(() => {
+        setLanguage(value);
+        close();
+      }, "onClick")
+    }, h("span", { lang: value ?? void 0 }, text), h("span", { "aria-hidden": true }, preference2 === value ? "✓" : "")))) : h("span", { className: "pg-language-tip", role: "tooltip", id: id + "-tip" }, label2 + " · " + options[selected][1])
+  );
+}
+__name(LanguageMenu, "LanguageMenu");
+
 // src/client/settings/releases.js
 var React3 = __toESM(require("react"), 1);
-var RELEASE_CHANNEL_LABELS = { stable: "正式版", beta: "Beta" };
 var releaseCss = `
   .pg-release{margin-top:12px;overflow-wrap:anywhere}.pg-release-version strong{color:var(--dsw-alias-label-primary)}.pg-release .pg-error{color:var(--pg-error)}
   .pg-release-controls{align-items:flex-end;justify-content:flex-start;margin-top:10px}
@@ -646,11 +838,12 @@ function ReleaseStatusPanel({ query }) {
     }), Math.max(0, Date.parse(release.resetAt) - Date.now()));
     return () => clearTimeout(timer);
   }, [release.error, release.resetAt]);
+  const channelLabels = { stable: msg("正式版", "Stable"), beta: "Beta" };
   const { status, comparison } = release;
   const target = release.target;
-  const runningChannel = RELEASE_CHANNEL_LABELS[info?.currentChannel];
-  const targetChannel = target?.prerelease ? RELEASE_CHANNEL_LABELS.beta : RELEASE_CHANNEL_LABELS.stable;
-  const targetLabel = target ? `${target.version}（${targetChannel}）` : "";
+  const runningChannel = channelLabels[info?.currentChannel];
+  const targetChannel = target?.prerelease ? channelLabels.beta : channelLabels.stable;
+  const targetLabel = target ? msg(`${target.version}（${targetChannel}）`, `${target.version} (${targetChannel})`) : "";
   const notesUrl = openableWebUrl(target?.notesUrl);
   const canReadNotes = notesUrl?.startsWith("https://");
   const gitSource = ["git_pinned", "git_unpinned"].includes(info?.source);
@@ -661,50 +854,57 @@ function ReleaseStatusPanel({ query }) {
   const specLabel = gitSource ? "Git spec" : "npm spec";
   const rateLimited = release.error === "rate_limited";
   const errorText = {
-    info_timeout: "读取本地版本信息超时。请稍后重试。",
-    timeout: "检查发布版本超时。请稍后检查。",
-    rate_limited: `GitHub 请求额度已用完。额度恢复时间为 ${release.resetAt || "未知"}，恢复前不会再次请求。`,
-    failed: "无法读取发布版本。请检查网络后稍后检查。",
-    incomplete: "发布列表超过读取上限，未找到此渠道的版本。请查看 GitHub Releases。",
-    version_unavailable: "无法读取本地插件版本，请在 DSH 插件管理器核对安装。",
-    user_action_required: "无法核实浏览器检查操作。请重新打开 DSH 工作台。"
-  }[release.error] || "无法读取发布版本。";
+    info_timeout: msg("读取本地版本信息超时。请稍后重试。", "Reading local version information timed out. Try again later."),
+    timeout: msg("检查发布版本超时。请稍后检查。", "The release check timed out. Try again later."),
+    rate_limited: msg(`GitHub 请求额度已用完。额度恢复时间为 ${release.resetAt || "未知"}，恢复前不会再次请求。`, `GitHub rate limit reached. Requests resume after ${release.resetAt || "an unknown reset time"}.`),
+    failed: msg("无法读取发布版本。请检查网络后稍后检查。", "Could not read releases. Check the network and try again."),
+    incomplete: msg("发布列表超过读取上限，未找到此渠道的版本。请查看 GitHub Releases。", "The release list exceeded the lookup limit. Check GitHub Releases for this channel."),
+    version_unavailable: msg("无法读取本地插件版本，请在 DSH 插件管理器核对安装。", "Could not read the local plugin version. Check the installation in the DSH plugin manager."),
+    user_action_required: msg("无法核实浏览器检查操作。请重新打开 DSH 工作台。", "Could not verify the browser request. Reopen the DSH workbench.")
+  }[release.error] || msg("无法读取发布版本。", "Could not read releases.");
   const statusText = {
-    unchecked: "尚未检查更新。",
-    checking: "正在检查发布版本…",
+    unchecked: msg("尚未检查更新。", "Updates have not been checked yet."),
+    checking: msg("正在检查发布版本…", "Checking releases…"),
     unavailable: errorText,
-    ready: target && registrySource && !registryReady ? release.registry?.status === "pending" ? `GitHub 已发布 ${targetLabel}，npm ${release.registry.stage === "tarball" ? "安装包" : "版本"}尚未就绪（404）。请稍后再次检查更新。` : `GitHub 已发布 ${targetLabel}，无法确认 npm 版本及安装包是否就绪${release.registry?.error === "timeout" ? "（检查超时）" : ""}。请检查网络后重试。` : target ? {
-      current: `当前已运行此版本（${targetChannel}）。`,
-      upgrade: `可升级至 ${targetLabel}。`,
-      downgrade: `此渠道最新版本 ${targetLabel} 早于运行版本。降级前请核对兼容性；DSH 更新操作不接受旧版本。`
-    }[comparison] || `已发布 ${targetLabel}。` : info?.channel === "beta" ? "Beta 渠道暂无发布。" : "暂无稳定版发布。"
+    ready: target && registrySource && !registryReady ? release.registry?.status === "pending" ? msg(`GitHub 已发布 ${targetLabel}，npm ${release.registry.stage === "tarball" ? "安装包" : "版本"}尚未就绪（404）。请稍后再次检查更新。`, `GitHub released ${targetLabel}. The npm ${release.registry.stage === "tarball" ? "package" : "version"} is unavailable (404). Check again later.`) : msg(`GitHub 已发布 ${targetLabel}，无法确认 npm 版本及安装包是否就绪${release.registry?.error === "timeout" ? "（检查超时）" : ""}。请检查网络后重试。`, `GitHub released ${targetLabel}. Could not verify npm version and package availability${release.registry?.error === "timeout" ? " (check timed out)" : ""}. Check the network and try again.`) : target ? {
+      current: msg(`当前已运行此版本（${targetChannel}）。`, `You are running this version (${targetChannel}).`),
+      upgrade: msg(`可升级至 ${targetLabel}。`, `Update available: ${targetLabel}.`),
+      downgrade: msg(`此渠道最新版本 ${targetLabel} 早于运行版本。降级前请核对兼容性；DSH 更新操作不接受旧版本。`, `The newest release on this channel (${targetLabel}) is older than your running version. Check compatibility before downgrading. DSH updates require a newer version.`)
+    }[comparison] || msg(`已发布 ${targetLabel}。`, `${targetLabel} has been released.`) : info?.channel === "beta" ? "Beta 渠道暂无发布。" : "暂无稳定版发布。"
   }[status];
   return h(
     "section",
-    { className: "pg-guide pg-release", "aria-label": "Playground 版本与更新" },
+    { className: "pg-guide pg-release", "aria-label": msg("Playground 版本与更新", "Playground version and updates") },
     h("style", null, releaseCss),
-    h("h2", { className: "pg-brand" }, "Playground 版本与更新"),
-    h("p", { className: "pg-note pg-release-version" }, info?.currentVersion ? h(React3.Fragment, null, "当前运行版本 ", h("strong", null, info.currentVersion), runningChannel ? ` · ${runningChannel}` : "") : status === "loading" ? "正在读取运行版本…" : "无法读取运行版本。"),
-    info?.installedVersion ? h("p", { className: "pg-note" }, `磁盘版本 ${info.installedVersion}。${info.restartRequired ? "磁盘版本较新，需要重启 DSH。" : ""}`) : null,
-    info?.sourceHint ? h("p", { className: "pg-note" }, info.sourceHint) : null,
+    h("h2", { className: "pg-brand" }, msg("Playground 版本与更新", "Playground version and updates")),
+    h("p", { className: "pg-note pg-release-version" }, info?.currentVersion ? h(React3.Fragment, null, msg("当前运行版本 ", "Running version "), h("strong", null, info.currentVersion), runningChannel ? ` · ${runningChannel}` : "") : status === "loading" ? msg("正在读取运行版本…", "Reading running version…") : msg("无法读取运行版本。", "Could not read the running version.")),
+    info?.installedVersion ? h("p", { className: "pg-note" }, msg(`磁盘版本 ${info.installedVersion}。${info.restartRequired ? "磁盘版本较新，需要重启 DSH。" : ""}`, `Installed version: ${info.installedVersion}.${info.restartRequired ? " Restart DSH to use the newer version." : ""}`)) : null,
+    info?.sourceHint ? h("p", { className: "pg-note" }, msg(info.sourceHint, {
+      registry: "Installed from npm. Checking for updates verifies the version and its public package on npm.",
+      git_pinned: "Installed from a pinned Git commit. Update in the DSH plugin manager with the release Git spec from the same repository and directory.",
+      git_unpinned: "The current Git spec lacks a full commit SHA. Check releases, then paste a pinned Git spec into the DSH third-party installation field to replace this copy. DSH may request a restart. Remove and reinstall only if DSH returns already-installed.",
+      link: "Local development link. Update the code in the linked directory, then reload or restart as prompted by DSH.",
+      file: "Installed from a local file or archive. Copy a pinned Git spec from GitHub Releases and paste it into the DSH third-party installation field. A restart may be required. Remove and reinstall only if DSH returns already-installed.",
+      unknown: "Installation source unknown. Check the source in the DSH plugin manager before installing or updating."
+    }[info.source] || info.sourceHint)) : null,
     h(
       "div",
       { className: "pg-head pg-release-controls" },
-      h("span", { className: "pg-note" }, `更新渠道 ${RELEASE_CHANNEL_LABELS[info?.channel] || "读取中"}。在插件配置 releaseChannel 中修改。`),
+      h("span", { className: "pg-note" }, msg(`更新渠道 ${channelLabels[info?.channel] || "读取中"}。在插件配置 releaseChannel 中修改。`, `Update channel: ${channelLabels[info?.channel] || "Loading"}. Change releaseChannel in the plugin configuration.`)),
       h(
         "button",
         { type: "button", className: "pg-button", disabled: status === "loading" || status === "checking" || rateLimited, onClick: /* @__PURE__ */ __name(() => load(true), "onClick") },
-        status === "checking" ? "正在检查…" : rateLimited ? "等待额度恢复" : "检查更新"
+        status === "checking" ? msg("正在检查…", "Checking…") : rateLimited ? msg("等待额度恢复", "Waiting for rate limit reset") : msg("检查更新", "Check for updates")
       )
     ),
-    info?.channel === "beta" ? h("p", { className: "pg-note" }, "Beta 提供抢先功能，可能不稳定。") : null,
+    info?.channel === "beta" ? h("p", { className: "pg-note" }, msg("Beta 提供抢先功能，可能不稳定。", "Beta includes early features and may be unstable.")) : null,
     h("p", { className: status === "unavailable" ? "pg-note pg-error" : "pg-note", role: "status" }, statusText),
-    release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note" }, "部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。") : null,
+    release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note" }, msg("部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。", "Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.")) : null,
     target ? h(
       React3.Fragment,
       null,
-      release.incomplete ? h("p", { className: "pg-note" }, "发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。") : null,
-      canReadNotes ? h("a", { className: "pg-button pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, "发布说明") : null,
+      release.incomplete ? h("p", { className: "pg-note" }, msg("发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。", "The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.")) : null,
+      canReadNotes ? h("a", { className: "pg-button pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
       installSpec ? h(
         React3.Fragment,
         null,
@@ -712,28 +912,272 @@ function ReleaseStatusPanel({ query }) {
         h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(async () => {
           try {
             await navigator.clipboard.writeText(installSpec);
-            setCopyStatus(`已复制 ${specLabel}`);
+            setCopyStatus("copied");
           } catch {
-            setCopyStatus(`无法复制，请选择上方 ${specLabel} 后复制。`);
+            setCopyStatus("failed");
           }
-        }, "onClick") }, `复制 ${specLabel}`),
-        h("span", { role: "status", className: "pg-note" }, copyStatus)
+        }, "onClick") }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)),
+        h("span", { role: "status", className: "pg-note" }, copyStatus === "copied" ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === "failed" ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : "")
       ) : null,
-      registrySource && registryReady ? h("p", { className: "pg-note" }, "npm 版本及公开安装包已就绪。DSH 不会更新第三方 npm 插件，再次安装同名插件会返回 already-installed。先在 DSH 插件管理器卸载本插件，再把上方 npm spec 填入第三方插件安装框重新安装，可能提示重启。插件配置会保留。") : null,
-      gitSource && !gitSpec ? h("p", { className: "pg-note" }, "此 Release 未提供完整 commit SHA，无法生成固定 Git spec。") : null
+      registrySource && registryReady ? h("p", { className: "pg-note" }, msg("npm 版本及公开安装包已就绪。DSH 不会更新第三方 npm 插件，再次安装同名插件会返回 already-installed。先在 DSH 插件管理器卸载本插件，再把上方 npm spec 填入第三方插件安装框重新安装，可能提示重启。插件配置会保留。", "The npm version and public package are ready. DSH cannot update third-party npm plugins in place. Reinstalling an existing package returns already-installed. Remove this plugin in the DSH plugin manager, then paste the npm spec above into the third-party installation field. You may need to restart DSH. Your plugin settings are retained.")) : null,
+      gitSource && !gitSpec ? h("p", { className: "pg-note" }, msg("此 Release 未提供完整 commit SHA，无法生成固定 Git spec。", "This release lacks a full commit SHA, so a pinned Git spec is unavailable.")) : null
     ) : null
   );
 }
 __name(ReleaseStatusPanel, "ReleaseStatusPanel");
 
-// src/client/controller/handoff.js
+// src/client/controller/messages.js
+var controllerMessages = /* @__PURE__ */ new Map([
+  ["该子任务关联的平台与当前平台不一致，未更改已有归属。", "The child task belongs to another platform. Its association was preserved."],
+  ["该子任务已关联另一道赛题，未更改已有归属。", "The child task already belongs to another challenge. Its association was preserved."],
+  ["该编号不属于当前主控可见的直接子任务。", "This ID is not a direct child task visible to this controller."],
+  ["主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue."],
+  ["主控对话已归档。请先在 DSH 中取消归档。", "Unarchive the controller chat in DSH first."],
+  ["已创建对话，但未能关联到工作区。请在 DSH 中按对话编号找回；不会重复创建。", "The chat was created but could not be attached to the workspace. Find it by its ID in DSH."],
+  ["所选主控已变更，请重新核对工作区。", "The selected controller changed. Check the workspace again."],
+  ["该对话的主控记录与工作区或赛题任务冲突，无法打开主控。", "The controller record conflicts with the workspace or challenge task. The controller cannot open."],
+  ["该对话已有赛题记录，不能设为主控。", "This chat already has challenge records and cannot become the controller."],
+  ["该工作区有多个主控记录，请先在 DSH 中核对这些对话。", "This workspace has multiple controller records. Check these chats in DSH."],
+  ["无法确认唯一的主控对话，请检查工作区。", "Could not identify a unique controller chat. Check the workspace."],
+  ["无法创建主控对话，请检查 DSH 工作区后重试。", "Could not create the controller chat. Check the DSH workspace and retry."],
+  ["无法确认保存主控记录，请重试。", "Could not confirm that the controller record was saved. Try again."],
+  ["主控对话已创建，但未完成初始化。请重试。", "The controller chat was created but initialization is incomplete. Try again."],
+  ["主控对话已创建，但无法保存初始化记录。请重试。", "The controller chat was created but its initialization record could not be saved. Try again."],
+  ["主控对话已创建，但无法加载。请在 DSH 中打开该对话后重试。", "The controller chat was created but could not be loaded. Open it in DSH and retry."],
+  ["主控记录已保存，但未能初始化空对话。", "The controller record was saved but the empty chat could not be initialized."],
+  ["DSH 未确认保存主控记录。请重试。", "DSH did not confirm saving the controller record. Try again."],
+  ["DSH 未确认接收主控的首条消息。请重试。", "DSH did not acknowledge the first controller message. Try again."],
+  ["DSH 未确认启动并保存主控对话。请重试。", "DSH did not confirm starting and saving the controller chat. Try again."],
+  ["请先完成主控初始化。", "Complete controller initialization first."],
+  ["请在原对话中重试设为主控。", "Retry making the original chat the controller from that chat."],
+  ["现有主控尚未初始化，请先完成初始化。", "Initialize the existing controller first."],
+  ["主控对话尚未初始化。请在 Playground 工作台确认初始化。", "Confirm controller initialization in the Playground workbench."],
+  ["该工作区没有主控对话。", "This workspace has no controller chat."],
+  ["未找到主控对话，请重新选择工作区并确认创建。", "Controller chat not found. Select the workspace again and confirm creation."],
+  ["当前 DSH 版本无法初始化主控对话，请更新 DSH 后重试。", "Update DSH to a version that can initialize controller chats and retry."],
+  ["当前 DSH 无法保存主控记录。", "This DSH instance cannot save controller records."],
+  ["无法核对当前工作区的主控任务，未关联任务。", "Could not verify the workspace controller tasks. No task was linked."],
+  ["所选工作区目录不存在或不可访问，请重新选择。", "The selected workspace folder is missing or inaccessible. Choose another."],
+  ["DSH 未确认接收请求，请重试。", "DSH did not acknowledge the request. Try again."],
+  ["请提供明确的赛题编号和已有子任务编号。", "Provide a challenge ID and an existing child task ID."],
+  ["请先在 DSH 中打开该对话，完成会话迁移后再试。", "Open this chat in DSH to migrate it, then try again."],
+  ["当前对话不是工作区主控。", "This chat is not the workspace controller."],
+  ["找不到赛题，未关联任务。请确认 challenge_id。", "Challenge not found. Check challenge_id. No task was linked."],
+  ["无法核对该工作区的对话记录，请重启 DSH 后重试。", "Could not verify the workspace chat history. Restart DSH and retry."],
+  ["无法核对该工作区的对话记录，请重试。", "Could not verify the workspace chat history. Try again."],
+  ["当前对话已归档，请先取消归档。", "Unarchive this chat first."],
+  ["当前对话不可用，请先打开该对话。", "This chat is unavailable. Open it first."],
+  ["无法加载主控对话，请先在 DSH 中打开该对话。", "Could not load the controller chat. Open it in DSH first."],
+  ["主控对话的目录不属于所选工作区。", "The controller chat folder is outside the selected workspace."],
+  ["当前对话不属于所选的已注册工作区。", "This chat does not belong to the selected registered workspace."],
+  ["当前对话已离开所选工作区。", "This chat has left the selected workspace."],
+  ["所选工作区已移除，请重新选择。", "The selected workspace was removed. Choose another."],
+  ["无法打开主控对话，请重试。", "Could not open the controller chat. Try again."],
+  ["无法交给主控，请重试。", "Could not hand off to the controller. Try again."],
+  ["无法添加工作区，请重试。", "Could not add the workspace. Try again."],
+  ["无法打开子智能体对话，请重试。", "Could not open the subagent chat. Try again."],
+  ["已复制结果", "Result copied"],
+  ["无法复制，请选择文本后复制。", "Could not copy. Select the text and copy it manually."]
+]);
+function controllerMessage(value) {
+  return msg(value, controllerMessages.get(value) ?? value);
+}
+__name(controllerMessage, "controllerMessage");
+
+// src/client/controller/codex-chats.js
 var React4 = __toESM(require("react"), 1);
+var reasons = /* @__PURE__ */ __name(() => ({
+  controller_changed: msg("主控或工作区已变更，请重新打开。", "The controller or workspace changed. Reopen it to continue."),
+  target_missing: msg("找不到此对话，请刷新并核对编号。", "Chat not found. Refresh and check the ID."),
+  target_changed: msg("目标会话已变更，请重新选择。", "The target chat changed. Select it again."),
+  thread_not_attached: msg("共享 Codex 服务未打开该会话。请在原会话中继续。", "The shared Codex service has not opened this chat. Continue in the original chat."),
+  thread_busy: msg("该对话正在运行或状态未知，请稍后查看。", "The chat is running or its status is unknown. Check again later."),
+  codex_incompatible: msg("请使用支持工作区和账号筛选的本机 Codex 版本。", "Use a local Codex version that supports workspace and account filters."),
+  user_action_required: msg("请从主控工作台发起操作。", "Start this action from the controller workbench."),
+  interaction_required: msg("此轮需要在原 Codex 对话中处理交互。", "This turn needs your input in the original Codex chat.")
+}), "reasons");
+var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
+var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
+function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+  const [data, setData] = React4.useState(initial || null);
+  const [selected, select] = React4.useState(null);
+  const [target, setTarget] = React4.useState("");
+  const [draft, setDraft] = React4.useState(initial?.message || "");
+  const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
+  const [response, setResponse] = React4.useState(null);
+  const [busy, setBusy] = React4.useState(false);
+  const [copied, setCopied] = React4.useState(false);
+  const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
+  React4.useEffect(() => {
+    control.active = true;
+    if (!initial) read("list");
+    return () => {
+      control.active = false;
+      control.read?.abort();
+    };
+  }, [refresh, query]);
+  async function read(action, threadId) {
+    control.read?.abort();
+    const abort = new AbortController();
+    control.read = abort;
+    try {
+      const result = await query({ action, workspaceId, sessionId, ...threadId ? { threadId } : {} }, abort.signal);
+      if (!abort.signal.aborted) setData(result);
+    } catch {
+      if (!abort.signal.aborted) setData({ kind: "unavailable" });
+    }
+  }
+  __name(read, "read");
+  async function send(source) {
+    if (!draft.trim() || control.writing) return;
+    const rows2 = data?.rows || [];
+    const named = target.trim();
+    let displayed;
+    if (!source) {
+      const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
+      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
+        setChoices(matches);
+        setResponse(null);
+        return;
+      }
+      [displayed] = matches;
+    }
+    control.writing = true;
+    setBusy(true);
+    setResponse(null);
+    setCopied(false);
+    try {
+      const result = await query({
+        workspaceId,
+        sessionId,
+        action: "send",
+        message: draft,
+        ...source ? { threadId: source.threadId } : named ? { target: named, ...displayed ? { expectedThreadId: displayed.threadId } : {} } : { threadId: displayed.threadId }
+      });
+      if (!control.active) return;
+      if (result.kind === "choose") {
+        setChoices(result.rows);
+        return;
+      }
+      setResponse(result);
+      if (result.kind === "sent" || result.kind === "unknown") {
+        select(result.source);
+        setChoices(null);
+        setDraft("");
+      }
+    } catch {
+      if (control.active) {
+        setResponse({ kind: "unknown", source });
+        setDraft("");
+        setChoices(null);
+      }
+    } finally {
+      control.writing = false;
+      if (control.active) setBusy(false);
+    }
+  }
+  __name(send, "send");
+  const rows = data?.rows || [];
+  return h(
+    "section",
+    { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
+    h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")),
+    !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
+    rows.map((source) => h(
+      "div",
+      { key: source.threadId },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "pg-controller-row",
+          disabled: busy,
+          onClick: /* @__PURE__ */ __name(() => {
+            select(source);
+            setChoices(null);
+            setResponse(null);
+          }, "onClick")
+        },
+        h("strong", null, source.title),
+        h("span", null, source.threadId)
+      ),
+      verdict(source) ? h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, verdict(source)) : null
+    )),
+    data?.partial ? h("p", null, msg("仅显示最近的部分对话。可通过完整会话编号指定目标。", "Showing recent chats only. Enter the full chat ID to select another.")) : null,
+    rows.length > 0 && data.kind !== "summary" ? h("button", {
+      type: "button",
+      className: "pg-controller-action",
+      disabled: busy,
+      onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
+    }, msg("汇总最近结果", "Summarize recent results")) : null,
+    rows.length || selected ? h(
+      "div",
+      null,
+      selected ? h("p", null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h("button", {
+        type: "button",
+        disabled: busy,
+        onClick: /* @__PURE__ */ __name(() => {
+          select(null);
+          setChoices(null);
+        }, "onClick")
+      }, msg("更换目标", "Change target"))) : h("label", null, msg("目标会话", "Target chat"), h("input", {
+        value: target,
+        disabled: busy,
+        placeholder: msg("完整编号或标题", "Full ID or title"),
+        onChange: /* @__PURE__ */ __name((event) => {
+          setTarget(event.target.value);
+          setChoices(null);
+        }, "onChange")
+      })),
+      h("label", null, msg("追问内容", "Follow-up message"), h("textarea", {
+        value: draft,
+        disabled: busy,
+        maxLength: 8e3,
+        onChange: /* @__PURE__ */ __name((event) => setDraft(event.target.value), "onChange")
+      })),
+      choices ? h("div", null, h("p", null, msg("选择接收这条追问的原会话。", "Choose the original chat to receive this follow-up.")), choices.map((source) => h("button", {
+        key: source.threadId,
+        type: "button",
+        disabled: busy || !draft.trim(),
+        className: "pg-controller-row",
+        onClick: /* @__PURE__ */ __name(() => send(source), "onClick")
+      }, msg(`发送给 ${label(source)}`, `Send to ${label(source)}`)))) : h(
+        "button",
+        { type: "button", className: "pg-controller-action", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
+        busy ? msg("等待原会话回复…", "Waiting for a reply from the original chat…") : msg("发送追问", "Send follow-up")
+      )
+    ) : null,
+    response ? h(
+      "div",
+      { role: "status" },
+      response.source ? h("strong", null, label(response.source)) : null,
+      response.kind === "sent" && response.turnStatus ? h("p", null, msg(`该轮状态：${response.turnStatus}`, `Turn status: ${response.turnStatus}`)) : null,
+      h(
+        "p",
+        { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
+        response.kind === "sent" ? response.text || msg("暂无最终回复。", "No final reply yet.") : response.kind === "unknown" && response.code === "interaction_required" ? msg("该轮需要权限或用户输入，请在原 Codex 会话查看。", "This turn needs permission or input. Open the original Codex chat.") : response.kind === "unknown" ? msg("发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。", "Delivery is unconfirmed. Check the turn in the original Codex chat before resending.") : reasons()[response.code] || msg("无法连接可接收追问的本机 Codex 服务。请在原会话继续。", "Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.")
+      ),
+      response.kind === "unavailable" && draft ? h("button", { type: "button", onClick: /* @__PURE__ */ __name(async () => {
+        try {
+          await navigator.clipboard.writeText(draft);
+          setCopied(true);
+        } catch {
+          setCopied(false);
+        }
+      }, "onClick") }, copied ? msg("已复制", "Copied") : msg("复制追问", "Copy follow-up")) : null
+    ) : null
+  );
+}
+__name(CodexChats, "CodexChats");
+
+// src/client/controller/handoff.js
+var React5 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
-  const [picker] = React4.useState(() => ({ pending: false }));
-  const [adding, setAdding] = React4.useState(false);
-  const [addError, setAddError] = React4.useState("");
-  const title = "交给工作区主控";
+  const [picker] = React5.useState(() => ({ pending: false }));
+  const [adding, setAdding] = React5.useState(false);
+  const [addError, setAddError] = React5.useState("");
+  const title = msg("交给工作区主控", "Hand off to workspace controller");
   const accepted = state.phase === "accepted" || state.phase === "opening";
   const canAdd = workspaces.phase === "ready" && !accepted;
   const canSelect = canAdd && workspaces.items.length > 0 && !busy && !adding;
@@ -750,7 +1194,7 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       const created = await addTaskWorkspace();
       if (created?.workspaceId) selectWorkspace(created.workspaceId);
     } catch {
-      setAddError("无法添加工作区，请重试。");
+      setAddError(true);
     } finally {
       picker.pending = false;
       setAdding(false);
@@ -766,7 +1210,7 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title),
       h(
         "button",
-        { type: "button", className: "pg-task-close", "aria-label": "关闭交接弹窗", disabled: busy || adding, onClick: dismiss },
+        { type: "button", className: "pg-task-close", "aria-label": msg("关闭交接弹窗", "Close handoff dialog"), disabled: busy || adding, onClick: dismiss },
         h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
       )
     ),
@@ -775,14 +1219,14 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       { className: "pg-task-body" },
       h(
         "section",
-        { className: "pg-task-summary", "aria-label": "目标赛题" },
+        { className: "pg-task-summary", "aria-label": msg("目标赛题", "Target challenge") },
         h("h3", { className: "pg-task-title", title: state.challenge.title }, state.challenge.title),
         h("p", { className: "pg-task-id" }, state.challenge.id)
       ),
       h(
         "div",
         { className: "pg-task-field" },
-        h("label", { htmlFor: "pg-handoff-workspace" }, "目标工作区"),
+        h("label", { htmlFor: "pg-handoff-workspace" }, msg("目标工作区", "Target workspace")),
         h(
           "div",
           { className: "pg-task-select-wrap" },
@@ -801,18 +1245,18 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
                 selectWorkspace(event.target.value);
               }, "onChange")
             },
-            h("option", { value: "" }, "请选择工作区"),
+            h("option", { value: "" }, msg("请选择工作区", "Choose a workspace")),
             workspaceOptions(workspaces.items)
           ),
           h("svg", { className: "pg-task-chevron", viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 9 6 6 6-6" }))
         ),
         message ? h("p", { id: "pg-handoff-status", className: failed ? "pg-task-error" : "pg-task-hint", role: failed ? "alert" : "status" }, message) : null,
-        addError ? h("p", { className: "pg-task-error", role: "alert" }, addError) : null,
+        addError ? h("p", { className: "pg-task-error", role: "alert" }, msg("无法添加工作区，请重试。", "Could not add the workspace. Try again.")) : null,
         canAdd ? h(
           "button",
           { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: addWorkspace },
           h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M12 5v14M5 12h14" })),
-          adding ? "正在选择目录…" : "添加工作区…"
+          adding ? msg("正在选择目录…", "Choosing folder…") : msg("添加工作区…", "Add workspace…")
         ) : null
       )
     ),
@@ -822,12 +1266,12 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       h(
         "div",
         { className: "pg-task-actions" },
-        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? "关闭" : "取消"),
+        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? msg("关闭", "Close") : msg("取消", "Cancel")),
         action || busy ? h(
           "button",
           { type: "button", className: "pg-task-button pg-task-create", disabled: busy || adding, "data-busy": busy, onClick: action?.run },
           busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? state.phase === "opening" ? "正在打开…" : "正在交接…" : action.label
+          busy ? state.phase === "opening" ? msg("正在打开…", "Opening…") : msg("正在交接…", "Handing off…") : action.label
         ) : null
       )
     )
@@ -851,7 +1295,13 @@ var controllerPanelCss = `
   .pg-controller-challenge > summary small { display:block; padding-left:16px; color:var(--dsw-alias-label-secondary); font-size:11px; }
   .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
   .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
-  .pg-controller-spacer { flex:1; }
+  .pg-controller-account { display:flex; align-items:center; position:relative; gap:4px; margin-left:auto; }
+  .pg-language { position:relative; flex:none; }
+  .pg-language-menu, .pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
+  .pg-language-menu { padding:4px; }
+  .pg-language-menu button { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:32px; padding:4px 8px; text-align:start; border:0; border-radius:4px; background:transparent; }
+  .pg-language-tip { visibility:hidden; padding:5px 8px; font-size:12px; pointer-events:none; }
+  .pg-language:hover .pg-language-tip, .pg-language button:focus-visible + .pg-language-tip { visibility:visible; }
   .pg-controller-icon { display:grid; place-items:center; width:32px; height:32px; padding:6px; border:0; border-radius:5px; background:transparent; }
   .pg-controller-connection { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; white-space:nowrap; font-size:12px!important; }
   .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--dsw-alias-label-secondary); }
@@ -873,6 +1323,9 @@ var controllerPanelCss = `
   .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
   .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
   .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
+  .pg-codex-chats { padding-bottom:12px; border-bottom:1px solid var(--dsw-alias-border-l3); overflow-wrap:anywhere; }
+  .pg-codex-chats label { display:block; margin:6px 0; }
+  .pg-codex-chats input, .pg-codex-chats textarea { box-sizing:border-box; width:100%; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:4px; padding:6px; }
   .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
   .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
@@ -882,20 +1335,20 @@ var controllerPanelCss = `
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
 `;
-var stopReasonLabels = {
-  completed: { detail: "完成" },
-  aborted: { detail: "已中止", state: "已中止" },
-  "max-tokens": { detail: "达到输出上限", state: "达到输出上限" },
-  refusal: { detail: "拒绝", state: "拒绝执行" },
-  error: { detail: "出错", state: "运行出错" }
-};
+var stopReasonLabels = /* @__PURE__ */ __name(() => ({
+  completed: { detail: msg("完成", "Completed") },
+  aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
+  "max-tokens": { detail: msg("达到输出上限", "Output limit reached"), state: msg("达到输出上限", "Output limit reached") },
+  refusal: { detail: msg("拒绝", "Refused"), state: msg("拒绝执行", "Task refused") },
+  error: { detail: msg("出错", "Error"), state: msg("运行出错", "Run failed") }
+}), "stopReasonLabels");
 function taskState(row) {
-  if (row.state === "running") return "运行中";
-  const reason = stopReasonLabels[row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0)];
-  if (reason?.state) return `${row.state === "settled" ? "上次" : ""}${reason.state}`;
-  if (row.state === "settled") return "已收到历史结果";
-  if (row.state === "ended" && row.terminalText) return "本次运行已结束 · 已收到结果";
-  return { ended: "本次运行已结束", unknown: "暂无执行回执" }[row.state];
+  if (row.state === "running") return msg("运行中", "Running");
+  const reason = stopReasonLabels()[row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0)];
+  if (reason?.state) return `${row.state === "settled" ? msg("上次", "Previous run: ") : ""}${reason.state}`;
+  if (row.state === "settled") return msg("已收到历史结果", "Received a previous result");
+  if (row.state === "ended" && row.terminalText) return msg("本次运行已结束 · 已收到结果", "Run ended · Result received");
+  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("暂无执行回执", "No execution receipt yet") }[row.state];
 }
 __name(taskState, "taskState");
 function taskOutput(row) {
@@ -910,20 +1363,21 @@ function taskOutput(row) {
 }
 __name(taskOutput, "taskOutput");
 var TRAJECTORY_VIEW_ID = "trajectory";
-var controllerViews = [["chat", "对话"], [TRAJECTORY_VIEW_ID, "轨迹"]].map(([id, label]) => ({
+var controllerViews = [["chat", () => msg("对话", "Chat")], [TRAJECTORY_VIEW_ID, () => msg("轨迹", "Trajectory")]].map(([id, label2]) => ({
   id,
-  label,
+  label: label2,
   slots: { views: /* @__PURE__ */ __name(({ renderSlot }) => renderSlot("conversation.session", { view: id }), "views") }
 }));
 var [chatView, trajectoryView] = controllerViews;
 function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderSlot, expectedId, onPromote, busy }) {
+  usePluginLanguage();
   const session = useSession((value) => value);
   const conversation = useConversation((value) => value);
   const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
-  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-controller-action", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, "把当前对话设为主控") : null;
-  if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, "正在打开所选主控对话…");
-  if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, "无法加载主控对话，请重新打开。");
-  if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, "正在加载主控对话…");
+  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-controller-action", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
+  if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在打开所选主控对话…", "Opening the selected controller chat…"));
+  if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, msg("无法加载主控对话，请重新打开。", "Could not load the controller chat. Reopen it to try again."));
+  if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在加载主控对话…", "Loading controller chat…"));
   const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running ? "active" : session.promptAttempted ? "engaging" : "blank";
   const settling = shellPhase === "blank" && session.openState === "loading" && blank !== true || session.subagent?.address.mode === "continuable" && session.subagent.parentAvailable === void 0;
   const hero = shellPhase === "blank" && (session.openState === "open" || blank === true);
@@ -935,64 +1389,67 @@ function ControllerSession({ sessionId, useSession, useConversation, useSessions
 }
 __name(ControllerSession, "ControllerSession");
 function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
+  usePluginLanguage();
   const trajectoryAvailable = useControllerTrajectory((value) => value);
   const viewRequest = useStore?.((value) => value.viewRequest);
-  const [traceSessionId, setTraceSessionId] = React5.useState(null);
+  const [traceSessionId, setTraceSessionId] = React6.useState(null);
   const showViewSwitch = trajectoryAvailable && canSwitchView;
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
   }, [sessionId, showViewSwitch, viewRequest]);
   const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
   return h(
-    React5.Fragment,
+    React6.Fragment,
     null,
     showViewSwitch ? h(
       "div",
-      { className: "pg-controller-view-switch", role: "group", "aria-label": "主控视图" },
+      { className: "pg-controller-view-switch", role: "group", "aria-label": msg("主控视图", "Controller view") },
       controllerViews.map((item) => h("button", {
         key: item.id,
         className: "pg-controller-action",
         type: "button",
         "aria-pressed": view === item,
         onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
-      }, item.label))
+      }, item.label()))
     ) : null,
     renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
   );
 }
 __name(ControllerSessionContent, "ControllerSessionContent");
 function ControllerPanel(props) {
+  usePluginLanguage();
   const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
   const workspaces = useWorkspaces((value) => value);
   const sessions = useSessions((value) => value);
   const controllerTarget = useControllerTarget((value) => value);
   const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
   const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-  const [workspaceId, setWorkspaceId] = React5.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
-  const [inspection, setInspection] = React5.useState(null);
-  const [expectedId, setExpectedId] = React5.useState("");
-  const [busy, setBusy] = React5.useState(false);
-  const [error, setError] = React5.useState("");
-  const [view, setView] = React5.useState("controller");
-  const [dispatchState, setDispatchState] = React5.useState(null);
-  const [dispatchControls] = React5.useState(() => ({ busy: false }));
-  const [authStatus, setAuthStatus] = React5.useState("checking");
-  const [visited] = React5.useState(() => /* @__PURE__ */ new Set());
+  const [workspaceId, setWorkspaceId] = React6.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
+  const [inspection, setInspection] = React6.useState(null);
+  const [expectedId, setExpectedId] = React6.useState("");
+  const [busy, setBusy] = React6.useState(false);
+  const [errorMessage, setError] = React6.useState("");
+  const [view, setView] = React6.useState("controller");
+  const error = controllerMessage(errorMessage);
+  const [dispatchState, setDispatchState] = React6.useState(null);
+  const [dispatchControls] = React6.useState(() => ({ busy: false }));
+  const [authStatus, setAuthStatus] = React6.useState("checking");
+  const [visited] = React6.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
-  const [preferences] = React5.useState(() => {
+  const [preferences] = React6.useState(() => {
     try {
       return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
     } catch {
       return {};
     }
   });
-  const [showTasks, setShowTasks] = React5.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
-  const [taskWidth, setTaskWidth] = React5.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
-  const [selectedTask, setSelectedTask] = React5.useState("");
-  const [showMaintenance, setShowMaintenance] = React5.useState(false);
-  const [closedChallenges, setClosedChallenges] = React5.useState(() => /* @__PURE__ */ new Set());
-  const [taskActionStatus, setTaskActionStatus] = React5.useState("");
-  const [pane] = React5.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
+  const [showTasks, setShowTasks] = React6.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
+  const [taskWidth, setTaskWidth] = React6.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+  const [selectedTask, setSelectedTask] = React6.useState("");
+  const [showMaintenance, setShowMaintenance] = React6.useState(false);
+  const [closedChallenges, setClosedChallenges] = React6.useState(() => /* @__PURE__ */ new Set());
+  const [taskActionStatus, setTaskActionStatus] = React6.useState("");
+  const [pane] = React6.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
     Object.assign(preferences, change);
     try {
@@ -1012,16 +1469,16 @@ function ControllerPanel(props) {
     savePane({ open: !showTasks });
     setShowTasks(!showTasks);
   }, "toggleTasks");
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (pane.focus === "heading") pane.heading?.focus();
     else if (pane.focus === "back") pane.back?.focus();
     else if (pane.focus) pane.rows.get(pane.focus)?.focus();
     pane.focus = "";
   }, [selectedTask, showTasks]);
-  const [taskSnapshot, setTaskSnapshot] = React5.useState(null);
+  const [taskSnapshot, setTaskSnapshot] = React6.useState(null);
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
-  const [retry, setRetry] = React5.useState(0);
-  const [taskRetry, setTaskRetry] = React5.useState(0);
+  const [retry, setRetry] = React6.useState(0);
+  const [taskRetry, setTaskRetry] = React6.useState(0);
   const selectWorkspace = /* @__PURE__ */ __name((id) => {
     if (id === workspaceId) return;
     props.controllerSelection.workspaceId = id;
@@ -1035,14 +1492,14 @@ function ControllerPanel(props) {
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!targetWorkspaceId) return;
     setView("controller");
     if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
     else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
     props.clearControllerTarget(controllerTarget);
   }, [controllerTarget, targetWorkspaceId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     const media = window.matchMedia?.("(max-width: 600px)");
     if (!media) return;
     const changed = /* @__PURE__ */ __name((event) => {
@@ -1052,13 +1509,13 @@ function ControllerPanel(props) {
     media.addEventListener("change", changed);
     return () => media.removeEventListener("change", changed);
   }, []);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
       props.controllerSelection.workspaceId = selectedMarker.workspaceId;
       setWorkspaceId(selectedMarker.workspaceId);
     }
   }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     setExpectedId("");
     setInspection(null);
     setError("");
@@ -1082,10 +1539,10 @@ function ControllerPanel(props) {
     });
     return () => abort.abort();
   }, [workspaceId, retry]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     setTaskSnapshot(null);
   }, [workspaceId, expectedId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!workspaceId || !expectedId || !controllerTasks) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1204,29 +1661,29 @@ function ControllerPanel(props) {
   let handoffAction;
   if (showHandoffDialog) {
     if (handoffBusy) {
-      handoffMessage = dispatchState.phase === "sending" ? "正在交给主控…" : "正在打开主控对话…";
+      handoffMessage = dispatchState.phase === "sending" ? msg("正在交给主控…", "Handing off to the controller…") : msg("正在打开主控对话…", "Opening controller chat…");
     } else if (dispatchState.phase === "accepted") {
-      handoffMessage = "主控已接收请求，无法打开对话。";
-      if (dispatchState.workspaceId === workspaceId) handoffAction = { label: "打开主控对话", run: /* @__PURE__ */ __name(() => retryOpenAfterDispatch(dispatchState), "run") };
+      handoffMessage = msg("主控已接收请求，无法打开对话。", "The controller received the request, but its chat could not be opened.");
+      if (dispatchState.workspaceId === workspaceId) handoffAction = { label: msg("打开主控对话", "Open controller chat"), run: /* @__PURE__ */ __name(() => retryOpenAfterDispatch(dispatchState), "run") };
     } else if (!selectedWorkspace) {
-      handoffMessage = workspaces.state === "error" ? "无法读取 DSH 工作区，请重启 DSH 后重试。" : workspaces.phase !== "ready" ? "正在读取 DSH 工作区…" : workspaces.items.length ? "请选择赛题工作所在的工作区。" : "还没有工作区。请选择一个目录添加为工作区。";
+      handoffMessage = workspaces.state === "error" ? msg("无法读取 DSH 工作区，请重启 DSH 后重试。", "Could not load DSH workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取 DSH 工作区…", "Loading DSH workspaces…") : workspaces.items.length ? msg("请选择赛题工作所在的工作区。", "Choose the workspace for this challenge.") : msg("还没有工作区。请选择一个目录添加为工作区。", "No workspaces yet. Choose a folder to add one.");
     } else if (inspection?.kind === "blocked" || inspection?.archived) {
-      handoffMessage = inspection.reason || "主控对话已归档，请先取消归档。";
-      handoffAction = { label: "重新核对", run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
+      handoffMessage = controllerMessage(inspection.reason) || msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.");
+      handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
     } else if (needsRecheck) {
-      handoffMessage = dispatchState.message;
-      handoffAction = { label: "重新核对", run: recheckHandoff };
+      handoffMessage = controllerMessage(dispatchState.message);
+      handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
       const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge } : dispatchState;
       const sessionId = state.sessionId || selectedController;
-      handoffMessage = dispatchState.phase === "error" && state === dispatchState ? dispatchState.message : canInitialize ? "DSH 会发送一条初始化消息，再把赛题交给主控。" : void 0;
+      handoffMessage = dispatchState.phase === "error" && state === dispatchState ? controllerMessage(dispatchState.message) : canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : void 0;
       handoffAction = {
-        label: selectedController ? "交给主控" : inspection.kind === "incomplete" ? "初始化并交接" : "创建主控并交接",
+        label: selectedController ? msg("交给主控", "Hand off to controller") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
         run: /* @__PURE__ */ __name(() => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController), "run")
       };
     } else {
-      handoffMessage = error || "正在核对工作区的主控对话…";
-      if (error) handoffAction = { label: "重新核对", run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
+      handoffMessage = error || msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…");
+      if (error) handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
     }
   }
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
@@ -1249,7 +1706,7 @@ function ControllerPanel(props) {
       setTaskActionStatus("");
       setSelectedTask(item.childId);
     }, "onClick") },
-    h("strong", null, item.label || "未命名任务"),
+    h("strong", null, item.label || msg("未命名任务", "Untitled task")),
     h("span", null, [item.provider, taskState(item)].filter(Boolean).join(" · "))
   ), "listRow");
   return h(
@@ -1260,7 +1717,7 @@ function ControllerPanel(props) {
       "header",
       { className: "pg-controller-bar" },
       h("h1", null, "Playground"),
-      h("select", { "aria-label": "工作区", value: workspaceId, disabled: busy || handoffBusy, onChange: /* @__PURE__ */ __name(async (event) => {
+      h("select", { "aria-label": msg("工作区", "Workspace"), value: workspaceId, disabled: busy || handoffBusy, onChange: /* @__PURE__ */ __name(async (event) => {
         if (dispatchControls.busy) return;
         if (event.target.value === "__add_workspace__") {
           setBusy(true);
@@ -1275,10 +1732,10 @@ function ControllerPanel(props) {
           return;
         }
         selectWorkspace(event.target.value);
-      }, "onChange") }, h("option", { value: "" }, "选择工作区"), workspaceOptions(workspaces.items), h("option", { value: "__add_workspace__", disabled: busy }, "添加工作区…")),
+      }, "onChange") }, h("option", { value: "" }, msg("选择工作区", "Select workspace")), workspaceOptions(workspaces.items), h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))),
       h(
         "nav",
-        { className: "pg-controller-tabs", role: "tablist", "aria-label": "Playground 导航", onKeyDown: /* @__PURE__ */ __name((event) => {
+        { className: "pg-controller-tabs", role: "tablist", "aria-label": msg("Playground 导航", "Playground navigation"), onKeyDown: /* @__PURE__ */ __name((event) => {
           const ids = ["controller", "catalog", "submissions"];
           const index = Math.max(0, ids.indexOf(view));
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -1287,20 +1744,24 @@ function ControllerPanel(props) {
           setView(ids[next]);
           event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
         }, "onKeyDown") },
-        [["controller", "对话"], ["catalog", "赛题"], ["submissions", "提交"]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => setView(id), "onClick") }, title))
+        [["controller", msg("对话", "Chat")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => setView(id), "onClick") }, title))
       ),
-      h("span", { className: "pg-controller-spacer" }),
       h(
-        "button",
-        { className: "pg-controller-connection", title: "连接设置", "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
-        h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
-        { checking: "检查中…", authenticated: "已登录", unauthenticated: "未登录", unavailable: "检测失败" }[authStatus]
+        "div",
+        { className: "pg-controller-account" },
+        h(LanguageMenu),
+        h(
+          "button",
+          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
+          h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
+          { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
+        )
       ),
       view === "controller" ? h(
         "button",
         { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
           pane.toggle = node;
-        }, "ref"), title: showTasks ? "隐藏任务侧栏" : "显示任务侧栏", "aria-label": showTasks ? "隐藏任务侧栏" : "显示任务侧栏", "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
+        }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
         h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
       ) : null
     ),
@@ -1312,12 +1773,12 @@ function ControllerPanel(props) {
       h(
         "main",
         { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
-        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? "无法读取工作区，请重启 DSH 后重试。" : workspaces.phase !== "ready" ? "正在读取工作区…" : "选择工作区以打开或创建主控对话。", error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, "重试")) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, "正在核对主控对话…") : !expectedId && workspaceId && inspection ? h(
+        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
           "div",
           { className: "pg-controller-placeholder" },
-          h("p", null, inspection.kind === "blocked" ? inspection.reason : inspection.archived ? "主控对话已归档，请先取消归档。" : "为此工作区打开或创建主控对话。"),
-          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-controller-action", disabled: busy, onClick: open }, busy ? "正在打开…" : inspection.kind === "absent" ? "创建主控对话" : "打开主控对话") : null,
-          h("p", null, "空对话会收到一条初始化消息。"),
+          h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
+          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-controller-action", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
+          h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
           renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
             setBusy(true);
             setError("");
@@ -1340,19 +1801,19 @@ function ControllerPanel(props) {
         "main",
         { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
         h("style", null, css),
-        h("h1", null, "连接设置"),
+        h("h1", null, msg("连接设置", "Connection settings")),
         h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
         visited.has("settings") ? h(ReleaseStatusPanel, { query: props.query }) : null
       ),
       ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
       view === "controller" && showTasks ? h(
-        React5.Fragment,
+        React6.Fragment,
         null,
         h("div", {
           className: "pg-controller-resize",
           role: "separator",
           tabIndex: 0,
-          "aria-label": "调整任务侧栏宽度",
+          "aria-label": msg("调整任务侧栏宽度", "Resize task sidebar"),
           "aria-orientation": "vertical",
           "aria-valuemin": 300,
           "aria-valuemax": 520,
@@ -1380,7 +1841,7 @@ function ControllerPanel(props) {
         }),
         h(
           "aside",
-          { id: "pg-controller-tasks", className: "pg-controller-tasks", "aria-label": "主控任务", style: { width: taskWidth }, onKeyDown: /* @__PURE__ */ __name((event) => {
+          { id: "pg-controller-tasks", className: "pg-controller-tasks", "aria-label": msg("主控任务", "Controller tasks"), style: { width: taskWidth }, onKeyDown: /* @__PURE__ */ __name((event) => {
             if (event.key === "Escape" && pane.body?.clientWidth <= 720) {
               toggleTasks();
               pane.toggle?.focus();
@@ -1391,13 +1852,14 @@ function ControllerPanel(props) {
             null,
             h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
               pane.heading = node;
-            }, "ref") }, "任务"),
-            h("button", { className: "pg-controller-back", disabled: !expectedId, onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, "刷新任务")
+            }, "ref") }, msg("任务", "Tasks")),
+            h("button", { className: "pg-controller-back", disabled: !expectedId, onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("刷新任务", "Refresh tasks"))
           ),
           h(
             "div",
             { className: "pg-controller-task-content" },
-            !expectedId ? h("p", null, "打开主控后查看其派发的任务。") : !tasks ? h("p", { role: "status" }, "正在读取任务…") : tasks.kind !== "ready" ? h("p", { role: "alert" }, "无法读取任务。", h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, "重试")) : row ? h(
+            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
+            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
               "div",
               { className: "pg-controller-detail" },
               h("button", { className: "pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
@@ -1405,10 +1867,10 @@ function ControllerPanel(props) {
               }, "ref"), onClick: /* @__PURE__ */ __name(() => {
                 pane.focus = row.childId;
                 setSelectedTask("");
-              }, "onClick") }, "返回任务"),
-              h("h3", null, row.label || "未命名任务"),
+              }, "onClick") }, msg("返回任务", "Back to tasks")),
+              h("h3", null, row.label || msg("未命名任务", "Untitled task")),
               h("p", null, [row.provider, taskState(row)].filter(Boolean).join(" · ")),
-              h("p", null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === "maintenance" ? "后台维护" : "未关联赛题"),
+              h("p", null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
               childAddress ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 setTaskActionStatus("");
                 try {
@@ -1416,11 +1878,11 @@ function ControllerPanel(props) {
                 } catch {
                   setTaskActionStatus("无法打开子智能体对话，请重试。");
                 }
-              }, "onClick") }, "打开子智能体对话") : null,
-              row.state === "unknown" ? h("p", null, "未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。") : null,
-              row.liveEnd ? h("p", null, `${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`) : null,
-              row.state === "settled" && row.terminalText ? h("p", null, `当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`) : null,
-              row.state === "running" && row.terminalText ? h("p", null, "正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。") : null,
+              }, "onClick") }, msg("打开子智能体对话", "Open subagent chat")) : null,
+              row.state === "unknown" ? h("p", null, msg("未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。", "No result notification or current run record is available. This can happen after a restart even if the task succeeded.")) : null,
+              row.liveEnd ? h("p", null, msg(`${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
+              row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
+              row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
               taskOutput(row) ? h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: taskOutput(row), running: false }, { fallback: h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row)) }) : h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row))) : null,
               taskOutput(row) ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 try {
@@ -1429,11 +1891,11 @@ function ControllerPanel(props) {
                 } catch {
                   setTaskActionStatus("无法复制，请选择文本后复制。");
                 }
-              }, "onClick") }, "复制结果") : null,
-              taskActionStatus ? h("p", { role: "status" }, taskActionStatus) : null,
-              row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? "历史原始通知" : "原始通知"), h("pre", null, row.terminalText)) : null
-            ) : !tasks.rows.length ? h("p", null, "还没有派发任务。") : h(
-              React5.Fragment,
+              }, "onClick") }, msg("复制结果", "Copy result")) : null,
+              taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
+              row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
+            ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
+              React6.Fragment,
               null,
               [...challengeGroups].map(([groupKey, group]) => h(
                 "details",
@@ -1453,12 +1915,12 @@ function ControllerPanel(props) {
                 h(
                   "summary",
                   null,
-                  `${group.challenge?.title || group.challenge?.id || "未关联赛题"}（${group.rows.length}）`,
-                  group.challenge ? h("small", null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h("small", null, "缺少明确的赛题关联，保留原任务和结果。")
+                  msg(`${group.challenge?.title || group.challenge?.id || "未关联赛题"}（${group.rows.length}）`, `${group.challenge?.title || group.challenge?.id || "No linked challenge"} (${group.rows.length})`),
+                  group.challenge ? h("small", null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h("small", null, msg("缺少明确的赛题关联，保留原任务和结果。", "The original task and result are available without a confirmed challenge link."))
                 ),
                 group.rows.map(listRow)
               )),
-              tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, `后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
+              tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, msg(`后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === "maintenance").length})`)), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
             )
           )
         )
@@ -1482,7 +1944,7 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 
 // src/client/tasks/attempts.js
 function attemptScore(item) {
@@ -1515,30 +1977,40 @@ function submissionLimitsOf(state, challengeId) {
 __name(submissionLimitsOf, "submissionLimitsOf");
 function submissionCountsLine(counts, limits) {
   if (!counts || typeof counts !== "object" || !Number.isInteger(counts.total)) return void 0;
-  const period = { day: "每天", total: "每人" };
-  const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : []).filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === "platform").map((item) => item.source === "statement" ? `题面写明${period[item.period] || ""}最多 ${item.limit} 次${typeof item.excerpt === "string" ? `（原文：${item.excerpt}）` : ""}` : Number.isSafeInteger(item.limit) ? `平台曾返回上限 ${item.limit} 次` : "平台曾返回已达提交上限");
+  const period = { day: msg("每天", " per day"), total: msg("每人", " per person") };
+  const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : []).filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === "platform").map((item) => item.source === "statement" ? msg(
+    `题面写明${period[item.period] || ""}最多 ${item.limit} 次${typeof item.excerpt === "string" ? `（原文：${item.excerpt}）` : ""}`,
+    `The statement allows up to ${item.limit} submissions${period[item.period] || ""}${typeof item.excerpt === "string" ? ` (“${item.excerpt}”)` : ""}`
+  ) : Number.isSafeInteger(item.limit) ? msg(`平台曾返回上限 ${item.limit} 次`, `The platform reported a limit of ${item.limit}`) : msg("平台曾返回已达提交上限", "The platform reported that the submission limit was reached"));
+  const limitText = known.length ? `Submission limits: ${known.join(". ")}.` : "No submission limit found.";
   if (counts.scope === "current_account") {
     const history = counts.partialReasons?.includes("history_incomplete");
     const today = history || counts.partialReasons?.includes("time_unknown");
-    return `当前账号累计${history ? "已核实 " : " "}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? "已核实" : "已提交"} ${counts.total} 次，${counts.counted == null ? "占名额次数未知" : `其中占名额 ${counts.counted} 次`}${today ? "（数据不完整）" : ""}。${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`;
+    return msg(
+      `当前账号累计${history ? "已核实 " : " "}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? "已核实" : "已提交"} ${counts.total} 次，${counts.counted == null ? "占名额次数未知" : `其中占名额 ${counts.counted} 次`}${today ? "（数据不完整）" : ""}。${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
+      `Current account, lifetime submissions${history ? " verified" : ""}: ${counts.lifetime}. Today (Beijing time, ${counts.date}): ${counts.total}${today ? " verified" : " submitted"}. ${counts.counted == null ? "Quota usage unknown" : `Counted against quota: ${counts.counted}`}.${today ? " Data is incomplete." : ""} ${limitText}`
+    );
   }
-  return `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? "（可能不完整）" : ""}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes("agent_private_hidden") ? "Agent 账号未公开的提交看不到，没有计入。" : ""}${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`;
+  return msg(
+    `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? "（可能不完整）" : ""}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes("agent_private_hidden") ? "Agent 账号未公开的提交看不到，没有计入。" : ""}${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
+    `Today (Beijing time, ${counts.date}): ${counts.total} submitted, ${counts.counted} counted against quota across your account and its Agent accounts.${counts.partial ? " Counts may be incomplete." : ""}${counts.partialReasons?.includes("agent_private_hidden") ? " Private Agent submissions are excluded." : ""} ${limitText}`
+  );
 }
 __name(submissionCountsLine, "submissionCountsLine");
 function bundleSummaryLine(summary) {
   if (!summary || typeof summary !== "object" || !Number.isFinite(summary.files)) return void 0;
   const size = /* @__PURE__ */ __name((bytes) => !Number.isFinite(bytes) ? "?" : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`, "size");
-  const named = /* @__PURE__ */ __name((item) => `${String(item?.name ?? "").split("/").pop()}（${size(item?.bytes)}）`, "named");
-  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join("、") : "";
-  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join("、") : "";
+  const named = /* @__PURE__ */ __name((item) => `${String(item?.name ?? "").split("/").pop()}${msg("（", " (")}${size(item?.bytes)}${msg("）", ")")}`, "named");
+  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join(msg("、", ", ")) : "";
+  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join(msg("、", ", ")) : "";
   return [
-    `历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`,
-    largest ? `最大：${largest}` : "",
-    summary.nonTextCount ? `非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? " 等" : ""}` : "非文本文件（按扩展名）0 个",
-    summary.symlinkCount ? `符号链接 ${summary.symlinkCount} 个` : "",
-    summary.layout && typeof summary.layout === "object" ? `外层结构：outputs/ ${summary.layout.hasOutputs ? "有文件" : "无文件"}，arm_manifest.json ${summary.layout.hasManifest ? "有" : "缺失"}` : "",
-    summary.complete === false ? "ZIP 目录未能读完" : ""
-  ].filter(Boolean).join("；");
+    msg(`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`, `Historical ZIP directory: ${summary.files} files, ${size(summary.totalBytes)} total`),
+    largest ? msg(`最大：${largest}`, `Largest: ${largest}`) : "",
+    summary.nonTextCount ? msg(`非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? " 等" : ""}`, `Non-text files by extension: ${summary.nonTextCount} (${nonText}${summary.nonTextCount > 3 ? ", …" : ""})`) : msg("非文本文件（按扩展名）0 个", "No non-text files by extension"),
+    summary.symlinkCount ? msg(`符号链接 ${summary.symlinkCount} 个`, `Symbolic links: ${summary.symlinkCount}`) : "",
+    summary.layout && typeof summary.layout === "object" ? msg(`外层结构：outputs/ ${summary.layout.hasOutputs ? "有文件" : "无文件"}，arm_manifest.json ${summary.layout.hasManifest ? "有" : "缺失"}`, `Top level: outputs/ ${summary.layout.hasOutputs ? "contains files" : "has no files"}, arm_manifest.json ${summary.layout.hasManifest ? "present" : "missing"}`) : "",
+    summary.complete === false ? msg("ZIP 目录未能读完", "ZIP directory listing incomplete") : ""
+  ].filter(Boolean).join(msg("；", ". "));
 }
 __name(bundleSummaryLine, "bundleSummaryLine");
 function receiptProgress(receipt, t = zhText, { running = false, bundleMissing = false } = {}) {
@@ -1659,13 +2131,13 @@ async function refreshAttempts(store, ids) {
 __name(refreshAttempts, "refreshAttempts");
 
 // src/client/catalog/index.js
-var React8 = __toESM(require("react"), 1);
+var React9 = __toESM(require("react"), 1);
 
 // src/client/catalog/detail.js
-var React7 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 
 // src/client/shared/drawer.js
-var React6 = __toESM(require("react"), 1);
+var React7 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
   return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => typeof node.getClientRects !== "function" || node.getClientRects().length > 0);
@@ -1674,7 +2146,7 @@ __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
 var DOCUMENT_POSITION_FOLLOWING = 4;
 function useDrawerFocus(fallback) {
-  const [focus] = React6.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
+  const [focus] = React7.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
   }, "dismiss") }));
   focus.fallback = fallback;
   focus.restore = () => {
@@ -1683,7 +2155,7 @@ function useDrawerFocus(fallback) {
     const body = typeof document === "undefined" ? void 0 : document.body;
     [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
   };
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     focus.restored = false;
     focus.title?.focus?.();
     const inForeignDialog = /* @__PURE__ */ __name((target) => {
@@ -1727,18 +2199,18 @@ function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
     if (busy) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
-    handoff.start({ id: String(challenge.id), title: challenge.titleZh || challenge.title || String(challenge.id) });
-  }, "onClick") }, busy && handoff.state.challenge.id === String(challenge.id) ? "正在交接…" : "交给主控");
+    handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
+  }, "onClick") }, busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
 var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
 function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
-  const [detail, setDetail] = React7.useState(null);
-  const [busy, setBusy] = React7.useState(false);
-  const [failed, setFailed] = React7.useState(false);
-  const [expanded, setExpanded] = React7.useState(false);
-  const [status, setStatus] = React7.useState("");
-  const [latest] = React7.useState(() => ({ controller: null, closed: false }));
+  const [detail, setDetail] = React8.useState(null);
+  const [busy, setBusy] = React8.useState(false);
+  const [failed, setFailed] = React8.useState(false);
+  const [expanded, setExpanded] = React8.useState(false);
+  const [status, setStatus] = React8.useState(null);
+  const [latest] = React8.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
   const load = /* @__PURE__ */ __name(async () => {
     latest.controller?.abort();
@@ -1747,17 +2219,17 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     latest.controller = controller;
     setBusy(true);
     setFailed(false);
-    setStatus("正在读取赛题详情…");
+    setStatus(["正在读取赛题详情…", "Loading challenge details…"]);
     try {
       const result = await query({ action: "challenge", challengeId }, controller.signal);
       if (latest.controller !== controller) return;
       if (!result || typeof result !== "object" || result.ok === false) throw new Error("challenge detail unavailable");
       setDetail(result);
-      setStatus("赛题详情已读取。");
+      setStatus(["赛题详情已读取。", "Challenge details loaded."]);
     } catch {
       if (latest.controller !== controller) return;
       setFailed(true);
-      setStatus("赛题详情读取失败。");
+      setStatus(["赛题详情读取失败。", "Could not load challenge details."]);
     } finally {
       if (latest.controller === controller) {
         latest.controller = null;
@@ -1774,7 +2246,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     close();
   }, "dismiss");
   focus.dismiss = dismiss;
-  React7.useEffect(() => {
+  React8.useEffect(() => {
     latest.closed = false;
     load();
     return () => {
@@ -1784,13 +2256,13 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     };
   }, [query, challengeId]);
   const shown = detail || challenge;
-  const title = shown.titleZh || shown.title || challengeId;
+  const title = msg(shown.titleZh || shown.title, shown.title || shown.titleZh) || challengeId;
   const facts = [
-    ["方向", shown.discipline],
-    ["来源", shown.origin],
-    ["难度", shown.difficulty],
-    ["状态", shown.status ? locales.zh.states[shown.status] || shown.status : void 0],
-    ["提交次数", shown.attempts]
+    [msg("方向", "Discipline"), shown.discipline],
+    [msg("来源", "Source"), shown.origin],
+    [msg("难度", "Difficulty"), shown.difficulty],
+    [msg("状态", "Status"), shown.status ? locales[currentLanguage()].states[shown.status] || shown.status : void 0],
+    [msg("提交次数", "Submissions"), shown.attempts]
   ].filter(([, value]) => value !== void 0 && value !== null && value !== "");
   const tags = Array.isArray(shown.tags) ? [...new Set(shown.tags.filter((tag) => typeof tag === "string" && tag))] : [];
   const resources = Array.isArray(detail?.resources) ? detail.resources.filter((item) => item && typeof item === "object") : [];
@@ -1800,11 +2272,11 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     { className: "pg-drawer-backdrop", onMouseDown: dismiss },
     h(
       "aside",
-      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": `${title} 赛题详情`, "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
+      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 赛题详情`, `Challenge details: ${title}`), "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
         focus.dialog = node;
       }, "ref") },
       h("style", null, challengeDetailCss),
-      h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status),
+      h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
       h(
         "div",
         { className: "pg-drawer-header" },
@@ -1814,12 +2286,12 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
         h(
           "div",
           { className: "pg-drawer-actions" },
-          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": "关闭赛题详情" }, "关闭")
+          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭赛题详情", "Close challenge details") }, msg("关闭", "Close"))
         )
       ),
-      h("p", { className: "pg-note pg-path" }, `题目编号：${challengeId}`),
-      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label, value]) => [h("dt", { key: `${label}-t` }, label), h("dd", { key: `${label}-d` }, String(value))])) : null,
-      tags.length ? h("ul", { className: "pg-detail-tags", "aria-label": "标签" }, tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))) : null,
+      h("p", { className: "pg-note pg-path" }, msg(`题目编号：${challengeId}`, `Challenge ID: ${challengeId}`)),
+      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label2, value]) => [h("dt", { key: `${label2}-t` }, label2), h("dd", { key: `${label2}-d` }, String(value))])) : null,
+      tags.length ? h("ul", { className: "pg-detail-tags", "aria-label": msg("标签", "Tags") }, tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))) : null,
       h(
         "div",
         { className: "pg-actions" },
@@ -1829,34 +2301,34 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
       failed ? h(
         "div",
         { className: "pg-detail-section" },
-        h("p", { className: "pg-error", role: "alert" }, "赛题详情读取失败，请稍后重试，或在网页中查看。"),
-        h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(), "onClick") }, busy ? "正在读取…" : "重试"))
+        h("p", { className: "pg-error", role: "alert" }, msg("赛题详情读取失败，请稍后重试，或在网页中查看。", "Could not load challenge details. Try again later or open the challenge on the web.")),
+        h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(), "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry")))
       ) : null,
-      busy && !detail && !failed ? h("p", { className: "pg-note" }, "正在读取赛题详情…") : null,
+      busy && !detail && !failed ? h("p", { className: "pg-note" }, msg("正在读取赛题详情…", "Loading challenge details…")) : null,
       detail ? h(
         "section",
-        { className: "pg-detail-section", "aria-label": "资源" },
-        h("h3", null, "资源"),
+        { className: "pg-detail-section", "aria-label": msg("资源", "Resources") },
+        h("h3", null, msg("资源", "Resources")),
         resources.length ? h("ul", { className: "pg-detail-resources" }, resources.map((item, index) => h(
           "li",
           { key: `${index}:${item.name || ""}` },
-          h("strong", null, item.name || "未命名资源"),
+          h("strong", null, item.name || msg("未命名资源", "Unnamed resource")),
           [item.kind, item.role].filter(Boolean).length ? h("span", { className: "pg-note" }, ` · ${[item.kind, item.role].filter(Boolean).join(" · ")}`) : null,
           item.description ? h("p", { className: "pg-note" }, item.description) : null,
           // Platform text, shown as text only: never a link.
-          item.source ? h("p", { className: "pg-note pg-path" }, `来源：${item.source}`) : null
-        ))) : h("p", { className: "pg-note" }, "这道题没有列出资源。")
+          item.source ? h("p", { className: "pg-note pg-path" }, msg(`来源：${item.source}`, `Source: ${item.source}`)) : null
+        ))) : h("p", { className: "pg-note" }, msg("这道题没有列出资源。", "No resources are listed for this challenge."))
       ) : null,
       detail ? h(
         "section",
-        { className: "pg-detail-section", "aria-label": "题面" },
-        h("h3", null, "题面"),
-        detail.contentGated ? h("p", { className: "pg-note" }, "题面需要权限，请在网页中查看") : !content ? h("p", { className: "pg-note" }, "这道题没有题面文字。") : [
-          h("button", { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") }, expanded ? "收起题面" : "展开题面"),
+        { className: "pg-detail-section", "aria-label": msg("题面", "Challenge statement") },
+        h("h3", null, msg("题面", "Challenge statement")),
+        detail.contentGated ? h("p", { className: "pg-note" }, msg("题面需要权限，请在网页中查看", "Access is required. Open the statement on the web.")) : !content ? h("p", { className: "pg-note" }, msg("这道题没有题面文字。", "No statement text is available.")) : [
+          h("button", { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") }, expanded ? msg("收起题面", "Collapse statement") : msg("展开题面", "Expand statement")),
           // Plain text with its line breaks kept; the plugin has no markdown renderer.
-          expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": "题面全文" }, content) : null,
+          expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": msg("题面全文", "Full challenge statement") }, content) : null,
           // The number comes from the Host's cap (`contentLimit`); without it the note names no number.
-          expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? `题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。` : "题面过长，这里只显示前一部分；完整题面请在网页中查看。") : null
+          expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? msg(`题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`, `Showing the first ${detail.contentLimit} characters. Open the challenge on the web to read the full statement.`) : msg("题面过长，这里只显示前一部分；完整题面请在网页中查看。", "Only the beginning of the statement is shown. Open the challenge on the web to read the rest.")) : null
         ]
       ) : null
     )
@@ -1865,11 +2337,18 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
 __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
 
 // src/client/catalog/index.js
-var COMPETITION_GROUPS = [["live", "进行中"], ["upcoming", "即将开始"], ["ended", "已结束"]];
+var competitionGroups = /* @__PURE__ */ __name(() => [["live", msg("进行中", "Live")], ["upcoming", msg("即将开始", "Upcoming")], ["ended", msg("已结束", "Ended")]], "competitionGroups");
 var COMPETITION_TONES = { live: "success", upcoming: "warning" };
-var competitionStatusText = /* @__PURE__ */ __name((status) => (COMPETITION_GROUPS.find(([key]) => key === status) || [])[1] || "", "competitionStatusText");
+var competitionStatusText = /* @__PURE__ */ __name((status) => (competitionGroups().find(([key]) => key === status) || [])[1] || "", "competitionStatusText");
 var competitionValue = /* @__PURE__ */ __name((item) => item.kind === "season" ? `season:${item.season}` : `competition:${item.id}`, "competitionValue");
-var competitionLabel = /* @__PURE__ */ __name((item) => [item.nameZh || item.name || item.id, competitionStatusText(item.status), item.dateText].filter(Boolean).join(" · "), "competitionLabel");
+function scheduleText(value) {
+  if (!value || currentLanguage() === "zh") return value;
+  return value.replace("日期待定", "Dates to be announced").replace(/^至 /, "Until ").replace(/ 起/g, " onward").replaceAll("第一期", "Period 1").replaceAll("第二期", "Period 2").replaceAll("第三期", "Period 3").replaceAll("科学挑战", "Science challenge").replaceAll("学术效率", "Academic efficiency").replaceAll("第一季", "Season 1").replaceAll("第二季", "Season 2").replace("每周计分轮，共 6 轮", "6 weekly scoring rounds");
+}
+__name(scheduleText, "scheduleText");
+var competitionName = /* @__PURE__ */ __name((item) => item && (msg(item.nameZh || item.name, item.nameEn || item.name || item.nameZh) || item.id), "competitionName");
+var periodName = /* @__PURE__ */ __name((item) => item && (msg(item.labelZh, item.labelEn || (/^第[一二三四五六七八九十百\d]+期$/.test(item.labelZh) && /^\d+$/.test(item.slug) ? `Period ${item.slug}` : scheduleText(item.labelZh))) || item.slug), "periodName");
+var competitionLabel = /* @__PURE__ */ __name((item) => [competitionName(item), competitionStatusText(item.status), scheduleText(item.dateText)].filter(Boolean).join(" · "), "competitionLabel");
 function competitionFilter(value) {
   if (!value) return {};
   if (value.startsWith("competition:")) return { competition: value.slice("competition:".length) };
@@ -1879,12 +2358,23 @@ __name(competitionFilter, "competitionFilter");
 var competitionPeriods = /* @__PURE__ */ __name((item) => Array.isArray(item?.periods) ? item.periods.filter((period) => period && typeof period === "object" && typeof period.slug === "string" && period.slug) : [], "competitionPeriods");
 var startingPeriod = /* @__PURE__ */ __name((item) => competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : "", "startingPeriod");
 var officialGroups = /* @__PURE__ */ __name((source) => Array.isArray(source?.groups) ? source.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "officialGroups");
-var groupLabel = /* @__PURE__ */ __name((group) => group.labelZh || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key), "groupLabel");
+function groupLabel(group) {
+  const language = currentLanguage();
+  if (language === "en") {
+    if (group.labelEn) return group.labelEn;
+    if (Object.hasOwn(locales.en.groupNames, group.labelZh)) return locales.en.groupNames[group.labelZh];
+    const round = /^第\s*(\d+)\s*轮$/.exec(group.labelZh);
+    if (round) return `Round ${round[1]}`;
+  }
+  const fallback = locales[language].challengeGroups;
+  return group.labelZh || (Object.hasOwn(fallback, group.key) ? fallback[group.key] : group.key);
+}
+__name(groupLabel, "groupLabel");
 var listSelection = /* @__PURE__ */ __name(({ season, period, group }) => JSON.stringify([season, period, group]), "listSelection");
 var CATALOG_PER_PAGE = 20;
 var OTHER_DISCIPLINE = "__other__";
-var ORIGIN_OPTIONS = [["", "全部来源"], ["community", "社区"], ["benchmark", "基准"], ["hackathon", "黑客松"], ["arena", "竞技场"]];
-var SORT_OPTIONS = [["newest", "最新"], ["attempts", "提交最多"]];
+var originOptions = /* @__PURE__ */ __name(() => [["", msg("全部来源", "All sources")], ["community", msg("社区", "Community")], ["benchmark", msg("基准", "Benchmark")], ["hackathon", msg("黑客松", "Hackathon")], ["arena", msg("竞技场", "Arena")]], "originOptions");
+var sortOptions = /* @__PURE__ */ __name(() => [["newest", msg("最新", "Newest")], ["attempts", msg("提交最多", "Most submissions")]], "sortOptions");
 function catalogInput(filters, page = 1) {
   return {
     action: "catalog",
@@ -1926,25 +2416,25 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
 function CatalogPanel({ query, handoff, onWebBase }) {
-  const [search, setSearch] = React8.useState("");
-  const [season, setSeason] = React8.useState("");
-  const [period, setPeriod] = React8.useState("");
-  const [group, setGroup] = React8.useState("");
-  const [origin, setOrigin] = React8.useState("");
-  const [disciplineChoice, setDisciplineChoice] = React8.useState("");
-  const [otherDiscipline, setOtherDiscipline] = React8.useState("");
-  const [appliedOther, setAppliedOther] = React8.useState(null);
-  const [sort, setSort] = React8.useState("newest");
-  const [openOnly, setOpenOnly] = React8.useState(false);
-  const [competitionTable, setCompetitionTable] = React8.useState(null);
-  const [list, setList] = React8.useState(null);
-  const [facets, setFacets] = React8.useState(null);
-  const [busy, setBusy] = React8.useState("");
-  const [failure, setFailure] = React8.useState(null);
-  const [status, setStatus] = React8.useState("");
-  const [notice, setNotice] = React8.useState("");
-  const [latest] = React8.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
-  const [detail, setDetail] = React8.useState(null);
+  const [search, setSearch] = React9.useState("");
+  const [season, setSeason] = React9.useState("");
+  const [period, setPeriod] = React9.useState("");
+  const [group, setGroup] = React9.useState("");
+  const [origin, setOrigin] = React9.useState("");
+  const [disciplineChoice, setDisciplineChoice] = React9.useState("");
+  const [otherDiscipline, setOtherDiscipline] = React9.useState("");
+  const [appliedOther, setAppliedOther] = React9.useState(null);
+  const [sort, setSort] = React9.useState("newest");
+  const [openOnly, setOpenOnly] = React9.useState(false);
+  const [competitionTable, setCompetitionTable] = React9.useState(null);
+  const [list, setList] = React9.useState(null);
+  const [facets, setFacets] = React9.useState(null);
+  const [busy, setBusy] = React9.useState("");
+  const [failure, setFailure] = React9.useState(null);
+  const [status, setStatus] = React9.useState(null);
+  const [notice, setNotice] = React9.useState(null);
+  const [latest] = React9.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [detail, setDetail] = React9.useState(null);
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
   const filters = { search, season, period, group, origin, sort, discipline };
@@ -1960,32 +2450,32 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setList(null);
     setBusy("");
     setFailure(null);
-    setNotice("");
-    setStatus("输入学科后按回车筛选");
+    setNotice(null);
+    setStatus(["输入学科后按回车筛选", "Enter a discipline and press Enter to filter"]);
   }, "waitForDiscipline");
   const handleReadFailure = /* @__PURE__ */ __name((kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === "period_not_available") {
       setPeriod("");
       setGroup("");
-      return readFirstPage({ ...requestedFilters, period: "", group: "" }, { refresh, notice: "之前选择的分期已不在列表中，已改为显示全部期。" });
+      return readFirstPage({ ...requestedFilters, period: "", group: "" }, { refresh, notice: ["之前选择的分期已不在列表中，已改为显示全部期。", "The selected period is no longer listed. Showing all periods."] });
     }
     if (requestedFilters.group && error?.reason === "group_not_available") {
       setGroup("");
       return readFirstPage({ ...requestedFilters, group: "" }, {
         refresh,
-        notice: requestedFilters.period ? "之前选择的分类现在不可用，已改为显示本期全部赛题。" : "之前选择的分类现在不可用，已改为显示全部赛题。"
+        notice: requestedFilters.period ? ["之前选择的分类现在不可用，已改为显示本期全部赛题。", "The selected group is unavailable. Showing all challenges in this period."] : ["之前选择的分类现在不可用，已改为显示全部赛题。", "The selected group is unavailable. Showing all challenges."]
       });
     }
     if (kind === "more" && error?.code === "catalog_changed") {
       setFailure({ kind: "changed", message: error.message });
-      setStatus("赛题列表已变化，请从第一页重新读取。");
+      setStatus(["赛题列表已变化，请从第一页重新读取。", "The challenge list has changed. Reload from the first page."]);
       return;
     }
     const firstPage = kind === "load";
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
-    setStatus(firstPage ? "赛题目录读取失败。" : "加载更多赛题失败。");
+    setStatus(firstPage ? ["赛题目录读取失败。", "Could not load the challenge catalog."] : ["加载更多赛题失败。", "Could not load more challenges."]);
   }, "handleReadFailure");
-  const readFirstPage = /* @__PURE__ */ __name(async (next, { refresh = false, notice: nextNotice = "" } = {}) => {
+  const readFirstPage = /* @__PURE__ */ __name(async (next, { refresh = false, notice: nextNotice = null } = {}) => {
     latest.controller?.abort();
     const controller = new AbortController();
     latest.controller = controller;
@@ -1993,7 +2483,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setBusy("load");
     setFailure(null);
     setNotice(nextNotice);
-    setStatus("正在读取比赛和赛题…");
+    setStatus(["正在读取比赛和赛题…", "Loading competitions and challenges…"]);
     try {
       const input = catalogInput(next);
       const result = await query(refresh ? { ...input, refresh: true } : input, controller.signal);
@@ -2017,9 +2507,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         setSeason("");
         setPeriod("");
         setGroup("");
-        return readFirstPage({ ...next, season: "", period: "", group: "" }, { notice: "之前选择的比赛已不在列表中，已改为显示全部比赛。" });
+        return readFirstPage({ ...next, season: "", period: "", group: "" }, { notice: ["之前选择的比赛已不在列表中，已改为显示全部比赛。", "The selected competition is no longer listed. Showing all competitions."] });
       }
-      setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : "赛题目录已更新。");
+      setStatus(facts.missing ? [`赛题目录已更新，有 ${facts.missing} 道赛题读取失败。`, `Catalog updated. Challenges that failed to load: ${facts.missing}.`] : ["赛题目录已更新。", "Challenge catalog updated."]);
     } catch {
       if (latest.controller === controller && !latest.metadataOnly) handleReadFailure("load", next, void 0, refresh);
     } finally {
@@ -2042,7 +2532,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     latest.controller = controller;
     setBusy("more");
     setFailure(null);
-    setStatus("正在加载更多赛题…");
+    setStatus(["正在加载更多赛题…", "Loading more challenges…"]);
     try {
       const page = shown.page + 1;
       const result = await query({ ...shown.input, page, ...shown.pageSignature ? { page_signature: shown.pageSignature } : {} }, controller.signal);
@@ -2061,7 +2551,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         missing: Math.max(shown.missing, facts.missing),
         hasMore
       });
-      setStatus(added.length ? `已加载 ${added.length} 道赛题。` : "没有更多赛题。");
+      setStatus(added.length ? [`已加载 ${added.length} 道赛题。`, `Challenges loaded: ${added.length}.`] : ["没有更多赛题。", "No more challenges."]);
     } catch {
       if (latest.controller === controller) handleReadFailure("more", shown.filters);
     } finally {
@@ -2072,14 +2562,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     }
   }, "loadMore");
   const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
-  React8.useEffect(() => {
+  React9.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
       latest.controller = null;
     };
   }, [query]);
-  React8.useEffect(() => {
+  React9.useEffect(() => {
     const ids = latest.refocus;
     if (!ids) return;
     latest.refocus = null;
@@ -2101,14 +2591,19 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const total = shownList?.total;
   const missing = shownList?.missing || 0;
   const countLine = shownList ? [
-    total !== void 0 ? `共 ${total} 道` : "",
-    openOnly ? `已加载 ${loaded.length} 道` : total !== void 0 && loaded.length < total ? `已显示 ${loaded.length} 道` : "",
-    openOnly ? `其中开放 ${challenges.length} 道（只看开放仅筛选已加载的赛题）` : ""
+    total !== void 0 ? msg(`共 ${total} 道`, `${total} total`) : "",
+    openOnly ? msg(`已加载 ${loaded.length} 道`, `${loaded.length} loaded`) : total !== void 0 && loaded.length < total ? msg(`已显示 ${loaded.length} 道`, `${loaded.length} shown`) : "",
+    openOnly ? msg(`其中开放 ${challenges.length} 道（只看开放仅筛选已加载的赛题）`, `${challenges.length} open (among loaded challenges)`) : ""
   ].filter(Boolean).join(" · ") : "";
   const infoStatus = selectedPeriod ? selectedPeriod.status : selectedCompetition?.status;
-  const infoTime = selectedPeriod ? `${selectedPeriod.labelZh || selectedPeriod.slug} 时间：${selectedPeriod.timeText || selectedPeriod.dateText || "日期待定"}` : `时间：${selectedCompetition?.timeText || selectedCompetition?.dateText || "日期待定"}`;
-  const infoName = [selectedCompetition?.nameZh || selectedCompetition?.name, selectedPeriod?.labelZh].filter(Boolean).join(" · ");
-  const failureText = failure?.kind === "changed" ? failure.message : failure?.kind === "more" ? "加载更多赛题失败，已加载的赛题仍保留。" : failure ? loaded.length ? "赛题目录读取失败，下面仍是上一次读取的赛题。" : "赛题目录读取失败。" : "";
+  const schedule = selectedPeriod || selectedCompetition;
+  const time = scheduleText(schedule?.timeText || schedule?.dateText) || msg("日期待定", "Dates to be announced");
+  const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} 时间：${time}`, `${periodName(selectedPeriod)} dates: ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
+  const infoName = [competitionName(selectedCompetition), periodName(selectedPeriod)].filter(Boolean).join(" · ");
+  const failureText = failure?.kind === "changed" ? msg(
+    failure.message,
+    (failure.message || "").replace("赛题列表已变化。", "The challenge list has changed. ").replace(/有 (\d+) 道赛题读取失败，列表不完整。/, "Failed to load $1 challenges. ").replace("请从第一页重新读取。", "Reload from the first page.")
+  ) : failure?.kind === "more" ? msg("加载更多赛题失败，已加载的赛题仍保留。", "Could not load more challenges. Previously loaded challenges are still shown.") : failure ? loaded.length ? msg("赛题目录读取失败，下面仍是上一次读取的赛题。", "Could not refresh the catalog. Showing the previously loaded challenges.") : msg("赛题目录读取失败。", "Could not load the challenge catalog.") : "";
   const disciplineOptions = facets?.top || [];
   const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
   const applyOther = /* @__PURE__ */ __name(() => {
@@ -2119,25 +2614,25 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   }, "applyOther");
   return h(
     "section",
-    { className: "pg-guide pg-catalog", "aria-label": "Playground 赛题目录", "aria-busy": Boolean(busy) },
-    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status),
+    { className: "pg-guide pg-catalog", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog"), "aria-busy": Boolean(busy) },
+    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
     h(
       "div",
       { className: "pg-head" },
       h("h2", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
         latest.heading = node;
-      }, "ref") }, "选择比赛或赛题"),
-      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? "正在刷新…" : "刷新目录")
+      }, "ref") }, msg("选择比赛或赛题", "Choose a competition or challenge")),
+      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog"))
     ),
     h(
       "div",
       { className: "pg-search" },
-      h("input", { className: "pg-input", "aria-label": "搜索 Playground 赛题", placeholder: "按题目名称、方向或关键词搜索", value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
+      h("input", { className: "pg-input", "aria-label": msg("搜索 Playground 赛题", "Search Playground challenges"), placeholder: msg("按题目名称、方向或关键词搜索", "Search by title, discipline, or keyword"), value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
         if (event.key === "Enter") load();
       }, "onKeyDown") }),
       h(
         "select",
-        { className: "pg-input", "aria-label": "选择比赛", value: season, onChange: /* @__PURE__ */ __name((event) => {
+        { className: "pg-input", "aria-label": msg("选择比赛", "Choose a competition"), value: season, onChange: /* @__PURE__ */ __name((event) => {
           const value = event.target.value;
           const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
           setSeason(value);
@@ -2145,54 +2640,54 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           setGroup("");
           load({ season: value, period: nextPeriod, group: "" });
         }, "onChange") },
-        h("option", { value: "" }, "全部比赛"),
+        h("option", { value: "" }, msg("全部比赛", "All competitions")),
         // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        COMPETITION_GROUPS.map(([group2, label]) => {
+        competitionGroups().map(([group2, label2]) => {
           const members = competitions.filter((item) => item.status === group2);
-          return members.length ? h("optgroup", { key: group2, label }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+          return members.length ? h("optgroup", { key: group2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
       )
     ),
     // Each change reads page 1 again, combined with the competition and the search box; 只看开放 reads nothing.
     h(
       "div",
-      { className: "pg-catalog-filters", role: "group", "aria-label": "筛选赛题" },
+      { className: "pg-catalog-filters", role: "group", "aria-label": msg("筛选赛题", "Filter challenges") },
       h(
         "label",
         { className: "pg-filter" },
-        h("span", null, "来源"),
+        h("span", null, msg("来源", "Source")),
         h(
           "select",
-          { className: "pg-input", "aria-label": "按来源筛选", value: origin, onChange: /* @__PURE__ */ __name((event) => {
+          { className: "pg-input", "aria-label": msg("按来源筛选", "Filter by source"), value: origin, onChange: /* @__PURE__ */ __name((event) => {
             setOrigin(event.target.value);
             load({ origin: event.target.value });
           }, "onChange") },
-          ORIGIN_OPTIONS.map(([value, label]) => h("option", { key: value || "all", value }, label))
+          originOptions().map(([value, label2]) => h("option", { key: value || "all", value }, label2))
         )
       ),
       h(
         "label",
         { className: "pg-filter" },
-        h("span", null, "学科"),
+        h("span", null, msg("学科", "Discipline")),
         h(
           "select",
-          { className: "pg-input", "aria-label": "按学科筛选", value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
+          { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
             const value = event.target.value;
             setDisciplineChoice(value);
             const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
             if (nextDiscipline === null) waitForDiscipline();
             else load({}, { discipline: nextDiscipline });
           }, "onChange") },
-          h("option", { value: "" }, "全部学科"),
+          h("option", { value: "" }, msg("全部学科", "All disciplines")),
           disciplineOptions.map((key) => h("option", { key, value: key }, key)),
           activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
-          h("option", { value: OTHER_DISCIPLINE }, "其他（输入学科）")
+          h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
         )
       ),
       disciplineChoice === OTHER_DISCIPLINE ? h(
         "div",
         { className: "pg-filter pg-filter-other" },
-        h("label", { htmlFor: "pg-other-discipline" }, "其他学科（英文学科名，精确匹配）"),
+        h("label", { htmlFor: "pg-other-discipline" }, msg("其他学科（英文学科名，精确匹配）", "Other discipline (exact English name)")),
         h(
           "div",
           { className: "pg-filter-row" },
@@ -2201,7 +2696,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             className: "pg-input",
             value: otherDiscipline,
             maxLength: 100,
-            placeholder: "例如 science，按回车筛选",
+            placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
             ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
             onChange: /* @__PURE__ */ __name((event) => {
               const value = event.target.value;
@@ -2215,51 +2710,51 @@ function CatalogPanel({ query, handoff, onWebBase }) {
               if (event.key === "Enter") applyOther();
             }, "onKeyDown")
           }),
-          h("button", { type: "button", className: "pg-button", onClick: applyOther }, "筛选")
+          h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
         ),
         facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key) => h("option", { key, value: key }))) : null
       ) : null,
       h(
         "label",
         { className: "pg-filter" },
-        h("span", null, "排序"),
+        h("span", null, msg("排序", "Sort")),
         h(
           "select",
-          { className: "pg-input", "aria-label": "排序方式", value: sort, onChange: /* @__PURE__ */ __name((event) => {
+          { className: "pg-input", "aria-label": msg("排序方式", "Sort order"), value: sort, onChange: /* @__PURE__ */ __name((event) => {
             setSort(event.target.value);
             load({ sort: event.target.value });
           }, "onChange") },
-          SORT_OPTIONS.map(([value, label]) => h("option", { key: value, value }, label))
+          sortOptions().map(([value, label2]) => h("option", { key: value, value }, label2))
         )
       ),
       h(
         "label",
         { className: "pg-filter-check" },
         h("input", { type: "checkbox", checked: openOnly, onChange: /* @__PURE__ */ __name((event) => setOpenOnly(event.target.checked), "onChange") }),
-        "只看开放",
-        h("span", { className: "pg-note" }, "（仅筛选已加载的赛题）")
+        msg("只看开放", "Open only"),
+        h("span", { className: "pg-note" }, msg("（仅筛选已加载的赛题）", "(loaded challenges only)"))
       )
     ),
     selectedCompetition ? h(
       "div",
-      { className: "pg-competition-info", role: "group", "aria-label": "比赛信息" },
+      { className: "pg-competition-info", role: "group", "aria-label": msg("比赛信息", "Competition details") },
       // Changing the period reads page 1 again with the other controls.
       periods.length ? h(
         "label",
         { className: "pg-filter" },
-        h("span", null, "分期"),
+        h("span", null, msg("分期", "Period")),
         h(
           "select",
-          { className: "pg-input", "aria-label": "选择分期", value: period, onChange: /* @__PURE__ */ __name((event) => {
+          { className: "pg-input", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => {
             setPeriod(event.target.value);
             setGroup("");
             load({ period: event.target.value, group: "" });
           }, "onChange") },
-          h("option", { value: "" }, "全部期"),
+          h("option", { value: "" }, msg("全部期", "All periods")),
           periods.map((item) => h(
             "option",
             { key: item.slug, value: item.slug },
-            [item.labelZh || item.slug, competitionStatusText(item.status), item.timeText || item.dateText].filter(Boolean).join(" · ")
+            [periodName(item), competitionStatusText(item.status), scheduleText(item.timeText || item.dateText)].filter(Boolean).join(" · ")
           ))
         )
       ) : null,
@@ -2268,25 +2763,25 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         { className: "pg-note" },
         h("span", { className: "pg-badge", "data-tone": COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)),
         ` ${infoTime}`,
-        !selectedPeriod && selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ""
+        !selectedPeriod && selectedCompetition.rounds ? msg(` · 轮次：${selectedCompetition.rounds}`, ` · Rounds: ${scheduleText(selectedCompetition.rounds)}`) : ""
       ),
       openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
-      selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, "赛程暂未同步，当前显示已有分期。") : null,
-      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, "官方分类暂未同步，当前显示已有分类。") : null,
+      selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
+      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
       // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
       // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
       // one is left out.
-      missing ? h("p", { className: "pg-note pg-catalog-missing" }, `有 ${missing} 道赛题读取失败，列表不完整。`) : null,
-      missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, "重试") : null
+      missing ? h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)) : null,
+      missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
     ) : null,
     // Wraps onto further lines in a narrow column, so every group stays reachable.
     groups.length ? h(
       "div",
-      { className: "pg-catalog-groups", role: "group", "aria-label": "按分类筛选" },
-      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, "分类"),
-      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, "全部"),
+      { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
+      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, msg("分类", "Group")),
+      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, msg("全部", "All")),
       groups.map((item) => {
-        const label = groupLabel(item);
+        const label2 = groupLabel(item);
         return h(
           "button",
           {
@@ -2294,26 +2789,26 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             type: "button",
             className: "pg-group-chip",
             "aria-pressed": group === item.key,
-            "aria-label": `${label} ${item.count} 道`,
+            "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
             onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
           },
-          label,
+          label2,
           h("span", { className: "pg-group-count" }, item.count)
         );
       })
     ) : null,
-    notice ? h("p", { className: "pg-note" }, notice) : null,
+    notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
     failure ? h(
       "div",
       { className: "pg-catalog-failure" },
       h("p", { className: "pg-error", role: "alert" }, failureText),
-      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? "从第一页重新读取" : "重试")
+      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
     ) : null,
-    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, "正在读取比赛和赛题…") : null,
-    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, "正在读取所选比赛的赛题…") : null,
-    shownList && !loaded.length ? h("p", { className: "pg-note" }, "没有找到匹配赛题。换一个关键词或筛选条件试试。") : null,
-    shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `已加载的赛题中没有开放的题。${canLoadMore ? "可以点“加载更多”继续查找。" : ""}`) : null,
-    otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, "输入学科后按回车筛选") : null,
+    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
+    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
+    shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
+    shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
+    otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
     countLine ? h("p", { className: "pg-note pg-catalog-count", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
       latest.count = node;
     }, "ref") }, countLine) : null,
@@ -2326,9 +2821,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) setDetail(item);
         }, "onClick")
       },
-      h("div", { className: "pg-head" }, h("h3", null, item.titleZh || item.title || item.id), item.status ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, locales.zh.states[item.status] || item.status) : null),
-      h("p", { className: "pg-note pg-path" }, [item.discipline, item.origin, item.difficulty !== void 0 ? `难度 ${item.difficulty}` : null].filter(Boolean).join(" · ") || "Playground 赛题"),
-      h("p", { className: "pg-note" }, `题目编号：${item.id}${item.attempts !== void 0 ? ` · 已有 ${item.attempts} 次提交` : ""}`),
+      h("div", { className: "pg-head" }, h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id), item.status ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, locales[currentLanguage()].states[item.status] || item.status) : null),
+      h("p", { className: "pg-note pg-path" }, [item.discipline, item.origin, item.difficulty !== void 0 ? msg(`难度 ${item.difficulty}`, `Difficulty ${item.difficulty}`) : null].filter(Boolean).join(" · ") || msg("Playground 赛题", "Playground challenge")),
+      h("p", { className: "pg-note" }, msg(`题目编号：${item.id}${item.attempts !== void 0 ? ` · 已有 ${item.attempts} 次提交` : ""}`, `Challenge ID: ${item.id}${item.attempts !== void 0 ? ` · Submissions: ${item.attempts}` : ""}`)),
       h(
         "div",
         { className: "pg-actions" },
@@ -2337,14 +2832,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           type: "button",
           className: "pg-button pg-challenge-detail",
           "aria-haspopup": "dialog",
-          "aria-label": `查看详情：${item.titleZh || item.title || item.id}`,
+          "aria-label": msg(`查看详情：${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`, `View details: ${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`),
           onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick"),
           ref: /* @__PURE__ */ __name((node) => {
             if (node) latest.details.set(String(item.id), node);
             else latest.details.delete(String(item.id));
           }, "ref")
-        }, "查看详情"),
-        openWebButton(item.webUrl, item.titleZh || item.title || item.id)
+        }, msg("查看详情", "View details")),
+        openWebButton(item.webUrl, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id)
       )
     ))),
     // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
@@ -2358,7 +2853,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       ref: /* @__PURE__ */ __name((node) => {
         latest.more = node;
       }, "ref")
-    }, busy === "more" ? "正在加载…" : "加载更多") : null,
+    }, busy === "more" ? msg("正在加载…", "Loading…") : msg("加载更多", "Load more")) : null,
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
     detail ? h(ChallengeDetailDrawer, {
       key: String(detail.id),
@@ -2373,43 +2868,44 @@ function CatalogPanel({ query, handoff, onWebBase }) {
 __name(CatalogPanel, "CatalogPanel");
 
 // src/client/tasks/list.js
-var React12 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React11 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 
 // src/client/cards/tool.js
-var React10 = __toESM(require("react"), 1);
+var React11 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React9 = __toESM(require("react"), 1);
+var React10 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false }) {
   return h(
     "button",
     { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => requestTask({ id: String(id), title: title || String(id), mode, sessionId }), "onClick") },
-    mode === "author" ? `开始出题任务 · ${title || id}` : `开始参赛任务 · ${title || id}`
+    mode === "author" ? msg(`开始出题任务 · ${title || id}`, `Start authoring task · ${title || id}`) : msg(`开始参赛任务 · ${title || id}`, `Start participation task · ${title || id}`)
   );
 }
 __name(StartTaskButton, "StartTaskButton");
 function TaskStartOverlay(props) {
+  usePluginLanguage();
   const request = props.useTaskRequest((value) => value);
   return request ? h(TaskStartDialog, { key: request.kind === "controller" ? "controller" : `${request.sessionId}:${request.id}:${request.mode}`, ...props, request }) : null;
 }
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React9.useState("");
-  const [busy, setBusy] = React9.useState(false);
-  const [adding, setAdding] = React9.useState(false);
-  const [error, setError] = React9.useState("");
-  const [inspection, setInspection] = React9.useState(null);
+  const [selectedId, setSelectedId] = React10.useState("");
+  const [busy, setBusy] = React10.useState(false);
+  const [adding, setAdding] = React10.useState(false);
+  const [error, setError] = React10.useState("");
+  const [inspection, setInspection] = React10.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
-  const snapshot = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
-  const checking = Boolean(inspectId && !snapshot);
-  React9.useEffect(() => {
+  const snapshot2 = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
+  const checking = Boolean(inspectId && !snapshot2);
+  React10.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -2417,33 +2913,33 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     });
     return () => abort.abort();
   }, [inspectId, inspectController]);
-  const archived = snapshot?.archived;
-  const needsInitialization = snapshot?.kind === "absent" || snapshot?.kind === "incomplete";
-  const actionLabel = controller ? snapshot?.kind === "absent" ? "创建主控对话" : snapshot?.kind === "incomplete" ? "初始化主控对话" : "打开主控对话" : request.mode === "author" ? "创建出题任务" : "创建参赛任务";
-  const title = controller ? "打开工作区主控" : actionLabel;
-  const controllerError = snapshot?.kind === "blocked" ? `${snapshot.reason}${snapshot.sessionIds?.length ? ` 对话编号：${snapshot.sessionIds.join("、")}` : ""}` : archived ? "主控对话已归档。请先在 DSH 中取消归档。" : "";
-  const listError = workspaces.state === "error" ? `无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ""}。请重启 DSH 后重试。` : "";
+  const archived = snapshot2?.archived;
+  const needsInitialization = snapshot2?.kind === "absent" || snapshot2?.kind === "incomplete";
+  const actionLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
+  const title = controller ? msg("打开工作区主控", "Open workspace controller") : actionLabel;
+  const controllerError = snapshot2?.kind === "blocked" ? blockedReason(snapshot2) : archived ? msg("主控对话已归档。请先在 DSH 中取消归档。", "The controller chat is archived. Unarchive it in DSH first.") : "";
+  const listError = workspaces.state === "error" ? msg(`无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ""}。请重启 DSH 后重试。`, `Could not load DSH workspaces${workspaces.error?.message ? `: ${workspaces.error.message}` : ""}. Restart DSH and try again.`) : "";
   const loading = workspaces.phase !== "ready" && !listError;
-  const hint = listError || (loading ? "正在读取 DSH 工作区列表…" : workspaces.items.length ? "选择已有工作区，或添加一个专用目录。" : "还没有工作区，请先添加。");
+  const hint = listError || (loading ? msg("正在读取 DSH 工作区列表…", "Loading DSH workspaces…") : workspaces.items.length ? msg("选择已有工作区，或添加一个专用目录。", "Select an existing workspace or add a dedicated folder.") : msg("还没有工作区，请先添加。", "Add a workspace to get started."));
   const confirm = /* @__PURE__ */ __name(async () => {
-    if (!workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot || controllerError)) return;
+    if (!workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || controllerError)) return;
     setBusy(true);
     setError("");
     if (controller) {
       try {
         const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
         if (result.kind !== "opened") {
-          setError(`${result.reason}${result.sessionIds?.length ? ` 对话编号：${result.sessionIds.join("、")}` : ""}`);
-          if (result.code === "controller_init_failed" || result.code === "controller_init_required") setInspection({ workspaceId: inspectId, snapshot: { kind: "incomplete", codex: snapshot.codex } });
+          setError(blockedReason(result));
+          if (result.code === "controller_init_failed" || result.code === "controller_init_required") setInspection({ workspaceId: inspectId, snapshot: { kind: "incomplete", codex: snapshot2.codex } });
           if (result.code === "controller_attach_failed") setInspection({ workspaceId: inspectId, snapshot: result });
         } else {
-          setInspection({ workspaceId: inspectId, snapshot: { kind: "existing", codex: snapshot.codex } });
+          setInspection({ workspaceId: inspectId, snapshot: { kind: "existing", codex: snapshot2.codex } });
           await openControllerChat(result.sessionId, workspace.workspaceId);
           closeTaskStart();
           return;
         }
       } catch (failure) {
-        setError(failure.message || "无法打开主控对话，请重试。");
+        setError(controllerMessage(failure.message || "无法打开主控对话，请重试。"));
       }
       setBusy(false);
       return;
@@ -2452,7 +2948,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     try {
       const result = await run(request.sessionId, { action: "start", challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
       if (result.ok && result.sessionId) created = result.sessionId;
-      else setError(result.error?.message || "任务创建失败");
+      else setError(result.error?.message || msg("任务创建失败", "Could not create the task"));
     } catch (failure) {
       setError(failure.message);
     }
@@ -2480,10 +2976,10 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       "header",
       { className: "pg-task-header" },
       h("h2", null, title),
-      h("p", { className: "pg-task-subtitle" }, controller ? "选择要协调工作的 DSH 工作区。" : "选择任务文件的存放工作区"),
+      h("p", { className: "pg-task-subtitle" }, controller ? msg("选择要协调工作的 DSH 工作区。", "Select the DSH workspace for the controller.") : msg("选择任务文件的存放工作区", "Choose a workspace for the task files")),
       h(
         "button",
-        { type: "button", className: "pg-task-close", "aria-label": controller ? "关闭工作区主控" : "取消创建任务", disabled: busy || adding, onClick: closeTaskStart },
+        { type: "button", className: "pg-task-close", "aria-label": controller ? msg("关闭工作区主控", "Close workspace controller") : msg("取消创建任务", "Cancel task creation"), disabled: busy || adding, onClick: closeTaskStart },
         h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
       )
     ),
@@ -2492,19 +2988,19 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       { className: "pg-task-body", "aria-busy": busy || adding || loading || checking },
       controller ? null : h(
         "section",
-        { className: "pg-task-summary", "aria-label": "目标赛题" },
+        { className: "pg-task-summary", "aria-label": msg("目标赛题", "Target challenge") },
         h(
           "div",
           { className: "pg-task-summary-top" },
           h("h3", { className: "pg-task-title", title: request.title }, request.title),
-          h("span", { className: "pg-task-mode" }, request.mode === "author" ? "出题" : "参赛")
+          h("span", { className: "pg-task-mode" }, request.mode === "author" ? msg("出题", "Author") : msg("参赛", "Participate"))
         ),
         h("p", { className: "pg-task-id" }, request.id)
       ),
       h(
         "div",
         { className: "pg-task-field" },
-        h("label", { htmlFor: "pg-task-workspace" }, "目标工作区"),
+        h("label", { htmlFor: "pg-task-workspace" }, msg("目标工作区", "Workspace")),
         h(
           "div",
           { className: "pg-task-select-wrap" },
@@ -2526,16 +3022,16 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
                 setInspection(null);
               }, "onChange")
             },
-            h("option", { value: "" }, "请选择工作区"),
+            h("option", { value: "" }, msg("请选择工作区", "Select a workspace")),
             workspaceOptions(workspaces.items)
           ),
           h("svg", { className: "pg-task-chevron", viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 9 6 6 6-6" }))
         ),
         workspace ? h("p", { id: "pg-task-path", className: "pg-task-path" }, workspace.path) : h("p", { id: "pg-task-hint", className: listError ? "pg-task-error" : "pg-task-hint", role: listError ? "alert" : loading ? "status" : void 0 }, hint),
-        checking ? h("p", { className: "pg-task-hint", role: "status" }, "正在核对工作区的主控对话…") : null,
+        checking ? h("p", { className: "pg-task-hint", role: "status" }, msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…")) : null,
         error || controllerError ? h("p", { id: "pg-task-error", className: "pg-task-error", role: "alert" }, error || controllerError) : null,
-        needsInitialization ? h("p", { className: "pg-task-hint" }, "初始化会请当前 DSH 模型确认主控角色。") : null,
-        snapshot?.codex ? h("p", { className: "pg-task-hint" }, snapshot.codex === "registered" ? "已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体。" : "未启用 Codex 时，主控可将工作交给 DSH 子智能体，在独立对话中执行。") : null,
+        needsInitialization ? h("p", { className: "pg-task-hint" }, msg("初始化会请当前 DSH 模型确认主控角色。", "Initialization asks the current DSH model to confirm its controller role.")) : null,
+        snapshot2?.codex ? h("p", { className: "pg-task-hint" }, snapshot2.codex === "registered" ? msg("已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体。", "Codex subagents are available. The controller can use DSH subagents if Codex becomes unavailable.") : msg("未启用 Codex 时，主控可将工作交给 DSH 子智能体，在独立对话中执行。", "When Codex is disabled, the controller can delegate work to DSH subagents in separate chats.")) : null,
         h("button", { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: /* @__PURE__ */ __name(async () => {
           setAdding(true);
           setError("");
@@ -2547,37 +3043,46 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
           } finally {
             setAdding(false);
           }
-        }, "onClick") }, h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M12 5v14M5 12h14" })), adding ? "正在选择目录…" : "添加工作区…")
+        }, "onClick") }, h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M12 5v14M5 12h14" })), adding ? msg("正在选择目录…", "Choosing folder…") : msg("添加工作区…", "Add workspace…"))
       )
     ),
     h(
       "footer",
       { className: "pg-task-footer" },
-      h("p", null, controller ? "主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。" : "将在所选目录创建独立对话并读写任务文件。"),
+      h("p", null, controller ? msg("主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。", "The controller assigns tasks and collects results. Submit challenges from their separate participation chats.") : msg("将在所选目录创建独立对话并读写任务文件。", "A separate chat will use the selected directory to read and write task files.")),
       h(
         "div",
         { className: "pg-task-actions" },
-        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: closeTaskStart }, "取消"),
+        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: closeTaskStart }, msg("取消", "Cancel")),
         h(
           "button",
           {
             type: "button",
             className: "pg-task-button pg-task-create",
             "data-busy": busy,
-            disabled: !workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot || Boolean(controllerError)),
+            disabled: !workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || Boolean(controllerError)),
             onClick: confirm
           },
           busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? controller ? "正在打开…" : "正在创建…" : actionLabel
+          busy ? controller ? msg("正在打开…", "Opening…") : msg("正在创建…", "Creating…") : actionLabel
         )
       )
     )
   );
 }
 __name(TaskStartDialog, "TaskStartDialog");
+function blockedReason({ reason, sessionIds }) {
+  const message = controllerMessage(reason);
+  return sessionIds?.length ? message + msg(` 对话编号：${sessionIds.join("、")}`, ` Chat IDs: ${sessionIds.join(", ")}`) : message;
+}
+__name(blockedReason, "blockedReason");
 
 // src/client/cards/tool.js
-function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench }) {
+function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
+  const language = usePluginLanguage();
+  const t = languagePreference() ? zhText : hostText || zhText;
+  const external = phase === "result" && block.meta?.codexChats;
+  if (external && external.sessionId === sessionId) return h(CodexChats, { key: `${sessionId}:${block.id || ""}`, initial: external, workspaceId: external.workspaceId, sessionId, query: codexChats });
   const data = phase === "result" ? block.meta?.playground : void 0;
   const text = phase === "result" ? (block.content ?? []).filter((item) => item.type === "text").map((item) => item.text).join("\n") : "";
   const approvedSubmit = toolName === "playground_submit";
@@ -2612,11 +3117,11 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
     data?.sessionId && (toolName === "playground_open_controller" ? openControllerChat : openTask) ? h(
       "button",
       { className: "pg-button", onClick: /* @__PURE__ */ __name(() => toolName === "playground_open_controller" ? openControllerChat(data.sessionId, data.workspaceId || "") : openTask(data.sessionId), "onClick") },
-      toolName === "playground_open_controller" ? "打开主控对话" : "打开任务对话"
+      toolName === "playground_open_controller" ? msg("打开主控对话", "Open controller chat") : msg("打开任务对话", "Open task chat")
     ) : null,
-    data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, "打开工作台") : null,
+    data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, msg("打开工作台", "Open workbench")) : null,
     data ? h(
-      React10.Fragment,
+      React11.Fragment,
       null,
       h(
         "div",
@@ -2625,7 +3130,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
         data.challengeId ? h("span", null, `${t("challenge")}: ${data.challengeId}`) : null,
         data.bundleStatus ? h("span", null, `${t("bundle")}: ${stateLabel(data.bundleStatus, t)}`) : null,
         data.traceCount !== void 0 ? h("span", null, `${t("trace")}: ${data.traceCount}`) : null,
-        data.endAt ? h("span", null, `${t("deadline")}: ${new Date(data.endAt).toLocaleString()}`) : null,
+        data.endAt ? h("span", null, `${t("deadline")}: ${new Date(data.endAt).toLocaleString(language)}`) : null,
         data.challengeCount !== void 0 ? h("span", null, `${t("challengeCount")}: ${data.challengeCount}`) : null,
         data.completionThreshold !== void 0 ? h("span", null, `${t("threshold")}: ${data.completionThreshold}`) : null,
         data.total !== void 0 ? h("span", null, `${t("total")}: ${data.total}`) : null
@@ -2642,7 +3147,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
             "div",
             { className: "pg-row-sub" },
             `${t("id")}: ${item.id}`,
-            item.endAt ? ` · ${new Date(item.endAt).toLocaleString()}` : "",
+            item.endAt ? ` · ${new Date(item.endAt).toLocaleString(language)}` : "",
             isAttempt && scoreLabel(item, t) ? h("div", null, scoreLabel(item, t)) : null
           )
         ),
@@ -2650,7 +3155,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React10.Fragment,
+        React11.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -2664,7 +3169,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
       data.violations?.length ? h("ul", { className: "pg-error" }, data.violations.slice(0, 5).map((item, index) => h("li", { key: index }, item.message || item.rule))) : null,
       // The checked bundle: a material check carries its summary, a failed confirmation the one it checked.
       bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary) ? h("p", { className: "pg-note pg-bundle-summary" }, bundleSummaryLine(data.bundleSummary || data.diagnosis?.bundle || data.workflow?.prepared?.bundleSummary)) : null,
-      typeof data.bundleWarning === "string" ? h("p", { className: "pg-note pg-bundle-warning", role: "status" }, h("span", { className: "pg-badge", "data-tone": "warning" }, "评测包未改动"), " ", data.bundleWarning) : null,
+      typeof data.bundleWarning === "string" ? h("p", { className: "pg-note pg-bundle-warning", role: "status" }, h("span", { className: "pg-badge", "data-tone": "warning" }, msg("评测包未改动", "Bundle unchanged")), " ", data.bundleWarning) : null,
       submissionCountsLine(data.submissionCounts) ? h("p", { className: "pg-note pg-submission-counts" }, submissionCountsLine(data.submissionCounts)) : null,
       isAttempt && (data.attemptId ?? data.id) ? h("p", { className: "pg-note" }, `${t("nextAttempt")} ${data.attemptId ?? data.id}`) : null
     ) : null,
@@ -2676,11 +3181,11 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
-  const [snapshot, setSnapshot] = React11.useState(null);
-  const [scope, setScope] = React11.useState("operation");
-  const [recursive, setRecursive] = React11.useState(false);
-  const [error, setError] = React11.useState("");
-  const [busy, setBusy] = React11.useState(false);
+  const [snapshot2, setSnapshot] = React12.useState(null);
+  const [scope, setScope] = React12.useState("operation");
+  const [recursive, setRecursive] = React12.useState(false);
+  const [error, setError] = React12.useState("");
+  const [busy, setBusy] = React12.useState(false);
   const refresh = /* @__PURE__ */ __name(async () => {
     try {
       const value = await materials({ action: "status", sessionId });
@@ -2691,7 +3196,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       setError(failure.message);
     }
   }, "refresh");
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     setScope("operation");
     setRecursive(false);
     refresh();
@@ -2710,44 +3215,44 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       setBusy(false);
     }
   }, "act");
-  const scopeText = /* @__PURE__ */ __name((item) => `${item.kind === "directory" ? `目录（${item.recursive ? "含子目录" : "仅直接文件"}）` : "文件"}：${item.path}`, "scopeText");
+  const scopeText = /* @__PURE__ */ __name((item) => msg(`${item.kind === "directory" ? `目录（${item.recursive ? "含子目录" : "仅直接文件"}）` : "文件"}：${item.path}`, `${item.kind === "directory" ? `Directory (${item.recursive ? "including subfolders" : "direct files only"})` : "File"}: ${item.path}`), "scopeText");
   return h(
     "section",
-    { className: "pg-confirm", "aria-label": "外部材料权限" },
-    h("h4", null, "外部材料权限"),
-    h("p", { className: "pg-note" }, "仅用于当前任务所列比赛材料引用和后续读取。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。"),
-    ...(snapshot?.requests || []).map((item) => h(
+    { className: "pg-confirm", "aria-label": msg("外部材料权限", "External material permissions") },
+    h("h4", null, msg("外部材料权限", "External material permissions")),
+    h("p", { className: "pg-note" }, msg("仅用于当前任务所列比赛材料引用和后续读取。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。", "Access covers the listed material references and subsequent reads for this task. Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.")),
+    ...(snapshot2?.requests || []).map((item) => h(
       "div",
       { key: item.requestId, className: "pg-form" },
-      h("p", { className: "pg-note" }, item.operation === "submit" ? "为已请求的提交传递材料引用。授权后继续交接，配额例外仍需答复。" : "记录材料引用。授权后继续记录，不会上传。"),
+      h("p", { className: "pg-note" }, item.operation === "submit" ? msg("为已请求的提交传递材料引用。授权后继续交接，配额例外仍需答复。", "Pass material references for the requested submission. Granting access resumes the handoff. Quota exceptions still require your response.") : msg("记录材料引用。授权后继续记录，不会上传。", "Record material references. Granting access resumes recording without uploading files.")),
       ...item.scopes.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
-      h("label", { className: "pg-field" }, "允许范围", h(
+      h("label", { className: "pg-field" }, msg("允许范围", "Allow access for"), h(
         "select",
         { value: scope, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => setScope(event.target.value), "onChange") },
-        h("option", { value: "operation" }, "仅本次操作允许"),
-        h("option", { value: "task" }, "本次任务内允许")
+        h("option", { value: "operation" }, msg("仅本次操作允许", "This operation only")),
+        h("option", { value: "task" }, msg("本次任务内允许", "This task"))
       )),
       item.scopes.some((entry) => entry.kind === "directory") ? h(
         "label",
         { className: "pg-field" },
         h("input", { type: "checkbox", checked: recursive, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => setRecursive(event.target.checked), "onChange") }),
-        "目录授权包含子目录"
+        msg("目录授权包含子目录", "Include subfolders in directory access")
       ) : null,
       h("button", {
         className: "pg-button pg-primary",
         disabled: disabled || busy,
         onClick: /* @__PURE__ */ __name(() => act({ action: "authorize", requestId: item.requestId, scope, recursive }), "onClick")
-      }, item.operation === "submit" ? "允许引用并继续交接" : "允许引用并继续记录")
+      }, item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording"))
     )),
-    snapshot?.grants?.length ? h(
-      React11.Fragment,
+    snapshot2?.grants?.length ? h(
+      React12.Fragment,
       null,
-      h("p", { className: "pg-note" }, "本次任务已允许的范围"),
-      ...snapshot.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
-      h("button", { className: "pg-button", disabled: disabled || busy, onClick: /* @__PURE__ */ __name(() => act({ action: "revoke" }), "onClick") }, "撤销本任务全部材料授权")
+      h("p", { className: "pg-note" }, msg("本次任务已允许的范围", "Access granted for this task")),
+      ...snapshot2.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
+      h("button", { className: "pg-button", disabled: disabled || busy, onClick: /* @__PURE__ */ __name(() => act({ action: "revoke" }), "onClick") }, msg("撤销本任务全部材料授权", "Revoke all material access for this task"))
     ) : null,
-    snapshot && !snapshot.requests.length && !snapshot.grants.length ? h("p", { className: "pg-note" }, "没有待授权的外部材料，也没有任务级授权。") : null,
-    h("button", { className: "pg-button", disabled: busy, onClick: refresh }, "刷新材料权限"),
+    snapshot2 && !snapshot2.requests.length && !snapshot2.grants.length ? h("p", { className: "pg-note" }, msg("没有待授权的外部材料，也没有任务级授权。", "No external materials await approval and this task has no active grants.")) : null,
+    h("button", { className: "pg-button", disabled: busy, onClick: refresh }, msg("刷新材料权限", "Refresh permissions")),
     error ? h("p", { className: "pg-error", role: "alert" }, error) : null
   );
 }
@@ -2756,19 +3261,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React11.useState(state?.materials || {});
-  const [busy, setBusy] = React11.useState(false);
-  const [error, setError] = React11.useState("");
-  const [request, setRequest] = React11.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React11.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React11.useState(Boolean(state?.materialAccess));
-  React11.useEffect(() => {
+  const [files, setFiles] = React12.useState(state?.materials || {});
+  const [busy, setBusy] = React12.useState(false);
+  const [error, setError] = React12.useState("");
+  const [request, setRequest] = React12.useState(state?.submission);
+  const [accessRequest, setAccessRequest] = React12.useState(state?.materialAccess);
+  const [showAccess, setShowAccess] = React12.useState(Boolean(state?.materialAccess));
+  React12.useEffect(() => {
     setFiles(state?.materials || {});
   }, [state?.materials]);
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     setRequest(state?.submission);
   }, [state?.submission]);
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     if (state?.materialAccess) {
       setAccessRequest(state.materialAccess);
       setShowAccess(true);
@@ -2780,7 +3285,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     setError("");
     try {
       const result = ["request", "confirm_quota", "cancel"].includes(input.action) ? await submission({ ...input, sessionId }) : await run(sessionId, input);
-      if (result.ok === false) setError(result.error?.message || result.note || "操作未完成");
+      if (result.ok === false) setError(result.error?.message || result.note || msg("操作未完成", "Operation did not finish"));
       if (result.submission) setRequest(result.submission);
       if (result.workflow?.kind === "material-access") {
         setAccessRequest(result.workflow.request);
@@ -2796,76 +3301,76 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const active = ["dispatching", "dispatched", "created", "unknown"].includes(request?.status);
   const canCancel = ["awaiting_user", "dispatching", "dispatched", "created", "unknown"].includes(request?.status);
   const stages = {
-    awaiting_user: "等待配额答复，尚未派发",
-    dispatching: "正在交接",
-    dispatched: "已派发给 Agent，尚未取得新编号",
-    not_created: "未创建新提交",
-    created: "已创建，上传状态未确认",
-    uploaded: "Agent 报告已上传",
-    upload_failed: "已创建，Agent 报告上传失败",
-    unknown: "结果未知，先核对已有提交",
-    running: "平台已接收，处理中",
-    final: "平台已返回最终结果"
+    awaiting_user: msg("等待配额答复，尚未派发", "Awaiting your quota decision before dispatch"),
+    dispatching: msg("正在交接", "Handing off"),
+    dispatched: msg("已派发给 Agent，尚未取得新编号", "Sent to the Agent. Awaiting a submission ID."),
+    not_created: msg("未创建新提交", "No new submission created"),
+    created: msg("已创建，上传状态未确认", "Created. Upload unconfirmed."),
+    uploaded: msg("Agent 报告已上传", "Agent reports a successful upload"),
+    upload_failed: msg("已创建，Agent 报告上传失败", "Created. Agent reports an upload failure."),
+    unknown: msg("结果未知，先核对已有提交", "Outcome unknown. Check existing submissions first."),
+    running: msg("平台已接收，处理中", "Received by the platform and processing"),
+    final: msg("平台已返回最终结果", "Final result received")
   };
   return h(
     "section",
-    { className: "pg-guide pg-workflow", "aria-label": "Playground 任务" },
+    { className: "pg-guide pg-workflow", "aria-label": msg("Playground 任务", "Playground task") },
     h("style", null, css + ".pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}"),
-    h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : "Playground · 开始任务"),
-    task ? h("p", { className: "pg-note pg-path" }, `赛题 ${task.challengeId} · ${cwd || task.cwd}`) : null,
+    h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
+    task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
-      h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, "外部材料权限"),
+      h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, msg("外部材料权限", "External material permissions")),
       showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
-      h("p", { className: "pg-note" }, "出题模式目前只支持本地准备。"),
-      h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, "切回参赛")
+      h("p", { className: "pg-note" }, msg("出题模式目前只支持本地准备。", "Authoring mode currently supports local preparation only.")),
+      h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation"))
     ) : null,
     task && task.mode !== "author" ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
-      h("p", { className: "pg-note" }, "提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。"),
+      h("p", { className: "pg-note" }, msg("提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent submits through the official CLI or API according to the challenge requirements. It records the submission ID and tracks the result.")),
       h(
         "details",
         { className: "pg-advanced" },
-        h("summary", null, "材料引用（可选）"),
-        h("div", { className: "pg-form" }, ...[["outputs_path", "产物目录"], ["bundle_path", "评测包路径"], ["trace_path", "执行轨迹路径"], ["manifest_path", "Manifest 路径"]].map(([key, label]) => h("label", { key, className: "pg-field" }, label, h("input", {
+        h("summary", null, msg("材料引用（可选）", "Material references (optional)")),
+        h("div", { className: "pg-form" }, ...[["outputs_path", msg("产物目录", "Output directory")], ["bundle_path", msg("评测包路径", "Evaluation bundle path")], ["trace_path", msg("执行轨迹路径", "Execution trace path")], ["manifest_path", msg("Manifest 路径", "Manifest path")]].map(([key, label2]) => h("label", { key, className: "pg-field" }, label2, h("input", {
           className: "pg-input",
           value: files[key] || "",
           disabled: disabled || active,
           onChange: /* @__PURE__ */ __name((event) => setFiles({ ...files, [key]: event.target.value }), "onChange")
         })))),
-        h("p", { className: "pg-note" }, "仅传递路径，不读取内容或检查格式。留空时由 Agent 根据任务上下文处理，外部材料需先授权。")
+        h("p", { className: "pg-note" }, msg("仅传递路径，不读取内容或检查格式。留空时由 Agent 根据任务上下文处理，外部材料需先授权。", "Only paths are passed. The plugin does not read files or check their format. Leave the fields blank to use the task context. External materials require permission."))
       ),
       h(
         "div",
         { className: "pg-actions" },
-        h("button", { className: "pg-button pg-primary", disabled: disabled || active || request?.status === "awaiting_user", onClick: /* @__PURE__ */ __name(() => act({ action: "request", ...files }), "onClick") }, "提交"),
-        receipt?.attemptId ? h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "results" }), "onClick") }, `查询结果 #${receipt.attemptId}`) : null
+        h("button", { className: "pg-button pg-primary", disabled: disabled || active || request?.status === "awaiting_user", onClick: /* @__PURE__ */ __name(() => act({ action: "request", ...files }), "onClick") }, msg("提交", "Submit")),
+        receipt?.attemptId ? h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "results" }), "onClick") }, msg(`查询结果 #${receipt.attemptId}`, `Check result #${receipt.attemptId}`)) : null
       )
     ) : null,
     request ? h(
       "div",
       { className: "pg-confirm", role: "status" },
-      h("p", { className: "pg-note" }, request.status === "not_created" && request.recovery ? "已解除交接状态，服务器结果待核对" : stages[request.status] || request.status),
+      h("p", { className: "pg-note" }, request.status === "not_created" && request.recovery ? msg("已解除交接状态，服务器结果待核对", "Handoff cleared. The server outcome still needs verification.") : stages[request.status] || request.status),
       request.policy?.announcement ? h("p", { className: "pg-note" }, request.policy.announcement) : null,
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
-      request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? `Agent 报告：${request.message}` : request.message) : null,
+      request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React11.Fragment,
+        React12.Fragment,
         null,
-        h("p", { className: "pg-confirm-impact" }, `${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`),
+        h("p", { className: "pg-confirm-impact" }, msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)),
         h(
           "div",
           { className: "pg-actions" },
-          h("button", { className: "pg-button pg-primary", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, "知悉配额风险，继续本次提交")
+          h("button", { className: "pg-button pg-primary", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue"))
         )
       ) : null,
-      canCancel ? h("button", { className: "pg-button", disabled: busy || !allowed, onClick: /* @__PURE__ */ __name(() => act({ action: "cancel", requestId: request.requestId }), "onClick") }, "取消本次请求") : null
+      canCancel ? h("button", { className: "pg-button", disabled: busy || !allowed, onClick: /* @__PURE__ */ __name(() => act({ action: "cancel", requestId: request.requestId }), "onClick") }, msg("取消本次请求", "Cancel this request")) : null
     ) : null,
     receipt ? h(
       "details",
@@ -2874,21 +3379,21 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       h(PlaygroundToolCard, { phase: "result", block: { meta: { playground: receipt } }, toolName: "playground_get_attempt", t })
     ) : null,
     error ? h("p", { className: "pg-error", role: "alert" }, error) : null,
-    running ? h("p", { className: "pg-note" }, "此会话正在执行任务。取消生成不能撤回已经发生的服务器写入。") : null,
-    !allowed ? h("p", { className: "pg-note" }, "当前连接没有此会话的操作权限。") : null
+    running ? h("p", { className: "pg-note" }, msg("此会话正在执行任务。取消生成不能撤回已经发生的服务器写入。", "This chat is running a task. Stopping generation cannot undo completed server writes.")) : null,
+    !allowed ? h("p", { className: "pg-note" }, msg("当前连接没有此会话的操作权限。", "This connection cannot perform actions in this chat.")) : null
   );
 }
 __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
-  const [error, setError] = React11.useState("");
-  React11.useEffect(() => {
+  const [error, setError] = React12.useState("");
+  React12.useEffect(() => {
     refreshProjections(session.id).catch((failure) => setError(failure.message));
   }, [session.id, refreshProjections]);
   if (error || projection?.state === "error" || projection?.state === "migration-required") {
-    return h("p", { className: "pg-error", role: "alert" }, error || projection.error?.message || "请先在 DSH 中打开此会话，完成会话迁移后再继续。");
+    return h("p", { className: "pg-error", role: "alert" }, error || projection.error?.message || msg("请先在 DSH 中打开此会话，完成会话迁移后再继续。", "Open this chat in DSH to complete its migration before continuing."));
   }
-  if (projection?.state !== "ready") return h("p", { className: "pg-note", role: "status" }, "正在读取任务状态…");
+  if (projection?.state !== "ready") return h("p", { className: "pg-note", role: "status" }, msg("正在读取任务状态…", "Loading task status…"));
   const task = projection.values.playgroundTask;
   const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
   return h(TaskWorkflow, {
@@ -2908,11 +3413,11 @@ function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectR
   const task = state.task;
   const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
-  const title = task?.title || session.displayTitle?.replace(/^Playground · /, "") || "Playground 任务";
-  const challengeId = task?.challengeId || "赛题待读取";
-  const stage = receipt || task || session.running ? progress.stageText : "状态待读取";
+  const title = task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
+  const challengeId = task?.challengeId || msg("赛题待读取", "Challenge pending");
+  const stage = receipt || task || session.running ? progress.stageText : msg("状态待读取", "Status pending");
   const updatedAt = session.updatedAt || session.lastActivityAt || session.createdAt;
-  const updated = updatedAt ? new Date(updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "暂无时间";
+  const updated = updatedAt ? new Date(updatedAt).toLocaleString(msg("zh-CN", "en-US"), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("暂无时间", "Time unavailable");
   return h(
     "div",
     { className: `pg-task-row${selected ? " is-selected" : ""}`, role: "listitem" },
@@ -2933,7 +3438,7 @@ function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectR
         h("span", { className: "pg-task-row-updated" }, updated)
       )
     ),
-    h("button", { type: "button", className: "pg-task-row-open", onClick: onOpen, "aria-label": `打开对话：${title}` }, "打开对话")
+    h("button", { type: "button", className: "pg-task-row-open", onClick: onOpen, "aria-label": msg(`打开对话：${title}`, `Open chat: ${title}`) }, msg("打开对话", "Open chat"))
   );
 }
 __name(TaskSummaryRow, "TaskSummaryRow");
@@ -2943,13 +3448,13 @@ function taskAttemptIds(state) {
 }
 __name(taskAttemptIds, "taskAttemptIds");
 function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
-  const [history, setHistory] = React12.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React12.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React12.useState(false);
-  const [error, setError] = React12.useState("");
-  const [signedOut, setSignedOut] = React12.useState(false);
-  const [status, setStatus] = React12.useState("");
-  const [latest] = React12.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const [history, setHistory] = React13.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React13.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React13.useState(false);
+  const [error, setError] = React13.useState("");
+  const [signedOut, setSignedOut] = React13.useState(false);
+  const [status, setStatus] = React13.useState(null);
+  const [latest] = React13.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -2961,7 +3466,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
     const controller = new AbortController();
     latest.controller = controller;
     setBusy(true);
-    setStatus("正在读取提交历史…");
+    setStatus(["正在读取提交历史…", "Loading submission history…"]);
     try {
       const result = await query({ action: "my_attempts", challengeId, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
       if (latest.controller !== controller) return;
@@ -2971,12 +3476,12 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
           setError("");
           setOverview({ counts: void 0, partial: "" });
           setHistory({ items: [], nextCursor: null, loaded: true });
-          setStatus("登录后可查看提交历史。");
+          setStatus(["登录后可查看提交历史。", "Sign in to view submission history."]);
           refocusHeading();
         } else {
           latest.refocus = false;
-          setError(safeMessage(result.error?.message) || "提交历史读取失败，请重试。");
-          setStatus("提交历史读取失败。");
+          setError(safeMessage(result.error?.message) || msg("提交历史读取失败，请重试。", "Could not load submission history. Try again."));
+          setStatus(["提交历史读取失败。", "Could not load submission history."]);
         }
         return;
       }
@@ -2992,14 +3497,14 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       setError("");
       setHistory({ items: items2, nextCursor, loaded: true });
       if (!cursor) setOverview({ counts: result?.submissionCounts, partial: typeof result?.partial?.note === "string" ? result.partial.note : "" });
-      setStatus(items2.length ? `已加载 ${items2.length} 条提交` : result?.partial ? "提交历史不完整。" : "这道题还没有提交记录。");
+      setStatus(items2.length ? [`已加载 ${items2.length} 条提交`, `Submissions loaded: ${items2.length}`] : result?.partial ? ["提交历史不完整。", "Submission history is incomplete."] : ["这道题还没有提交记录。", "No submissions yet for this challenge."]);
       if (cursor && !nextCursor) latest.list?.focus?.();
       if (!items2.length) refocusHeading();
     } catch (failure) {
       if (latest.controller !== controller) return;
       latest.refocus = false;
       setError(failure.message);
-      setStatus("提交历史读取失败。");
+      setStatus(["提交历史读取失败。", "Could not load submission history."]);
     } finally {
       if (latest.controller === controller) {
         latest.controller = null;
@@ -3007,7 +3512,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       }
     }
   }, "load");
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
@@ -3020,15 +3525,15 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
   const missing = new Set(bundleMissingIds);
   return h(
     "section",
-    { className: "pg-guide pg-history", "aria-label": "提交历史", "aria-busy": busy },
-    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status),
+    { className: "pg-guide pg-history", "aria-label": msg("提交历史", "Submission history"), "aria-busy": busy },
+    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
     h("h3", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
       latest.heading = node;
-    }, "ref") }, "提交历史"),
-    h("p", { className: "pg-note" }, "当前账号在这道题上的提交，按时间从新到旧排列，包括在终端或其他工具中完成的提交。"),
+    }, "ref") }, msg("提交历史", "Submission history")),
+    h("p", { className: "pg-note" }, msg("当前账号在这道题上的提交，按时间从新到旧排列，包括在终端或其他工具中完成的提交。", "Submissions by this account for this challenge, newest first, including submissions made from the terminal or other tools.")),
     submissionCountsLine(overview.counts, limits) ? h("p", { className: "pg-note pg-submission-counts" }, submissionCountsLine(overview.counts, limits)) : null,
     overview.partial ? h("p", { className: "pg-note pg-history-partial", role: "status" }, overview.partial) : null,
-    signedOut ? h("p", { className: "pg-note" }, "登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。") : null,
+    signedOut ? h("p", { className: "pg-note" }, msg("登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。", "Close task details and sign in under Playground connection status to view submission history.")) : null,
     error ? h("p", { className: "pg-error", role: "alert" }, error) : null,
     error && !items.length ? h(
       "div",
@@ -3036,11 +3541,11 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => {
         latest.refocus = true;
         return load();
-      }, "onClick") }, busy ? "正在读取…" : "重试")
+      }, "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry"))
     ) : null,
-    busy && !history.loaded ? h("p", { className: "pg-note" }, "正在读取提交历史…") : null,
-    history.loaded && !signedOut && !items.length && !error && !overview.partial ? h("p", { className: "pg-note" }, "这道题还没有提交记录。") : null,
-    items.length ? h("ul", { className: "pg-list", "aria-label": "提交历史列表", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+    busy && !history.loaded ? h("p", { className: "pg-note" }, msg("正在读取提交历史…", "Loading submission history…")) : null,
+    history.loaded && !signedOut && !items.length && !error && !overview.partial ? h("p", { className: "pg-note" }, msg("这道题还没有提交记录。", "No submissions yet for this challenge.")) : null,
+    items.length ? h("ul", { className: "pg-list", "aria-label": msg("提交历史列表", "Submission history list"), tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
       latest.list = node;
       if (node && latest.refocus) {
         latest.refocus = false;
@@ -3048,7 +3553,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       }
     }, "ref") }, items.map((item) => {
       const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)], { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
-      const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "提交时间未知";
+      const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString(msg("zh-CN", "en-US"), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("提交时间未知", "Submission time unknown");
       const own = linked.has(Number(item.id));
       return h(
         "li",
@@ -3056,22 +3561,22 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
         h(
           "div",
           { className: "pg-row-main" },
-          `提交 #${item.id ?? "—"}`,
+          msg(`提交 #${item.id ?? "—"}`, `Submission #${item.id ?? "—"}`),
           h("div", { className: "pg-row-sub" }, created, " · ", progress.stageText, " · ", progress.scoreText)
         ),
         h(
           "div",
           { className: "pg-history-side" },
           h("span", { className: "pg-badge", "data-tone": progress.badgeTone }, progress.badgeText),
-          h("span", { className: "pg-badge", "data-tone": own ? "success" : "neutral" }, own ? "本对话" : "未关联到对话"),
-          h("span", { className: "pg-badge pg-identity", "data-tone": "neutral" }, item.identity === "agent" ? "Agent 账号 · " + (item.agentName || item.authorName || "未命名") : "本人")
+          h("span", { className: "pg-badge", "data-tone": own ? "success" : "neutral" }, own ? msg("本对话", "This chat") : msg("未关联到对话", "Unlinked to this chat")),
+          h("span", { className: "pg-badge pg-identity", "data-tone": "neutral" }, item.identity === "agent" ? msg("Agent 账号 · ", "Agent account · ") + (item.agentName || item.authorName || msg("未命名", "Unnamed")) : msg("本人", "My account"))
         )
       );
     })) : null,
     history.nextCursor && !signedOut ? h(
       "div",
       { className: "pg-actions" },
-      h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(history.nextCursor), "onClick") }, busy ? "正在读取…" : "加载更多")
+      h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(history.nextCursor), "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("加载更多", "Load more"))
     ) : null
   );
 }
@@ -3081,13 +3586,13 @@ function TaskArchiveControl({ session, archive }) {
   const busy = archive.busy === session.id;
   const archived = Boolean(archive.archived);
   const notes = archived ? [] : [
-    session.running ? ["pg-archive-running", "对话正在运行，停止后再归档。"] : null,
-    (session.retainedBy?.mainView ?? 0) > 0 ? ["pg-archive-main-view", "这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。"] : null
+    session.running ? ["pg-archive-running", msg("对话正在运行，停止后再归档。", "Stop this running chat before archiving it.")] : null,
+    (session.retainedBy?.mainView ?? 0) > 0 ? ["pg-archive-main-view", msg("这是 DSH 当前打开的对话，请先在侧边栏切换到其他对话再归档。", "This chat is open in DSH. Switch to another chat in the sidebar before archiving it.")] : null
   ].filter(Boolean);
   return h(
     "div",
     { className: "pg-actions pg-archive" },
-    archived ? h("span", { className: "pg-badge", "data-tone": "neutral" }, "已归档") : null,
+    archived ? h("span", { className: "pg-badge", "data-tone": "neutral" }, msg("已归档", "Archived")) : null,
     // One button for both directions, so it stays mounted and keeps keyboard focus when its label changes.
     // While a change is in flight it is aria-disabled instead of disabled, which would drop focus.
     h(
@@ -3102,7 +3607,7 @@ function TaskArchiveControl({ session, archive }) {
           if (!archive.busy) archive.change(session.id, !archived);
         }, "onClick")
       },
-      busy ? archived ? "正在撤销…" : "正在归档…" : archived ? "撤销" : "归档任务"
+      busy ? archived ? msg("正在撤销…", "Restoring…") : msg("正在归档…", "Archiving…") : archived ? msg("撤销", "Undo") : msg("归档任务", "Archive task")
     ),
     ...notes.map(([id, note]) => h("span", { key: id, id, className: "pg-note" }, note)),
     archive.error ? h("p", { className: "pg-note pg-error pg-archive-error", role: "alert" }, archive.error) : null
@@ -3110,7 +3615,7 @@ function TaskArchiveControl({ session, archive }) {
 }
 __name(TaskArchiveControl, "TaskArchiveControl");
 function ArchivedTaskRow({ session, archive, buttonRef }) {
-  const title = session.projectionValues?.playgroundTask?.task?.title || session.displayTitle?.replace(/^Playground · /, "") || "Playground 任务";
+  const title = session.projectionValues?.playgroundTask?.task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   return h(
     "div",
     { className: "pg-task-row pg-archived-row", role: "listitem" },
@@ -3119,12 +3624,12 @@ function ArchivedTaskRow({ session, archive, buttonRef }) {
       type: "button",
       className: "pg-task-row-open pg-unarchive",
       "aria-disabled": archive.busy ? true : void 0,
-      "aria-label": `取消归档：${title}`,
+      "aria-label": msg(`取消归档：${title}`, `Unarchive: ${title}`),
       ref: buttonRef,
       onClick: /* @__PURE__ */ __name(() => {
         if (!archive.busy) archive.change(session.id, false, { fromList: true });
       }, "onClick")
-    }, archive.busy === session.id ? "正在取消…" : "取消归档")
+    }, archive.busy === session.id ? msg("正在取消…", "Restoring…") : msg("取消归档", "Unarchive"))
   );
 }
 __name(ArchivedTaskRow, "ArchivedTaskRow");
@@ -3136,7 +3641,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   }, "dismiss");
   focus.dismiss = dismiss;
   const state = session?.projectionValues?.playgroundTask || {};
-  const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, "") || "Playground 任务";
+  const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const current = projection?.state === "ready" && projection.values?.playgroundTask || state;
   const historyChallenge = current.task?.challengeId || state.task?.challengeId;
   const attemptIds = taskAttemptIds(current);
@@ -3153,7 +3658,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
     { className: "pg-drawer-backdrop", onMouseDown: dismiss },
     h(
       "aside",
-      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": `${title} 任务详情`, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
+      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 任务详情`, `Task details: ${title}`), onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
         focus.dialog = node;
       }, "ref") },
       h(
@@ -3172,16 +3677,16 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
           archived ? null : h("button", { type: "button", className: "pg-button pg-primary pg-drawer-open", onClick: /* @__PURE__ */ __name(() => {
             props.openConversation(session.id);
             dismiss();
-          }, "onClick"), "aria-label": `打开任务对话：${title}` }, "打开任务对话"),
-          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": "关闭任务详情" }, "关闭")
+          }, "onClick"), "aria-label": msg(`打开任务对话：${title}`, `Open task chat: ${title}`) }, msg("打开任务对话", "Open task chat")),
+          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭任务详情", "Close task details") }, msg("关闭", "Close"))
         )
       ),
-      h("p", { className: "pg-note pg-path" }, state.task?.challengeId ? `赛题 ${state.task.challengeId}` : "赛题信息待读取"),
+      h("p", { className: "pg-note pg-path" }, state.task?.challengeId ? msg(`赛题 ${state.task.challengeId}`, `Challenge ${state.task.challengeId}`) : msg("赛题信息待读取", "Challenge details pending")),
       openWeb ? h("div", { className: "pg-actions" }, openWeb) : null,
       h(TaskArchiveControl, { session, archive }),
       // An archived task is read-only here: its state and history, without the check and confirm controls,
       // which would act on a conversation DSH has archived.
-      archived ? h("p", { className: "pg-note pg-archived-note" }, "此任务已归档。DSH 不会打开已归档的对话；撤销后才能向任务 Agent 请求提交。") : h(SelectedTask, { key: session.id, session, projection, ...props }),
+      archived ? h("p", { className: "pg-note pg-archived-note" }, msg("此任务已归档。DSH 不会打开已归档的对话；撤销后才能向任务 Agent 请求提交。", "This task is archived. Unarchive it to open the chat in DSH and ask its Agent to submit.")) : h(SelectedTask, { key: session.id, session, projection, ...props }),
       // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
       // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
@@ -3193,6 +3698,7 @@ __name(TaskDetailDrawer, "TaskDetailDrawer");
 
 // src/client/workbench.js
 function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+  usePluginLanguage();
   const catalog = useSessions((state) => state);
   const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
   const archiveAvailable = Array.isArray(archivedIds);
@@ -3201,22 +3707,22 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React13.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React13.useState(false);
-  const [archiveBusy, setArchiveBusy] = React13.useState("");
-  const [archiveError, setArchiveError] = React13.useState(noArchiveError);
-  const [split, setSplit] = React13.useState(50);
-  const [announcement, setAnnouncement] = React13.useState("");
-  const [drawerOpen, setDrawerOpen] = React13.useState(false);
-  const [nav] = React13.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React14.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React14.useState(false);
+  const [archiveBusy, setArchiveBusy] = React14.useState("");
+  const [archiveError, setArchiveError] = React14.useState(noArchiveError);
+  const [split, setSplit] = React14.useState(50);
+  const [announcement, setAnnouncement] = React14.useState("");
+  const [drawerOpen, setDrawerOpen] = React14.useState(false);
+  const [nav] = React14.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React13.useState("");
-  const [openError, setOpenError] = React13.useState("");
-  const [, setVersion] = React13.useState(0);
-  const [store] = React13.useState(() => {
+  const [webBase, setWebBase] = React14.useState("");
+  const [openError, setOpenError] = React14.useState("");
+  const [, setVersion] = React14.useState(0);
+  const [store] = React14.useState(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -3246,14 +3752,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
   }));
   const anyPending = pendingIds.length > 0;
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     store.query = query;
     store.taskIds = taskIds;
     store.pendingIds = pendingIds;
     store.receipts = receiptsById;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     store.disposed = !active;
     if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingIds);
     return () => {
@@ -3262,7 +3768,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       store.controller = null;
     };
   }, [active]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refreshAttempts(store, store.pendingIds);
@@ -3279,13 +3785,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [active, anyPending]);
   const refreshing = Boolean(store.controller);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (performance.now() - pending.at > unarchiveFocusMs) {
@@ -3308,13 +3814,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const order = archivedTasks.map((item) => item.id);
     const index = order.indexOf(id);
     const neighbours = { next: order[index + 1], previous: order[index - 1] };
-    return Promise.resolve().then(() => (archive2 ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive2 ? "归档未完成，请重试。" : "取消归档未完成，请重试。" })).then((result) => {
+    return Promise.resolve().then(() => (archive2 ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive2 ? msg("归档未完成，请重试。", "Could not archive the task. Try again.") : msg("取消归档未完成，请重试。", "Could not unarchive the task. Try again.") })).then((result) => {
       setArchiveBusy("");
       if (result?.ok === false) {
         setArchiveError({ id, message: result.message });
         setAnnouncement(result.message);
       } else {
-        setAnnouncement(archive2 ? "任务已归档" : "任务已取消归档");
+        setAnnouncement(archive2 ? msg("任务已归档", "Task archived") : msg("任务已取消归档", "Task restored"));
         if (fromList && !archive2) nav.restored = { id, ...neighbours, at: performance.now() };
       }
     });
@@ -3330,13 +3836,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     setOpenError("");
     return Promise.resolve().then(() => openTask(id)).catch((failure) => {
       console.warn("Playground: failed to open the task conversation", failure);
-      setAnnouncement("无法打开任务对话，请重试。");
-      setOpenError("无法打开任务对话，请重试。");
+      setAnnouncement(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
+      setOpenError(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
     });
   }, "openConversation");
   return h(
     "main",
-    { className: "pg-workbench", "aria-label": "Playground 工作台" },
+    { className: "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
     h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
@@ -3344,17 +3850,17 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       section ? null : h(
         "header",
         { className: "pg-head" },
-        h("h1", null, "Playground 主控面板"),
-        h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => requestTask({ kind: "controller" }), "onClick") }, "打开工作区主控"),
-        h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openable ? openTask(openable.id) : openChat(), "onClick") }, openable ? "返回所选任务对话" : "打开 DSH 对话")
+        h("h1", null, msg("Playground 主控面板", "Playground controller panel")),
+        h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => requestTask({ kind: "controller" }), "onClick") }, msg("打开工作区主控", "Open workspace controller")),
+        h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openable ? openTask(openable.id) : openChat(), "onClick") }, openable ? msg("返回所选任务对话", "Return to selected task chat") : msg("打开 DSH 对话", "Open DSH chat"))
       ),
       libraryOnly ? null : h(AuthStatusPanel, { query, login, saveToken, clearToken }),
       h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, announcement),
       section ? null : h(
         "div",
         { className: "pg-split-control" },
-        h("span", null, "调整左右栏宽度"),
-        h("input", { type: "range", min: 35, max: 65, step: 5, value: split, "aria-label": "调整左右栏宽度", "aria-valuetext": `左侧 ${split}%，右侧 ${100 - split}%`, onChange: /* @__PURE__ */ __name((event) => setSplit(Number(event.target.value)), "onChange") }),
+        h("span", null, msg("调整左右栏宽度", "Adjust column widths")),
+        h("input", { type: "range", min: 35, max: 65, step: 5, value: split, "aria-label": msg("调整左右栏宽度", "Adjust column widths"), "aria-valuetext": msg(`左侧 ${split}%，右侧 ${100 - split}%`, `Left ${split}%, right ${100 - split}%`), onChange: /* @__PURE__ */ __name((event) => setSplit(Number(event.target.value)), "onChange") }),
         h("span", null, `${split}% / ${100 - split}%`)
       ),
       h(
@@ -3362,48 +3868,48 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         { className: "pg-workbench-grid", style: { gridTemplateColumns: section ? "minmax(0,1fr)" : `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
         section === "submissions" ? null : h(
           "section",
-          { className: "pg-workbench-column", "aria-label": "Playground 赛题目录" },
-          h("div", { className: "pg-column-heading" }, h("h2", null, "赛题目录")),
+          { className: "pg-workbench-column", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog") },
+          h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
           h(CatalogPanel, { query, handoff, onWebBase: setWebBase })
         ),
         section === "catalog" ? null : h(
           "section",
-          { className: "pg-workbench-column", "aria-label": "Playground 任务总览" },
+          { className: "pg-workbench-column", "aria-label": msg("Playground 任务总览", "Playground task overview") },
           h(
             "div",
             { className: "pg-column-heading" },
             h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
               nav.heading = node;
-            }, "ref") }, "任务总览"),
+            }, "ref") }, msg("任务总览", "Task overview")),
             h(
               "span",
               { className: "pg-refresh-controls" },
-              h("span", { className: "pg-badge" }, `${taskSessions.length} 个任务`),
+              h("span", { className: "pg-badge" }, msg(`${taskSessions.length} 个任务`, `${taskSessions.length} task${taskSessions.length === 1 ? "" : "s"}`)),
               taskSessions.length ? h("button", {
                 type: "button",
                 className: "pg-button pg-refresh",
                 disabled: refreshing || !taskIds.length,
                 onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskIds), "onClick")
-              }, refreshing ? "正在刷新…" : "刷新") : null
+              }, refreshing ? msg("正在刷新…", "Refreshing…") : msg("刷新", "Refresh")) : null
             )
           ),
           store.failed ? h(
             "p",
             { className: "pg-note pg-refresh-status pg-error", role: "status" },
-            store.partial ? "刷新失败，部分任务显示的不是最新状态" : store.refreshedAt ? `刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态` : "刷新失败，显示的是任务记录中的状态"
-          ) : store.refreshedAt ? h("p", { className: "pg-note pg-refresh-status" }, `状态更新于 ${clock(store.refreshedAt)}`) : null,
+            store.partial ? msg("刷新失败，部分任务显示的不是最新状态", "Refresh failed. Some task statuses may be out of date.") : store.refreshedAt ? msg(`刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态`, `Refresh failed. Showing statuses from ${clock(store.refreshedAt)}.`) : msg("刷新失败，显示的是任务记录中的状态", "Refresh failed. Showing the statuses saved in the task records.")
+          ) : store.refreshedAt ? h("p", { className: "pg-note pg-refresh-status" }, msg(`状态更新于 ${clock(store.refreshedAt)}`, `Status updated at ${clock(store.refreshedAt)}`)) : null,
           // Visible copy of the navigation failure; the live region above already announces it.
           openError ? h("p", { className: "pg-note pg-error pg-open-error", role: "none" }, openError) : null,
           taskSessions.length ? h(
             "div",
-            { className: "pg-task-list", role: "list", "aria-label": "Playground 任务列表" },
+            { className: "pg-task-list", role: "list", "aria-label": msg("Playground 任务列表", "Playground task list") },
             taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: /* @__PURE__ */ __name(() => {
               setSelected(item.id);
               setDrawerOpen(true);
               setArchiveError(noArchiveError);
-              setAnnouncement(`已打开任务：${item.displayTitle}`);
+              setAnnouncement(msg(`已打开任务：${item.displayTitle}`, `Opened task: ${item.displayTitle}`));
             }, "onSelect"), onOpen: /* @__PURE__ */ __name(() => openConversation(item.id), "onOpen"), selectRef: refInto(nav.rows, item.id) }))
-          ) : h("p", { className: "pg-task-empty" }, archivedTasks.length ? "没有未归档的任务。" : "还没有 Playground 任务。先从赛题目录选择一个题目。"),
+          ) : h("p", { className: "pg-task-empty" }, archivedTasks.length ? msg("没有未归档的任务。", "No active tasks.") : msg("还没有 Playground 任务。先从赛题目录选择一个题目。", "No Playground tasks yet. Select a challenge from the catalog to get started.")),
           // Visible copy of an archive failure while the drawer is closed; the drawer shows its own.
           archive && archiveError.message && !drawerOpen ? h("p", { className: "pg-note pg-error pg-archive-error", role: "none" }, archiveError.message) : null,
           archive && archivedTasks.length ? h(
@@ -3418,10 +3924,10 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
               ref: /* @__PURE__ */ __name((node) => {
                 nav.toggle = node;
               }, "ref")
-            }, `已归档 ${archivedTasks.length} 个`),
+            }, msg(`已归档 ${archivedTasks.length} 个`, `Archived (${archivedTasks.length})`)),
             showArchived ? h(
               "div",
-              { id: "pg-archived-list", className: "pg-task-list pg-archived-list", role: "list", "aria-label": "已归档的 Playground 任务" },
+              { id: "pg-archived-list", className: "pg-task-list pg-archived-list", role: "list", "aria-label": msg("已归档的 Playground 任务", "Archived Playground tasks") },
               archivedTasks.map((item) => h(ArchivedTaskRow, { key: item.id, session: item, archive, buttonRef: refInto(nav.archived, item.id) }))
             ) : null
           ) : null
@@ -3449,14 +3955,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       section === "submissions" ? null : h(
         "details",
         { className: "pg-help" },
-        h("summary", null, "如何使用"),
+        h("summary", null, msg("如何使用", "How to use the workbench")),
         h(
           "ol",
           null,
-          h("li", null, "搜索比赛和赛题，查看题目后点击“交给主控”。"),
-          h("li", null, "首次交接时选择工作区并确认，主控会在该工作区协调赛题工作。"),
-          h("li", null, "完成方案后，在任务详情点击“提交”，由该任务 Agent 按官方要求执行并记录编号。"),
-          h("li", null, "查询结果与关键指标；排队状态表示尚未得到最终评分。")
+          h("li", null, msg("搜索比赛和赛题，查看题目后点击“交给主控”。", "Find a competition or challenge, review its details, and select “Hand off to controller”.")),
+          h("li", null, msg("首次交接时选择工作区并确认，主控会在该工作区协调赛题工作。", "On the first handoff, choose and confirm a workspace. The controller will coordinate work there.")),
+          h("li", null, msg("完成方案后，在任务详情点击“提交”，由该任务 Agent 按官方要求执行并记录编号。", "When your solution is ready, select “Submit” in task details. The task Agent follows the official requirements and records the submission ID.")),
+          h("li", null, msg("查询结果与关键指标；排队状态表示尚未得到最终评分。", "Check results and metrics. Queued submissions are waiting for a final score."))
         )
       )
     )
@@ -3470,6 +3976,7 @@ function commandFact(value) {
 }
 __name(commandFact, "commandFact");
 function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
+  usePluginLanguage();
   let result;
   let input;
   try {
@@ -3492,74 +3999,80 @@ function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
   if (node.name === "playground" && !workflow && legacyQuery) return null;
   const challenges = Array.isArray(catalog?.challenges?.items) ? catalog.challenges.items.filter((item) => item && typeof item === "object") : [];
   const action = auth ? "auth" : catalog ? "catalog" : input.action || workflow?.kind;
-  const label = node.name === "playground-auth-login" ? "Playground 登录" : node.name === "playground-confirm" ? "确认提交" : action === "results" ? "查询评测结果" : workflow?.kind === "receipt" ? "提交回执" : {
-    auth: "登录状态检测",
-    catalog: "赛题目录查询",
-    start: "创建任务对话",
-    task: "任务上下文",
-    context: "任务上下文",
-    mode: "切换工作模式",
-    check: "检查提交材料",
-    prepared: "检查提交材料",
-    results: "查询评测结果",
-    cancel: "取消提交准备",
-    clear: "取消提交准备",
-    record_submission: "提交请求状态",
-    submission: "提交请求状态"
-  }[action] || "Playground 命令";
+  const label2 = node.name === "playground-auth-login" ? msg("Playground 登录", "Playground sign-in") : node.name === "playground-confirm" ? msg("确认提交", "Confirm submission") : action === "results" ? msg("查询评测结果", "Get evaluation results") : workflow?.kind === "receipt" ? msg("提交回执", "Submission receipt") : {
+    auth: msg("登录状态检测", "Check sign-in status"),
+    catalog: msg("赛题目录查询", "Browse challenges"),
+    start: msg("创建任务对话", "Create task chat"),
+    task: msg("任务上下文", "Task context"),
+    context: msg("任务上下文", "Task context"),
+    mode: msg("切换工作模式", "Switch work mode"),
+    check: msg("检查提交材料", "Check submission materials"),
+    prepared: msg("检查提交材料", "Check submission materials"),
+    results: msg("查询评测结果", "Get evaluation results"),
+    cancel: msg("取消提交准备", "Cancel submission preparation"),
+    clear: msg("取消提交准备", "Cancel submission preparation"),
+    record_submission: msg("提交请求状态", "Submission request status"),
+    submission: msg("提交请求状态", "Submission request status")
+  }[action] || msg("Playground 命令", "Playground command");
   const failed = node.outcome?.kind === "error" || result.ok === false || Boolean(result.error);
   const available = Object.keys(result).length > 0;
-  const status = !node.outcome ? "执行中 / 尚未完成" : failed ? "未完成" : !available ? "结果不可用" : workflow?.kind === "prepared" ? "历史检查记录，已退役" : workflow?.kind === "clear" ? "已取消或失效" : auth ? auth.authenticated ? "已登录" : "未登录" : "已完成";
+  const status = !node.outcome ? msg("执行中 / 尚未完成", "In progress") : failed ? msg("未完成", "Incomplete") : !available ? msg("结果不可用", "Result unavailable") : workflow?.kind === "prepared" ? msg("历史检查记录，已退役", "Historical check (retired)") : workflow?.kind === "clear" ? msg("已取消或失效", "Canceled or expired") : auth ? auth.authenticated ? msg("已登录", "Signed in") : msg("未登录", "Signed out") : msg("已完成", "Completed");
+  const competitionCount = commandFact(catalog?.competitions?.total) ?? catalog?.competitions?.items?.length ?? 0;
+  const challengeCount = commandFact(catalog?.challenges?.total) ?? challenges.length;
+  const attemptId = commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id);
+  const evaluationState = commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status);
+  const hasReceipt = workflow?.receipt || action === "results";
   const details = {
-    操作: label,
-    状态: status,
+    [msg("操作", "Action")]: label2,
+    [msg("状态", "Status")]: status,
     ...catalog ? {
-      比赛数量: commandFact(catalog.competitions?.total) ?? catalog.competitions?.items?.length ?? 0,
-      赛题数量: commandFact(catalog.challenges?.total) ?? challenges.length,
-      当前页赛题: challenges.slice(0, 12).map((item) => commandFact(item.titleZh || item.title || item.id)).filter((title) => title !== void 0)
+      [msg("比赛数量", "Competitions")]: competitionCount,
+      [msg("赛题数量", "Challenges")]: challengeCount,
+      [msg("当前页赛题", "Challenges on this page")]: challenges.slice(0, 12).map((item) => commandFact(item.titleZh || item.title || item.id)).filter((title) => title !== void 0)
     } : {},
-    ...workflow?.task ? { 赛题: commandFact(workflow.task.title) } : {},
-    ...workflow?.mode ? { 工作模式: workflow.mode === "author" ? "出题" : "参赛" } : {},
-    ...workflow?.submission ? { 交接状态: commandFact(workflow.submission.status) } : {},
-    ...workflow?.prepared ? { 赛题: commandFact(workflow.prepared.challenge?.title), 材料数量: commandFact(workflow.prepared.files?.length), 提交状态: "历史记录，不参与当前提交" } : {},
-    ...workflow?.receipt || action === "results" ? {
-      提交编号: commandFact(workflow?.receipt?.attemptId ?? result.attemptId ?? result.id),
-      评测状态: commandFact(workflow?.receipt?.scoringState?.state || result.scoringState?.state || result.status),
-      平台返回分数: commandFact(workflow?.receipt?.scoringState?.displayScore ?? result.scoringState?.displayScore ?? result.score)
+    ...workflow?.task ? { [msg("赛题", "Challenge")]: commandFact(workflow.task.title) } : {},
+    ...workflow?.mode ? { [msg("工作模式", "Work mode")]: workflow.mode === "author" ? msg("出题", "Author") : msg("参赛", "Participant") } : {},
+    ...workflow?.submission ? { [msg("交接状态", "Handoff status")]: commandFact(workflow.submission.status) } : {},
+    ...workflow?.prepared ? { [msg("赛题", "Challenge")]: commandFact(workflow.prepared.challenge?.title), [msg("材料数量", "Materials")]: commandFact(workflow.prepared.files?.length), [msg("提交状态", "Submission status")]: msg("历史记录，不参与当前提交", "Historical record only") } : {},
+    ...hasReceipt ? {
+      [msg("提交编号", "Submission ID")]: attemptId,
+      [msg("评测状态", "Evaluation status")]: evaluationState,
+      [msg("平台返回分数", "Platform score")]: commandFact(workflow?.receipt?.scoringState?.displayScore ?? result.scoringState?.displayScore ?? result.score)
     } : {},
-    ...workflow?.prepared && bundleSummaryLine(workflow.prepared.bundleSummary) ? { 评测包: bundleSummaryLine(workflow.prepared.bundleSummary) } : {},
+    ...workflow?.prepared && bundleSummaryLine(workflow.prepared.bundleSummary) ? { [msg("评测包", "Bundle")]: bundleSummaryLine(workflow.prepared.bundleSummary) } : {},
     ...result.diagnosis && typeof result.diagnosis === "object" ? {
-      失败环节: { worker_upload: "评测 Worker 接收评测包", attempt_create: "创建提交记录", local_check: "CLI 本地检查" }[result.diagnosis.stage] || "未知",
-      ...commandFact(result.diagnosis.httpStatus) !== void 0 ? { HTTP状态: commandFact(result.diagnosis.httpStatus) } : {},
-      ...Array.isArray(result.diagnosis.details) ? { 平台给出的原因: result.diagnosis.details.slice(0, 6).map(commandFact).filter((item) => item !== void 0) } : {},
-      ...bundleSummaryLine(result.diagnosis.bundle) ? { 评测包: bundleSummaryLine(result.diagnosis.bundle) } : {}
+      [msg("失败环节", "Failed step")]: { worker_upload: msg("评测 Worker 接收评测包", "Evaluation worker receiving bundle"), attempt_create: msg("创建提交记录", "Creating submission record"), local_check: msg("CLI 本地检查", "Local CLI check") }[result.diagnosis.stage] || msg("未知", "Unknown"),
+      ...commandFact(result.diagnosis.httpStatus) !== void 0 ? { [msg("HTTP状态", "HTTP status")]: commandFact(result.diagnosis.httpStatus) } : {},
+      ...Array.isArray(result.diagnosis.details) ? { [msg("平台给出的原因", "Platform reasons")]: result.diagnosis.details.slice(0, 6).map(commandFact).filter((item) => item !== void 0) } : {},
+      ...bundleSummaryLine(result.diagnosis.bundle) ? { [msg("评测包", "Bundle")]: bundleSummaryLine(result.diagnosis.bundle) } : {}
     } : {}
   };
   const summary = failed ? {
-    authentication_required: "请先在工作台登录 Playground，再重试此操作。",
-    confirmation_required: "旧提交入口已退役，请在任务详情请求 Agent 提交。",
-    materials_changed: "材料已改变，请在工作台重新检查后再提交。",
-    identity_changed: "登录身份已变化或无法核对，请在工作台确认登录身份。"
-  }[result.error?.code] || diagnosedMessage(result) || safeMessage(result.error?.message ?? plainText) || "操作未完成或已中断。请检查工作台中的状态后重试。" : !node.outcome ? "此记录尚无完成结果；若任务已停止，请回到工作台核对状态。" : auth ? auth.authenticated ? "Playground 身份已确认。" : "尚未登录；公开赛题仍可浏览。" : catalog ? `共 ${details.比赛数量} 个比赛、${details.赛题数量} 道赛题。` : workflow?.prepared ? "历史材料目录信息。旧检查卡已退役，不表示本次材料已检查或归档安全验证通过。" : details.提交编号 !== void 0 ? `提交 #${details.提交编号} · ${details.评测状态 || "评测状态待查询"}` : typeof result.sessionId === "string" ? "已创建独立任务对话。" : commandFact(workflow?.task?.title) || "可展开查看已保存的操作摘要；未提供的详情不可用。";
+    authentication_required: msg("请先在工作台登录 Playground，再重试此操作。", "Sign in to Playground in the workbench and try again."),
+    confirmation_required: msg("旧提交入口已退役，请在任务详情请求 Agent 提交。", "Open the task details to ask the Agent to submit. The previous submission command has been retired."),
+    materials_changed: msg("材料已改变，请在工作台重新检查后再提交。", "Materials have changed. Review them in the workbench before submitting."),
+    identity_changed: msg("登录身份已变化或无法核对，请在工作台确认登录身份。", "Verify your account in the workbench. The signed-in account changed or could not be verified.")
+  }[result.error?.code] || diagnosedMessage(result) || safeMessage(result.error?.message ?? plainText) || msg("操作未完成或已中断。请检查工作台中的状态后重试。", "The operation did not finish. Check its status in the workbench before retrying.") : !node.outcome ? msg("此记录尚无完成结果；若任务已停止，请回到工作台核对状态。", "No result has been recorded. If the task has stopped, check its status in the workbench.") : auth ? auth.authenticated ? msg("Playground 身份已确认。", "Playground account verified.") : msg("尚未登录；公开赛题仍可浏览。", "Signed out. You can still browse public challenges.") : catalog ? msg(`共 ${competitionCount} 个比赛、${challengeCount} 道赛题。`, `Competitions: ${competitionCount}. Challenges: ${challengeCount}.`) : workflow?.prepared ? msg("历史材料目录信息。旧检查卡已退役，不表示本次材料已检查或归档安全验证通过。", "This historical material list comes from a retired check. It does not verify the current materials or archive safety.") : hasReceipt && attemptId !== void 0 ? msg(`提交 #${attemptId} · ${evaluationState || "评测状态待查询"}`, `Submission #${attemptId} · ${evaluationState || "Evaluation status pending"}`) : typeof result.sessionId === "string" ? msg("已创建独立任务对话。", "A separate task chat has been created.") : commandFact(workflow?.task?.title) || msg("可展开查看已保存的操作摘要；未提供的详情不可用。", "Expand the details to view the saved command summary.");
   return h(
     "section",
     { className: "pg-card" },
     h("style", null, css),
-    h("div", { className: "pg-head" }, h("strong", null, label), h("span", { className: "pg-badge", "data-tone": failed ? "error" : !node.outcome || auth?.authenticated === false ? "warning" : "neutral" }, status)),
+    h("div", { className: "pg-head" }, h("strong", null, label2), h("span", { className: "pg-badge", "data-tone": failed ? "error" : !node.outcome || auth?.authenticated === false ? "warning" : "neutral" }, status)),
     h("p", { className: failed ? "pg-error" : "pg-note", role: failed ? "alert" : "status" }, summary),
-    h("details", { className: "pg-raw" }, h("summary", null, "查看操作详情"), h("pre", null, JSON.stringify(details, null, 2))),
-    typeof result.sessionId === "string" ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openTask(result.sessionId), "onClick") }, "打开任务对话") : null
+    h("details", { className: "pg-raw" }, h("summary", null, msg("查看操作详情", "View command details")), h("pre", null, JSON.stringify(details, null, 2))),
+    typeof result.sessionId === "string" ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openTask(result.sessionId), "onClick") }, msg("打开任务对话", "Open task chat")) : null
   );
 }
 __name(PlaygroundCommandCard, "PlaygroundCommandCard");
 function ControllerWelcome({ node }) {
+  usePluginLanguage();
   const ready = node.outcome?.kind === "success";
   return h(
     "section",
     { className: "pg-card" },
     h("style", null, css),
-    h("h3", null, "Playground 工作区主控"),
-    h("p", { className: "pg-note" }, ready ? "在下方输入你要协调的工作。试试「请让 Codex 只读检查这个工作区的 README，并告诉我怎么运行测试」。" : "请从 Playground 工作台打开或创建工作区主控。")
+    h("h3", null, msg("Playground 工作区主控", "Playground workspace controller")),
+    h("p", { className: "pg-note" }, ready ? msg("在下方输入你要协调的工作。试试「请让 Codex 只读检查这个工作区的 README，并告诉我怎么运行测试」。", "Describe the work to coordinate below. Try “Ask Codex to read the workspace README and tell me how to run the tests.”") : msg("请从 Playground 工作台打开或创建工作区主控。", "Open or create a workspace controller from the Playground workbench."))
   );
 }
 __name(ControllerWelcome, "ControllerWelcome");
@@ -3574,22 +4087,23 @@ function PlaygroundPanelIcon({ size = 20 }) {
 }
 __name(PlaygroundPanelIcon, "PlaygroundPanelIcon");
 async function changeArchive(uiWorkspace, method, sessionId) {
-  const verb = method === "archiveSession" ? "归档" : "取消归档";
-  if (typeof uiWorkspace?.[method] !== "function") return { ok: false, message: `当前 DSH 版本不支持${verb}对话。` };
+  const verb = method === "archiveSession" ? msg("归档", "archive") : msg("取消归档", "unarchive");
+  if (typeof uiWorkspace?.[method] !== "function") return { ok: false, message: msg(`当前 DSH 版本不支持${verb}对话。`, `This version of DSH cannot ${verb} conversations.`) };
   try {
     await uiWorkspace[method](sessionId);
     return { ok: true };
   } catch (failure) {
     const rpcError = failure?.rpcError;
-    if (rpcError?.code === "workspace/session-active") return { ok: false, message: "对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。" };
+    if (rpcError?.code === "workspace/session-active") return { ok: false, message: msg("对话还有运行中的工作（回复、子代理、后台作业或定时任务），停止后再归档。", "Stop active replies, subagents, background jobs, and scheduled tasks before archiving this conversation.") };
     const detail = typeof rpcError?.message === "string" ? safeMessage(rpcError.message) : void 0;
-    return { ok: false, message: detail ? `${verb}未完成：${detail}。请重试。` : `${verb}未完成，请重试。` };
+    return { ok: false, message: detail ? msg(`${verb}未完成：${detail}。请重试。`, `Could not ${verb} this conversation: ${detail}. Please try again.`) : msg(`${verb}未完成，请重试。`, `Could not ${verb} this conversation. Please try again.`) };
   }
 }
 __name(changeArchive, "changeArchive");
 var plugin = {
   inject: ["slots", "locale", "remote", "remote.commands", "remote.credentials", "connection", "uiWorkspace", "workspaces", "layout", "sessions", "configForms"],
   apply(ctx) {
+    ctx.effect(() => followHostLocale(ctx.locale));
     const taskRequest = (0, import_dsh_client_store.createSnapshotStore)(null);
     const controllerTarget = (0, import_dsh_client_store.createSnapshotStore)(null);
     const controllerSelection = { workspaceId: "", sessionId: "" };
@@ -3630,6 +4144,7 @@ var plugin = {
         return opened;
       }, "openControllerChat"),
       promoteController: /* @__PURE__ */ __name((input) => requestHost("promoteController", input), "promoteController"),
+      codexChats: /* @__PURE__ */ __name((input, signal) => requestHost("codexChats", input, signal), "codexChats"),
       controllerTasks: /* @__PURE__ */ __name((input, signal) => requestHost("controllerTasks", input, signal), "controllerTasks"),
       dispatchChallenge: /* @__PURE__ */ __name((input, signal) => requestHost("dispatchChallenge", input, signal), "dispatchChallenge"),
       inspectController: /* @__PURE__ */ __name((input, signal) => requestHost("inspectController", input, signal), "inspectController"),
@@ -3650,9 +4165,9 @@ var plugin = {
       run: /* @__PURE__ */ __name(async (sessionId, input) => {
         const result = await ctx.remote.commands.execute(sessionId, `/playground ${JSON.stringify(input)}`, []);
         if (!result.ok) throw new Error(result.error.message);
-        if (!result.value) throw new Error("Playground 命令未注册，请重启 DSH 加载插件。");
+        if (!result.value) throw new Error(msg("Playground 命令未注册，请重启 DSH 加载插件。", "Restart DSH to register the Playground command."));
         const text = result.value.result.text;
-        if (!text?.startsWith("{")) throw new Error(text || "Playground 未返回操作结果。");
+        if (!text?.startsWith("{")) throw new Error(text || msg("Playground 未返回操作结果。", "Playground returned no result."));
         return JSON.parse(text);
       }, "run"),
       // Session-free: the password goes to the DSH credential store, never into the call or a conversation.
@@ -3662,7 +4177,7 @@ var plugin = {
           await ctx.remote.credentials.set("PLAYGROUND_PASSWORD", password);
           const result = await ctx.connection.rpc.call("/api", "playgroundQueries/login", { args: { input: { email } } }).catch(() => ({ ok: false, error: { code: "transport" } }));
           if (!result.ok) throw new Error(queryFailure(result.error));
-          if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || "Playground 登录失败，请重试。");
+          if (result.value?.ok === false) throw new Error(safeMessage(result.value.error?.message) || msg("Playground 登录失败，请重试。", "Playground sign-in failed. Please try again."));
           return result.value;
         } finally {
           await Promise.resolve().then(() => ctx.remote.credentials.unset?.("PLAYGROUND_PASSWORD")).catch(() => {
@@ -3673,12 +4188,12 @@ var plugin = {
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
       saveToken: /* @__PURE__ */ __name(async (value) => {
         const token = typeof value === "string" ? value.trim() : "";
-        if (!token) throw new Error("请先粘贴 API 令牌。");
-        if (/\s/.test(token)) throw new Error("令牌中不能有空格或换行，请从网站重新复制。");
+        if (!token) throw new Error(msg("请先粘贴 API 令牌。", "Paste an API token first."));
+        if (/\s/.test(token)) throw new Error(msg("令牌中不能有空格或换行，请从网站重新复制。", "Copy the token again without spaces or line breaks."));
         try {
           await ctx.remote.credentials.set("PLAYGROUND_TOKEN", token);
         } catch {
-          throw new Error("无法把令牌保存到 DSH 凭据存储，请重试。");
+          throw new Error(msg("无法把令牌保存到 DSH 凭据存储，请重试。", "Could not save the token in DSH. Please try again."));
         }
       }, "saveToken"),
       // Clears only the DSH copy; the CLI credentials file is never modified.
@@ -3686,7 +4201,7 @@ var plugin = {
         try {
           await ctx.remote.credentials.unset("PLAYGROUND_TOKEN");
         } catch {
-          throw new Error("无法清除 DSH 凭据存储中的令牌，请重试。");
+          throw new Error(msg("无法清除 DSH 凭据存储中的令牌，请重试。", "Could not remove the token from DSH. Please try again."));
         }
       }, "clearToken")
     };
