@@ -3651,6 +3651,24 @@ test('the 分类 row lists a period\'s official groups and a chosen group reads 
   assert.equal(count(), '共 77 道 · 已显示 20 道');
   assert.equal(cardIds(view()).some((id) => id.startsWith('p4-graphics')), false, 'the plotting challenges sit past the first page of the period');
 
+  const firstIds = cardIds(view());
+  const newGroup = { key: 'extra', labelZh: '其他', challengeIds: ['new-id'] };
+  periods = [thirdPeriod, fourthPeriod([newGroup, ...fourthGroups])];
+  const press = async (label) => { findButton(view(), label).props.onClick(); await afterRead(); };
+  await press('加载更多');
+  assert.match(catalogInputs().at(-1).page_signature, /^[a-f0-9]{64}$/);
+  assert.match(text(view()), /赛题列表已变化/);
+  assert.equal(findButton(view(), '加载更多'), undefined);
+  assert.deepEqual(cardIds(view()), firstIds);
+  await press('从第一页重新读取');
+  assert.equal(catalogInputs().at(-1).page_signature, undefined);
+  assert.equal(cardIds(view())[0], 'new-id');
+  await press('加载更多');
+  assert.deepEqual(cardIds(view()), periods[1].challengeIds.slice(0, 40));
+  periods = [thirdPeriod, fourthPeriod(fourthGroups)];
+  await refresh();
+  assert.deepEqual(cardIds(view()), firstIds);
+
   reads.length = 0;
   await pick('科研绘图');
   assert.deepEqual(catalogInputs().at(-1), { action: 'catalog', search: '', competition: 'bohr-product', period: '4', group: 'graphics', per_page: 20 });
