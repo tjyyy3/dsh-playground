@@ -1032,6 +1032,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     if (!draft.trim() || control.writing) return;
     const rows2 = data?.rows || [];
     const named = target.trim();
+    let displayed;
     if (!source) {
       const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
       if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
@@ -1039,6 +1040,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         setResponse(null);
         return;
       }
+      [displayed] = matches;
     }
     control.writing = true;
     setBusy(true);
@@ -1050,7 +1052,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         sessionId,
         action: "send",
         message: draft,
-        ...source ? { threadId: source.threadId } : named ? { target: named } : { threadId: rows2[0].threadId }
+        ...source ? { threadId: source.threadId } : named ? { target: named, ...displayed ? { expectedThreadId: displayed.threadId } : {} } : { threadId: displayed.threadId }
       });
       if (!control.active) return;
       if (result.kind === "choose") {

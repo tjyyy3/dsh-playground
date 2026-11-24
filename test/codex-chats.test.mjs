@@ -104,6 +104,10 @@ test('only the full chat title can select a thread by name', async () => {
   assert.ok(!calls.some(({ method }) => method === 'turn/start'));
   const reply = await run({ action: 'send', target: named.name, message: 'Hello' });
   assert.equal(reply.source.threadId, named.id);
+  calls.length = 0;
+  const moved = await run({ action: 'send', target: named.name, expectedThreadId: unnamed.id, message: 'Hello' });
+  assert.equal(moved.code, 'target_changed');
+  assert.ok(!calls.some(({ method }) => method === 'turn/start'));
 });
 
 test('foreign, archived-controller, stale and busy targets are refused before dispatch', async () => {

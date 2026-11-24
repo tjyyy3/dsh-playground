@@ -6248,4 +6248,9 @@ test('sending to the sole displayed Codex chat uses its ID even if another chat 
   assert.deepEqual(sent, { workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: original.threadId, message: 'Follow up here' });
   tree = f.render(card.type, card.props);
   assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Follow up here');
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: original.title } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (node) => node.type === 'button' && text(node) === '发送追问').props.onClick();
+  assert.deepEqual(sent, { workspaceId: 'ws', sessionId: 'ctrl', action: 'send', target: original.title,
+    expectedThreadId: original.threadId, message: 'Follow up here' });
 });

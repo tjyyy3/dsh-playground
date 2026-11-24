@@ -46,17 +46,21 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
     if (!draft.trim() || control.writing) return;
     const rows = data?.rows || [];
     const named = target.trim();
+    let displayed;
     if (!source) {
       const matches = named ? rows.filter((item) => item.threadId === named || item.title === named) : rows;
       if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
         setChoices(matches); setResponse(null); return;
       }
+      [displayed] = matches;
     }
     control.writing = true;
     setBusy(true); setResponse(null); setCopied(false);
     try {
       const result = await query({ workspaceId, sessionId, action: 'send', message: draft,
-        ...(source ? { threadId: source.threadId } : named ? { target: named } : { threadId: rows[0].threadId }) });
+        ...(source ? { threadId: source.threadId } : named
+          ? { target: named, ...(displayed ? { expectedThreadId: displayed.threadId } : {}) }
+          : { threadId: displayed.threadId }) });
       if (!control.active) return;
       if (result.kind === 'choose') { setChoices(result.rows); return; }
       setResponse(result);
