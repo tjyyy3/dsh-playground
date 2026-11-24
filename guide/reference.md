@@ -4,12 +4,12 @@ See the [README](../README.md) to install the plugin and try the workspace contr
 
 | Tool | Purpose | Platform endpoint |
 |---|---|---|
-| `playground_list_challenges` | Query the real challenge list with search, filters, sorting, pagination | `GET /api/challenges` |
+| `playground_list_challenges` | Query the real challenge list with search, filters, sorting, pagination, or list one built-in contest, period, and group through the catalog | `GET /api/challenges`, or the catalog's fixed challenge ids |
 | `playground_get_challenge` | Read one challenge's metadata, resources, and markdown problem statement | `GET /api/challenges/{id}` |
 | `playground_list_attempts` | List submissions for one challenge, best score first | `GET /api/challenges/{id}/attempts` |
 | `playground_get_attempt` | Read one submission's status, score, scoring state, and scorecard | `GET /api/attempts/{id}` |
-| `playground_list_competitions` | List visible competitions/seasons with lifecycle status and deadlines | `GET /api/hackathon/seasons` |
-| `playground_get_competition` | Read a competition's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
+| `playground_list_competitions` | List visible competitions/seasons with lifecycle status and deadlines. `view: "contests"` lists the workbench competition table with periods, counts, and official groups | `GET /api/hackathon/seasons`. The contests view adds the built-in table and published schedules |
+| `playground_get_competition` | Read one hackathon season's status, dates, threshold, and challenge ids | `GET /api/hackathon/seasons/{id}` |
 | `playground_list_my_attempts` | Read the authenticated user's own submissions with cursor pagination | `GET /api/user-submissions` |
 | `playground_start_task` | Create a separate native DSH task conversation | DSH session/workspace services |
 | `playground_open_controller` | Find a registered workspace's controller and offer to open its conversation | DSH session/workspace services |
@@ -185,10 +185,119 @@ contest and Scientific Facilities use numeric slugs, and the PKU Zone uses unit
 slugs such as `science-1`. The Host checks membership against the schedule used
 for that request. Omitting `period` lists all periods of the chosen competition.
 
+A period that the website groups carries `groups` in the competition table:
+`[{ key, labelZh?, count }]`, in the website's order, without challenge ids.
+The weekly contest's grouped periods list their tracks, and period 3 lists its
+shared bonus challenge last as the group `bonus`. A Scientific Facilities period
+lists the website's research directions that hold its challenges, in the
+website's direction order. A PKU unit lists its own groups. `labelZh` is the
+website's Chinese name and is left out when the Host cannot read it. A group's
+`count` follows the period's opening time like its cards. In `大科学装置专项赛`
+and `科学骑士大师赛 · 北大专区`, whose challenges open at the official start, every
+group of a period that has not opened counts 0. Each period also carries
+`count`, the number of challenges that period lists at the same time. That
+count is also 0 before the start in those two contests. An announced weekly
+period lists and counts its challenges before it starts. A grouped period also
+carries `groupedCount`, the number of distinct challenges in its groups. One
+challenge can belong to several groups, so the group counts can add up to more
+than `groupedCount`. `count` can be greater than `groupedCount` when some
+challenges belong to no official group. A period that the website does not
+group has no `groups` field.
+
+The query accepts an optional `group` key together with `competition` and
+`period`. A key is a letter followed by up to 39 letters, digits, `_` or `-`.
+The Host narrows the period to that group before it reads any challenge, so a
+page of the group reads only the group's challenges. A `group` without `period`
+is rejected, except for the three contests without periods that the website
+groups itself (below). If a fresh official schedule cannot give that group for the chosen
+period, the query fails with `invalid_argument` and reason
+`group_not_available`. This covers a group that the website no longer lists and
+a period whose grouping the Host could not read this time, which lists the
+period without `groups` while its challenges stay available. With a stale or
+bundled schedule the query fails without a reason. These are errors, not empty
+lists. A read of one period carries `periodCounts` (`count` and `groupedCount`)
+on every page, including the pages after the first.
+
 If the chosen competition is missing from a later list, the selector returns to
 **全部比赛**, the period choice is cleared, and the catalog is read again. If a
 fresh official schedule omits the chosen period, the workbench switches to
 **全部期** for that competition and keeps the search and other filters.
+
+A chosen period with `groups` gets a **分类** row below the competition row. It
+shows **全部**, then each group with its count, in the website's order. A group
+without `labelZh` shows the plugin's own name for its key (`bonus` reads
+附加题), else the key. Choosing a group reads page 1 of that group with the
+search and filters, and **加载更多** pages through the same group. Cards show
+only under the group they were read for. Changing the competition or the
+period returns to **全部**. A refresh keeps the chosen group while the query
+accepts it. When the query answers `group_not_available`, the row switches to
+**全部** of the period, keeps the other filters, and says the group is not
+available now. Periods and competitions without groups show no 分类 row.
+
+### Contests grouped without periods
+
+Three contests have no periods and are grouped by the website all the same:
+`light-chasing` (`追光者计划·招募赛`) by the 岗位 it recruits for, `knight-s4`
+(`科学骑士大师赛`) by scoring round, and `paper2arm-s2`
+(`Paper2Arm 黑客松 · 第二季`) by hackathon track. Such a contest carries its own
+`groups` in the competition table, `[{ key, labelZh?, count }]` in the website's
+order and without challenge ids, the same shape a grouped period carries. The
+ids a group selects stay on the Host. A contest with periods is unchanged: it
+groups inside one period, and these three have no period to choose.
+
+None of the three groupings is written into the plugin. Each is read from the
+platform, so the groups a contest shows, their names and their counts follow an
+official membership change without a new plugin release, and **刷新目录** reads
+them again. `GET /api/challenges` filters by neither round nor track (checked
+2026-11-24), so every group here is read by the challenge ids it holds, which is
+also what gives the group its `count`:
+
+- `追光者计划·招募赛` reads the contest's own challenges by its tag and groups
+  them by the job tag each challenge also carries. A job tag is matched inside
+  this contest only, so a challenge outside the contest never joins a group by
+  carrying the same tag; a read whose rows do not all carry the contest tag is
+  treated as a failed read rather than grouped. A challenge of the contest with
+  no known job tag joins no group and stays under **全部**. Every job the
+  website lists keeps its place in the row even when the contest has no
+  challenge for it: that job counts 0, can still be chosen, and lists nothing.
+- `科学骑士大师赛` reads
+  `GET /api/hackathon/seasons/by-slug/<slug>/rounds` and keeps the rounds in the
+  order the endpoint returns them, which is the order of their time windows; the
+  plugin does not reorder them by `seq`, and each round lists its challenges in
+  its own official order. A round with no challenges is left out. The season
+  gains a round every week, so nothing states how many rounds it has.
+- `Paper2Arm 黑客松 · 第二季` groups the season's challenges by the track each
+  one names, in the official order 论文复现 · 软件构造 · 红蓝对抗 · 科学狐狸,
+  with a track the platform adds later following them in list order. The track
+  names come from the platform. Because the challenge list leaves an unknown
+  `season` unfiltered instead of rejecting it, a row that names another season
+  fails the read instead of putting that season's challenges under this one.
+
+The platform reads are anonymous, so one grouping is the public one and never
+one account's view of it. A grouping is read at most once a minute and shared by
+every caller of the same API client, the contests view and each catalog page
+included; **刷新目录** reads it again. A failed read, one that could not page
+its filter completely included, keeps the last grouping and marks the contest
+`groupsStale`, and the grouping stays stale until a read succeeds, the answers
+served from that minute's cache included. A failure with nothing to fall back on
+lists the contest without `groups`, also stale. A short grouping is never
+published in place of the last complete one, because its counts would be wrong.
+
+A group of such a contest is queried as `group` with `competition` and no
+`period`, and every page of it repeats the same arguments. A group the current
+grouping does not hold fails with `invalid_argument` and reason
+`group_not_available`, as a period's group does. While the grouping is stale the
+failure names the outage instead of the group
+(`官方分类暂未同步，暂时无法按该分类筛选。请重试，或改为显示全部赛题。`) and
+carries no reason, because the grouping that could not be refreshed may still
+hold that group.
+
+The workbench gives these contests the same **分类** row a grouped period gets,
+with **全部** first and each group's count after it. A stale grouping adds
+`官方分类暂未同步，当前显示已有分类。` under the contest line while the groups
+already read stay usable. When a read answers `group_not_available`, the row
+returns to **全部** and says `之前选择的分类现在不可用，已改为显示全部赛题。`,
+which leaves out 本期 because the contest has no period to fall back to.
 
 ### Catalog paging and filters
 
@@ -230,9 +339,9 @@ the search box, a filter bar holds:
   open, and the count line reads `共 N 道 · 已加载 M 道 · 其中开放 K 道` with a
   note that it filters only what is loaded.
 
-Changing 来源, 学科, 排序, the competition, its period or the search reads page 1
-again, and the filters combine with each other, the competition, its period and
-the search. Only the
+Changing 来源, 学科, 排序, the competition, its period, its group or the search
+reads page 1 again, and the filters combine with each other, the competition,
+its period and group, and the search. Only the
 newest read can change the panel: a filter change aborts a running read,
 including a **加载更多** page. A failed read keeps the loaded challenges and
 shows fixed text with **重试**: `赛题目录读取失败。`,
@@ -249,7 +358,14 @@ applies search, origin and discipline itself, pages the list, and returns an
 empty page with `hasMore: false` past the end. 提交最多 sorts the list by
 attempts; 最新 keeps the table order (the website's order for the periods),
 because a challenge read by id has no creation time. Each page of such a list
-reads the whole list again.
+reads the whole list again, or the whole chosen group. Each fixed-id page includes
+`pageSignature`. The workbench passes it as `page_signature` on the next page.
+The Host checks the query and page size, ordered matching ids and unread ids
+before returning rows. A mismatch returns `catalog_changed`. The workbench
+keeps the previously displayed cards and offers **从第一页重新读取**, which
+replaces them with a fresh first page. A direct request without a signature
+still reads the requested page of the current results. Plain lists, tag and
+season searches use their existing server paging.
 Pages after the first do not read `/api/hackathon/seasons` and carry only
 `webBase` and `challenges`; the competition selector keeps the first page's
 table.
@@ -801,9 +917,52 @@ platform.
   yet; `playground_get_attempt` already pulls the latest worker result for one
   submission.
 - The agent tools `playground_list_competitions` and `playground_get_competition`
-  map to the platform's hackathon season endpoints; visibility and lifecycle
-  come from the server. The workbench's competition selector is different: it
-  uses the built-in table described above, plus the seasons that endpoint lists.
+  map to the platform's hackathon season endpoints by default; visibility and
+  lifecycle come from the server. The default view (`view: "seasons"`) returns
+  the platform rows with numeric `id`, `slug`, `seasonLabel`, `visibility`,
+  `completionThreshold`, and `challengeIds`, and accepts the `status` filter
+  (`draft`, `active`, `ended`, `archived`). `playground_get_competition` reads
+  one of those rows by its numeric `id`.
+- `playground_list_competitions` with `view: "contests"` returns the workbench
+  selector's competition table instead, and rejects `status`. Each period
+  carries `count` and, when grouped, `groupedCount` and its official groups
+  (`key`, `labelZh` when known, and `count`), without challenge ids. The
+  controller uses this view when the user names a built-in contest or a
+  period, reports `count` and `groupedCount`, and does not present the sum of
+  the group counts as the whole period. A period of `大科学装置专项赛` or
+  `科学骑士大师赛 · 北大专区` counts 0 until its official start. The text says
+  when the seasons read failed (`seasonsUnavailable`), when a contest's
+  schedule is stale (`periodsStale`), and when a contest's own groups could not
+  be refreshed (`groupsStale`). A contest without periods carries its own
+  official groups in the same shape (`key`, `labelZh` when known, and `count`):
+  `追光者计划·招募赛` by 岗位, `科学骑士大师赛` by scoring round, and
+  `Paper2Arm 黑客松 · 第二季` by track. A row with kind `season` has no contest
+  id and is shown as `season=<slug>`, the value to pass as `season`. `season`
+  does not select a period.
+- `playground_list_challenges` accepts the contest `id`, period `slug`, and
+  group `key` copied from that view as `competition`, `period`, and `group`,
+  and reads the selection through the catalog one page at a time. A contest
+  without periods takes its own group `key` as `group` with `competition`
+  alone. `order`
+  says whether a page is in official order, sorted by attempts, or newest
+  first for a contest read by tag or season. Every page of a period carries
+  `period` with its `count` and `groupedCount`. `hasMore` means the page is
+  part of the list, and the next page must keep the same arguments and the
+  same `per_page`. When the result includes `pageSignature`, copy it into
+  `page_signature` on the next call. On `catalog_changed`, discard the collected
+  pages and start again at page 1 without a signature. `missing` counts challenges that could not be read. When it
+  is present the text says the page is incomplete and asks for a new read
+  from page 1 before the list is called complete. An empty page says whether
+  it is past the last page, a search or filter miss, or a selection with
+  nothing open. `per_page` is 1 to 50, and a contest read rejects any other
+  value. Argument errors carry a reason: `unknown_competition`,
+  `period_needs_competition`, `competition_has_no_periods`,
+  `group_needs_period`, `competition_has_no_groups` for a contest with neither
+  periods nor official groups, and, from a fresh official schedule,
+  `period_not_available` and `group_not_available`. A contest whose own grouping
+  could not be refreshed fails a `group` without a reason, because the grouping
+  that is missing may still hold it. Without `competition`,
+  `period`, and `group` the tool queries `GET /api/challenges` as before.
 - Personal history uses `/api/user-submissions`, not a client-side filter over public
   submissions. The plugin pages the returned array locally. Its `nextCursor` must be used with unchanged `challenge_id` and
   `status` filters. Empty results are an empty page, not an authentication prompt.

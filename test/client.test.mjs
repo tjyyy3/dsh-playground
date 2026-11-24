@@ -2950,7 +2950,7 @@ test('a list with unread fixed ids says so in the info row and 重试 reads page
   }
 });
 
-test('the info-row 重试 reads the shown list\'s own query, not unsubmitted controls, and waits while 其他 has no key', async (t) => {
+test('the info-row 重试 replays the shown query and is hidden while 其他 waits for a key', async (t) => {
   const { f, pending, view, control } = await pagedCatalog(t);
   const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试')[0];
   const searchBox = () => f.find(view(), (node) => node.props?.['aria-label'] === '搜索 Playground 赛题');
@@ -2972,9 +2972,9 @@ test('the info-row 重试 reads the shown list\'s own query, not unsubmitted con
   pending[3].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
   await settle();
   assert.equal(infoRetry(view()).props.disabled, false);
-  // 其他 without a key: the button is disabled and nothing is read.
+  // 其他 without an applied key hides the previous results and their retry.
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(infoRetry(view()).props.disabled, true);
+  assert.equal(infoRetry(view()), undefined);
   assert.equal(pending.length, 4, 'no read for an empty 其他');
 });
 
@@ -3455,13 +3455,13 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   pending[1].resolve(catalogPage(['c2'], { total: 1 }, { disciplineFacets: { top: [{ key: 'science', count: 237 }], otherKeys: [] } }));
   await settle();
   assert.deepEqual(options().map(([value]) => value), ['', 'materials', 'physics', '__other__']);
-  // 其他 with no text reads nothing: the list stays and a hint asks for a key; the typed key is sent on Enter or 筛选.
+  // 其他 with no applied key reads nothing; the typed key is sent on Enter or 筛选.
   const hint = () => f.find(view(), (node) => node.props?.className === 'pg-note pg-catalog-hint');
   assert.equal(hint(), undefined);
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
   assert.equal(pending.length, 2, 'no read for an empty 其他');
   assert.equal(text(hint()), '输入学科后按回车筛选');
-  assert.deepEqual(cardIds(view()), ['c2']);
+  assert.deepEqual(cardIds(view()), []);
   const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
   other().props.onChange({ target: { value: '   ' } });
   other().props.onKeyDown({ key: 'Enter' });
@@ -3471,8 +3471,9 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   assert.deepEqual(findAll(f.find(view(), (node) => node.type === 'datalist'), (node) => node.type === 'option').map((node) => node.props.value), ['combustion', 'cosmology']);
   assert.equal(f.find(view(), (node) => node.type === 'label' && node.props.htmlFor === 'pg-other-discipline') !== undefined, true);
   other().props.onChange({ target: { value: ' combustion ' } });
-  assert.equal(hint(), undefined);
+  assert.equal(text(hint()), '输入学科后按回车筛选');
   other().props.onKeyDown({ key: 'Enter' });
+  assert.equal(hint(), undefined);
   assert.deepEqual(pending[2].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'combustion', per_page: 20 });
   pending[2].resolve(catalogPage(['c4'], { total: 1 }));
   await settle();
@@ -3549,7 +3550,7 @@ test('an empty 其他 hides 加载更多 even when the shown list was read for �
   assert.ok(button('加载更多'));
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
   assert.equal(pending.length, 1, 'no read for an empty 其他');
-  assert.deepEqual(cardIds(view()), range(0, 20));
+  assert.deepEqual(cardIds(view()), []);
   assert.equal(button('加载更多'), undefined, 'the unfiltered list is not paged under 其他');
   assert.equal(liveStatus(view()), '输入学科后按回车筛选', 'the hint is announced');
   const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
@@ -3564,7 +3565,7 @@ test('an empty 其他 hides 加载更多 even when the shown list was read for �
   assert.deepEqual(pending[2].input, { action: 'catalog', search: '', discipline: 'science', page: 2, per_page: 20 });
 });
 
-test('while 其他 waits for a key, 重试 is disabled and reads nothing', async (t) => {
+test('while 其他 waits for a key, earlier failures cannot be retried', async (t) => {
   const { f, pending, view, control, button } = await pagedCatalog(t);
   const failed = { ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } };
   pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
@@ -3574,8 +3575,7 @@ test('while 其他 waits for a key, 重试 is disabled and reads nothing', async
   pending[1].resolve(failed);
   await settle();
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(button('重试').props.disabled, true);
-  button('重试').props.onClick();
+  assert.equal(button('重试'), undefined);
   assert.equal(pending.length, 2, 'no append and no unfiltered page 1');
   // A failed page-1 read (提交最多 under 全部学科), then 其他 with an empty field.
   control('按学科筛选').props.onChange({ target: { value: '' } });
@@ -3585,13 +3585,440 @@ test('while 其他 waits for a key, 重试 is disabled and reads nothing', async
   pending[3].resolve(failed);
   await settle();
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(button('重试').props.disabled, true);
-  button('重试').props.onClick();
+  assert.equal(button('重试'), undefined);
   assert.equal(pending.length, 4, 'the failed unfiltered read is not repeated under 其他');
-  assert.deepEqual(cardIds(view()), range(0, 20));
-  // Once a key is typed, 重试 is offered again.
-  f.find(view(), (node) => node.props?.id === 'pg-other-discipline').props.onChange({ target: { value: 'science' } });
-  assert.equal(button('重试').props.disabled, false);
+  assert.deepEqual(cardIds(view()), []);
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  other().props.onChange({ target: { value: 'science' } });
+  assert.equal(button('重试'), undefined);
+  other().props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[4].input, { action: 'catalog', search: '', discipline: 'science', sort: 'attempts', per_page: 20 });
+  pending[4].resolve(failed);
+  await settle();
+  button('重试').props.onClick();
+  assert.deepEqual(pending[5].input, pending[4].input);
+});
+
+// Official groups of a period: the 分类 row and the list identity it joins.
+const groupRow = (panel) => findAll(panel, (node) => node.props?.['aria-label'] === '按分类筛选')[0];
+const groupChips = (panel) => findAll(groupRow(panel) ?? {}, (node) => node.type === 'button')
+  .map((node) => [squash(text(node)), node.props['aria-pressed']]);
+const chooseGroupChip = (panel, label) => findAll(groupRow(panel), (node) => node.type === 'button' && squash(text(node)).startsWith(label))[0].props.onClick();
+
+// Period 4 of the weekly contest as the website groups it (77 challenges, the live counts); the ids are made up.
+const FOURTH_TRACKS = [['search', '文献检索', 11], ['reading', '文献阅读', 14], ['writing', '学术写作', 17], ['library', '资料管理', 5],
+  ['research', '深度研究与文献综述', 5], ['review', '学术审查', 5], ['analysis', '科研数据分析', 6], ['graphics', '科研绘图', 5],
+  ['slides', '学术 PPT', 4], ['experiment', '实验方案设计', 5]];
+const fourthGroups = FOURTH_TRACKS.map(([key, labelZh, count]) => ({ key, labelZh,
+  challengeIds: Array.from({ length: count }, (_, index) => `p4-${key}-${index + 1}`) }));
+const fourthPeriod = (groups) => ({ slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
+  challengeIds: groups.flatMap((group) => group.challengeIds), groups });
+const thirdPeriod = { slug: '3', labelZh: '第三期', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
+  challengeIds: ['p3-reading', 'p3-bonus'], groups: [{ key: 'reading', labelZh: '文献阅读', challengeIds: ['p3-reading'] },
+    { key: 'bonus', labelZh: '附加题', challengeIds: ['p3-bonus'] }] };
+const GRAPHICS = ['p4-graphics-1', 'p4-graphics-2', 'p4-graphics-3', 'p4-graphics-4', 'p4-graphics-5'];
+// The test competition table with made-up official groups on period 2 of bohr-product.
+const groupedTable = (groups) => competitionTable.map((item) => (item.id === 'bohr-product'
+  ? { ...item, periods: item.periods.map((period) => (period.slug === '2' ? { ...period, groups } : period)) } : item));
+
+test('#113: a late first page supplies competition controls while Other waits for a key', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+  const change = (label, value) => control(label).props.onChange({ target: { value } });
+  change('按学科筛选', '__other__');
+  assert.equal(view().props['aria-busy'], false);
+
+  pending[0].resolve(catalogPage(['unfiltered-first'], { total: 30, hasMore: true }, { competitionTable: grouped }));
+  await settle();
+  const options = (label) => findAll(control(label), (node) => node.type === 'option').map((node) => node.props.value);
+  assert.ok(options('选择比赛').includes('competition:bohr-product'));
+  assert.equal(pending[0].signal.aborted, false, 'the first read stays live to supply the competition table');
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(button('加载更多'), undefined);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+
+  change('选择比赛', 'competition:bohr-product');
+  assert.ok(options('选择分期').includes('2'));
+  change('选择分期', '');
+  change('选择分期', '2');
+  chooseGroupChip(view(), '文献阅读');
+  assert.equal(pending.length, 1);
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  other().props.onChange({ target: { value: 'science' } });
+  other().props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[1].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2',
+    group: 'reading', discipline: 'science', per_page: 20 });
+  pending[1].resolve(catalogPage(['science-first'], { total: 1 }, { competitionTable: grouped }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['science-first']);
+});
+
+test('#113: applying Other retries without an unavailable group or period using the applied key', async (t) => {
+  for (const reason of ['group_not_available', 'period_not_available']) {
+    await t.test(reason, async (t) => {
+      const { f, pending, view, control, button } = await pagedCatalog(t);
+      const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+      const change = (label, value) => control(label).props.onChange({ target: { value } });
+      pending[0].resolve(catalogPage(['unfiltered'], {}, { competitionTable: grouped }));
+      await settle();
+      change('按学科筛选', '__other__');
+      change('选择比赛', 'competition:bohr-product');
+      chooseGroupChip(view(), '文献阅读');
+      change('按来源筛选', 'community');
+      change('排序方式', 'attempts');
+      control('搜索 Playground 赛题').props.onChange({ target: { value: 'workflow' } });
+      const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+      other().props.onChange({ target: { value: ' science ' } });
+      button('筛选').props.onClick();
+
+      const base = { action: 'catalog', search: 'workflow', competition: 'bohr-product', origin: 'community',
+        discipline: 'science', sort: 'attempts', per_page: 20 };
+      assert.deepEqual(pending[1].input, { ...base, period: '2', group: 'reading' });
+      pending[1].resolve({ ok: true, value: { ok: false, error: { code: 'invalid_argument', reason } } });
+      await settle();
+      const period = reason === 'group_not_available' ? '2' : '';
+      assert.deepEqual(pending[2]?.input, period ? { ...base, period } : base);
+      assert.equal(control('选择分期').props.value, period);
+      assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), period ? [['全部', true]] : []);
+      assert.deepEqual(cardIds(view()), []);
+
+      pending[2].resolve(catalogPage(['science-fallback'], { total: 1 }, { competitionTable: grouped }));
+      await settle();
+      assert.deepEqual(cardIds(view()), ['science-fallback']);
+      assert.equal(view().props['aria-busy'], false);
+      assert.equal(button('刷新目录').props.disabled, false);
+    });
+  }
+});
+
+test('#113: unapplied Other discipline holds catalog reads until the latest filters can be sent together', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: grouped });
+  const change = (label, value) => control(label).props.onChange({ target: { value } });
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+
+  pending[0].resolve(page(['original'], { hasMore: true }));
+  await settle();
+  button('刷新目录').props.onClick();
+  const oldRefresh = pending[1];
+  change('按学科筛选', '__other__');
+  change('排序方式', 'attempts');
+  change('选择比赛', 'competition:bohr-product');
+  change('选择分期', '');
+  change('选择分期', '2');
+  other().props.onChange({ target: { value: '   ' } });
+  change('按来源筛选', 'community');
+  chooseGroupChip(view(), '文献阅读');
+  const search = () => control('搜索 Playground 赛题');
+  search().props.onChange({ target: { value: ' workflow ' } });
+  search().props.onKeyDown({ key: 'Enter' });
+  assert.equal(pending.length, 2);
+  assert.equal(oldRefresh.signal.aborted, true);
+  assert.equal(button('刷新目录').props.disabled, true);
+  assert.equal(button('加载更多'), undefined);
+  assert.deepEqual(cardIds(view()), []);
+
+  oldRefresh.resolve(page(['late-refresh'], { hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+  assert.equal(pending.length, 2);
+
+  other().props.onChange({ target: { value: ' science ' } });
+  change('按来源筛选', 'benchmark');
+  assert.equal(pending.length, 2, 'typing alone does not apply the discipline');
+  other().props.onKeyDown({ key: 'Enter' });
+  const filters = { action: 'catalog', search: 'workflow', competition: 'bohr-product', period: '2', group: 'reading',
+    origin: 'benchmark', sort: 'attempts', per_page: 20 };
+  assert.deepEqual(pending[2].input, { ...filters, discipline: 'science' });
+  pending[2].resolve(page(['science-first'], { hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['science-first']);
+
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[3].input, { ...filters, discipline: 'science', page: 2 });
+  other().props.onChange({ target: { value: '  ' } });
+  assert.equal(pending[3].signal.aborted, true);
+  pending[3].resolve({ ok: true, value: { ok: false, error: { code: 'invalid_argument', reason: 'group_not_available' } } });
+  await settle();
+  assert.equal(pending.length, 4, 'a late append failure does not clear the group or issue a fallback read');
+  assert.equal(button('重试'), undefined);
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+
+  change('按学科筛选', '');
+  assert.deepEqual(pending[4].input, filters);
+  pending[4].resolve(page(['all-first'], { hasMore: true }));
+  await settle();
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[5].input, { ...filters, page: 2 });
+  pending[5].resolve(page(['all-second']));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['all-first', 'all-second']);
+  assert.equal(pending.length, 6);
+});
+
+test('the 分类 row lists a period\'s official groups and a chosen group reads and lists only that group through the Host', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-23T12:00:00+08:00'));
+  const reads = [];
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: async (url) => {
+    if (url.pathname === '/api/hackathon/seasons') return Response.json([]);
+    if (url.pathname === '/api/challenges/facets') return Response.json({ disciplines: {} });
+    if (url.pathname === '/api/challenges') return Response.json({ items: [] });
+    const id = url.pathname.split('/').at(-1);
+    reads.push(id);
+    return Response.json({ id, title: `Title ${id}`, status: 'open' });
+  } });
+  let periods = [thirdPeriod, fourthPeriod(fourthGroups)];
+  client.getCompetitionSchedules = async () => ({ 'bohr-product': { periods } });
+  const calls = [];
+  const query = historyRpc(client, calls);
+  let reading;
+  const f = await clientFixture(t, { connection: { rpc: { call: (...args) => (reading = query(...args)) } } });
+  const { catalog } = f.workbench('A');
+  const view = () => f.render(catalog.type, catalog.props);
+  const control = (label) => f.find(view(), (node) => node.props?.['aria-label'] === label);
+  const catalogInputs = () => calls.map(([, , payload]) => payload.args.input).filter((input) => input.action === 'catalog');
+  const afterRead = async () => { await reading; await settle(); };
+  const choose = async (label, value) => { control(label).props.onChange({ target: { value } }); await afterRead(); };
+  const pick = async (label) => { chooseGroupChip(view(), label); await afterRead(); };
+  const search = async (value) => {
+    control('搜索 Playground 赛题').props.onChange({ target: { value } });
+    control('搜索 Playground 赛题').props.onKeyDown({ key: 'Enter' });
+    await afterRead();
+  };
+  const refresh = async () => { f.find(view(), (node) => node.type === 'button' && text(node) === '刷新目录').props.onClick(); await afterRead(); };
+  const count = () => text(findAll(view(), (node) => node.props?.className === 'pg-note pg-catalog-count')[0]);
+
+  await f.mount(catalog);
+  await afterRead();
+  assert.equal(groupRow(view()), undefined, '全部比赛 has no 分类 row');
+  await choose('选择比赛', 'competition:bohr-product');
+  assert.equal(control('选择分期').props.value, '4');
+  assert.deepEqual(groupChips(view()), [['全部', true], ...FOURTH_TRACKS.map(([, label, total]) => [`${label} ${total}`, false])]);
+  assert.equal(count(), '共 77 道 · 已显示 20 道');
+  assert.equal(cardIds(view()).some((id) => id.startsWith('p4-graphics')), false, 'the plotting challenges sit past the first page of the period');
+
+  const firstIds = cardIds(view());
+  const newGroup = { key: 'extra', labelZh: '其他', challengeIds: ['new-id'] };
+  periods = [thirdPeriod, fourthPeriod([newGroup, ...fourthGroups])];
+  const press = async (label) => { findButton(view(), label).props.onClick(); await afterRead(); };
+  await press('加载更多');
+  assert.match(catalogInputs().at(-1).page_signature, /^[a-f0-9]{64}$/);
+  assert.match(text(view()), /赛题列表已变化/);
+  assert.equal(findButton(view(), '加载更多'), undefined);
+  assert.deepEqual(cardIds(view()), firstIds);
+  await press('从第一页重新读取');
+  assert.equal(catalogInputs().at(-1).page_signature, undefined);
+  assert.equal(cardIds(view())[0], 'new-id');
+  await press('加载更多');
+  assert.deepEqual(cardIds(view()), periods[1].challengeIds.slice(0, 40));
+  periods = [thirdPeriod, fourthPeriod(fourthGroups)];
+  await refresh();
+  assert.deepEqual(cardIds(view()), firstIds);
+
+  reads.length = 0;
+  await pick('科研绘图');
+  assert.deepEqual(catalogInputs().at(-1), { action: 'catalog', search: '', competition: 'bohr-product', period: '4', group: 'graphics', per_page: 20 });
+  assert.deepEqual([...reads].sort(), GRAPHICS, 'only the group is read');
+  assert.deepEqual(cardIds(view()), GRAPHICS);
+  assert.equal(count(), '共 5 道');
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['科研绘图 5', true]]);
+
+  await search('graphics-4');
+  assert.deepEqual(catalogInputs().at(-1), { action: 'catalog', search: 'graphics-4', competition: 'bohr-product', period: '4', group: 'graphics', per_page: 20 });
+  assert.deepEqual(cardIds(view()), ['p4-graphics-4']);
+
+  // The detail drawer opens over the list and closing it returns to the same choice without reading the catalog.
+  const listReads = catalogInputs().length;
+  f.find(view(), (node) => node.type === 'button' && node.props['aria-label'] === '查看详情：Title p4-graphics-4').props.onClick();
+  f.find(view(), (node) => node.type?.name === 'ChallengeDetailDrawer').props.close();
+  assert.equal(f.find(view(), (node) => node.type?.name === 'ChallengeDetailDrawer'), undefined);
+  assert.deepEqual([control('选择比赛').props.value, control('选择分期').props.value, control('搜索 Playground 赛题').props.value],
+    ['competition:bohr-product', '4', 'graphics-4']);
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['科研绘图 5', true]]);
+  assert.deepEqual(cardIds(view()), ['p4-graphics-4']);
+  assert.equal(catalogInputs().length, listReads);
+
+  await search('');
+  await refresh();
+  assert.equal(catalogInputs().at(-1).group, 'graphics', 'a refresh keeps a group the period still has');
+  assert.deepEqual(cardIds(view()), GRAPHICS);
+
+  periods = [thirdPeriod, fourthPeriod(fourthGroups.filter((item) => item.key !== 'graphics'))];
+  await refresh();
+  assert.deepEqual(catalogInputs().slice(-2), [
+    { action: 'catalog', search: '', competition: 'bohr-product', period: '4', group: 'graphics', per_page: 20, refresh: true },
+    { action: 'catalog', search: '', competition: 'bohr-product', period: '4', per_page: 20, refresh: true }]);
+  assert.deepEqual(groupChips(view())[0], ['全部', true]);
+  assert.equal(groupChips(view()).some(([label]) => label.startsWith('科研绘图')), false);
+  assert.match(text(view()), /之前选择的分类现在不可用，已改为显示本期全部赛题/);
+  assert.equal(count(), '共 72 道 · 已显示 20 道');
+
+  await choose('选择分期', '3');
+  assert.deepEqual(groupChips(view()), [['全部', true], ['文献阅读 1', false], ['附加题 1', false]]);
+  await pick('附加题');
+  assert.deepEqual(cardIds(view()), ['p3-bonus']);
+  // A period the fresh schedule no longer has drops its group too, so the next read is valid.
+  periods = [fourthPeriod(fourthGroups)];
+  await refresh();
+  assert.deepEqual(catalogInputs().at(-1), { action: 'catalog', search: '', competition: 'bohr-product', per_page: 20, refresh: true });
+  assert.equal(control('选择分期').props.value, '');
+  assert.equal(groupRow(view()), undefined, '全部期 has no 分类 row');
+  assert.match(text(view()), /已改为显示全部期/);
+  assert.equal(cardIds(view()).length, 20);
+
+  await choose('选择分期', '4');
+  await pick('科研绘图');
+  await choose('选择比赛', 'competition:knight-s4');
+  assert.equal('group' in catalogInputs().at(-1), false);
+  assert.equal(groupRow(view()), undefined, 'a competition without periods has no 分类 row');
+});
+
+// The test competition table with made-up official groups on 追光者计划·招募赛, a contest the website groups
+// without periods.
+const contestGroupedTable = (groups, extra = {}) => competitionTable.map((item) => (item.id === 'light-chasing'
+  ? { ...item, groups, ...extra } : item));
+
+test('#112: a contest the website groups without periods lists its counted groups and reads one without a period', async (t) => {
+  const { f, pending, view, control, count } = await pagedCatalog(t);
+  // `bonus` is a key the plugin has its own name for, `bio` has none, and a group without a count is not one
+  // the row can show: its chip could not say how many it lists.
+  const groups = [{ key: 'mat', labelZh: '材料', count: 12 }, { key: 'bio', count: 3 },
+    { key: 'bonus', count: 0 }, { key: 'unknown' }];
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: contestGroupedTable(groups, { groupsStale: true }) });
+  const resolve = async (index, value) => { pending[index].resolve(value); await settle(); };
+  const base = { action: 'catalog', search: '', competition: 'light-chasing', per_page: 20 };
+  await resolve(0, page(['c0'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined, '全部比赛 has no 分类 row');
+
+  control('选择比赛').props.onChange({ target: { value: 'competition:light-chasing' } });
+  assert.deepEqual(pending[1].input, base, 'a contest without periods sends no period');
+  await resolve(1, page(range(0, 15), { total: 15 }));
+  assert.deepEqual(groupChips(view()), [['全部', true], ['材料 12', false], ['bio 3', false], ['附加题 0', false]]);
+  assert.deepEqual(findAll(groupRow(view()), (node) => node.type === 'button').map((node) => node.props['aria-label']),
+    [undefined, '材料 12 道', 'bio 3 道', '附加题 0 道']);
+  assert.match(text(view()), /官方分类暂未同步，当前显示已有分类。/);
+
+  chooseGroupChip(view(), '材料');
+  assert.deepEqual(pending[2].input, { ...base, group: 'mat' }, 'the group key goes without a period');
+  await resolve(2, page(range(100, 112), { total: 12 }));
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['材料 12', true]]);
+  assert.equal(count(), '共 12 道');
+
+  // A group the contest has no challenge for is still a choice; it lists nothing.
+  chooseGroupChip(view(), '附加题');
+  assert.deepEqual(pending[3].input, { ...base, group: 'bonus' });
+  await resolve(3, page([], { total: 0 }));
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['附加题 0', true]]);
+  assert.match(text(view()), /没有找到匹配赛题/);
+
+  // The official grouping no longer has the chosen group: the row returns to 全部 of the contest, which has
+  // no period to name.
+  chooseGroupChip(view(), '材料');
+  await resolve(4, { ok: true, value: { ok: false, error: { code: 'invalid_argument', message: '未知的分组。请从分组选择器中选择。', reason: 'group_not_available' } } });
+  assert.deepEqual(pending[5].input, base);
+  await resolve(5, page(range(0, 15), { total: 15 }));
+  assert.match(text(view()), /之前选择的分类现在不可用，已改为显示全部赛题。/);
+  assert.doesNotMatch(text(view()), /显示本期全部赛题/);
+  assert.deepEqual(groupChips(view())[0], ['全部', true]);
+
+  // A competition the website groups inside its periods has no contest-level row.
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await resolve(6, page(['c1'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined);
+});
+
+test('switching the group pages that group from 1, 加载更多 keeps it, and a period or competition change returns to 全部', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  // A made-up grouping: two named groups, `bonus` without a name and a key the plugin has no name for.
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }, { key: 'graphics', labelZh: '科研绘图', count: 3 },
+    { key: 'bonus', count: 1 }, { key: 'extra', count: 2 }]);
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: grouped });
+  const resolve = async (index, value) => { pending[index].resolve(value); await settle(); };
+  const base = { action: 'catalog', search: '', competition: 'bohr-product', period: '2', per_page: 20 };
+  await resolve(0, page(['c0'], { total: 1 }));
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await resolve(1, page(range(0, 20), { total: 36, hasMore: true }));
+  assert.deepEqual(groupChips(view()), [['全部', true], ['文献阅读 30', false], ['科研绘图 3', false], ['附加题 1', false], ['extra 2', false]]);
+
+  chooseGroupChip(view(), '文献阅读');
+  assert.deepEqual(pending[2].input, { ...base, group: 'reading' });
+  assert.deepEqual(cardIds(view()), [], 'the cards of 全部 are not shown under 文献阅读');
+  await resolve(2, page(range(0, 20), { total: 30, hasMore: true }));
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[3].input, { ...base, group: 'reading', page: 2 });
+  await resolve(3, page(range(20, 30), { total: 30 }));
+  assert.deepEqual(cardIds(view()), range(0, 30));
+
+  chooseGroupChip(view(), '科研绘图');
+  assert.deepEqual(pending[4].input, { ...base, group: 'graphics' });
+  assert.deepEqual(cardIds(view()), []);
+  await resolve(4, page(['g1', 'g2', 'g3'], { total: 3 }));
+  assert.deepEqual(cardIds(view()), ['g1', 'g2', 'g3']);
+  assert.equal(button('加载更多'), undefined);
+  chooseGroupChip(view(), '科研绘图');
+  assert.equal(pending.length, 5, 'the chosen group reads nothing again');
+
+  control('选择分期').props.onChange({ target: { value: '1' } });
+  assert.deepEqual(pending[5].input, { ...base, period: '1' });
+  await resolve(5, page(['p1'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined, 'a period without groups has no 分类 row');
+  control('选择分期').props.onChange({ target: { value: '2' } });
+  assert.deepEqual(pending[6].input, base);
+  await resolve(6, page(range(0, 20), { total: 36, hasMore: true }));
+  assert.deepEqual(groupChips(view())[0], ['全部', true]);
+
+  chooseGroupChip(view(), 'extra');
+  await resolve(7, page(['e1', 'e2'], { total: 2 }));
+  control('选择比赛').props.onChange({ target: { value: 'competition:knight-s4' } });
+  assert.deepEqual(pending[8].input, { action: 'catalog', search: '', competition: 'knight-s4', per_page: 20 });
+  await resolve(8, page(['k1'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined);
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  assert.deepEqual(pending[9].input, base, 'choosing the competition again starts on 全部');
+  await resolve(9, page(range(0, 20), { total: 36, hasMore: true }));
+  assert.deepEqual(groupChips(view())[0], ['全部', true]);
+
+  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8');
+  assert.match(source, /\.pg-catalog-groups\{display:flex;flex-wrap:wrap;/, 'the 分类 row wraps in a narrow column');
+});
+
+test('a group read failure without a reason keeps the chosen group and its cards, and 重试 reads the same group', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }, { key: 'graphics', labelZh: '科研绘图', count: 3 }]);
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: grouped });
+  const resolve = async (index, value) => { pending[index].resolve(value); await settle(); };
+  const graphics = { action: 'catalog', search: '', competition: 'bohr-product', period: '2', group: 'graphics', per_page: 20 };
+  await resolve(0, page(['c0'], { total: 1 }));
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await resolve(1, page(range(0, 20), { total: 33, hasMore: true }));
+  chooseGroupChip(view(), '科研绘图');
+  await resolve(2, page(['g1', 'g2', 'g3'], { total: 3 }));
+
+  button('刷新目录').props.onClick();
+  assert.deepEqual(pending[3].input, { ...graphics, refresh: true });
+  // A stale or bundled official schedule cannot tell that the group is gone, so the Host sends no reason.
+  await resolve(3, { ok: true, value: { ok: false, error: { code: 'invalid_argument', message: '未知的分组。请从分组选择器中选择。' } } });
+  assert.equal(pending.length, 4, 'no read of the whole period follows');
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['科研绘图 3', true]]);
+  assert.deepEqual(cardIds(view()), ['g1', 'g2', 'g3']);
+  assert.equal(text(f.find(view(), (node) => node.props?.role === 'alert')), '赛题目录读取失败，下面仍是上一次读取的赛题。');
+  assert.doesNotMatch(text(view()), /分类现在不可用/);
+  button('重试').props.onClick();
+  assert.deepEqual(pending[4].input, { ...graphics, refresh: true });
+});
+
+test('a group\'s official name is shown over the plugin\'s own name for its key', async (t) => {
+  const { pending, view, control } = await pagedCatalog(t);
+  const renamed = catalogPage(['c0'], { total: 1 }, { competitionTable: groupedTable([{ key: 'bonus', labelZh: '加分题', count: 1 }]) });
+  pending[0].resolve(renamed);
+  await settle();
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  pending[1].resolve(renamed);
+  await settle();
+  assert.deepEqual(groupChips(view()), [['全部', true], ['加分题 1', false]]);
 });
 
 test('#25: an ordinary conversation bound with playground_bind_task appears in the workbench task list', async (t) => {

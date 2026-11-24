@@ -1,6 +1,8 @@
 # Playground 比赛助手（DSH 插件）
 
-![测试版 0.6.0-beta.1](https://img.shields.io/badge/beta-0.6.0--beta.1-blue)
+**简体中文** · [English](README.en.md)
+
+[![测试版 0.6.0-beta.2](https://img.shields.io/badge/beta-0.6.0--beta.2-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.2)
 
 在 DeepSeek Harness（DSH）里浏览赛题，让工作区主控分派任务、汇总结果，并查看提交历史和评分。
 
@@ -29,6 +31,12 @@ DSH 不会自动更新第三方插件，在安装框再次填写同名插件会�
 不要同时保留新旧两个插件。两者注册同一个配置项，DSH 无法编辑其中任何一个，工具和命令也可能重复。
 
 **从本地开发版切换到 Git 安装后**，如果启用时报旧目录的 `locale` 找不到，请从托盘完全退出 DSH，再重新打开。
+
+## 切换界面语言
+
+Playground 默认跟随 DSH。打开 DSH 的 **更多 → 设置 → 通用设置 → 语言**，更改后插件会同步切换。要单独设置 Playground 的语言，点击顶栏登录状态左边的翻译图标，选择 **中文** 或 **English**。选择 **跟随 DSH** 可恢复同步。
+
+插件会优先显示平台提供的对应语言赛题，保留对话和用户输入的原文。语言菜单和下文的本地 Codex 对话功能见当前源码，已发布的 `0.6.0-beta.2` 尚未包含这两项功能。
 
 ## 查看工作区里的 Codex 对话
 
@@ -76,7 +84,7 @@ npm 来源还会检查该精确版本的公开 registry 元数据及安装包。
 
 卡片只读取信息，可打开发布说明，并按安装来源复制带版本号的 npm spec（如 `dsh-playground@0.6.0-beta.1`）或 Release 提供的固定 Git spec。安装和更新由 DSH 插件管理器负责，插件不会下载或安装更新。npm 来源需要卸载后重新安装。固定 Git 来源的更新目标必须来自同一仓库和目录；未固定 Git、本地文件和压缩包来源可通过第三方插件安装框覆盖安装固定 spec。降级前请核对兼容性，npm 来源卸载后安装 `dsh-playground@<旧版本号>`，Git 来源用旧版固定 spec 覆盖安装。卡片没有安装按钮。暂无发布时会明确提示。
 
-维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。当前版本是 `0.6.0-beta.1`，预发布统一使用 `beta.N`。
+维护者的发版及回退验证流程见 [发布指南](guide/releases.md)。预发布统一使用 `beta.N`。
 
 欢迎在 [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues) 或试用群反馈。请带上操作系统、DSH 和插件版本、安装来源、复现步骤及错误截图。我们尤其想知道安装或登录卡在哪一步、任务是否派错或重复、结果有没有回来。
 

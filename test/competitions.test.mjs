@@ -85,6 +85,36 @@ test('Scientific Facilities lists each period but reads its challenges only afte
   assert.equal(projected([first, second], at(second.endAt)).status, 'ended');
 });
 
+test('one period selects its official groups and lists their counts, gated like its ids; all periods select none', () => {
+  const reading = { key: 'reading', labelZh: '文献阅读', challengeIds: ['read-2', 'shared'] };
+  const bonus = { key: 'bonus', labelZh: '附加题', challengeIds: ['bonus'] };
+  const third = { slug: '3', labelZh: '第三期', startAt: '2026-11-11T16:00:00+08:00', endAt: '2026-11-18T16:00:00+08:00',
+    challengeIds: ['read-2', 'shared', 'bonus'], groups: [reading, bonus] };
+  const fourth = { slug: '4', labelZh: '第四期', startAt: '2026-11-18T21:00:00+08:00', endAt: '2026-11-25T21:00:00+08:00',
+    challengeIds: ['shared', 'search-1'], groups: [{ key: 'reading', challengeIds: ['shared', 'search-1'] }] };
+  const now = at('2026-11-23T12:00:00+08:00');
+  const weekly = [third, fourth];
+  assert.deepEqual(competitionSelection('bohr-product', '3', weekly, now), { challengeIds: ['read-2', 'shared', 'bonus'], groups: [reading, bonus] });
+  assert.deepEqual(competitionSelection('bohr-product', undefined, weekly, now), { challengeIds: ['read-2', 'shared', 'bonus', 'search-1'] });
+  const listed = competitionList({ now, publishedSchedules: { 'bohr-product': { periods: weekly } } }).find((item) => item.id === 'bohr-product');
+  assert.deepEqual(listed.periods.map((period) => period.groups), [
+    [{ key: 'reading', labelZh: '文献阅读', count: 2 }, { key: 'bonus', labelZh: '附加题', count: 1 }], [{ key: 'reading', count: 2 }]]);
+  assert.equal(JSON.stringify(listed).includes('read-2'), false, 'group ids stay on the Host');
+  const { groups, ...ungrouped } = third;
+  assert.deepEqual(competitionSelection('bohr-product', '3', [ungrouped], now), { challengeIds: ['read-2', 'shared', 'bonus'] });
+
+  const id = 'scientific-facilities';
+  const imaging = { key: 'imaging', labelZh: '成像与结构重建', challengeIds: ['facility-a'] };
+  const second = { slug: '2', labelZh: '第二期', startAt: '2026-12-01T20:00:00+08:00', endAt: '2026-12-02T20:00:00+08:00',
+    challengeIds: ['facility-a'], groups: [imaging] };
+  const counts = (clock) => competitionList({ now: clock, publishedSchedules: { [id]: { periods: [second] } } })
+    .find((item) => item.id === id).periods[0].groups;
+  assert.deepEqual(competitionSelection(id, '2', [second], at(second.startAt) - 1), { challengeIds: [], groups: [{ ...imaging, challengeIds: [] }] });
+  assert.deepEqual(counts(at(second.startAt) - 1), [{ key: 'imaging', labelZh: '成像与结构重建', count: 0 }]);
+  assert.deepEqual(competitionSelection(id, '2', [second], at(second.startAt)), { challengeIds: ['facility-a'], groups: [imaging] });
+  assert.deepEqual(counts(at(second.startAt)), [{ key: 'imaging', labelZh: '成像与结构重建', count: 1 }]);
+});
+
 test('competitionStatus follows start and end at a fixed time', () => {
   const window = { startAt: '2026-10-10T20:00:00+08:00', endAt: '2026-10-11T20:00:00+08:00' };
   const status = (item, now) => competitionStatus(item, at(now));

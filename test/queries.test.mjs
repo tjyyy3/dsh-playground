@@ -279,6 +279,49 @@ test('the catalog query forwards current and future period slugs so the Host can
   assert.equal(calls.length, 6);
 });
 
+test('the catalog query forwards a group key only together with a period', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
+  });
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  for (const [competition, period, group] of [['bohr-product', '4', 'graphics'], ['scientific-facilities', '1', 'characterization'], ['pku', 'efficiency-3', 'figures']]) {
+    const input = { action: 'catalog', search: '', competition, period, group, page: 2, per_page: 2 };
+    await services.get('playgroundQueries').query(schema.parse(input), new AbortController().signal);
+    assert.deepEqual(calls.at(-1), input);
+  }
+  for (const group of ['', '科研绘图', 'two words', '../graphics', '-graphics', 'g'.repeat(41), 4, null, ['graphics']]) {
+    assert.equal(schema.safeParse({ action: 'catalog', competition: 'bohr-product', period: '4', group }).success, false, JSON.stringify(group));
+  }
+  const groupMessage = (input) => schema.safeParse({ action: 'catalog', ...input }).error.issues.find((issue) => issue.path.join('.') === 'group')?.message;
+  assert.equal(groupMessage({ competition: 'bohr-product', group: 'graphics' }), 'group needs a period');
+  assert.equal(groupMessage({ group: 'graphics' }), 'group needs a period');
+  assert.equal(calls.length, 3);
+});
+
+test('#112: a competition the website groups without periods takes a group key on its own', async () => {
+  const services = new Map();
+  const calls = [];
+  let contribution;
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } }, {
+    catalog: async (input) => { calls.push(input); return { ok: true, challenges: { items: [] } }; },
+  });
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  for (const [competition, group] of [['light-chasing', 'mat'], ['knight-s4', 'round-1'], ['paper2arm-s2', 'reproduction']]) {
+    const input = { action: 'catalog', search: '', competition, group, page: 1, per_page: 20 };
+    await services.get('playgroundQueries').query(schema.parse(input), new AbortController().signal);
+    assert.deepEqual(calls.at(-1), input);
+  }
+  const groupMessage = (input) => schema.safeParse({ action: 'catalog', ...input }).error?.issues.find((issue) => issue.path.join('.') === 'group')?.message;
+  assert.equal(groupMessage({ competition: 'light-chasing', group: 'mat' }), undefined);
+  // A competition the website shows by period, and a group without any competition, still need the period.
+  assert.equal(groupMessage({ competition: 'bohr-product', group: 'graphics' }), 'group needs a period');
+  assert.equal(groupMessage({ group: 'graphics' }), 'group needs a period');
+  assert.equal(calls.length, 3);
+});
+
 
 test('controller task and promotion RPCs accept only workspace and session identity', () => {
   const invocations = [];

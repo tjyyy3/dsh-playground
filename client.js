@@ -226,7 +226,8 @@ var locales = {
       reproduction: "复现",
       evidence: "证据",
       total: "合计"
-    }
+    },
+    challengeGroups: { bonus: "附加题" }
   },
   en: {
     tools: {
@@ -321,7 +322,8 @@ var locales = {
       reproduction: "Reproduction",
       evidence: "Evidence",
       total: "Total"
-    }
+    },
+    challengeGroups: { bonus: "Bonus" }
   }
 };
 function stateLabel(state, t) {
@@ -2324,6 +2326,9 @@ function competitionFilter(value) {
 __name(competitionFilter, "competitionFilter");
 var competitionPeriods = /* @__PURE__ */ __name((item) => Array.isArray(item?.periods) ? item.periods.filter((period) => period && typeof period === "object" && typeof period.slug === "string" && period.slug) : [], "competitionPeriods");
 var startingPeriod = /* @__PURE__ */ __name((item) => competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : "", "startingPeriod");
+var officialGroups = /* @__PURE__ */ __name((source) => Array.isArray(source?.groups) ? source.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "officialGroups");
+var groupLabel = /* @__PURE__ */ __name((group) => group.labelZh || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key), "groupLabel");
+var listSelection = /* @__PURE__ */ __name(({ season, period, group }) => JSON.stringify([season, period, group]), "listSelection");
 var CATALOG_PER_PAGE = 20;
 var OTHER_DISCIPLINE = "__other__";
 var originOptions = /* @__PURE__ */ __name(() => [["", msg("全部来源", "All sources")], ["community", msg("社区", "Community")], ["benchmark", msg("基准", "Benchmark")], ["hackathon", msg("黑客松", "Hackathon")], ["arena", msg("竞技场", "Arena")]], "originOptions");
@@ -2334,6 +2339,7 @@ function catalogInput(filters, page = 1) {
     search: filters.search.trim(),
     ...competitionFilter(filters.season),
     ...filters.period ? { period: filters.period } : {},
+    ...filters.group ? { group: filters.group } : {},
     ...filters.origin ? { origin: filters.origin } : {},
     ...filters.discipline ? { discipline: filters.discipline } : {},
     ...filters.sort === "attempts" ? { sort: "attempts" } : {},
@@ -2364,41 +2370,74 @@ __name(catalogFacets, "catalogFacets");
 var pageFacts = /* @__PURE__ */ __name((page) => ({
   total: Number.isInteger(page?.total) ? page.total : void 0,
   hasMore: page?.hasMore === true,
+  pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
 function CatalogPanel({ query, handoff, onWebBase }) {
   const [search, setSearch] = React9.useState("");
   const [season, setSeason] = React9.useState("");
   const [period, setPeriod] = React9.useState("");
+  const [group, setGroup] = React9.useState("");
   const [origin, setOrigin] = React9.useState("");
   const [disciplineChoice, setDisciplineChoice] = React9.useState("");
   const [otherDiscipline, setOtherDiscipline] = React9.useState("");
+  const [appliedOther, setAppliedOther] = React9.useState(null);
   const [sort, setSort] = React9.useState("newest");
   const [openOnly, setOpenOnly] = React9.useState(false);
-  const [catalog, setCatalog] = React9.useState(null);
+  const [competitionTable, setCompetitionTable] = React9.useState(null);
   const [list, setList] = React9.useState(null);
   const [facets, setFacets] = React9.useState(null);
   const [busy, setBusy] = React9.useState("");
   const [failure, setFailure] = React9.useState(null);
   const [status, setStatus] = React9.useState(null);
   const [notice, setNotice] = React9.useState(null);
-  const [latest] = React9.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [latest] = React9.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React9.useState(null);
-  const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+  const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
+  const otherPending = discipline === null;
+  const filters = { search, season, period, group, origin, sort, discipline };
+  const waitForDiscipline = /* @__PURE__ */ __name(() => {
+    const controller = latest.controller;
+    if (controller && competitionTable === null) {
+      latest.metadataOnly = true;
+    } else {
+      latest.controller = null;
+      controller?.abort();
+    }
+    latest.refocus = null;
+    setList(null);
+    setBusy("");
+    setFailure(null);
+    setNotice(null);
+    setStatus(["输入学科后按回车筛选", "Enter a discipline and press Enter to filter"]);
+  }, "waitForDiscipline");
   const handleReadFailure = /* @__PURE__ */ __name((kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === "period_not_available") {
       setPeriod("");
-      return load({ ...requestedFilters, period: "" }, { refresh, notice: ["之前选择的分期已不在列表中，已改为显示全部期。", "The selected period is no longer listed. Showing all periods."] });
+      setGroup("");
+      return readFirstPage({ ...requestedFilters, period: "", group: "" }, { refresh, notice: ["之前选择的分期已不在列表中，已改为显示全部期。", "The selected period is no longer listed. Showing all periods."] });
+    }
+    if (requestedFilters.group && error?.reason === "group_not_available") {
+      setGroup("");
+      return readFirstPage({ ...requestedFilters, group: "" }, {
+        refresh,
+        notice: requestedFilters.period ? ["之前选择的分类现在不可用，已改为显示本期全部赛题。", "The selected group is unavailable. Showing all challenges in this period."] : ["之前选择的分类现在不可用，已改为显示全部赛题。", "The selected group is unavailable. Showing all challenges."]
+      });
+    }
+    if (kind === "more" && error?.code === "catalog_changed") {
+      setFailure({ kind: "changed", message: error.message });
+      setStatus(["赛题列表已变化，请从第一页重新读取。", "The challenge list has changed. Reload from the first page."]);
+      return;
     }
     const firstPage = kind === "load";
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
     setStatus(firstPage ? ["赛题目录读取失败。", "Could not load the challenge catalog."] : ["加载更多赛题失败。", "Could not load more challenges."]);
   }, "handleReadFailure");
-  const load = /* @__PURE__ */ __name(async (changes = {}, { refresh = false, notice: nextNotice = null } = {}) => {
-    const next = { ...filters, ...changes };
+  const readFirstPage = /* @__PURE__ */ __name(async (next, { refresh = false, notice: nextNotice = null } = {}) => {
     latest.controller?.abort();
     const controller = new AbortController();
     latest.controller = controller;
+    latest.metadataOnly = false;
     setBusy("load");
     setFailure(null);
     setNotice(nextNotice);
@@ -2407,35 +2446,43 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       const input = catalogInput(next);
       const result = await query(refresh ? { ...input, refresh: true } : input, controller.signal);
       if (latest.controller !== controller) return;
-      if (result?.ok === false) return handleReadFailure("load", next, result.error, refresh);
-      setCatalog(result);
-      const facts = pageFacts(result?.challenges);
-      setList({ season: next.season, period: next.period, filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      if (result?.ok === false) {
+        if (!latest.metadataOnly) return handleReadFailure("load", next, result.error, refresh);
+        return;
+      }
+      const table = Array.isArray(result?.competitionTable) ? result.competitionTable : void 0;
+      setCompetitionTable(table ?? []);
       const received = refresh || !latest.facets ? catalogFacets(result?.disciplineFacets) : void 0;
       if (received) {
         latest.facets = received;
         setFacets(received);
       }
       if (typeof result?.webBase === "string") onWebBase?.(result.webBase);
-      const table = Array.isArray(result?.competitionTable) ? result.competitionTable : void 0;
+      if (latest.metadataOnly) return;
+      const facts = pageFacts(result?.challenges);
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
       if (next.season && table && !table.some((item) => item && typeof item === "object" && competitionValue(item) === next.season)) {
         setSeason("");
         setPeriod("");
-        load({ ...next, season: "", period: "" }, { notice: ["之前选择的比赛已不在列表中，已改为显示全部比赛。", "The selected competition is no longer listed. Showing all competitions."] });
-        return;
+        setGroup("");
+        return readFirstPage({ ...next, season: "", period: "", group: "" }, { notice: ["之前选择的比赛已不在列表中，已改为显示全部比赛。", "The selected competition is no longer listed. Showing all competitions."] });
       }
       setStatus(facts.missing ? [`赛题目录已更新，有 ${facts.missing} 道赛题读取失败。`, `Catalog updated. Challenges that failed to load: ${facts.missing}.`] : ["赛题目录已更新。", "Challenge catalog updated."]);
     } catch {
-      if (latest.controller === controller) handleReadFailure("load", next, void 0, refresh);
+      if (latest.controller === controller && !latest.metadataOnly) handleReadFailure("load", next, void 0, refresh);
     } finally {
       if (latest.controller === controller) {
         latest.controller = null;
+        latest.metadataOnly = false;
         setBusy("");
       }
     }
+  }, "readFirstPage");
+  const load = /* @__PURE__ */ __name((changes = {}, { discipline: nextDiscipline = discipline, ...options } = {}) => {
+    if (nextDiscipline === null) return;
+    return readFirstPage({ ...filters, discipline: nextDiscipline, ...changes }, options);
   }, "load");
-  const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
-  const canLoadMore = Boolean(list?.hasMore) && list.season === season && list.period === period && failure?.kind !== "load" && !otherPending && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
+  const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && (!failure || failure.kind === "more") && !otherPending && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
   const loadMore = /* @__PURE__ */ __name(async () => {
     const shown = list;
     if (!canLoadMore || latest.controller) return;
@@ -2446,7 +2493,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setStatus(["正在加载更多赛题…", "Loading more challenges…"]);
     try {
       const page = shown.page + 1;
-      const result = await query({ ...shown.input, page }, controller.signal);
+      const result = await query({ ...shown.input, page, ...shown.pageSignature ? { page_signature: shown.pageSignature } : {} }, controller.signal);
       if (latest.controller !== controller) return;
       if (result?.ok === false) return handleReadFailure("more", shown.filters, result.error);
       const facts = pageFacts(result?.challenges);
@@ -2472,10 +2519,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       }
     }
   }, "loadMore");
-  const retry = /* @__PURE__ */ __name(() => {
-    if (otherPending) return void 0;
-    return failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh });
-  }, "retry");
+  const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
   React9.useEffect(() => {
     load();
     return () => {
@@ -2489,11 +2533,17 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     latest.refocus = null;
     [...ids.map((id) => latest.details.get(id)), latest.count, latest.heading].find(Boolean)?.focus?.();
   });
-  const competitions = Array.isArray(catalog?.competitionTable) ? catalog.competitionTable.filter((item) => item && typeof item === "object") : [];
+  const competitions = (competitionTable ?? []).filter((item) => item && typeof item === "object");
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : void 0;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : void 0;
-  const shownList = list && list.season === season && list.period === period ? list : null;
+  const groups = officialGroups(selectedPeriod ?? (periods.length ? void 0 : selectedCompetition));
+  const chooseGroup = /* @__PURE__ */ __name((key) => {
+    if (key === group) return;
+    setGroup(key);
+    load({ group: key });
+  }, "chooseGroup");
+  const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
   const challenges = openOnly ? loaded.filter((item) => item.status === "open") : loaded;
   const total = shownList?.total;
@@ -2508,11 +2558,17 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const time = scheduleText(schedule?.timeText || schedule?.dateText) || msg("日期待定", "Dates to be announced");
   const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} 时间：${time}`, `${periodName(selectedPeriod)} dates: ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
   const infoName = [competitionName(selectedCompetition), periodName(selectedPeriod)].filter(Boolean).join(" · ");
-  const failureText = failure?.kind === "more" ? msg("加载更多赛题失败，已加载的赛题仍保留。", "Could not load more challenges. Previously loaded challenges are still shown.") : failure ? loaded.length ? msg("赛题目录读取失败，下面仍是上一次读取的赛题。", "Could not refresh the catalog. Showing the previously loaded challenges.") : msg("赛题目录读取失败。", "Could not load the challenge catalog.") : "";
+  const failureText = failure?.kind === "changed" ? msg(
+    failure.message,
+    (failure.message || "").replace("赛题列表已变化。", "The challenge list has changed. ").replace(/有 (\d+) 道赛题读取失败，列表不完整。/, "Failed to load $1 challenges. ").replace("请从第一页重新读取。", "Reload from the first page.")
+  ) : failure?.kind === "more" ? msg("加载更多赛题失败，已加载的赛题仍保留。", "Could not load more challenges. Previously loaded challenges are still shown.") : failure ? loaded.length ? msg("赛题目录读取失败，下面仍是上一次读取的赛题。", "Could not refresh the catalog. Showing the previously loaded challenges.") : msg("赛题目录读取失败。", "Could not load the challenge catalog.") : "";
   const disciplineOptions = facets?.top || [];
   const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
   const applyOther = /* @__PURE__ */ __name(() => {
-    if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() });
+    const key = otherDiscipline.trim();
+    if (!key) return;
+    setAppliedOther(key);
+    load({}, { discipline: key });
   }, "applyOther");
   return h(
     "section",
@@ -2524,7 +2580,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h("h2", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
         latest.heading = node;
       }, "ref") }, msg("选择比赛或赛题", "Choose a competition or challenge")),
-      h("button", { className: "pg-button", disabled: busy === "load", onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog"))
+      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog"))
     ),
     h(
       "div",
@@ -2539,13 +2595,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
           setSeason(value);
           setPeriod(nextPeriod);
-          load({ season: value, period: nextPeriod });
+          setGroup("");
+          load({ season: value, period: nextPeriod, group: "" });
         }, "onChange") },
         h("option", { value: "" }, msg("全部比赛", "All competitions")),
         // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        competitionGroups().map(([group, label2]) => {
-          const members = competitions.filter((item) => item.status === group);
-          return members.length ? h("optgroup", { key: group, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+        competitionGroups().map(([group2, label2]) => {
+          const members = competitions.filter((item) => item.status === group2);
+          return members.length ? h("optgroup", { key: group2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
       )
     ),
@@ -2575,11 +2632,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
             const value = event.target.value;
             setDisciplineChoice(value);
-            if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) {
-              setStatus(["输入学科后按回车筛选", "Enter a discipline and press Enter to filter"]);
-              return;
-            }
-            load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
+            const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
+            if (nextDiscipline === null) waitForDiscipline();
+            else load({}, { discipline: nextDiscipline });
           }, "onChange") },
           h("option", { value: "" }, msg("全部学科", "All disciplines")),
           disciplineOptions.map((key) => h("option", { key, value: key }, key)),
@@ -2601,7 +2656,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             maxLength: 100,
             placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
             ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
-            onChange: /* @__PURE__ */ __name((event) => setOtherDiscipline(event.target.value), "onChange"),
+            onChange: /* @__PURE__ */ __name((event) => {
+              const value = event.target.value;
+              setOtherDiscipline(value);
+              if (appliedOther !== null && value.trim() !== appliedOther) {
+                setAppliedOther(null);
+                waitForDiscipline();
+              }
+            }, "onChange"),
             onKeyDown: /* @__PURE__ */ __name((event) => {
               if (event.key === "Enter") applyOther();
             }, "onKeyDown")
@@ -2643,7 +2705,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           "select",
           { className: "pg-input", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => {
             setPeriod(event.target.value);
-            load({ period: event.target.value });
+            setGroup("");
+            load({ period: event.target.value, group: "" });
           }, "onChange") },
           h("option", { value: "" }, msg("全部期", "All periods")),
           periods.map((item) => h(
@@ -2662,21 +2725,45 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       ),
       openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
       selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
+      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
       // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
       // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
       // one is left out.
       missing ? h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)) : null,
       missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
     ) : null,
+    // Wraps onto further lines in a narrow column, so every group stays reachable.
+    groups.length ? h(
+      "div",
+      { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
+      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, msg("分类", "Group")),
+      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, msg("全部", "All")),
+      groups.map((item) => {
+        const label2 = groupLabel(item);
+        return h(
+          "button",
+          {
+            key: item.key,
+            type: "button",
+            className: "pg-group-chip",
+            "aria-pressed": group === item.key,
+            "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
+            onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
+          },
+          label2,
+          h("span", { className: "pg-group-count" }, item.count)
+        );
+      })
+    ) : null,
     notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
     failure ? h(
       "div",
       { className: "pg-catalog-failure" },
       h("p", { className: "pg-error", role: "alert" }, failureText),
-      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, msg("重试", "Retry"))
+      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
     ) : null,
-    busy === "load" && !catalog ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
-    busy === "load" && catalog && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
+    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
+    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
     shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
     shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
     otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
@@ -3709,7 +3796,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   return h(
     "main",
     { className: "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
-    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
+    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
       { className: "pg-workbench-inner" },

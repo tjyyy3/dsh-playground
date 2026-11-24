@@ -28,6 +28,7 @@ const locales = {
       notSubmitted: '未提交', notUploaded: '评测包未上传', notReceived: '未收到评测包，需重新提交', attempt: '提交', reference: '参考', points: '分' },
     metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
       result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
+    challengeGroups: { bonus: '附加题' },
   },
   en: {
     tools: {
@@ -56,6 +57,19 @@ const locales = {
       notSubmitted: 'Not submitted', notUploaded: 'Bundle not uploaded', notReceived: 'Bundle not received, submit again', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
     metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
       result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
+    challengeGroups: { bonus: 'Bonus' },
+    groupNames: {
+      '附加题': 'Bonus', '文献检索': 'Literature Search', '文献阅读': 'Literature Reading', '资料管理': 'Research Library',
+      '学术写作': 'Academic Writing', '学术审查': 'Academic Review', '深度研究与文献综述': 'Deep Research and Literature Review',
+      '科研数据分析': 'Research Data Analysis', '科研绘图': 'Scientific Graphics', '学术 PPT': 'Academic Slides', '实验方案设计': 'Experimental Design',
+      '论文复现': 'Paper Reproduction', '软件构造': 'Software Construction', '红蓝对抗': 'Red vs. Blue', '科学狐狸': 'Science Fox',
+      '材料科研 Agent 全栈开发实习生': 'Full-stack Intern, Materials Research Agents',
+      'AI for Science药物研发研究员/实习生': 'AI for Drug Discovery Researcher / Intern',
+      '科研 Agent 全栈开发工程师／实习生': 'Full-stack Engineer / Intern, Research Agents',
+      'FDE 前线部署工程师／实习生': 'Forward-Deployed Engineer / Intern', 'AI4S 智能大装置工程开发实习生': 'AI4S Research Facilities Engineering Intern',
+      '创新算法研究员/实习生(解谱方向)': 'Algorithm Researcher / Intern, Spectral Analysis',
+      '创新算法研究员／实习生(LKM 方向)': 'Algorithm Researcher / Intern, LKM', '产品实习生': 'Product Intern', '运营实习生': 'Operations Intern',
+    },
   },
 };
 
