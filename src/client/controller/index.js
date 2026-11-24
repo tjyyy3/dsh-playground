@@ -4,6 +4,7 @@ import { workspaceOptions } from '../shared/workspaces.js';
 import { css } from '../shared/styles.js';
 import { AuthStatusPanel } from '../settings/auth.js';
 import { ReleaseStatusPanel } from '../settings/releases.js';
+import { CodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog } from './handoff.js';
 
 const controllerPanelCss = `
@@ -43,6 +44,9 @@ const controllerPanelCss = `
   .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
   .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
   .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
+  .pg-codex-chats { padding-bottom:12px; border-bottom:1px solid var(--dsw-alias-border-l3); overflow-wrap:anywhere; }
+  .pg-codex-chats label { display:block; margin:6px 0; }
+  .pg-codex-chats input, .pg-codex-chats textarea { box-sizing:border-box; width:100%; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:4px; padding:6px; }
   .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
   .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
@@ -388,6 +392,7 @@ function ControllerPanel(props) {
           h('header', null, h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, '任务'),
             h('button', { className: 'pg-controller-back', disabled: !expectedId, onClick: () => setTaskRetry(taskRetry + 1) }, '刷新任务')),
           h('div', { className: 'pg-controller-task-content' },
+            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
             !expectedId ? h('p', null, '打开主控后查看其派发的任务。') : !tasks ? h('p', { role: 'status' }, '正在读取任务…')
               : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, '无法读取任务。', h('button', { onClick: () => setTaskRetry(taskRetry + 1) }, '重试'))
               : row ? h('div', { className: 'pg-controller-detail' },

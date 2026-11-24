@@ -72,6 +72,7 @@ const plugin = {
         return opened;
       },
       promoteController: (input) => requestHost('promoteController', input),
+      codexChats: (input, signal) => requestHost('codexChats', input, signal),
       controllerTasks: (input, signal) => requestHost('controllerTasks', input, signal),
       dispatchChallenge: (input, signal) => requestHost('dispatchChallenge', input, signal),
       inspectController: (input, signal) => requestHost('inspectController', input, signal),

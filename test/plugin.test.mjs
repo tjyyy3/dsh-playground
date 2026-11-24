@@ -50,7 +50,7 @@ test('read-only tools register before injected task services become available', 
   assert.ok(projections.includes('playgroundTask'));
   assert.deepEqual(tools.slice(7).map((tool) => tool.name), [
     'playground_open_controller', 'playground_set_controller', 'playground_controller_tasks',
-    'playground_controller_link_task', 'playground_start_task', 'playground_bind_task', 'playground_task',
+    'playground_controller_codex_chats', 'playground_controller_link_task', 'playground_start_task', 'playground_bind_task', 'playground_task',
   ]);
 });
 

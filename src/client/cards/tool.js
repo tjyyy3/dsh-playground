@@ -1,3 +1,4 @@
+import { CodexChats } from '../controller/codex-chats.js';
 import * as React from 'react';
 import { locales, stateLabel } from '../shared/locale.js';
 import { h } from '../shared/react.js';
@@ -6,7 +7,9 @@ import { statusTone } from '../shared/display.js';
 import { StartTaskButton } from '../tasks/start.js';
 import { bundleSummaryLine, scoreLabel, submissionCountsLine } from '../tasks/attempts.js';
 
-function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench }) {
+function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
+  const external = phase === 'result' && block.meta?.codexChats;
+  if (external && external.sessionId === sessionId) return h(CodexChats, { key: `${sessionId}:${block.id || ''}`, initial: external, workspaceId: external.workspaceId, sessionId, query: codexChats });
   const data = phase === 'result' ? block.meta?.playground : undefined;
   const text = phase === 'result' ? (block.content ?? []).filter((item) => item.type === 'text').map((item) => item.text).join('\n') : '';
   // playground_submit returns a confirmation's receipt, shown like the 确认提交 command card.

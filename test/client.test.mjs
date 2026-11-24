@@ -5688,3 +5688,68 @@ test('workspace selection hides old controller tasks immediately and ignores a l
   assert.match(text(render()), /two-task/);
   assert.doesNotMatch(text(render()), /one-task/);
 });
+
+
+test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const rows = [{ title: 'Same', threadId: '018ee808-f10c-7000-b000-000000000001' },
+    { title: 'Same', threadId: '018ee808-f10c-7000-b000-000000000002' }];
+  const calls = [];
+  const initial = { kind: 'choose', workspaceId: 'ws', sessionId: 'ctrl', rows, message: 'Keep this draft.' };
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => {
+      calls.push(input);
+      return { kind: 'sent', source: rows[1], turnStatus: 'completed', text: 'Exact source reply' };
+    } });
+  let tree = await f.mount(card);
+  assert.equal(calls.length, 0);
+  const edit = f.find(tree, (n) => n.type === 'textarea');
+  assert.equal(edit.props.value, initial.message);
+  edit.props.onChange({ target: { value: 'Edited reply' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (n) => n.type === 'button' && text(n).includes('发送给') && text(n).includes(rows[1].threadId)).props.onClick();
+  assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: rows[1].threadId, message: 'Edited reply' }]);
+  tree = f.render(card.type, card.props);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), /Exact source reply/);
+  assert.match(text(f.find(tree, (n) => n.props?.role === 'status')), new RegExp(rows[1].threadId));
+});
+
+test('Codex summary reply goes back to its selected source and retains the draft when unavailable', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000003', result: 'reply', text: 'Earlier result' };
+  const initial = { kind: 'summary', workspaceId: 'ws', sessionId: 'ctrl', rows: [source] };
+  const calls = [];
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => { calls.push(input); return { kind: 'unavailable' }; } });
+  let tree = await f.mount(card);
+  f.find(tree, (n) => n.type === 'button' && text(n).includes(source.threadId)).props.onClick();
+  f.find(tree, (n) => n.type === 'textarea').props.onChange({ target: { value: 'Follow up' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (n) => n.type === 'button' && text(n) === '发送追问').props.onClick();
+  assert.equal(calls[0].threadId, source.threadId);
+  tree = f.render(card.type, card.props);
+  assert.equal(f.find(tree, (n) => n.type === 'textarea').props.value, 'Follow up');
+});
+
+
+test('sending to the sole displayed Codex chat uses its ID even if another chat takes its title', async (t) => {
+  const f = await clientFixture(t);
+  const Tool = f.registrations.get('playground_controller_codex_chats').Component;
+  const original = { title: 'Reusable title', threadId: '018ee808-f10c-7000-b000-000000000004' };
+  const initial = { kind: 'ready', workspaceId: 'ws', sessionId: 'ctrl', rows: [original] };
+  let sent;
+  const card = f.render(Tool, { phase: 'result', toolName: 'playground_controller_codex_chats', sessionId: 'ctrl',
+    block: { meta: { codexChats: initial } }, codexChats: async (input) => {
+      sent = input;
+      return { kind: 'unavailable', code: 'target_missing' };
+    } });
+  let tree = await f.mount(card);
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Follow up here' } });
+  tree = f.render(card.type, card.props);
+  await f.find(tree, (node) => node.type === 'button' && text(node) === '发送追问').props.onClick();
+  assert.deepEqual(sent, { workspaceId: 'ws', sessionId: 'ctrl', action: 'send', threadId: original.threadId, message: 'Follow up here' });
+  tree = f.render(card.type, card.props);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Follow up here');
+});

@@ -90,6 +90,7 @@ var locales = {
       playground_check_materials: "提交前检查",
       playground_task: "任务状态",
       playground_open_controller: "打开工作区主控",
+      playground_controller_codex_chats: "工作区 Codex 对话",
       playground_submit: "提交到 Playground"
     },
     preparing: "正在准备参数…",
@@ -184,6 +185,7 @@ var locales = {
       playground_check_materials: "Submission checks",
       playground_task: "Task status",
       playground_open_controller: "Open workspace controller",
+      playground_controller_codex_chats: "Workspace Codex chats",
       playground_submit: "Submit to Playground"
     },
     preparing: "Preparing arguments…",
@@ -271,7 +273,7 @@ __name(stateLabel, "stateLabel");
 var zhText = /* @__PURE__ */ __name((key) => key.split(".").reduce((value, part) => value?.[part], locales.zh) ?? key, "zhText");
 
 // src/client/controller/index.js
-var React5 = __toESM(require("react"), 1);
+var React6 = __toESM(require("react"), 1);
 
 // src/client/shared/workspaces.js
 function workspaceOptions(items) {
@@ -495,7 +497,7 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
   const failedCheck = current.reason === "network" || current.reason === "unavailable";
   const note = clearNote(current);
   const overridden = loginDone && !loading ? loginOverridden(current) : "";
-  const badge = /* @__PURE__ */ __name((tone, label) => h("span", { className: "pg-badge", "data-tone": tone }, label), "badge");
+  const badge = /* @__PURE__ */ __name((tone, label2) => h("span", { className: "pg-badge", "data-tone": tone }, label2), "badge");
   const sourceTail = sourceLabel ? ` 令牌来源：${sourceLabel}` : "";
   const summary = loading ? "正在检查当前 DSH 是否已配置 Playground 凭据…" : current.authenticated ? h(React2.Fragment, null, badge("success", "已登录"), " ", user.name || user.email || "Playground 用户") : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", "检测失败"), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? "检测失败" : "未登录"), " 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。");
   const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: removeToken }, "清除令牌") : null;
@@ -724,13 +726,196 @@ function ReleaseStatusPanel({ query }) {
 }
 __name(ReleaseStatusPanel, "ReleaseStatusPanel");
 
-// src/client/controller/handoff.js
+// src/client/controller/codex-chats.js
 var React4 = __toESM(require("react"), 1);
+var reasons = {
+  controller_changed: "主控或工作区已变更，请重新打开。",
+  target_missing: "找不到此对话，请刷新并核对编号。",
+  target_changed: "目标会话已变更，请重新选择。",
+  thread_not_attached: "共享 Codex 服务未打开该会话。请在原会话中继续。",
+  thread_busy: "该对话正在运行或状态未知，请稍后查看。",
+  codex_incompatible: "请使用支持工作区和账号筛选的本机 Codex 版本。",
+  user_action_required: "请从主控工作台发起操作。",
+  interaction_required: "此轮需要在原 Codex 对话中处理交互。"
+};
+var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
+var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? "最近一轮暂无最终回复。" : source.result === "unknown" ? "最近一轮结果未知。" : ""), "verdict");
+function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+  const [data, setData] = React4.useState(initial || null);
+  const [selected, select] = React4.useState(null);
+  const [target, setTarget] = React4.useState("");
+  const [draft, setDraft] = React4.useState(initial?.message || "");
+  const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
+  const [response, setResponse] = React4.useState(null);
+  const [busy, setBusy] = React4.useState(false);
+  const [copied, setCopied] = React4.useState(false);
+  const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
+  React4.useEffect(() => {
+    control.active = true;
+    if (!initial) read("list");
+    return () => {
+      control.active = false;
+      control.read?.abort();
+    };
+  }, [refresh, query]);
+  async function read(action, threadId) {
+    control.read?.abort();
+    const abort = new AbortController();
+    control.read = abort;
+    try {
+      const result = await query({ action, workspaceId, sessionId, ...threadId ? { threadId } : {} }, abort.signal);
+      if (!abort.signal.aborted) setData(result);
+    } catch {
+      if (!abort.signal.aborted) setData({ kind: "unavailable" });
+    }
+  }
+  __name(read, "read");
+  async function send(source) {
+    if (!draft.trim() || control.writing) return;
+    const rows2 = data?.rows || [];
+    const named = target.trim();
+    if (!source) {
+      const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
+      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
+        setChoices(matches);
+        setResponse(null);
+        return;
+      }
+    }
+    control.writing = true;
+    setBusy(true);
+    setResponse(null);
+    setCopied(false);
+    try {
+      const result = await query({
+        workspaceId,
+        sessionId,
+        action: "send",
+        message: draft,
+        ...source ? { threadId: source.threadId } : named ? { target: named } : { threadId: rows2[0].threadId }
+      });
+      if (!control.active) return;
+      if (result.kind === "choose") {
+        setChoices(result.rows);
+        return;
+      }
+      setResponse(result);
+      if (result.kind === "sent" || result.kind === "unknown") {
+        select(result.source);
+        setChoices(null);
+        setDraft("");
+      }
+    } catch {
+      if (control.active) {
+        setResponse({ kind: "unknown", source });
+        setDraft("");
+        setChoices(null);
+      }
+    } finally {
+      control.writing = false;
+      if (control.active) setBusy(false);
+    }
+  }
+  __name(send, "send");
+  const rows = data?.rows || [];
+  return h(
+    "section",
+    { className: "pg-codex-chats", "aria-label": "工作区 Codex 对话" },
+    h("h3", null, "工作区 Codex 对话"),
+    !data ? h("p", { role: "status" }, "正在查找本工作区对话…") : data.kind === "unavailable" ? h("p", { role: "status" }, reasons[data.code] || "无法读取本机 Codex 对话。") : rows.length === 0 ? h("p", null, "本工作区暂无可见的 Codex 对话。") : null,
+    rows.map((source) => h(
+      "div",
+      { key: source.threadId },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "pg-controller-row",
+          disabled: busy,
+          onClick: /* @__PURE__ */ __name(() => {
+            select(source);
+            setChoices(null);
+            setResponse(null);
+          }, "onClick")
+        },
+        h("strong", null, source.title),
+        h("span", null, source.threadId)
+      ),
+      verdict(source) ? h("p", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, verdict(source)) : null
+    )),
+    data?.partial ? h("p", null, "仅显示最近的部分对话。可通过完整会话编号指定目标。") : null,
+    rows.length > 0 && data.kind !== "summary" ? h("button", {
+      type: "button",
+      className: "pg-controller-action",
+      disabled: busy,
+      onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
+    }, "汇总最近结果") : null,
+    rows.length || selected ? h(
+      "div",
+      null,
+      selected ? h("p", null, `回复 ${label(selected)} `, h("button", {
+        type: "button",
+        disabled: busy,
+        onClick: /* @__PURE__ */ __name(() => {
+          select(null);
+          setChoices(null);
+        }, "onClick")
+      }, "更换目标")) : h("label", null, "目标会话", h("input", {
+        value: target,
+        disabled: busy,
+        placeholder: "完整编号或标题",
+        onChange: /* @__PURE__ */ __name((event) => {
+          setTarget(event.target.value);
+          setChoices(null);
+        }, "onChange")
+      })),
+      h("label", null, "追问内容", h("textarea", {
+        value: draft,
+        disabled: busy,
+        maxLength: 8e3,
+        onChange: /* @__PURE__ */ __name((event) => setDraft(event.target.value), "onChange")
+      })),
+      choices ? h("div", null, h("p", null, "选择接收这条追问的原会话。"), choices.map((source) => h("button", {
+        key: source.threadId,
+        type: "button",
+        disabled: busy || !draft.trim(),
+        className: "pg-controller-row",
+        onClick: /* @__PURE__ */ __name(() => send(source), "onClick")
+      }, `发送给 ${label(source)}`))) : h(
+        "button",
+        { type: "button", className: "pg-controller-action", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
+        busy ? "等待原会话回复…" : "发送追问"
+      )
+    ) : null,
+    response ? h(
+      "div",
+      { role: "status" },
+      response.source ? h("strong", null, label(response.source)) : null,
+      h(
+        "p",
+        { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
+        response.kind === "sent" ? response.text || `该轮状态为 ${response.turnStatus}，暂无最终回复。` : response.kind === "unknown" && response.code === "interaction_required" ? "该轮需要权限或用户输入，请在原 Codex 会话查看。" : response.kind === "unknown" ? "发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。" : reasons[response.code] || "无法连接可接收追问的本机 Codex 服务。请在原会话继续。"
+      ),
+      response.kind === "unavailable" && draft ? h("button", { type: "button", onClick: /* @__PURE__ */ __name(async () => {
+        try {
+          await navigator.clipboard.writeText(draft);
+          setCopied(true);
+        } catch {
+          setCopied(false);
+        }
+      }, "onClick") }, copied ? "已复制" : "复制追问") : null
+    ) : null
+  );
+}
+__name(CodexChats, "CodexChats");
+
+// src/client/controller/handoff.js
+var React5 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
-  const [picker] = React4.useState(() => ({ pending: false }));
-  const [adding, setAdding] = React4.useState(false);
-  const [addError, setAddError] = React4.useState("");
+  const [picker] = React5.useState(() => ({ pending: false }));
+  const [adding, setAdding] = React5.useState(false);
+  const [addError, setAddError] = React5.useState("");
   const title = "交给工作区主控";
   const accepted = state.phase === "accepted" || state.phase === "opening";
   const canAdd = workspaces.phase === "ready" && !accepted;
@@ -871,6 +1056,9 @@ var controllerPanelCss = `
   .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
   .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
   .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
+  .pg-codex-chats { padding-bottom:12px; border-bottom:1px solid var(--dsw-alias-border-l3); overflow-wrap:anywhere; }
+  .pg-codex-chats label { display:block; margin:6px 0; }
+  .pg-codex-chats input, .pg-codex-chats textarea { box-sizing:border-box; width:100%; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:4px; padding:6px; }
   .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
   .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
@@ -908,9 +1096,9 @@ function taskOutput(row) {
 }
 __name(taskOutput, "taskOutput");
 var TRAJECTORY_VIEW_ID = "trajectory";
-var controllerViews = [["chat", "对话"], [TRAJECTORY_VIEW_ID, "轨迹"]].map(([id, label]) => ({
+var controllerViews = [["chat", "对话"], [TRAJECTORY_VIEW_ID, "轨迹"]].map(([id, label2]) => ({
   id,
-  label,
+  label: label2,
   slots: { views: /* @__PURE__ */ __name(({ renderSlot }) => renderSlot("conversation.session", { view: id }), "views") }
 }));
 var [chatView, trajectoryView] = controllerViews;
@@ -935,14 +1123,14 @@ __name(ControllerSession, "ControllerSession");
 function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
   const trajectoryAvailable = useControllerTrajectory((value) => value);
   const viewRequest = useStore?.((value) => value.viewRequest);
-  const [traceSessionId, setTraceSessionId] = React5.useState(null);
+  const [traceSessionId, setTraceSessionId] = React6.useState(null);
   const showViewSwitch = trajectoryAvailable && canSwitchView;
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
   }, [sessionId, showViewSwitch, viewRequest]);
   const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
   return h(
-    React5.Fragment,
+    React6.Fragment,
     null,
     showViewSwitch ? h(
       "div",
@@ -966,31 +1154,31 @@ function ControllerPanel(props) {
   const controllerTarget = useControllerTarget((value) => value);
   const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
   const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-  const [workspaceId, setWorkspaceId] = React5.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
-  const [inspection, setInspection] = React5.useState(null);
-  const [expectedId, setExpectedId] = React5.useState("");
-  const [busy, setBusy] = React5.useState(false);
-  const [error, setError] = React5.useState("");
-  const [view, setView] = React5.useState("controller");
-  const [dispatchState, setDispatchState] = React5.useState(null);
-  const [dispatchControls] = React5.useState(() => ({ busy: false }));
-  const [authStatus, setAuthStatus] = React5.useState("checking");
-  const [visited] = React5.useState(() => /* @__PURE__ */ new Set());
+  const [workspaceId, setWorkspaceId] = React6.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
+  const [inspection, setInspection] = React6.useState(null);
+  const [expectedId, setExpectedId] = React6.useState("");
+  const [busy, setBusy] = React6.useState(false);
+  const [error, setError] = React6.useState("");
+  const [view, setView] = React6.useState("controller");
+  const [dispatchState, setDispatchState] = React6.useState(null);
+  const [dispatchControls] = React6.useState(() => ({ busy: false }));
+  const [authStatus, setAuthStatus] = React6.useState("checking");
+  const [visited] = React6.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
-  const [preferences] = React5.useState(() => {
+  const [preferences] = React6.useState(() => {
     try {
       return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
     } catch {
       return {};
     }
   });
-  const [showTasks, setShowTasks] = React5.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
-  const [taskWidth, setTaskWidth] = React5.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
-  const [selectedTask, setSelectedTask] = React5.useState("");
-  const [showMaintenance, setShowMaintenance] = React5.useState(false);
-  const [closedChallenges, setClosedChallenges] = React5.useState(() => /* @__PURE__ */ new Set());
-  const [taskActionStatus, setTaskActionStatus] = React5.useState("");
-  const [pane] = React5.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
+  const [showTasks, setShowTasks] = React6.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
+  const [taskWidth, setTaskWidth] = React6.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+  const [selectedTask, setSelectedTask] = React6.useState("");
+  const [showMaintenance, setShowMaintenance] = React6.useState(false);
+  const [closedChallenges, setClosedChallenges] = React6.useState(() => /* @__PURE__ */ new Set());
+  const [taskActionStatus, setTaskActionStatus] = React6.useState("");
+  const [pane] = React6.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
     Object.assign(preferences, change);
     try {
@@ -1010,16 +1198,16 @@ function ControllerPanel(props) {
     savePane({ open: !showTasks });
     setShowTasks(!showTasks);
   }, "toggleTasks");
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (pane.focus === "heading") pane.heading?.focus();
     else if (pane.focus === "back") pane.back?.focus();
     else if (pane.focus) pane.rows.get(pane.focus)?.focus();
     pane.focus = "";
   }, [selectedTask, showTasks]);
-  const [taskSnapshot, setTaskSnapshot] = React5.useState(null);
+  const [taskSnapshot, setTaskSnapshot] = React6.useState(null);
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
-  const [retry, setRetry] = React5.useState(0);
-  const [taskRetry, setTaskRetry] = React5.useState(0);
+  const [retry, setRetry] = React6.useState(0);
+  const [taskRetry, setTaskRetry] = React6.useState(0);
   const selectWorkspace = /* @__PURE__ */ __name((id) => {
     if (id === workspaceId) return;
     props.controllerSelection.workspaceId = id;
@@ -1033,14 +1221,14 @@ function ControllerPanel(props) {
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!targetWorkspaceId) return;
     setView("controller");
     if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
     else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
     props.clearControllerTarget(controllerTarget);
   }, [controllerTarget, targetWorkspaceId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     const media = window.matchMedia?.("(max-width: 600px)");
     if (!media) return;
     const changed = /* @__PURE__ */ __name((event) => {
@@ -1050,13 +1238,13 @@ function ControllerPanel(props) {
     media.addEventListener("change", changed);
     return () => media.removeEventListener("change", changed);
   }, []);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
       props.controllerSelection.workspaceId = selectedMarker.workspaceId;
       setWorkspaceId(selectedMarker.workspaceId);
     }
   }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     setExpectedId("");
     setInspection(null);
     setError("");
@@ -1080,10 +1268,10 @@ function ControllerPanel(props) {
     });
     return () => abort.abort();
   }, [workspaceId, retry]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     setTaskSnapshot(null);
   }, [workspaceId, expectedId]);
-  React5.useEffect(() => {
+  React6.useEffect(() => {
     if (!workspaceId || !expectedId || !controllerTasks) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1344,7 +1532,7 @@ function ControllerPanel(props) {
       ),
       ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
       view === "controller" && showTasks ? h(
-        React5.Fragment,
+        React6.Fragment,
         null,
         h("div", {
           className: "pg-controller-resize",
@@ -1395,6 +1583,7 @@ function ControllerPanel(props) {
           h(
             "div",
             { className: "pg-controller-task-content" },
+            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
             !expectedId ? h("p", null, "打开主控后查看其派发的任务。") : !tasks ? h("p", { role: "status" }, "正在读取任务…") : tasks.kind !== "ready" ? h("p", { role: "alert" }, "无法读取任务。", h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, "重试")) : row ? h(
               "div",
               { className: "pg-controller-detail" },
@@ -1431,7 +1620,7 @@ function ControllerPanel(props) {
               taskActionStatus ? h("p", { role: "status" }, taskActionStatus) : null,
               row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? "历史原始通知" : "原始通知"), h("pre", null, row.terminalText)) : null
             ) : !tasks.rows.length ? h("p", null, "还没有派发任务。") : h(
-              React5.Fragment,
+              React6.Fragment,
               null,
               [...challengeGroups].map(([groupKey, group]) => h(
                 "details",
@@ -1480,7 +1669,7 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 
 // src/client/tasks/attempts.js
 function attemptScore(item) {
@@ -1657,13 +1846,13 @@ async function refreshAttempts(store, ids) {
 __name(refreshAttempts, "refreshAttempts");
 
 // src/client/catalog/index.js
-var React8 = __toESM(require("react"), 1);
+var React9 = __toESM(require("react"), 1);
 
 // src/client/catalog/detail.js
-var React7 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 
 // src/client/shared/drawer.js
-var React6 = __toESM(require("react"), 1);
+var React7 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
   return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => typeof node.getClientRects !== "function" || node.getClientRects().length > 0);
@@ -1672,7 +1861,7 @@ __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
 var DOCUMENT_POSITION_FOLLOWING = 4;
 function useDrawerFocus(fallback) {
-  const [focus] = React6.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
+  const [focus] = React7.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
   }, "dismiss") }));
   focus.fallback = fallback;
   focus.restore = () => {
@@ -1681,7 +1870,7 @@ function useDrawerFocus(fallback) {
     const body = typeof document === "undefined" ? void 0 : document.body;
     [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
   };
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     focus.restored = false;
     focus.title?.focus?.();
     const inForeignDialog = /* @__PURE__ */ __name((target) => {
@@ -1731,12 +1920,12 @@ function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
 __name(DispatchChallengeButton, "DispatchChallengeButton");
 var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
 function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
-  const [detail, setDetail] = React7.useState(null);
-  const [busy, setBusy] = React7.useState(false);
-  const [failed, setFailed] = React7.useState(false);
-  const [expanded, setExpanded] = React7.useState(false);
-  const [status, setStatus] = React7.useState("");
-  const [latest] = React7.useState(() => ({ controller: null, closed: false }));
+  const [detail, setDetail] = React8.useState(null);
+  const [busy, setBusy] = React8.useState(false);
+  const [failed, setFailed] = React8.useState(false);
+  const [expanded, setExpanded] = React8.useState(false);
+  const [status, setStatus] = React8.useState("");
+  const [latest] = React8.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
   const load = /* @__PURE__ */ __name(async () => {
     latest.controller?.abort();
@@ -1772,7 +1961,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     close();
   }, "dismiss");
   focus.dismiss = dismiss;
-  React7.useEffect(() => {
+  React8.useEffect(() => {
     latest.closed = false;
     load();
     return () => {
@@ -1816,7 +2005,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
         )
       ),
       h("p", { className: "pg-note pg-path" }, `题目编号：${challengeId}`),
-      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label, value]) => [h("dt", { key: `${label}-t` }, label), h("dd", { key: `${label}-d` }, String(value))])) : null,
+      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label2, value]) => [h("dt", { key: `${label2}-t` }, label2), h("dd", { key: `${label2}-d` }, String(value))])) : null,
       tags.length ? h("ul", { className: "pg-detail-tags", "aria-label": "标签" }, tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))) : null,
       h(
         "div",
@@ -1919,23 +2108,23 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
 function CatalogPanel({ query, handoff, onWebBase }) {
-  const [search, setSearch] = React8.useState("");
-  const [season, setSeason] = React8.useState("");
-  const [period, setPeriod] = React8.useState("");
-  const [origin, setOrigin] = React8.useState("");
-  const [disciplineChoice, setDisciplineChoice] = React8.useState("");
-  const [otherDiscipline, setOtherDiscipline] = React8.useState("");
-  const [sort, setSort] = React8.useState("newest");
-  const [openOnly, setOpenOnly] = React8.useState(false);
-  const [catalog, setCatalog] = React8.useState(null);
-  const [list, setList] = React8.useState(null);
-  const [facets, setFacets] = React8.useState(null);
-  const [busy, setBusy] = React8.useState("");
-  const [failure, setFailure] = React8.useState(null);
-  const [status, setStatus] = React8.useState("");
-  const [notice, setNotice] = React8.useState("");
-  const [latest] = React8.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
-  const [detail, setDetail] = React8.useState(null);
+  const [search, setSearch] = React9.useState("");
+  const [season, setSeason] = React9.useState("");
+  const [period, setPeriod] = React9.useState("");
+  const [origin, setOrigin] = React9.useState("");
+  const [disciplineChoice, setDisciplineChoice] = React9.useState("");
+  const [otherDiscipline, setOtherDiscipline] = React9.useState("");
+  const [sort, setSort] = React9.useState("newest");
+  const [openOnly, setOpenOnly] = React9.useState(false);
+  const [catalog, setCatalog] = React9.useState(null);
+  const [list, setList] = React9.useState(null);
+  const [facets, setFacets] = React9.useState(null);
+  const [busy, setBusy] = React9.useState("");
+  const [failure, setFailure] = React9.useState(null);
+  const [status, setStatus] = React9.useState("");
+  const [notice, setNotice] = React9.useState("");
+  const [latest] = React9.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [detail, setDetail] = React9.useState(null);
   const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
   const handleReadFailure = /* @__PURE__ */ __name((kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === "period_not_available") {
@@ -2028,14 +2217,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     if (otherPending) return void 0;
     return failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh });
   }, "retry");
-  React8.useEffect(() => {
+  React9.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
       latest.controller = null;
     };
   }, [query]);
-  React8.useEffect(() => {
+  React9.useEffect(() => {
     const ids = latest.refocus;
     if (!ids) return;
     latest.refocus = null;
@@ -2093,9 +2282,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         }, "onChange") },
         h("option", { value: "" }, "全部比赛"),
         // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        COMPETITION_GROUPS.map(([group, label]) => {
+        COMPETITION_GROUPS.map(([group, label2]) => {
           const members = competitions.filter((item) => item.status === group);
-          return members.length ? h("optgroup", { key: group, label }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+          return members.length ? h("optgroup", { key: group, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
       )
     ),
@@ -2113,7 +2302,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             setOrigin(event.target.value);
             load({ origin: event.target.value });
           }, "onChange") },
-          ORIGIN_OPTIONS.map(([value, label]) => h("option", { key: value || "all", value }, label))
+          ORIGIN_OPTIONS.map(([value, label2]) => h("option", { key: value || "all", value }, label2))
         )
       ),
       h(
@@ -2170,7 +2359,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             setSort(event.target.value);
             load({ sort: event.target.value });
           }, "onChange") },
-          SORT_OPTIONS.map(([value, label]) => h("option", { key: value, value }, label))
+          SORT_OPTIONS.map(([value, label2]) => h("option", { key: value, value }, label2))
         )
       ),
       h(
@@ -2289,16 +2478,16 @@ function CatalogPanel({ query, handoff, onWebBase }) {
 __name(CatalogPanel, "CatalogPanel");
 
 // src/client/tasks/list.js
-var React12 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React11 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 
 // src/client/cards/tool.js
-var React10 = __toESM(require("react"), 1);
+var React11 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React9 = __toESM(require("react"), 1);
+var React10 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false }) {
   return h(
@@ -2315,17 +2504,17 @@ function TaskStartOverlay(props) {
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React9.useState("");
-  const [busy, setBusy] = React9.useState(false);
-  const [adding, setAdding] = React9.useState(false);
-  const [error, setError] = React9.useState("");
-  const [inspection, setInspection] = React9.useState(null);
+  const [selectedId, setSelectedId] = React10.useState("");
+  const [busy, setBusy] = React10.useState(false);
+  const [adding, setAdding] = React10.useState(false);
+  const [error, setError] = React10.useState("");
+  const [inspection, setInspection] = React10.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
   const snapshot = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
   const checking = Boolean(inspectId && !snapshot);
-  React9.useEffect(() => {
+  React10.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -2493,7 +2682,9 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
 __name(TaskStartDialog, "TaskStartDialog");
 
 // src/client/cards/tool.js
-function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench }) {
+function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
+  const external = phase === "result" && block.meta?.codexChats;
+  if (external && external.sessionId === sessionId) return h(CodexChats, { key: `${sessionId}:${block.id || ""}`, initial: external, workspaceId: external.workspaceId, sessionId, query: codexChats });
   const data = phase === "result" ? block.meta?.playground : void 0;
   const text = phase === "result" ? (block.content ?? []).filter((item) => item.type === "text").map((item) => item.text).join("\n") : "";
   const approvedSubmit = toolName === "playground_submit";
@@ -2532,7 +2723,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
     ) : null,
     data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, "打开工作台") : null,
     data ? h(
-      React10.Fragment,
+      React11.Fragment,
       null,
       h(
         "div",
@@ -2566,7 +2757,7 @@ function PlaygroundToolCard({ phase, block, toolName, t, sessionId, requestTask,
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React10.Fragment,
+        React11.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -2592,11 +2783,11 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
-  const [snapshot, setSnapshot] = React11.useState(null);
-  const [scope, setScope] = React11.useState("operation");
-  const [recursive, setRecursive] = React11.useState(false);
-  const [error, setError] = React11.useState("");
-  const [busy, setBusy] = React11.useState(false);
+  const [snapshot, setSnapshot] = React12.useState(null);
+  const [scope, setScope] = React12.useState("operation");
+  const [recursive, setRecursive] = React12.useState(false);
+  const [error, setError] = React12.useState("");
+  const [busy, setBusy] = React12.useState(false);
   const refresh = /* @__PURE__ */ __name(async () => {
     try {
       const value = await materials({ action: "status", sessionId });
@@ -2607,7 +2798,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       setError(failure.message);
     }
   }, "refresh");
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     setScope("operation");
     setRecursive(false);
     refresh();
@@ -2656,7 +2847,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       }, item.operation === "submit" ? "允许引用并继续交接" : "允许引用并继续记录")
     )),
     snapshot?.grants?.length ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
       h("p", { className: "pg-note" }, "本次任务已允许的范围"),
       ...snapshot.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
@@ -2672,19 +2863,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React11.useState(state?.materials || {});
-  const [busy, setBusy] = React11.useState(false);
-  const [error, setError] = React11.useState("");
-  const [request, setRequest] = React11.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React11.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React11.useState(Boolean(state?.materialAccess));
-  React11.useEffect(() => {
+  const [files, setFiles] = React12.useState(state?.materials || {});
+  const [busy, setBusy] = React12.useState(false);
+  const [error, setError] = React12.useState("");
+  const [request, setRequest] = React12.useState(state?.submission);
+  const [accessRequest, setAccessRequest] = React12.useState(state?.materialAccess);
+  const [showAccess, setShowAccess] = React12.useState(Boolean(state?.materialAccess));
+  React12.useEffect(() => {
     setFiles(state?.materials || {});
   }, [state?.materials]);
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     setRequest(state?.submission);
   }, [state?.submission]);
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     if (state?.materialAccess) {
       setAccessRequest(state.materialAccess);
       setShowAccess(true);
@@ -2730,26 +2921,26 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : "Playground · 开始任务"),
     task ? h("p", { className: "pg-note pg-path" }, `赛题 ${task.challengeId} · ${cwd || task.cwd}`) : null,
     task && materials ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
       h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, "外部材料权限"),
       showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
       h("p", { className: "pg-note" }, "出题模式目前只支持本地准备。"),
       h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, "切回参赛")
     ) : null,
     task && task.mode !== "author" ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
       h("p", { className: "pg-note" }, "提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。"),
       h(
         "details",
         { className: "pg-advanced" },
         h("summary", null, "材料引用（可选）"),
-        h("div", { className: "pg-form" }, ...[["outputs_path", "产物目录"], ["bundle_path", "评测包路径"], ["trace_path", "执行轨迹路径"], ["manifest_path", "Manifest 路径"]].map(([key, label]) => h("label", { key, className: "pg-field" }, label, h("input", {
+        h("div", { className: "pg-form" }, ...[["outputs_path", "产物目录"], ["bundle_path", "评测包路径"], ["trace_path", "执行轨迹路径"], ["manifest_path", "Manifest 路径"]].map(([key, label2]) => h("label", { key, className: "pg-field" }, label2, h("input", {
           className: "pg-input",
           value: files[key] || "",
           disabled: disabled || active,
@@ -2772,7 +2963,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? `Agent 报告：${request.message}` : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React11.Fragment,
+        React12.Fragment,
         null,
         h("p", { className: "pg-confirm-impact" }, `${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`),
         h(
@@ -2797,8 +2988,8 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
 __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
-  const [error, setError] = React11.useState("");
-  React11.useEffect(() => {
+  const [error, setError] = React12.useState("");
+  React12.useEffect(() => {
     refreshProjections(session.id).catch((failure) => setError(failure.message));
   }, [session.id, refreshProjections]);
   if (error || projection?.state === "error" || projection?.state === "migration-required") {
@@ -2859,13 +3050,13 @@ function taskAttemptIds(state) {
 }
 __name(taskAttemptIds, "taskAttemptIds");
 function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
-  const [history, setHistory] = React12.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React12.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React12.useState(false);
-  const [error, setError] = React12.useState("");
-  const [signedOut, setSignedOut] = React12.useState(false);
-  const [status, setStatus] = React12.useState("");
-  const [latest] = React12.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const [history, setHistory] = React13.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React13.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React13.useState(false);
+  const [error, setError] = React13.useState("");
+  const [signedOut, setSignedOut] = React13.useState(false);
+  const [status, setStatus] = React13.useState("");
+  const [latest] = React13.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -2923,7 +3114,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       }
     }
   }, "load");
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
@@ -3117,22 +3308,22 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React13.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React13.useState(false);
-  const [archiveBusy, setArchiveBusy] = React13.useState("");
-  const [archiveError, setArchiveError] = React13.useState(noArchiveError);
-  const [split, setSplit] = React13.useState(50);
-  const [announcement, setAnnouncement] = React13.useState("");
-  const [drawerOpen, setDrawerOpen] = React13.useState(false);
-  const [nav] = React13.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React14.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React14.useState(false);
+  const [archiveBusy, setArchiveBusy] = React14.useState("");
+  const [archiveError, setArchiveError] = React14.useState(noArchiveError);
+  const [split, setSplit] = React14.useState(50);
+  const [announcement, setAnnouncement] = React14.useState("");
+  const [drawerOpen, setDrawerOpen] = React14.useState(false);
+  const [nav] = React14.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React13.useState("");
-  const [openError, setOpenError] = React13.useState("");
-  const [, setVersion] = React13.useState(0);
-  const [store] = React13.useState(() => {
+  const [webBase, setWebBase] = React14.useState("");
+  const [openError, setOpenError] = React14.useState("");
+  const [, setVersion] = React14.useState(0);
+  const [store] = React14.useState(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -3162,14 +3353,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
   }));
   const anyPending = pendingIds.length > 0;
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     store.query = query;
     store.taskIds = taskIds;
     store.pendingIds = pendingIds;
     store.receipts = receiptsById;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     store.disposed = !active;
     if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingIds);
     return () => {
@@ -3178,7 +3369,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       store.controller = null;
     };
   }, [active]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refreshAttempts(store, store.pendingIds);
@@ -3195,13 +3386,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [active, anyPending]);
   const refreshing = Boolean(store.controller);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (performance.now() - pending.at > unarchiveFocusMs) {
@@ -3408,7 +3599,7 @@ function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
   if (node.name === "playground" && !workflow && legacyQuery) return null;
   const challenges = Array.isArray(catalog?.challenges?.items) ? catalog.challenges.items.filter((item) => item && typeof item === "object") : [];
   const action = auth ? "auth" : catalog ? "catalog" : input.action || workflow?.kind;
-  const label = node.name === "playground-auth-login" ? "Playground 登录" : node.name === "playground-confirm" ? "确认提交" : action === "results" ? "查询评测结果" : workflow?.kind === "receipt" ? "提交回执" : {
+  const label2 = node.name === "playground-auth-login" ? "Playground 登录" : node.name === "playground-confirm" ? "确认提交" : action === "results" ? "查询评测结果" : workflow?.kind === "receipt" ? "提交回执" : {
     auth: "登录状态检测",
     catalog: "赛题目录查询",
     start: "创建任务对话",
@@ -3427,7 +3618,7 @@ function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
   const available = Object.keys(result).length > 0;
   const status = !node.outcome ? "执行中 / 尚未完成" : failed ? "未完成" : !available ? "结果不可用" : workflow?.kind === "prepared" ? "历史检查记录，已退役" : workflow?.kind === "clear" ? "已取消或失效" : auth ? auth.authenticated ? "已登录" : "未登录" : "已完成";
   const details = {
-    操作: label,
+    操作: label2,
     状态: status,
     ...catalog ? {
       比赛数量: commandFact(catalog.competitions?.total) ?? catalog.competitions?.items?.length ?? 0,
@@ -3461,7 +3652,7 @@ function PlaygroundCommandCard({ node, sessionId, openTask, openWorkbench }) {
     "section",
     { className: "pg-card" },
     h("style", null, css),
-    h("div", { className: "pg-head" }, h("strong", null, label), h("span", { className: "pg-badge", "data-tone": failed ? "error" : !node.outcome || auth?.authenticated === false ? "warning" : "neutral" }, status)),
+    h("div", { className: "pg-head" }, h("strong", null, label2), h("span", { className: "pg-badge", "data-tone": failed ? "error" : !node.outcome || auth?.authenticated === false ? "warning" : "neutral" }, status)),
     h("p", { className: failed ? "pg-error" : "pg-note", role: failed ? "alert" : "status" }, summary),
     h("details", { className: "pg-raw" }, h("summary", null, "查看操作详情"), h("pre", null, JSON.stringify(details, null, 2))),
     typeof result.sessionId === "string" ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openTask(result.sessionId), "onClick") }, "打开任务对话") : null
@@ -3546,6 +3737,7 @@ var plugin = {
         return opened;
       }, "openControllerChat"),
       promoteController: /* @__PURE__ */ __name((input) => requestHost("promoteController", input), "promoteController"),
+      codexChats: /* @__PURE__ */ __name((input, signal) => requestHost("codexChats", input, signal), "codexChats"),
       controllerTasks: /* @__PURE__ */ __name((input, signal) => requestHost("controllerTasks", input, signal), "controllerTasks"),
       dispatchChallenge: /* @__PURE__ */ __name((input, signal) => requestHost("dispatchChallenge", input, signal), "dispatchChallenge"),
       inspectController: /* @__PURE__ */ __name((input, signal) => requestHost("inspectController", input, signal), "inspectController"),

@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { realpath } from 'node:fs/promises';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { createCodexChats } from '../lib/controller/codex-chats.js';
+import { registerWorkbenchQueries } from '../lib/queries.js';
+
+const cwd = await realpath('.');
+const workspace = { id: 'workspace', path: cwd, sessionIds: ['controller'] };
+const marker = { workspaceId: workspace.id, sessionId: 'controller' };
+const thread = (name, extra = {}) => ({ id: randomUUID(), source: 'appServer', name, cwd, status: { type: 'idle' }, ...extra });
+
+function fixture(threads, options = {}) {
+  const calls = [];
+  let listen;
+  const rpc = {
+    wait: (promise) => promise,
+    listen(callback) { listen = callback; },
+    async call(method, params) {
+      calls.push({ method, params });
+      const item = threads.find((row) => row.id === params.threadId);
+      if (options.handle) {
+        const result = options.handle(method, params, listen);
+        if (result !== undefined) return result;
+      }
+      if (method === 'thread/list') return { data: threads, nextCursor: null };
+      if (method === 'thread/read' || method === 'thread/resume') return { thread: item };
+      if (method === 'thread/turns/list') return { data: [] };
+      if (method === 'turn/start') {
+        const params = { threadId: item.id, turnId: 'accepted-turn' };
+        listen({ method: 'item/completed', params: { ...params, threadId: randomUUID(), item: { type: 'agentMessage', text: 'unrelated' } } });
+        listen({ method: 'item/completed', params: { ...params, turnId: 'other-turn', item: { type: 'agentMessage', text: 'older' } } });
+        listen({ method: 'item/completed', params: { ...params, item: { type: 'agentMessage', text: 'actual reply' } } });
+        listen({ method: 'turn/completed', params: { ...params, turn: { id: params.turnId, status: 'completed', items: [] } } });
+        return { turn: { id: params.turnId } };
+      }
+      assert.fail(method);
+    }
+  };
+  const chats = createCodexChats({ ctx: { agents: { get: () => ({ session: {} }) }, workingDirectory: { get: () => cwd },
+    workspaceRegistry: { resolveByPath: async () => options.workspace || workspace } }, markerOf: () => marker,
+    inspect: async () => options.snapshot || { kind: 'existing', sessionId: marker.sessionId },
+    getService: () => ({ listChildren: async () => options.children || [] }),
+    connect: async (callback) => callback(rpc) });
+  return { calls, run: (input) => chats({ ...marker, ...input }) };
+}
+
+test('discover only interactive roots in the exact registered workspace and exclude DSH children', async () => {
+  const mine = thread('A');
+  const child = thread('DSH');
+  const { run, calls } = fixture([mine, child, thread('other directory', { cwd: join(cwd, 'other') }),
+    thread('agent', { parentThreadId: mine.id }), thread('agent', { source: { subAgent: {} } }),
+    thread('temporary', { ephemeral: true }), thread('DSH provider', { originator: 'deepseek-harness' })], { children: [{ id: child.id }] });
+  const result = await run({ action: 'list' });
+  assert.deepEqual(result.rows.map((item) => item.threadId), [mine.id]);
+  assert.deepEqual(calls.map((call) => call.method), ['thread/list']);
+  assert.equal(calls[0].params.currentAccountOnly, true);
+  assert.equal(calls[0].params.archived, false);
+  assert.equal(calls[0].params.cwd, cwd);
+});
+
+test('summary attributes final messages, unknown and absent replies without resuming any thread', async () => {
+  const threads = [thread('completed'), thread('failed'), thread('empty'), thread('unreadable')];
+  const { run, calls } = fixture(threads, { handle(method, { threadId }) {
+    if (method !== 'thread/turns/list') return;
+    const i = threads.findIndex((item) => item.id === threadId);
+    if (i === 3) throw Error('history unavailable');
+    return { data: i === 2 ? [] : [{ id: 'turn', status: i === 0 ? 'completed' : 'failed',
+      items: [{ type: 'agentMessage', phase: 'final_answer', text: 'done' }, { type: 'agentMessage', phase: 'commentary', text: 'progress' }] }] };
+  } });
+  const result = await run({ action: 'summary' });
+  assert.deepEqual(result.rows.map((r) => r.threadId), threads.map((r) => r.id));
+  assert.deepEqual(result.rows.map((r) => [r.result, r.text]), [['reply','done'],['unknown',undefined],['empty',undefined],['unknown',undefined]]);
+  assert.ok(calls.every(({method}) => ['thread/list','thread/turns/list'].includes(method)));
+});
+
+test('duplicate titles never send; choosing an exact ID replies only to that turn', async () => {
+  const items = [thread('same'),thread('same')];
+  const { run, calls } = fixture(items);
+  const message = 'Keep the original wording.';
+  assert.equal((await run({ action: 'send', target: 'same', message })).kind, 'choose');
+  assert.equal((await run({ action: 'send', target: 'absent', message })).code, 'target_missing');
+  assert.equal((await run({ action: 'choose', threadId: items[0].id, message })).kind, 'choose');
+  assert.equal(calls.some(({method}) => method === 'thread/resume' || method === 'turn/start'), false);
+  const reply = await run({ action: 'send', threadId: items[1].id, message });
+  assert.equal(reply.source.threadId, items[1].id);
+  assert.equal(reply.turnId,'accepted-turn');
+  assert.equal(reply.text, 'actual reply');
+  assert.deepEqual(calls.filter(({method}) => method === 'turn/start').map(({params}) => params),
+    [{ threadId: items[1].id, input: [{ type: 'text', text: message, text_elements: [] }] }]);
+});
+
+test('foreign, archived-controller, stale and busy targets are refused before dispatch', async () => {
+  const mine = thread('A');
+  for (const f of [fixture([thread('foreign', { id: mine.id, cwd: join(cwd, 'other') })]),
+    fixture([mine], { workspace: { ...workspace, id: 'other' } }), fixture([mine], { snapshot: { kind: 'existing', sessionId: 'controller', archived: true } }),
+    fixture([{ ...mine, status: { type: 'active' } }]), fixture([{ ...mine, status: { type: 'notLoaded' } }]), fixture([mine], { handle: (m) => m === 'thread/read' ? { thread: thread('stale') } : undefined })]) {
+    assert.equal((await f.run({ action: 'send', threadId: mine.id, message: 'follow up' })).kind, 'unavailable');
+    assert.ok(!f.calls.some(({method}) => method === 'turn/start'));
+  }
+});
+
+test('a lost dispatch response is unknown and never triggers another send', async () => {
+  const item = thread('only');
+  const { run, calls } = fixture([item], { handle(m) { if(m === 'turn/start') throw Error('codex_interrupted'); } });
+  const result = await run({ action: 'send', target: 'only', message: 'text' });
+  assert.equal(result.kind, 'unknown');
+  assert.equal(result.source.threadId, item.id);
+  assert.equal(calls.filter(({method}) => method === 'turn/start').length,1);
+});
+
+test('only the authenticated browser peer can invoke Codex RPCs', async () => {
+  let service;
+  const peer = {};
+  const ctx = { provide: (_key, s) => { service = s; }, typert: { register() {} },
+    get: () => ({ browserPeer: peer }), invocation: { peer: {} } };
+  let count = 0;
+  registerWorkbenchQueries(ctx, {}, { codexChats: async () => { count++; return { kind: 'sent' }; } });
+  const input = { ...marker, action: 'send', threadId: randomUUID(), message: 'test' };
+  assert.equal((await service.codexChats(input)).code, 'user_action_required');
+  assert.equal(count, 0);
+  ctx.invocation.peer = peer;
+  assert.equal((await service.codexChats(input)).kind, 'sent');
+  assert.equal(count, 1);
+});
