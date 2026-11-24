@@ -73,6 +73,10 @@ test('summary attributes final messages, unknown and absent replies without resu
   assert.deepEqual(result.rows.map((r) => r.threadId), threads.map((r) => r.id));
   assert.deepEqual(result.rows.map((r) => [r.result, r.text]), [['reply','done'],['unknown',undefined],['empty',undefined],['unknown',undefined]]);
   assert.ok(calls.every(({method}) => ['thread/list','thread/turns/list'].includes(method)));
+  calls.length = 0;
+  const named = await run({ action: 'summary', target: 'completed' });
+  assert.deepEqual(named.rows.map((row) => row.threadId), [threads[0].id]);
+  assert.deepEqual(calls.filter(({ method }) => method === 'thread/turns/list').map(({ params }) => params.threadId), [threads[0].id]);
 });
 
 test('duplicate titles never send; choosing an exact ID replies only to that turn', async () => {
