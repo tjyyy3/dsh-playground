@@ -3615,6 +3615,76 @@ const GRAPHICS = ['p4-graphics-1', 'p4-graphics-2', 'p4-graphics-3', 'p4-graphic
 const groupedTable = (groups) => competitionTable.map((item) => (item.id === 'bohr-product'
   ? { ...item, periods: item.periods.map((period) => (period.slug === '2' ? { ...period, groups } : period)) } : item));
 
+test('#113: a late first page supplies competition controls while Other waits for a key', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+  const change = (label, value) => control(label).props.onChange({ target: { value } });
+  change('按学科筛选', '__other__');
+  assert.equal(view().props['aria-busy'], false);
+
+  pending[0].resolve(catalogPage(['unfiltered-first'], { total: 30, hasMore: true }, { competitionTable: grouped }));
+  await settle();
+  const options = (label) => findAll(control(label), (node) => node.type === 'option').map((node) => node.props.value);
+  assert.ok(options('选择比赛').includes('competition:bohr-product'));
+  assert.equal(pending[0].signal.aborted, false, 'the first read stays live to supply the competition table');
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(button('加载更多'), undefined);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+
+  change('选择比赛', 'competition:bohr-product');
+  assert.ok(options('选择分期').includes('2'));
+  change('选择分期', '');
+  change('选择分期', '2');
+  chooseGroupChip(view(), '文献阅读');
+  assert.equal(pending.length, 1);
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  other().props.onChange({ target: { value: 'science' } });
+  other().props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[1].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '2',
+    group: 'reading', discipline: 'science', per_page: 20 });
+  pending[1].resolve(catalogPage(['science-first'], { total: 1 }, { competitionTable: grouped }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['science-first']);
+});
+
+test('#113: applying Other retries without an unavailable group or period using the applied key', async (t) => {
+  for (const reason of ['group_not_available', 'period_not_available']) {
+    await t.test(reason, async (t) => {
+      const { f, pending, view, control, button } = await pagedCatalog(t);
+      const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+      const change = (label, value) => control(label).props.onChange({ target: { value } });
+      pending[0].resolve(catalogPage(['unfiltered'], {}, { competitionTable: grouped }));
+      await settle();
+      change('按学科筛选', '__other__');
+      change('选择比赛', 'competition:bohr-product');
+      chooseGroupChip(view(), '文献阅读');
+      change('按来源筛选', 'community');
+      change('排序方式', 'attempts');
+      control('搜索 Playground 赛题').props.onChange({ target: { value: 'workflow' } });
+      const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+      other().props.onChange({ target: { value: ' science ' } });
+      button('筛选').props.onClick();
+
+      const base = { action: 'catalog', search: 'workflow', competition: 'bohr-product', origin: 'community',
+        discipline: 'science', sort: 'attempts', per_page: 20 };
+      assert.deepEqual(pending[1].input, { ...base, period: '2', group: 'reading' });
+      pending[1].resolve({ ok: true, value: { ok: false, error: { code: 'invalid_argument', reason } } });
+      await settle();
+      const period = reason === 'group_not_available' ? '2' : '';
+      assert.deepEqual(pending[2]?.input, period ? { ...base, period } : base);
+      assert.equal(control('选择分期').props.value, period);
+      assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), period ? [['全部', true]] : []);
+      assert.deepEqual(cardIds(view()), []);
+
+      pending[2].resolve(catalogPage(['science-fallback'], { total: 1 }, { competitionTable: grouped }));
+      await settle();
+      assert.deepEqual(cardIds(view()), ['science-fallback']);
+      assert.equal(view().props['aria-busy'], false);
+      assert.equal(button('刷新目录').props.disabled, false);
+    });
+  }
+});
+
 test('#113: unapplied Other discipline holds catalog reads until the latest filters can be sent together', async (t) => {
   const { f, pending, view, control, button } = await pagedCatalog(t);
   const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
@@ -3664,7 +3734,7 @@ test('#113: unapplied Other discipline holds catalog reads until the latest filt
   assert.deepEqual(pending[3].input, { ...filters, discipline: 'science', page: 2 });
   other().props.onChange({ target: { value: '  ' } });
   assert.equal(pending[3].signal.aborted, true);
-  pending[3].resolve({ ok: false, error: { reason: 'group_not_available' } });
+  pending[3].resolve({ ok: true, value: { ok: false, error: { code: 'invalid_argument', reason: 'group_not_available' } } });
   await settle();
   assert.equal(pending.length, 4, 'a late append failure does not clear the group or issue a fallback read');
   assert.equal(button('重试'), undefined);
