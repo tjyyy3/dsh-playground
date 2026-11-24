@@ -112,12 +112,18 @@ test('a lost dispatch response is unknown and never triggers another send', asyn
 
 test('only the authenticated browser peer can invoke Codex RPCs', async () => {
   let service;
+  let schema;
   const peer = {};
-  const ctx = { provide: (_key, s) => { service = s; }, typert: { register() {} },
+  const ctx = { provide: (_key, s) => { service = s; }, typert: { register({ invocations }) {
+    schema = invocations.find((entry) => entry.method === 'codexChats').parameters[0].codec.create();
+  } },
     get: () => ({ browserPeer: peer }), invocation: { peer: {} } };
   let count = 0;
   registerWorkbenchQueries(ctx, {}, { codexChats: async () => { count++; return { kind: 'sent' }; } });
-  const input = { ...marker, action: 'send', threadId: randomUUID(), message: 'test' };
+  const original = '  preserve indentation\n';
+  const input = schema.parse({ ...marker, action: 'send', threadId: randomUUID(), message: original });
+  assert.equal(input.message, original);
+  assert.equal(schema.safeParse({ ...input, message: '   \n' }).success, false);
   assert.equal((await service.codexChats(input)).code, 'user_action_required');
   assert.equal(count, 0);
   ctx.invocation.peer = peer;
