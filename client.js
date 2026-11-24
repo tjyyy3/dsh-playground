@@ -1933,27 +1933,45 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [origin, setOrigin] = React8.useState("");
   const [disciplineChoice, setDisciplineChoice] = React8.useState("");
   const [otherDiscipline, setOtherDiscipline] = React8.useState("");
+  const [appliedOther, setAppliedOther] = React8.useState(null);
   const [sort, setSort] = React8.useState("newest");
   const [openOnly, setOpenOnly] = React8.useState(false);
-  const [catalog, setCatalog] = React8.useState(null);
+  const [competitionTable, setCompetitionTable] = React8.useState(null);
   const [list, setList] = React8.useState(null);
   const [facets, setFacets] = React8.useState(null);
   const [busy, setBusy] = React8.useState("");
   const [failure, setFailure] = React8.useState(null);
   const [status, setStatus] = React8.useState("");
   const [notice, setNotice] = React8.useState("");
-  const [latest] = React8.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [latest] = React8.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React8.useState(null);
-  const filters = { search, season, period, group, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+  const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
+  const otherPending = discipline === null;
+  const filters = { search, season, period, group, origin, sort, discipline };
+  const waitForDiscipline = /* @__PURE__ */ __name(() => {
+    const controller = latest.controller;
+    if (controller && competitionTable === null) {
+      latest.metadataOnly = true;
+    } else {
+      latest.controller = null;
+      controller?.abort();
+    }
+    latest.refocus = null;
+    setList(null);
+    setBusy("");
+    setFailure(null);
+    setNotice("");
+    setStatus("输入学科后按回车筛选");
+  }, "waitForDiscipline");
   const handleReadFailure = /* @__PURE__ */ __name((kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === "period_not_available") {
       setPeriod("");
       setGroup("");
-      return load({ ...requestedFilters, period: "", group: "" }, { refresh, notice: "之前选择的分期已不在列表中，已改为显示全部期。" });
+      return readFirstPage({ ...requestedFilters, period: "", group: "" }, { refresh, notice: "之前选择的分期已不在列表中，已改为显示全部期。" });
     }
     if (requestedFilters.group && error?.reason === "group_not_available") {
       setGroup("");
-      return load({ ...requestedFilters, group: "" }, { refresh, notice: "之前选择的分类现在不可用，已改为显示本期全部赛题。" });
+      return readFirstPage({ ...requestedFilters, group: "" }, { refresh, notice: "之前选择的分类现在不可用，已改为显示本期全部赛题。" });
     }
     if (kind === "more" && error?.code === "catalog_changed") {
       setFailure({ kind: "changed", message: error.message });
@@ -1964,11 +1982,11 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
     setStatus(firstPage ? "赛题目录读取失败。" : "加载更多赛题失败。");
   }, "handleReadFailure");
-  const load = /* @__PURE__ */ __name(async (changes = {}, { refresh = false, notice: nextNotice = "" } = {}) => {
-    const next = { ...filters, ...changes };
+  const readFirstPage = /* @__PURE__ */ __name(async (next, { refresh = false, notice: nextNotice = "" } = {}) => {
     latest.controller?.abort();
     const controller = new AbortController();
     latest.controller = controller;
+    latest.metadataOnly = false;
     setBusy("load");
     setFailure(null);
     setNotice(nextNotice);
@@ -1977,35 +1995,42 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       const input = catalogInput(next);
       const result = await query(refresh ? { ...input, refresh: true } : input, controller.signal);
       if (latest.controller !== controller) return;
-      if (result?.ok === false) return handleReadFailure("load", next, result.error, refresh);
-      setCatalog(result);
-      const facts = pageFacts(result?.challenges);
-      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      if (result?.ok === false) {
+        if (!latest.metadataOnly) return handleReadFailure("load", next, result.error, refresh);
+        return;
+      }
+      const table = Array.isArray(result?.competitionTable) ? result.competitionTable : void 0;
+      setCompetitionTable(table ?? []);
       const received = refresh || !latest.facets ? catalogFacets(result?.disciplineFacets) : void 0;
       if (received) {
         latest.facets = received;
         setFacets(received);
       }
       if (typeof result?.webBase === "string") onWebBase?.(result.webBase);
-      const table = Array.isArray(result?.competitionTable) ? result.competitionTable : void 0;
+      if (latest.metadataOnly) return;
+      const facts = pageFacts(result?.challenges);
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
       if (next.season && table && !table.some((item) => item && typeof item === "object" && competitionValue(item) === next.season)) {
         setSeason("");
         setPeriod("");
         setGroup("");
-        load({ ...next, season: "", period: "", group: "" }, { notice: "之前选择的比赛已不在列表中，已改为显示全部比赛。" });
-        return;
+        return readFirstPage({ ...next, season: "", period: "", group: "" }, { notice: "之前选择的比赛已不在列表中，已改为显示全部比赛。" });
       }
       setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : "赛题目录已更新。");
     } catch {
-      if (latest.controller === controller) handleReadFailure("load", next, void 0, refresh);
+      if (latest.controller === controller && !latest.metadataOnly) handleReadFailure("load", next, void 0, refresh);
     } finally {
       if (latest.controller === controller) {
         latest.controller = null;
+        latest.metadataOnly = false;
         setBusy("");
       }
     }
+  }, "readFirstPage");
+  const load = /* @__PURE__ */ __name((changes = {}, { discipline: nextDiscipline = discipline, ...options } = {}) => {
+    if (nextDiscipline === null) return;
+    return readFirstPage({ ...filters, discipline: nextDiscipline, ...changes }, options);
   }, "load");
-  const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
   const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && (!failure || failure.kind === "more") && !otherPending && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
   const loadMore = /* @__PURE__ */ __name(async () => {
     const shown = list;
@@ -2043,10 +2068,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       }
     }
   }, "loadMore");
-  const retry = /* @__PURE__ */ __name(() => {
-    if (otherPending) return void 0;
-    return failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh });
-  }, "retry");
+  const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
   React8.useEffect(() => {
     load();
     return () => {
@@ -2060,7 +2082,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     latest.refocus = null;
     [...ids.map((id) => latest.details.get(id)), latest.count, latest.heading].find(Boolean)?.focus?.();
   });
-  const competitions = Array.isArray(catalog?.competitionTable) ? catalog.competitionTable.filter((item) => item && typeof item === "object") : [];
+  const competitions = (competitionTable ?? []).filter((item) => item && typeof item === "object");
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : void 0;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : void 0;
@@ -2087,7 +2109,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const disciplineOptions = facets?.top || [];
   const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
   const applyOther = /* @__PURE__ */ __name(() => {
-    if (otherDiscipline.trim()) load({ discipline: otherDiscipline.trim() });
+    const key = otherDiscipline.trim();
+    if (!key) return;
+    setAppliedOther(key);
+    load({}, { discipline: key });
   }, "applyOther");
   return h(
     "section",
@@ -2099,7 +2124,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h("h2", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
         latest.heading = node;
       }, "ref") }, "选择比赛或赛题"),
-      h("button", { className: "pg-button", disabled: busy === "load", onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? "正在刷新…" : "刷新目录")
+      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? "正在刷新…" : "刷新目录")
     ),
     h(
       "div",
@@ -2151,11 +2176,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           { className: "pg-input", "aria-label": "按学科筛选", value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
             const value = event.target.value;
             setDisciplineChoice(value);
-            if (value === OTHER_DISCIPLINE && !otherDiscipline.trim()) {
-              setStatus("输入学科后按回车筛选");
-              return;
-            }
-            load({ discipline: value === OTHER_DISCIPLINE ? otherDiscipline.trim() : value });
+            const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
+            if (nextDiscipline === null) waitForDiscipline();
+            else load({}, { discipline: nextDiscipline });
           }, "onChange") },
           h("option", { value: "" }, "全部学科"),
           disciplineOptions.map((key) => h("option", { key, value: key }, key)),
@@ -2177,7 +2200,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             maxLength: 100,
             placeholder: "例如 science，按回车筛选",
             ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
-            onChange: /* @__PURE__ */ __name((event) => setOtherDiscipline(event.target.value), "onChange"),
+            onChange: /* @__PURE__ */ __name((event) => {
+              const value = event.target.value;
+              setOtherDiscipline(value);
+              if (appliedOther !== null && value.trim() !== appliedOther) {
+                setAppliedOther(null);
+                waitForDiscipline();
+              }
+            }, "onChange"),
             onKeyDown: /* @__PURE__ */ __name((event) => {
               if (event.key === "Enter") applyOther();
             }, "onKeyDown")
@@ -2275,8 +2305,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h("p", { className: "pg-error", role: "alert" }, failureText),
       h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? "从第一页重新读取" : "重试")
     ) : null,
-    busy === "load" && !catalog ? h("p", { className: "pg-note", role: "status" }, "正在读取比赛和赛题…") : null,
-    busy === "load" && catalog && !shownList ? h("p", { className: "pg-note" }, "正在读取所选比赛的赛题…") : null,
+    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, "正在读取比赛和赛题…") : null,
+    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, "正在读取所选比赛的赛题…") : null,
     shownList && !loaded.length ? h("p", { className: "pg-note" }, "没有找到匹配赛题。换一个关键词或筛选条件试试。") : null,
     shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `已加载的赛题中没有开放的题。${canLoadMore ? "可以点“加载更多”继续查找。" : ""}`) : null,
     otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, "输入学科后按回车筛选") : null,
