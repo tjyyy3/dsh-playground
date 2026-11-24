@@ -185,6 +185,28 @@ contest and Scientific Facilities use numeric slugs, and the PKU Zone uses unit
 slugs such as `science-1`. The Host checks membership against the schedule used
 for that request. Omitting `period` lists all periods of the chosen competition.
 
+A period that the website groups carries `groups` in the competition table:
+`[{ key, labelZh?, count }]`, in the website's order, without challenge ids.
+The weekly contest's grouped periods list their tracks, and period 3 lists its
+shared bonus challenge last as the group `bonus`. A Scientific Facilities period
+lists the website's research directions that hold its challenges, in the
+website's direction order. A PKU unit lists its own groups. `labelZh` is the
+website's Chinese name and is left out when the Host cannot read it. `count`
+follows the period's opening time like its cards, so every group of a period
+that has not opened counts 0. A period that the website does not group has no
+`groups` field.
+
+The query accepts an optional `group` key together with `competition` and
+`period`. A key is a letter followed by up to 39 letters, digits, `_` or `-`.
+The Host narrows the period to that group before it reads any challenge, so a
+page of the group reads only the group's challenges. A `group` without `period`
+is rejected. If a fresh official schedule cannot give that group for the chosen
+period, the query fails with `invalid_argument` and reason
+`group_not_available`. This covers a group that the website no longer lists and
+a period whose grouping the Host could not read this time, which lists the
+period without `groups` while its challenges stay available. With a stale or
+bundled schedule the query fails without a reason.
+
 If the chosen competition is missing from a later list, the selector returns to
 **全部比赛**, the period choice is cleared, and the catalog is read again. If a
 fresh official schedule omits the chosen period, the workbench switches to
@@ -249,7 +271,7 @@ applies search, origin and discipline itself, pages the list, and returns an
 empty page with `hasMore: false` past the end. 提交最多 sorts the list by
 attempts; 最新 keeps the table order (the website's order for the periods),
 because a challenge read by id has no creation time. Each page of such a list
-reads the whole list again.
+reads the whole list again, or the whole chosen group.
 Pages after the first do not read `/api/hackathon/seasons` and carry only
 `webBase` and `challenges`; the competition selector keeps the first page's
 table.
