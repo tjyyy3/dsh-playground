@@ -95,6 +95,51 @@ async function clientFixture(t, services = {}, browser = {}) {
   return { plugin, registrations, find, render, unmount, effects, workbench, mount };
 }
 
+test('competition alerts baseline, batch new entries and resume quietly after opt-in', async (t) => {
+  const values = new Map();
+  const f = await clientFixture(t, {}, { localStorage: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+  } });
+  const main = f.registrations.get('main');
+  const row = (key, source = 'seasons') => ({ key, source, titleZh: key, webUrl: 'https://example.com/' });
+  let snapshot = { ok: true, sources: ['seasons'], scope: 'https://example.com', items: [row('existing')] };
+  let reads = 0;
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async ({ action }) => { assert.equal(action, 'competition_notices'); reads++; return snapshot; } };
+  const view = () => f.render(main.Component, props);
+  const enter = () => f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'));
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, sources: [], items: [] };
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, sources: ['seasons', 'periods'], items: [row('existing'), row('new contest'),
+    { ...row('new-1'), parentKey: 'new contest' }, { ...row('new-2'), parentKey: 'new contest' }, row('old period', 'periods')] };
+  const first = await enter();
+  assert.equal(first.type, 'native-modal');
+  assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-1', 'new-2']);
+  assert.equal(buttonLabeled(f, first, '知道了').props['data-modal-autofocus'], true);
+  buttonLabeled(f, first, '知道了').props.onClick();
+  assert.equal(await enter(), null);
+  snapshot.items.push(row('next period', 'periods'), row('next period', 'seasons'), row('existing', 'periods'));
+  const second = await enter();
+  assert.deepEqual(findAll(second, (node) => node.type === 'h3').map(text), ['next period']);
+  buttonLabeled(f, second, '关闭新比赛提醒').props.onClick();
+  const before = reads;
+  assert.equal(await enter(), null);
+  assert.equal(reads, before);
+  f.find(view(), (node) => node.type === 'button' && node.props.title === '连接设置').props.onClick();
+  assert.equal(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'), undefined);
+  const setting = await f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNoticeSetting'));
+  const checkbox = f.find(setting, (node) => node.type === 'input');
+  assert.equal(checkbox.props.checked, false);
+  checkbox.props.onChange({ target: { checked: true } });
+  f.find(view(), (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  snapshot.items.push(row('during-opt-out'));
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, scope: 'https://other.example.com', items: [row('other')] };
+  assert.equal(await enter(), null);
+});
+
 test('each Client apply owns its stores while its registered consumers share them', async (t) => {
   const { plugin, registrations: first } = await clientFixture(t);
   const second = new Map();

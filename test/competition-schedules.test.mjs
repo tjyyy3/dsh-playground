@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createCatalog } from '../lib/catalog.js';
 import { createCompetitionSchedulesReader } from '../lib/competition-schedules.js';
+import { readCompetitionNotices } from '../lib/competition-notices.js';
 
 const pageUrl = new URL('https://play.example/competition/bohr-product');
 const firstEntry = '/assets/index-AbCd1234.js';
@@ -154,6 +155,30 @@ function fixture() {
   });
   return { reader, files, requests };
 }
+
+test('contest alerts keep healthy sources independent and extract the published weekly summary, rewards and resources', async () => {
+  const { reader, files } = fixture();
+  files.set(firstEntry, firstBundle + `const pageCopy = {zh:{themeTitle:"主题", chatCardCompute:"进群申领算力", periods:{1:{intro:"本期阅读论文"}},rewardPool:"周赛奖励"},
+    en:{themeTitle:"Theme",chatCardCompute:"Request compute",periods:{1:{intro:"Read research papers"}},rewardPool:"Weekly prizes"}};`);
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [{ slug: 'new', nameZh: '新比赛', rules: { awards: [{ zh: '优秀奖' }] }, rounds: [{ seq: 1 }] }],
+    noticeHub: async () => [{ slug: 'new', nameZh: '新比赛', hasPage: true, hub: { description: { en: 'A contest' } } },
+      { slug: 'hub-only', nameEn: 'Hub only', hasPage: false }] };
+  const snapshot = await readCompetitionNotices(client);
+  const first = snapshot.items.find((row) => row.source === bohrProduct);
+  assert.deepEqual([first.summaryZh, first.summary, first.rewardZh, first.resources], ['本期阅读论文', 'Read research papers', '周赛奖励', 'Request compute']);
+  const season = snapshot.items.find((row) => row.source === 'seasons');
+  const round = snapshot.items.find((row) => row.parentKey === season.key);
+  assert.equal(round.rewardZh, '全赛奖项：优秀奖');
+  assert.equal(round.summary, 'A contest');
+  assert.equal(season.key, snapshot.items.find((row) => row.source === 'hub').key);
+  assert.equal(season.webUrl, 'https://play.example/competition/new');
+  const partial = await readCompetitionNotices({ ...client, noticeSeasons: async () => { throw Error('offline'); },
+    getCompetitionSchedules: async () => ({ [bohrProduct]: { periods: fourPeriods, stale: true } }) });
+  assert.deepEqual(partial.sources, ['catalog', 'hub']);
+  assert.ok(partial.items.some((row) => row.title === 'Hub only'));
+  assert.ok(!partial.items.some((row) => row.source === bohrProduct));
+});
 
 test('reads the published schedules in table order from one asset and coalesces concurrent checks', async () => {
   const { reader, requests } = fixture();

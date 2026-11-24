@@ -58,6 +58,7 @@ const plugin = {
     };
     const actions = {
       controllerSelection,
+      noticeMemory: {},
       clearControllerTarget: (target) => { if (controllerTarget.getSnapshot() === target) controllerTarget.set(null); },
       requestTask: (request) => taskRequest.set(request),
       closeTaskStart: () => taskRequest.set(null),

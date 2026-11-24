@@ -36,6 +36,12 @@ Playground follows DSH by default. Change the language under **More → Settings
 
 When available, challenge content uses the platform's version in the selected language. Chats and text you enter stay in their original language. The language menu and local Codex chats described below are available in the source tree. The published `0.6.0-beta.2` package predates both features.
 
+## New competition alerts (local preview)
+
+The first time you open the controller panel, Playground remembers the current competitions and rounds. On later visits, a single dialog lists any new competitions or rounds. Each entry shows the available schedule, prizes and platform resources, with an official link when available.
+
+Choose **Got it** in the lower right to acknowledge this batch. Choose **Turn off competition alerts** in the lower left to disable future alerts. You can turn them back on in **Connection settings**.
+
 ## Find Codex chats in your workspace
 
 Open the workspace controller. Its task sidebar lists local Codex chats for the current account and working directory. Select **Summarize recent results** or ask the controller to summarize. Each entry shows the title, chat ID and latest turn's final reply, or indicates when a reply is unavailable. The list includes up to 500 recent chats. A summary covers up to 20 chats and includes up to 4,000 characters from each final reply. Local Codex chats appear separately from tasks that the controller explicitly linked to a challenge.
