@@ -2944,7 +2944,7 @@ test('a list with unread fixed ids says so in the info row and 重试 reads page
   }
 });
 
-test('the info-row 重试 reads the shown list\'s own query, not unsubmitted controls, and waits while 其他 has no key', async (t) => {
+test('the info-row 重试 replays the shown query and is hidden while 其他 waits for a key', async (t) => {
   const { f, pending, view, control } = await pagedCatalog(t);
   const infoRetry = (panel) => findAll(infoRow(panel) ?? {}, (node) => node.type === 'button' && text(node) === '重试')[0];
   const searchBox = () => f.find(view(), (node) => node.props?.['aria-label'] === '搜索 Playground 赛题');
@@ -2966,9 +2966,9 @@ test('the info-row 重试 reads the shown list\'s own query, not unsubmitted con
   pending[3].resolve(catalogPage(range(0, 2), { total: 2, missing: 1 }));
   await settle();
   assert.equal(infoRetry(view()).props.disabled, false);
-  // 其他 without a key: the button is disabled and nothing is read.
+  // 其他 without an applied key hides the previous results and their retry.
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(infoRetry(view()).props.disabled, true);
+  assert.equal(infoRetry(view()), undefined);
   assert.equal(pending.length, 4, 'no read for an empty 其他');
 });
 
@@ -3449,13 +3449,13 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   pending[1].resolve(catalogPage(['c2'], { total: 1 }, { disciplineFacets: { top: [{ key: 'science', count: 237 }], otherKeys: [] } }));
   await settle();
   assert.deepEqual(options().map(([value]) => value), ['', 'materials', 'physics', '__other__']);
-  // 其他 with no text reads nothing: the list stays and a hint asks for a key; the typed key is sent on Enter or 筛选.
+  // 其他 with no applied key reads nothing; the typed key is sent on Enter or 筛选.
   const hint = () => f.find(view(), (node) => node.props?.className === 'pg-note pg-catalog-hint');
   assert.equal(hint(), undefined);
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
   assert.equal(pending.length, 2, 'no read for an empty 其他');
   assert.equal(text(hint()), '输入学科后按回车筛选');
-  assert.deepEqual(cardIds(view()), ['c2']);
+  assert.deepEqual(cardIds(view()), []);
   const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
   other().props.onChange({ target: { value: '   ' } });
   other().props.onKeyDown({ key: 'Enter' });
@@ -3465,8 +3465,9 @@ test('学科 lists the top disciplines from the first answer that has them, and 
   assert.deepEqual(findAll(f.find(view(), (node) => node.type === 'datalist'), (node) => node.type === 'option').map((node) => node.props.value), ['combustion', 'cosmology']);
   assert.equal(f.find(view(), (node) => node.type === 'label' && node.props.htmlFor === 'pg-other-discipline') !== undefined, true);
   other().props.onChange({ target: { value: ' combustion ' } });
-  assert.equal(hint(), undefined);
+  assert.equal(text(hint()), '输入学科后按回车筛选');
   other().props.onKeyDown({ key: 'Enter' });
+  assert.equal(hint(), undefined);
   assert.deepEqual(pending[2].input, { action: 'catalog', search: '', origin: 'benchmark', discipline: 'combustion', per_page: 20 });
   pending[2].resolve(catalogPage(['c4'], { total: 1 }));
   await settle();
@@ -3543,7 +3544,7 @@ test('an empty 其他 hides 加载更多 even when the shown list was read for �
   assert.ok(button('加载更多'));
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
   assert.equal(pending.length, 1, 'no read for an empty 其他');
-  assert.deepEqual(cardIds(view()), range(0, 20));
+  assert.deepEqual(cardIds(view()), []);
   assert.equal(button('加载更多'), undefined, 'the unfiltered list is not paged under 其他');
   assert.equal(liveStatus(view()), '输入学科后按回车筛选', 'the hint is announced');
   const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
@@ -3558,7 +3559,7 @@ test('an empty 其他 hides 加载更多 even when the shown list was read for �
   assert.deepEqual(pending[2].input, { action: 'catalog', search: '', discipline: 'science', page: 2, per_page: 20 });
 });
 
-test('while 其他 waits for a key, 重试 is disabled and reads nothing', async (t) => {
+test('while 其他 waits for a key, earlier failures cannot be retried', async (t) => {
   const { f, pending, view, control, button } = await pagedCatalog(t);
   const failed = { ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } };
   pending[0].resolve(catalogPage(range(0, 20), { total: 45, hasMore: true }));
@@ -3568,8 +3569,7 @@ test('while 其他 waits for a key, 重试 is disabled and reads nothing', async
   pending[1].resolve(failed);
   await settle();
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(button('重试').props.disabled, true);
-  button('重试').props.onClick();
+  assert.equal(button('重试'), undefined);
   assert.equal(pending.length, 2, 'no append and no unfiltered page 1');
   // A failed page-1 read (提交最多 under 全部学科), then 其他 with an empty field.
   control('按学科筛选').props.onChange({ target: { value: '' } });
@@ -3579,13 +3579,18 @@ test('while 其他 waits for a key, 重试 is disabled and reads nothing', async
   pending[3].resolve(failed);
   await settle();
   control('按学科筛选').props.onChange({ target: { value: '__other__' } });
-  assert.equal(button('重试').props.disabled, true);
-  button('重试').props.onClick();
+  assert.equal(button('重试'), undefined);
   assert.equal(pending.length, 4, 'the failed unfiltered read is not repeated under 其他');
-  assert.deepEqual(cardIds(view()), range(0, 20));
-  // Once a key is typed, 重试 is offered again.
-  f.find(view(), (node) => node.props?.id === 'pg-other-discipline').props.onChange({ target: { value: 'science' } });
-  assert.equal(button('重试').props.disabled, false);
+  assert.deepEqual(cardIds(view()), []);
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+  other().props.onChange({ target: { value: 'science' } });
+  assert.equal(button('重试'), undefined);
+  other().props.onKeyDown({ key: 'Enter' });
+  assert.deepEqual(pending[4].input, { action: 'catalog', search: '', discipline: 'science', sort: 'attempts', per_page: 20 });
+  pending[4].resolve(failed);
+  await settle();
+  button('重试').props.onClick();
+  assert.deepEqual(pending[5].input, pending[4].input);
 });
 
 // Official groups of a period: the 分类 row and the list identity it joins.
@@ -3609,6 +3614,74 @@ const GRAPHICS = ['p4-graphics-1', 'p4-graphics-2', 'p4-graphics-3', 'p4-graphic
 // The test competition table with made-up official groups on period 2 of bohr-product.
 const groupedTable = (groups) => competitionTable.map((item) => (item.id === 'bohr-product'
   ? { ...item, periods: item.periods.map((period) => (period.slug === '2' ? { ...period, groups } : period)) } : item));
+
+test('#113: unapplied Other discipline holds catalog reads until the latest filters can be sent together', async (t) => {
+  const { f, pending, view, control, button } = await pagedCatalog(t);
+  const grouped = groupedTable([{ key: 'reading', labelZh: '文献阅读', count: 30 }]);
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: grouped });
+  const change = (label, value) => control(label).props.onChange({ target: { value } });
+  const other = () => f.find(view(), (node) => node.props?.id === 'pg-other-discipline');
+
+  pending[0].resolve(page(['original'], { hasMore: true }));
+  await settle();
+  button('刷新目录').props.onClick();
+  const oldRefresh = pending[1];
+  change('按学科筛选', '__other__');
+  change('排序方式', 'attempts');
+  change('选择比赛', 'competition:bohr-product');
+  change('选择分期', '');
+  change('选择分期', '2');
+  other().props.onChange({ target: { value: '   ' } });
+  change('按来源筛选', 'community');
+  chooseGroupChip(view(), '文献阅读');
+  const search = () => control('搜索 Playground 赛题');
+  search().props.onChange({ target: { value: ' workflow ' } });
+  search().props.onKeyDown({ key: 'Enter' });
+  assert.equal(pending.length, 2);
+  assert.equal(oldRefresh.signal.aborted, true);
+  assert.equal(button('刷新目录').props.disabled, true);
+  assert.equal(button('加载更多'), undefined);
+  assert.deepEqual(cardIds(view()), []);
+
+  oldRefresh.resolve(page(['late-refresh'], { hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+  assert.equal(pending.length, 2);
+
+  other().props.onChange({ target: { value: ' science ' } });
+  change('按来源筛选', 'benchmark');
+  assert.equal(pending.length, 2, 'typing alone does not apply the discipline');
+  other().props.onKeyDown({ key: 'Enter' });
+  const filters = { action: 'catalog', search: 'workflow', competition: 'bohr-product', period: '2', group: 'reading',
+    origin: 'benchmark', sort: 'attempts', per_page: 20 };
+  assert.deepEqual(pending[2].input, { ...filters, discipline: 'science' });
+  pending[2].resolve(page(['science-first'], { hasMore: true }));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['science-first']);
+
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[3].input, { ...filters, discipline: 'science', page: 2 });
+  other().props.onChange({ target: { value: '  ' } });
+  assert.equal(pending[3].signal.aborted, true);
+  pending[3].resolve({ ok: false, error: { reason: 'group_not_available' } });
+  await settle();
+  assert.equal(pending.length, 4, 'a late append failure does not clear the group or issue a fallback read');
+  assert.equal(button('重试'), undefined);
+  assert.deepEqual(cardIds(view()), []);
+  assert.equal(liveStatus(view()), '输入学科后按回车筛选');
+
+  change('按学科筛选', '');
+  assert.deepEqual(pending[4].input, filters);
+  pending[4].resolve(page(['all-first'], { hasMore: true }));
+  await settle();
+  button('加载更多').props.onClick();
+  assert.deepEqual(pending[5].input, { ...filters, page: 2 });
+  pending[5].resolve(page(['all-second']));
+  await settle();
+  assert.deepEqual(cardIds(view()), ['all-first', 'all-second']);
+  assert.equal(pending.length, 6);
+});
 
 test('the 分类 row lists a period\'s official groups and a chosen group reads and lists only that group through the Host', async (t) => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-23T12:00:00+08:00'));
