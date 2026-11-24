@@ -167,7 +167,8 @@ var locales = {
       reproduction: "复现",
       evidence: "证据",
       total: "合计"
-    }
+    },
+    challengeGroups: { bonus: "附加题" }
   },
   en: {
     tools: {
@@ -261,7 +262,8 @@ var locales = {
       reproduction: "Reproduction",
       evidence: "Evidence",
       total: "Total"
-    }
+    },
+    challengeGroups: { bonus: "Bonus" }
   }
 };
 function stateLabel(state, t) {
@@ -1876,6 +1878,9 @@ function competitionFilter(value) {
 __name(competitionFilter, "competitionFilter");
 var competitionPeriods = /* @__PURE__ */ __name((item) => Array.isArray(item?.periods) ? item.periods.filter((period) => period && typeof period === "object" && typeof period.slug === "string" && period.slug) : [], "competitionPeriods");
 var startingPeriod = /* @__PURE__ */ __name((item) => competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : "", "startingPeriod");
+var periodGroups = /* @__PURE__ */ __name((period) => Array.isArray(period?.groups) ? period.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "periodGroups");
+var groupLabel = /* @__PURE__ */ __name((group) => group.labelZh || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key), "groupLabel");
+var listSelection = /* @__PURE__ */ __name(({ season, period, group }) => JSON.stringify([season, period, group]), "listSelection");
 var CATALOG_PER_PAGE = 20;
 var OTHER_DISCIPLINE = "__other__";
 var ORIGIN_OPTIONS = [["", "全部来源"], ["community", "社区"], ["benchmark", "基准"], ["hackathon", "黑客松"], ["arena", "竞技场"]];
@@ -1886,6 +1891,7 @@ function catalogInput(filters, page = 1) {
     search: filters.search.trim(),
     ...competitionFilter(filters.season),
     ...filters.period ? { period: filters.period } : {},
+    ...filters.group ? { group: filters.group } : {},
     ...filters.origin ? { origin: filters.origin } : {},
     ...filters.discipline ? { discipline: filters.discipline } : {},
     ...filters.sort === "attempts" ? { sort: "attempts" } : {},
@@ -1922,6 +1928,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [search, setSearch] = React8.useState("");
   const [season, setSeason] = React8.useState("");
   const [period, setPeriod] = React8.useState("");
+  const [group, setGroup] = React8.useState("");
   const [origin, setOrigin] = React8.useState("");
   const [disciplineChoice, setDisciplineChoice] = React8.useState("");
   const [otherDiscipline, setOtherDiscipline] = React8.useState("");
@@ -1936,11 +1943,16 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [notice, setNotice] = React8.useState("");
   const [latest] = React8.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React8.useState(null);
-  const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+  const filters = { search, season, period, group, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
   const handleReadFailure = /* @__PURE__ */ __name((kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === "period_not_available") {
       setPeriod("");
-      return load({ ...requestedFilters, period: "" }, { refresh, notice: "之前选择的分期已不在列表中，已改为显示全部期。" });
+      setGroup("");
+      return load({ ...requestedFilters, period: "", group: "" }, { refresh, notice: "之前选择的分期已不在列表中，已改为显示全部期。" });
+    }
+    if (requestedFilters.group && error?.reason === "group_not_available") {
+      setGroup("");
+      return load({ ...requestedFilters, group: "" }, { refresh, notice: "之前选择的分类现在不可用，已改为显示本期全部赛题。" });
     }
     const firstPage = kind === "load";
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
@@ -1962,7 +1974,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       if (result?.ok === false) return handleReadFailure("load", next, result.error, refresh);
       setCatalog(result);
       const facts = pageFacts(result?.challenges);
-      setList({ season: next.season, period: next.period, filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
       const received = refresh || !latest.facets ? catalogFacets(result?.disciplineFacets) : void 0;
       if (received) {
         latest.facets = received;
@@ -1973,7 +1985,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       if (next.season && table && !table.some((item) => item && typeof item === "object" && competitionValue(item) === next.season)) {
         setSeason("");
         setPeriod("");
-        load({ ...next, season: "", period: "" }, { notice: "之前选择的比赛已不在列表中，已改为显示全部比赛。" });
+        setGroup("");
+        load({ ...next, season: "", period: "", group: "" }, { notice: "之前选择的比赛已不在列表中，已改为显示全部比赛。" });
         return;
       }
       setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : "赛题目录已更新。");
@@ -1987,7 +2000,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     }
   }, "load");
   const otherPending = disciplineChoice === OTHER_DISCIPLINE && !otherDiscipline.trim();
-  const canLoadMore = Boolean(list?.hasMore) && list.season === season && list.period === period && failure?.kind !== "load" && !otherPending && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
+  const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && failure?.kind !== "load" && !otherPending && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
   const loadMore = /* @__PURE__ */ __name(async () => {
     const shown = list;
     if (!canLoadMore || latest.controller) return;
@@ -2045,7 +2058,13 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : void 0;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : void 0;
-  const shownList = list && list.season === season && list.period === period ? list : null;
+  const groups = periodGroups(selectedPeriod);
+  const chooseGroup = /* @__PURE__ */ __name((key) => {
+    if (key === group) return;
+    setGroup(key);
+    load({ group: key });
+  }, "chooseGroup");
+  const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
   const challenges = openOnly ? loaded.filter((item) => item.status === "open") : loaded;
   const total = shownList?.total;
@@ -2089,13 +2108,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
           setSeason(value);
           setPeriod(nextPeriod);
-          load({ season: value, period: nextPeriod });
+          setGroup("");
+          load({ season: value, period: nextPeriod, group: "" });
         }, "onChange") },
         h("option", { value: "" }, "全部比赛"),
         // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        COMPETITION_GROUPS.map(([group, label]) => {
-          const members = competitions.filter((item) => item.status === group);
-          return members.length ? h("optgroup", { key: group, label }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+        COMPETITION_GROUPS.map(([group2, label]) => {
+          const members = competitions.filter((item) => item.status === group2);
+          return members.length ? h("optgroup", { key: group2, label }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
       )
     ),
@@ -2193,7 +2213,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           "select",
           { className: "pg-input", "aria-label": "选择分期", value: period, onChange: /* @__PURE__ */ __name((event) => {
             setPeriod(event.target.value);
-            load({ period: event.target.value });
+            setGroup("");
+            load({ period: event.target.value, group: "" });
           }, "onChange") },
           h("option", { value: "" }, "全部期"),
           periods.map((item) => h(
@@ -2217,6 +2238,29 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       // one is left out.
       missing ? h("p", { className: "pg-note pg-catalog-missing" }, `有 ${missing} 道赛题读取失败，列表不完整。`) : null,
       missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, "重试") : null
+    ) : null,
+    // Wraps onto further lines in a narrow column, so every group stays reachable.
+    groups.length ? h(
+      "div",
+      { className: "pg-catalog-groups", role: "group", "aria-label": "按分类筛选" },
+      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, "分类"),
+      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, "全部"),
+      groups.map((item) => {
+        const label = groupLabel(item);
+        return h(
+          "button",
+          {
+            key: item.key,
+            type: "button",
+            className: "pg-group-chip",
+            "aria-pressed": group === item.key,
+            "aria-label": `${label} ${item.count} 道`,
+            onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
+          },
+          label,
+          h("span", { className: "pg-group-count" }, item.count)
+        );
+      })
     ) : null,
     notice ? h("p", { className: "pg-note" }, notice) : null,
     failure ? h(
@@ -3253,7 +3297,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   return h(
     "main",
     { className: "pg-workbench", "aria-label": "Playground 工作台" },
-    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
+    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
       { className: "pg-workbench-inner" },
