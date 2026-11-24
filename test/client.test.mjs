@@ -3870,6 +3870,60 @@ test('the 分类 row lists a period\'s official groups and a chosen group reads 
   assert.equal(groupRow(view()), undefined, 'a competition without periods has no 分类 row');
 });
 
+// The test competition table with made-up official groups on 追光者计划·招募赛, a contest the website groups
+// without periods.
+const contestGroupedTable = (groups, extra = {}) => competitionTable.map((item) => (item.id === 'light-chasing'
+  ? { ...item, groups, ...extra } : item));
+
+test('#112: a contest the website groups without periods lists its counted groups and reads one without a period', async (t) => {
+  const { f, pending, view, control, count } = await pagedCatalog(t);
+  // `bonus` is a key the plugin has its own name for, `bio` has none, and a group without a count is not one
+  // the row can show: its chip could not say how many it lists.
+  const groups = [{ key: 'mat', labelZh: '材料', count: 12 }, { key: 'bio', count: 3 },
+    { key: 'bonus', count: 0 }, { key: 'unknown' }];
+  const page = (ids, facts) => catalogPage(ids, facts, { competitionTable: contestGroupedTable(groups, { groupsStale: true }) });
+  const resolve = async (index, value) => { pending[index].resolve(value); await settle(); };
+  const base = { action: 'catalog', search: '', competition: 'light-chasing', per_page: 20 };
+  await resolve(0, page(['c0'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined, '全部比赛 has no 分类 row');
+
+  control('选择比赛').props.onChange({ target: { value: 'competition:light-chasing' } });
+  assert.deepEqual(pending[1].input, base, 'a contest without periods sends no period');
+  await resolve(1, page(range(0, 15), { total: 15 }));
+  assert.deepEqual(groupChips(view()), [['全部', true], ['材料 12', false], ['bio 3', false], ['附加题 0', false]]);
+  assert.deepEqual(findAll(groupRow(view()), (node) => node.type === 'button').map((node) => node.props['aria-label']),
+    [undefined, '材料 12 道', 'bio 3 道', '附加题 0 道']);
+  assert.match(text(view()), /官方分类暂未同步，当前显示已有分类。/);
+
+  chooseGroupChip(view(), '材料');
+  assert.deepEqual(pending[2].input, { ...base, group: 'mat' }, 'the group key goes without a period');
+  await resolve(2, page(range(100, 112), { total: 12 }));
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['材料 12', true]]);
+  assert.equal(count(), '共 12 道');
+
+  // A group the contest has no challenge for is still a choice; it lists nothing.
+  chooseGroupChip(view(), '附加题');
+  assert.deepEqual(pending[3].input, { ...base, group: 'bonus' });
+  await resolve(3, page([], { total: 0 }));
+  assert.deepEqual(groupChips(view()).filter(([, pressed]) => pressed), [['附加题 0', true]]);
+  assert.match(text(view()), /没有找到匹配赛题/);
+
+  // The official grouping no longer has the chosen group: the row returns to 全部 of the contest, which has
+  // no period to name.
+  chooseGroupChip(view(), '材料');
+  await resolve(4, { ok: true, value: { ok: false, error: { code: 'invalid_argument', message: '未知的分组。请从分组选择器中选择。', reason: 'group_not_available' } } });
+  assert.deepEqual(pending[5].input, base);
+  await resolve(5, page(range(0, 15), { total: 15 }));
+  assert.match(text(view()), /之前选择的分类现在不可用，已改为显示全部赛题。/);
+  assert.doesNotMatch(text(view()), /显示本期全部赛题/);
+  assert.deepEqual(groupChips(view())[0], ['全部', true]);
+
+  // A competition the website groups inside its periods has no contest-level row.
+  control('选择比赛').props.onChange({ target: { value: 'competition:bohr-product' } });
+  await resolve(6, page(['c1'], { total: 1 }));
+  assert.equal(groupRow(view()), undefined);
+});
+
 test('switching the group pages that group from 1, 加载更多 keeps it, and a period or competition change returns to 全部', async (t) => {
   const { f, pending, view, control, button } = await pagedCatalog(t);
   // A made-up grouping: two named groups, `bonus` without a name and a key the plugin has no name for.

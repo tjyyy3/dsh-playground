@@ -1878,7 +1878,7 @@ function competitionFilter(value) {
 __name(competitionFilter, "competitionFilter");
 var competitionPeriods = /* @__PURE__ */ __name((item) => Array.isArray(item?.periods) ? item.periods.filter((period) => period && typeof period === "object" && typeof period.slug === "string" && period.slug) : [], "competitionPeriods");
 var startingPeriod = /* @__PURE__ */ __name((item) => competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : "", "startingPeriod");
-var periodGroups = /* @__PURE__ */ __name((period) => Array.isArray(period?.groups) ? period.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "periodGroups");
+var officialGroups = /* @__PURE__ */ __name((source) => Array.isArray(source?.groups) ? source.groups.filter((group) => typeof group?.key === "string" && group.key && Number.isSafeInteger(group.count)) : [], "officialGroups");
 var groupLabel = /* @__PURE__ */ __name((group) => group.labelZh || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key), "groupLabel");
 var listSelection = /* @__PURE__ */ __name(({ season, period, group }) => JSON.stringify([season, period, group]), "listSelection");
 var CATALOG_PER_PAGE = 20;
@@ -1971,7 +1971,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     }
     if (requestedFilters.group && error?.reason === "group_not_available") {
       setGroup("");
-      return readFirstPage({ ...requestedFilters, group: "" }, { refresh, notice: "之前选择的分类现在不可用，已改为显示本期全部赛题。" });
+      return readFirstPage({ ...requestedFilters, group: "" }, {
+        refresh,
+        notice: requestedFilters.period ? "之前选择的分类现在不可用，已改为显示本期全部赛题。" : "之前选择的分类现在不可用，已改为显示全部赛题。"
+      });
     }
     if (kind === "more" && error?.code === "catalog_changed") {
       setFailure({ kind: "changed", message: error.message });
@@ -2086,7 +2089,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : void 0;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : void 0;
-  const groups = periodGroups(selectedPeriod);
+  const groups = officialGroups(selectedPeriod ?? (periods.length ? void 0 : selectedCompetition));
   const chooseGroup = /* @__PURE__ */ __name((key) => {
     if (key === group) return;
     setGroup(key);
@@ -2269,6 +2272,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       ),
       openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
       selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, "赛程暂未同步，当前显示已有分期。") : null,
+      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, "官方分类暂未同步，当前显示已有分类。") : null,
       // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
       // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
       // one is left out.

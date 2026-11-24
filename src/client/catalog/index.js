@@ -30,10 +30,11 @@ const competitionPeriods = (item) => (Array.isArray(item?.periods)
 
 const startingPeriod = (item) => (competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : '');
 
-// A period that the website groups carries its official groups `{ key, labelZh?, count }` in the website's order.
-// The group choice is '' (全部) or one key; choosing another competition or period returns to 全部.
-const periodGroups = (period) => (Array.isArray(period?.groups)
-  ? period.groups.filter((group) => typeof group?.key === 'string' && group.key && Number.isSafeInteger(group.count)) : []);
+// A period that the website groups carries its official groups `{ key, labelZh?, count }` in the website's
+// order, and a competition the website groups without periods carries its own the same way. The group choice
+// is '' (全部) or one key; choosing another competition or period returns to 全部.
+const officialGroups = (source) => (Array.isArray(source?.groups)
+  ? source.groups.filter((group) => typeof group?.key === 'string' && group.key && Number.isSafeInteger(group.count)) : []);
 
 // `labelZh` is optional: when the Host could not read a group's name, the plugin's own name for the key is shown, else the key.
 const groupLabel = (group) => group.labelZh
@@ -142,7 +143,11 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     // The fresh official schedule cannot give this group now; the reason does not say why.
     if (requestedFilters.group && error?.reason === 'group_not_available') {
       setGroup('');
-      return readFirstPage({ ...requestedFilters, group: '' }, { refresh, notice: '之前选择的分类现在不可用，已改为显示本期全部赛题。' });
+      // A competition the website groups without periods has no 本期 to fall back to, only its own list.
+      return readFirstPage({ ...requestedFilters, group: '' }, { refresh,
+        notice: requestedFilters.period
+          ? '之前选择的分类现在不可用，已改为显示本期全部赛题。'
+          : '之前选择的分类现在不可用，已改为显示全部赛题。' });
     }
     if (kind === 'more' && error?.code === 'catalog_changed') {
       setFailure({ kind: 'changed', message: error.message });
@@ -249,7 +254,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : undefined;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : undefined;
-  const groups = periodGroups(selectedPeriod);
+  // The chosen period's groups, else the competition's own; a competition with periods groups inside a period.
+  const groups = officialGroups(selectedPeriod ?? (periods.length ? undefined : selectedCompetition));
   // Choosing a group reads page 1 of it with the other controls; choosing the current one again reads nothing.
   const chooseGroup = (key) => {
     if (key === group) return;
@@ -351,6 +357,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         !selectedPeriod && selectedCompetition.rounds ? ` · 轮次：${selectedCompetition.rounds}` : ''),
       openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
       selectedCompetition.periodsStale ? h('p', { className: 'pg-note', role: 'status' }, '赛程暂未同步，当前显示已有分期。') : null,
+      selectedCompetition.groupsStale ? h('p', { className: 'pg-note', role: 'status' }, '官方分类暂未同步，当前显示已有分类。') : null,
       // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
       // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
       // one is left out.
