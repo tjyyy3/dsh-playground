@@ -82,6 +82,7 @@ function catalogFacets(value) {
 
 // The list facts of one catalog page. `missing` counts the fixed ids the Host could not read (0 when none).
 const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total : undefined, hasMore: page?.hasMore === true,
+  pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0 });
 
 function CatalogPanel({ query, handoff, onWebBase }) {
@@ -127,6 +128,11 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       setGroup('');
       return load({ ...requestedFilters, group: '' }, { refresh, notice: '之前选择的分类现在不可用，已改为显示本期全部赛题。' });
     }
+    if (kind === 'more' && error?.code === 'catalog_changed') {
+      setFailure({ kind: 'changed', message: error.message });
+      setStatus('赛题列表已变化，请从第一页重新读取。');
+      return;
+    }
     const firstPage = kind === 'load';
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
     setStatus(firstPage ? '赛题目录读取失败。' : '加载更多赛题失败。');
@@ -171,7 +177,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // page-1 read (the old list stays under the new controls), not while the controls hold edits not
   // read yet (typed search, another filter) and not while 其他 waits for a key, whose query would
   // otherwise equal 全部学科's. Otherwise it would append the old query's next page.
-  const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && failure?.kind !== 'load' && !otherPending
+  const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && (!failure || failure.kind === 'more') && !otherPending
     && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
   // The next page of the shown list's own query, appended without repeats.
   const loadMore = async () => {
@@ -182,7 +188,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     setBusy('more'); setFailure(null); setStatus('正在加载更多赛题…');
     try {
       const page = shown.page + 1;
-      const result = await query({ ...shown.input, page }, controller.signal);
+      const result = await query({ ...shown.input, page, ...(shown.pageSignature ? { page_signature: shown.pageSignature } : {}) }, controller.signal);
       if (latest.controller !== controller) return;
       if (result?.ok === false) return handleReadFailure('more', shown.filters, result.error);
       const facts = pageFacts(result?.challenges);
@@ -248,7 +254,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const infoTime = selectedPeriod ? `${selectedPeriod.labelZh || selectedPeriod.slug} 时间：${selectedPeriod.timeText || selectedPeriod.dateText || '日期待定'}`
     : `时间：${selectedCompetition?.timeText || selectedCompetition?.dateText || '日期待定'}`;
   const infoName = [selectedCompetition?.nameZh || selectedCompetition?.name, selectedPeriod?.labelZh].filter(Boolean).join(' · ');
-  const failureText = failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
+  const failureText = failure?.kind === 'changed' ? failure.message : failure?.kind === 'more' ? '加载更多赛题失败，已加载的赛题仍保留。'
     : failure ? (loaded.length ? '赛题目录读取失败，下面仍是上一次读取的赛题。' : '赛题目录读取失败。') : '';
   const disciplineOptions = facets?.top || [];
   const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
@@ -331,7 +337,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       })) : null,
     notice ? h('p', { className: 'pg-note' }, notice) : null,
     failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
-      h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,
+      h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === 'changed' ? '从第一页重新读取' : '重试')) : null,
     busy === 'load' && !catalog ? h('p', { className: 'pg-note', role: 'status' }, '正在读取比赛和赛题…') : null,
     busy === 'load' && catalog && !shownList ? h('p', { className: 'pg-note' }, '正在读取所选比赛的赛题…') : null,
     shownList && !loaded.length ? h('p', { className: 'pg-note' }, '没有找到匹配赛题。换一个关键词或筛选条件试试。') : null,

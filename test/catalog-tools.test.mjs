@@ -179,6 +179,52 @@ test('a page with unread challenges says it is incomplete, and the next-page hin
   assert.match(text(complete.challenges, whole), /This page lists every matching challenge in official order\./);
 });
 
+for (const change of ['detail recovers', 'official list grows']) {
+  test(`fixed-id continuation restarts when ${change} and returns every id once`, async () => {
+    const period = { ...WEEKLY.periods[0], challengeIds: ['A', 'B', 'C', 'D'], groups: [] };
+    let unread = change === 'detail recovers' ? 'A' : undefined;
+    const { challenges } = toolsFor({ schedules: { 'bohr-product': { periods: [period] } },
+      getChallenge: async (id) => {
+        if (id === unread) throw new Error('HTTP 503');
+        return { id, title: id };
+      } });
+    const read = (args = {}) => challenges.execute({ competition: 'bohr-product', period: '4', per_page: 2, ...args }, exec);
+    const first = await read();
+    assert.deepEqual(first.items.map(({ id }) => id), unread ? ['B', 'C'] : ['A', 'B']);
+    assert.equal(first.missing, unread ? 1 : undefined);
+    assert.match(first.pageSignature, /^[a-f0-9]{64}$/);
+    assert.ok(text(challenges, first).includes(first.pageSignature));
+    if (unread) unread = undefined;
+    else period.challengeIds.unshift('X');
+    const changed = await read({ page: 2, page_signature: first.pageSignature });
+    assert.equal(changed.error.code, 'catalog_changed');
+    assert.equal(changed.items, undefined);
+    assert.match(text(challenges, changed), /从第一页重新读取/);
+
+    let result = await read();
+    const seen = result.items.map(({ id }) => id);
+    while (result.hasMore) {
+      assert.ok(result.page < 4);
+      result = await read({ page: result.page + 1, page_signature: result.pageSignature });
+      assert.equal(result.ok, true);
+      seen.push(...result.items.map(({ id }) => id));
+    }
+    assert.deepEqual(seen, change === 'detail recovers' ? ['A', 'B', 'C', 'D'] : ['X', 'A', 'B', 'C', 'D']);
+  });
+}
+
+test('a sorted filtered continuation detects reordering with unchanged totals', async () => {
+  let promoted = false;
+  const { challenges } = toolsFor({ schedules: { 'bohr-product': WEEKLY },
+    getChallenge: async (id) => ({ id, title: id, attempts: promoted && id === 'slide-1' ? 2 : 1 }) });
+  const args = { competition: 'bohr-product', period: '4', search: 'slide', sort: 'attempts', per_page: 2 };
+  const first = await challenges.execute(args, exec);
+  const next = { ...args, page: 2, page_signature: first.pageSignature };
+  assert.deepEqual((await challenges.execute(next, exec)).items.map(({ id }) => id), SLIDES.slice(2, 4));
+  promoted = true;
+  assert.equal((await challenges.execute(next, exec)).error.code, 'catalog_changed');
+});
+
 test('a grouped count counts each challenge once, and every page of a period carries the period counts', async (t) => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-23T12:00:00+08:00'));
   const { competitions, challenges } = toolsFor({ schedules: { 'bohr-product': { periods: [{

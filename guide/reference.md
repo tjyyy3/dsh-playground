@@ -292,7 +292,14 @@ applies search, origin and discipline itself, pages the list, and returns an
 empty page with `hasMore: false` past the end. 提交最多 sorts the list by
 attempts; 最新 keeps the table order (the website's order for the periods),
 because a challenge read by id has no creation time. Each page of such a list
-reads the whole list again, or the whole chosen group.
+reads the whole list again, or the whole chosen group. Each fixed-id page includes
+`pageSignature`. The workbench passes it as `page_signature` on the next page.
+The Host checks the query and page size, ordered matching ids and unread ids
+before returning rows. A mismatch returns `catalog_changed`. The workbench
+keeps the previously displayed cards and offers **从第一页重新读取**, which
+replaces them with a fresh first page. A direct request without a signature
+still reads the requested page of the current results. Plain lists, tag and
+season searches use their existing server paging.
 Pages after the first do not read `/api/hackathon/seasons` and carry only
 `webBase` and `challenges`; the competition selector keeps the first page's
 table.
@@ -869,7 +876,9 @@ platform.
   first for a contest read by tag or season. Every page of a period carries
   `period` with its `count` and `groupedCount`. `hasMore` means the page is
   part of the list, and the next page must keep the same arguments and the
-  same `per_page`. `missing` counts challenges that could not be read. When it
+  same `per_page`. When the result includes `pageSignature`, copy it into
+  `page_signature` on the next call. On `catalog_changed`, discard the collected
+  pages and start again at page 1 without a signature. `missing` counts challenges that could not be read. When it
   is present the text says the page is incomplete and asks for a new read
   from page 1 before the list is called complete. An empty page says whether
   it is past the last page, a search or filter miss, or a selection with
