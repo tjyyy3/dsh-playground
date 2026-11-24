@@ -30,6 +30,18 @@ const competitionPeriods = (item) => (Array.isArray(item?.periods)
 
 const startingPeriod = (item) => (competitionPeriods(item).some((period) => period.slug === item.defaultPeriod) ? item.defaultPeriod : '');
 
+// A period that the website groups carries its official groups `{ key, labelZh?, count }` in the website's order.
+// The group choice is '' (全部) or one key; choosing another competition or period returns to 全部.
+const periodGroups = (period) => (Array.isArray(period?.groups)
+  ? period.groups.filter((group) => typeof group?.key === 'string' && group.key && Number.isSafeInteger(group.count)) : []);
+
+// `labelZh` is optional: when the Host could not read a group's name, the plugin's own name for the key is shown, else the key.
+const groupLabel = (group) => group.labelZh
+  || (Object.hasOwn(locales.zh.challengeGroups, group.key) ? locales.zh.challengeGroups[group.key] : group.key);
+
+// The competition, period and group a list was read for; its cards show only under the same choice.
+const listSelection = ({ season, period, group }) => JSON.stringify([season, period, group]);
+
 // Catalog filters. 来源 and 排序 are the list API's own values. 学科 lists the top disciplines the Host
 // sends (`disciplineFacets`) and 其他, which opens a free-text field for one exact discipline key: the API
 // matches `disc` exactly and cannot ask for "none of the top ones". The API has no open-status filter, so
@@ -45,7 +57,7 @@ const SORT_OPTIONS = [['newest', '最新'], ['attempts', '提交最多']];
 // The catalog query of one filter set; defaults (all origins, all disciplines, newest, page 1) are left out.
 function catalogInput(filters, page = 1) {
   return { action: 'catalog', search: filters.search.trim(), ...competitionFilter(filters.season),
-    ...(filters.period ? { period: filters.period } : {}),
+    ...(filters.period ? { period: filters.period } : {}), ...(filters.group ? { group: filters.group } : {}),
     ...(filters.origin ? { origin: filters.origin } : {}), ...(filters.discipline ? { discipline: filters.discipline } : {}),
     ...(filters.sort === 'attempts' ? { sort: 'attempts' } : {}), ...(page > 1 ? { page } : {}), per_page: CATALOG_PER_PAGE };
 }
@@ -77,6 +89,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [season, setSeason] = React.useState('');
   // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
   const [period, setPeriod] = React.useState('');
+  // The chosen official group of that period; '' is 全部 and the value whenever the period has no groups.
+  const [group, setGroup] = React.useState('');
   const [origin, setOrigin] = React.useState('');
   // The 学科 select: '' (all), a top discipline key, or OTHER_DISCIPLINE with the key typed in `otherDiscipline`.
   const [disciplineChoice, setDisciplineChoice] = React.useState('');
@@ -85,8 +99,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [openOnly, setOpenOnly] = React.useState(false);
   const [catalog, setCatalog] = React.useState(null);
   // The shown list: the cards of every page read so far for one query (`input`), the last page's facts,
-  // and the selector and period values it was read for; the grid stays hidden while they differ from
-  // `season` and `period`.
+  // and the competition, period and group it was read for (`selection`); the grid stays hidden while they
+  // differ from the controls.
   const [list, setList] = React.useState(null);
   // The first available 学科 choices, replaced by an explicit refresh that returns new choices.
   const [facets, setFacets] = React.useState(null);
@@ -102,11 +116,16 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [latest] = React.useState(() => ({ controller: null, facets: null, heading: null, count: null, more: null, details: new Map(), refocus: null }));
   // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
   const [detail, setDetail] = React.useState(null);
-  const filters = { search, season, period, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
+  const filters = { search, season, period, group, origin, sort, discipline: disciplineChoice === OTHER_DISCIPLINE ? otherDiscipline.trim() : disciplineChoice };
   const handleReadFailure = (kind, requestedFilters, error, refresh = false) => {
     if (requestedFilters.period && error?.reason === 'period_not_available') {
-      setPeriod('');
-      return load({ ...requestedFilters, period: '' }, { refresh, notice: '之前选择的分期已不在列表中，已改为显示全部期。' });
+      setPeriod(''); setGroup('');
+      return load({ ...requestedFilters, period: '', group: '' }, { refresh, notice: '之前选择的分期已不在列表中，已改为显示全部期。' });
+    }
+    // The fresh official schedule cannot give this group now; the reason does not say why.
+    if (requestedFilters.group && error?.reason === 'group_not_available') {
+      setGroup('');
+      return load({ ...requestedFilters, group: '' }, { refresh, notice: '之前选择的分类现在不可用，已改为显示本期全部赛题。' });
     }
     const firstPage = kind === 'load';
     setFailure(firstPage ? { kind, filters: requestedFilters, refresh } : { kind });
@@ -128,15 +147,15 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       setCatalog(result);
       const facts = pageFacts(result?.challenges);
       // `filters` keeps the controls this list was read with, so its own 重试 can read the same query again.
-      setList({ season: next.season, period: next.period, filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
       const received = refresh || !latest.facets ? catalogFacets(result?.disciplineFacets) : undefined;
       if (received) { latest.facets = received; setFacets(received); }
       if (typeof result?.webBase === 'string') onWebBase?.(result.webBase);
       // A chosen competition the new table no longer lists: go back to 全部比赛 and read once more.
       const table = Array.isArray(result?.competitionTable) ? result.competitionTable : undefined;
       if (next.season && table && !table.some((item) => item && typeof item === 'object' && competitionValue(item) === next.season)) {
-        setSeason(''); setPeriod('');
-        load({ ...next, season: '', period: '' }, { notice: '之前选择的比赛已不在列表中，已改为显示全部比赛。' });
+        setSeason(''); setPeriod(''); setGroup('');
+        load({ ...next, season: '', period: '', group: '' }, { notice: '之前选择的比赛已不在列表中，已改为显示全部比赛。' });
         return;
       }
       setStatus(facts.missing ? `赛题目录已更新，有 ${facts.missing} 道赛题读取失败。` : '赛题目录已更新。');
@@ -152,7 +171,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // page-1 read (the old list stays under the new controls), not while the controls hold edits not
   // read yet (typed search, another filter) and not while 其他 waits for a key, whose query would
   // otherwise equal 全部学科's. Otherwise it would append the old query's next page.
-  const canLoadMore = Boolean(list?.hasMore) && list.season === season && list.period === period && failure?.kind !== 'load' && !otherPending
+  const canLoadMore = Boolean(list?.hasMore) && list.selection === listSelection(filters) && failure?.kind !== 'load' && !otherPending
     && JSON.stringify(list.input) === JSON.stringify(catalogInput(filters));
   // The next page of the shown list's own query, appended without repeats.
   const loadMore = async () => {
@@ -206,8 +225,15 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const selectedCompetition = season ? competitions.find((item) => competitionValue(item) === season) : undefined;
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : undefined;
-  // Challenges show only for the selection they were read for, never under another competition's or period's info row.
-  const shownList = list && list.season === season && list.period === period ? list : null;
+  const groups = periodGroups(selectedPeriod);
+  // Choosing a group reads page 1 of it with the other controls; choosing the current one again reads nothing.
+  const chooseGroup = (key) => {
+    if (key === group) return;
+    setGroup(key);
+    load({ group: key });
+  };
+  // Challenges show only for the selection they were read for, never under another competition's, period's or group's controls.
+  const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
   const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
   const total = shownList?.total;
@@ -236,7 +262,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h('select', { className: 'pg-input', 'aria-label': '选择比赛', value: season, onChange: (event) => {
         const value = event.target.value;
         const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
-        setSeason(value); setPeriod(nextPeriod); load({ season: value, period: nextPeriod });
+        setSeason(value); setPeriod(nextPeriod); setGroup(''); load({ season: value, period: nextPeriod, group: '' });
       } },
         h('option', { value: '' }, '全部比赛'),
         // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
@@ -277,7 +303,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     selectedCompetition ? h('div', { className: 'pg-competition-info', role: 'group', 'aria-label': '比赛信息' },
       // Changing the period reads page 1 again with the other controls.
       periods.length ? h('label', { className: 'pg-filter' }, h('span', null, '分期'),
-        h('select', { className: 'pg-input', 'aria-label': '选择分期', value: period, onChange: (event) => { setPeriod(event.target.value); load({ period: event.target.value }); } },
+        h('select', { className: 'pg-input', 'aria-label': '选择分期', value: period, onChange: (event) => {
+          setPeriod(event.target.value); setGroup(''); load({ period: event.target.value, group: '' });
+        } },
           h('option', { value: '' }, '全部期'),
           periods.map((item) => h('option', { key: item.slug, value: item.slug },
             [item.labelZh || item.slug, competitionStatusText(item.status), item.timeText || item.dateText].filter(Boolean).join(' · '))))) : null,
@@ -291,6 +319,16 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       // one is left out.
       missing ? h('p', { className: 'pg-note pg-catalog-missing' }, `有 ${missing} 道赛题读取失败，列表不完整。`) : null,
       missing && !failure ? h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: () => load(shownList.filters) }, '重试') : null) : null,
+    // Wraps onto further lines in a narrow column, so every group stays reachable.
+    groups.length ? h('div', { className: 'pg-catalog-groups', role: 'group', 'aria-label': '按分类筛选' },
+      h('span', { className: 'pg-catalog-groups-label', 'aria-hidden': true }, '分类'),
+      h('button', { type: 'button', className: 'pg-group-chip', 'aria-pressed': !group, onClick: () => chooseGroup('') }, '全部'),
+      groups.map((item) => {
+        const label = groupLabel(item);
+        return h('button', { key: item.key, type: 'button', className: 'pg-group-chip', 'aria-pressed': group === item.key,
+          'aria-label': `${label} ${item.count} 道`, onClick: () => chooseGroup(item.key) },
+        label, h('span', { className: 'pg-group-count' }, item.count));
+      })) : null,
     notice ? h('p', { className: 'pg-note' }, notice) : null,
     failure ? h('div', { className: 'pg-catalog-failure' }, h('p', { className: 'pg-error', role: 'alert' }, failureText),
       h('button', { type: 'button', className: 'pg-button', disabled: Boolean(busy) || otherPending, onClick: retry }, '重试')) : null,

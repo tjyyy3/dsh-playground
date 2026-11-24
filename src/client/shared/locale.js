@@ -27,6 +27,7 @@ const locales = {
       notSubmitted: '未提交', notUploaded: '评测包未上传', notReceived: '未收到评测包，需重新提交', attempt: '提交', reference: '参考', points: '分' },
     metrics: { accuracy: '准确率', packaging: '包装完整性', executability: '可执行性', output_coverage: '输出覆盖',
       result_fidelity: '结果一致性', trace_quality: '轨迹质量', reproduction: '复现', evidence: '证据', total: '合计' },
+    challengeGroups: { bonus: '附加题' },
   },
   en: {
     tools: {
@@ -55,6 +56,7 @@ const locales = {
       notSubmitted: 'Not submitted', notUploaded: 'Bundle not uploaded', notReceived: 'Bundle not received, submit again', attempt: 'Submission', reference: 'Ref.', points: 'pts' },
     metrics: { accuracy: 'Accuracy', packaging: 'Packaging', executability: 'Executability', output_coverage: 'Output coverage',
       result_fidelity: 'Result fidelity', trace_quality: 'Trace quality', reproduction: 'Reproduction', evidence: 'Evidence', total: 'Total' },
+    challengeGroups: { bonus: 'Bonus' },
   },
 };
 
