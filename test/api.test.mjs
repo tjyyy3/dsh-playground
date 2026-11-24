@@ -935,3 +935,188 @@ test('#62: listMyAgents reads the account\'s Agent accounts with the token, and 
   const anonymous = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: () => assert.fail('must not fetch') });
   await assert.rejects(() => anonymous.listMyAgents(), (error) => error.code === 'authentication_required');
 });
+
+test('#112: listTaggedChallengeTags reads every page the contest tag selects anonymously and keeps the other tags of each challenge', async () => {
+  const requests = [];
+  const authorizations = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test', token: 'synthetic-token-62',
+    fetchImpl: async (url, init) => {
+      requests.push(url);
+      authorizations.push(init.headers.authorization);
+      const page = Number(url.searchParams.get('page'));
+      if (page === 1) {
+        return jsonResponse({
+          items: [
+            { id: 'c-1', tags: [{ name: '追光者计划·招募赛' }, { name: '材料' }] },
+            { id: 'c-2', tags: ['追光者计划·招募赛', ' 生物 '] },
+            { id: '', tags: ['追光者计划·招募赛', '材料'] },
+            'not an object',
+          ],
+          has_more: true,
+        });
+      }
+      return jsonResponse({ items: [{ id: 'c-4', tags: [{ name: '' }, 42, { name: '追光者计划·招募赛' }, { name: '物理' }] }], has_more: false });
+    },
+  });
+
+  assert.deepEqual(await client.listTaggedChallengeTags(' 追光者计划·招募赛 '), { rows: [
+    { id: 'c-1', tags: ['追光者计划·招募赛', '材料'] },
+    { id: 'c-2', tags: ['追光者计划·招募赛', '生物'] },
+    { id: 'c-4', tags: ['追光者计划·招募赛', '物理'] },
+  ] });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].origin + requests[0].pathname, 'https://example.test/api/challenges');
+  // Only the contest's own tag selects the read, so a challenge outside it never reaches a group.
+  assert.equal(requests[0].searchParams.get('tag'), '追光者计划·招募赛');
+  assert.equal(requests[0].searchParams.get('per_page'), '50');
+  assert.deepEqual(requests.map((url) => url.searchParams.get('page')), ['1', '2']);
+  assert.equal(requests[1].searchParams.get('tag'), '追光者计划·招募赛');
+  // A public grouping is read without the account's token, so one account's answer is never cached for another.
+  assert.deepEqual(authorizations, [undefined, undefined]);
+
+  await assert.rejects(
+    () => client.listTaggedChallengeTags('   '),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_argument',
+  );
+});
+
+test('#112: a grouping read that cannot be finished or whose filter was ignored fails instead of answering a short list', async () => {
+  let pages = 0;
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async (url) => {
+      pages += 1;
+      return jsonResponse({ items: [{ id: `c-${url.searchParams.get('page')}`, tags: ['材料'] }], has_more: true });
+    },
+  });
+  // A grouping built from an incomplete read would miscount, so the read fails and its caller keeps the
+  // grouping it already has.
+  await assert.rejects(
+    () => client.listTaggedChallengeTags('材料'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'incomplete_list',
+  );
+  assert.equal(pages, 6);
+
+  let emptyPages = 0;
+  const emptyPage = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => { emptyPages += 1; return jsonResponse({ items: [], has_more: true }); },
+  });
+  // A page that answers nothing while the list still says there is more is not an empty grouping either.
+  await assert.rejects(
+    () => emptyPage.listTaggedChallengeTags('追光者计划·招募赛'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'incomplete_list',
+  );
+  assert.equal(emptyPages, 1);
+
+  const ignoredTag = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => jsonResponse({ items: [{ id: 'other-contest', tags: ['岗位·运营实习生'] }], has_more: false }),
+  });
+  await assert.rejects(
+    () => ignoredTag.listTaggedChallengeTags('追光者计划·招募赛'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response',
+  );
+
+  const broken = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => jsonResponse({ total: 3 }),
+  });
+  await assert.rejects(
+    () => broken.listTaggedChallengeTags('追光者计划·招募赛'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response',
+  );
+});
+
+test('#112: listSeasonTracks groups a season by the track of each challenge and skips challenges without one', async () => {
+  const requests = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test', token: 'synthetic-token-62',
+    fetchImpl: async (url, init) => {
+      requests.push(url);
+      assert.equal(init.headers.authorization, undefined, 'a public season grouping is read anonymously');
+      return jsonResponse({
+        items: [
+          { id: 'p-1', hackathon: { season: 2, track: 'reproduction', trackZh: ' 复现赛道 ' } },
+          { id: 'p-2', hackathon: { season: '2', track: 'innovation' } },
+          { id: 'p-3', hackathon: {} },
+          { id: 'p-4' },
+          { id: 'p-5', hackathon: 'innovation' },
+        ],
+        has_more: false,
+      });
+    },
+  });
+
+  assert.deepEqual(await client.listSeasonTracks(' s2 '), { rows: [
+    { id: 'p-1', track: 'reproduction', trackZh: '复现赛道' },
+    { id: 'p-2', track: 'innovation' },
+  ] });
+  assert.equal(requests[0].searchParams.get('season'), 's2');
+  assert.equal(requests[0].searchParams.get('page'), '1');
+
+  for (const season of ['', '  ', 'two words', '../s2', 's'.repeat(41), null]) {
+    await assert.rejects(
+      () => client.listSeasonTracks(season),
+      (error) => error instanceof PlaygroundApiError && error.code === 'invalid_argument',
+      JSON.stringify(season),
+    );
+  }
+
+  // The platform answers an unknown season with the unfiltered list, which would group another season's
+  // challenges under this one.
+  const ignoredSeason = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => jsonResponse({ items: [{ id: 'q-1', hackathon: { season: 3, track: 's3' } }], has_more: false }),
+  });
+  await assert.rejects(
+    () => ignoredSeason.listSeasonTracks('s2'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response' && /ignored the season filter "s2"/.test(error.message),
+  );
+});
+
+test('#112: getSeasonRounds keeps the order the platform returns its rounds in and drops rounds it could not query', async () => {
+  const requests = [];
+  const client = createPlaygroundClient({
+    baseUrl: 'https://example.test', token: 'synthetic-token-62',
+    fetchImpl: async (url, init) => {
+      requests.push(url);
+      assert.equal(init.headers.authorization, undefined, 'the public round list is read anonymously');
+      return jsonResponse({
+        currentSeq: 2,
+        rounds: [
+          { seq: 2, phase: 'running', startAt: '2026-11-01T00:00:00Z', endAt: '2026-11-30T00:00:00Z', challengeCount: 3, challengeIds: ['k-3', 'k-4', ''] },
+          { seq: 1, phase: ' ended ', challengeIds: ['k-1', 'k-2'] },
+          { seq: 0, challengeIds: ['k-9'] },
+          { seq: 3 },
+          { challengeIds: ['k-8'] },
+          'not an object',
+        ],
+      });
+    },
+  });
+
+  const result = await client.getSeasonRounds('knight-s4');
+  assert.equal(result.currentSeq, 2);
+  // The endpoint lists the rounds in the order of their time windows; `seq` never reorders them here.
+  assert.deepEqual(result.rounds, [
+    { seq: 2, phase: 'running', startAt: '2026-11-01T00:00:00Z', endAt: '2026-11-30T00:00:00Z', challengeCount: 3, challengeIds: ['k-3', 'k-4'] },
+    // Without a `challengeCount` the queried ids are the count, so a group's number matches its rows.
+    { seq: 1, phase: 'ended', challengeCount: 2, challengeIds: ['k-1', 'k-2'] },
+  ]);
+  assert.equal(requests[0].origin + requests[0].pathname, 'https://example.test/api/hackathon/seasons/by-slug/knight-s4/rounds');
+
+  await assert.rejects(
+    () => client.getSeasonRounds('not a slug'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_argument',
+  );
+  const broken = createPlaygroundClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => jsonResponse({ currentSeq: 1 }),
+  });
+  await assert.rejects(
+    () => broken.getSeasonRounds('knight-s4'),
+    (error) => error instanceof PlaygroundApiError && error.code === 'invalid_response',
+  );
+});

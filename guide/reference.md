@@ -208,7 +208,8 @@ The query accepts an optional `group` key together with `competition` and
 `period`. A key is a letter followed by up to 39 letters, digits, `_` or `-`.
 The Host narrows the period to that group before it reads any challenge, so a
 page of the group reads only the group's challenges. A `group` without `period`
-is rejected. If a fresh official schedule cannot give that group for the chosen
+is rejected, except for the three contests without periods that the website
+groups itself (below). If a fresh official schedule cannot give that group for the chosen
 period, the query fails with `invalid_argument` and reason
 `group_not_available`. This covers a group that the website no longer lists and
 a period whose grouping the Host could not read this time, which lists the
@@ -232,6 +233,71 @@ period returns to **全部**. A refresh keeps the chosen group while the query
 accepts it. When the query answers `group_not_available`, the row switches to
 **全部** of the period, keeps the other filters, and says the group is not
 available now. Periods and competitions without groups show no 分类 row.
+
+### Contests grouped without periods
+
+Three contests have no periods and are grouped by the website all the same:
+`light-chasing` (`追光者计划·招募赛`) by the 岗位 it recruits for, `knight-s4`
+(`科学骑士大师赛`) by scoring round, and `paper2arm-s2`
+(`Paper2Arm 黑客松 · 第二季`) by hackathon track. Such a contest carries its own
+`groups` in the competition table, `[{ key, labelZh?, count }]` in the website's
+order and without challenge ids, the same shape a grouped period carries. The
+ids a group selects stay on the Host. A contest with periods is unchanged: it
+groups inside one period, and these three have no period to choose.
+
+None of the three groupings is written into the plugin. Each is read from the
+platform, so the groups a contest shows, their names and their counts follow an
+official membership change without a new plugin release, and **刷新目录** reads
+them again. `GET /api/challenges` filters by neither round nor track (checked
+2026-11-24), so every group here is read by the challenge ids it holds, which is
+also what gives the group its `count`:
+
+- `追光者计划·招募赛` reads the contest's own challenges by its tag and groups
+  them by the job tag each challenge also carries. A job tag is matched inside
+  this contest only, so a challenge outside the contest never joins a group by
+  carrying the same tag; a read whose rows do not all carry the contest tag is
+  treated as a failed read rather than grouped. A challenge of the contest with
+  no known job tag joins no group and stays under **全部**. Every job the
+  website lists keeps its place in the row even when the contest has no
+  challenge for it: that job counts 0, can still be chosen, and lists nothing.
+- `科学骑士大师赛` reads
+  `GET /api/hackathon/seasons/by-slug/<slug>/rounds` and keeps the rounds in the
+  order the endpoint returns them, which is the order of their time windows; the
+  plugin does not reorder them by `seq`, and each round lists its challenges in
+  its own official order. A round with no challenges is left out. The season
+  gains a round every week, so nothing states how many rounds it has.
+- `Paper2Arm 黑客松 · 第二季` groups the season's challenges by the track each
+  one names, in the official order 论文复现 · 软件构造 · 红蓝对抗 · 科学狐狸,
+  with a track the platform adds later following them in list order. The track
+  names come from the platform. Because the challenge list leaves an unknown
+  `season` unfiltered instead of rejecting it, a row that names another season
+  fails the read instead of putting that season's challenges under this one.
+
+The platform reads are anonymous, so one grouping is the public one and never
+one account's view of it. A grouping is read at most once a minute and shared by
+every caller of the same API client, the contests view and each catalog page
+included; **刷新目录** reads it again. A failed read, one that could not page
+its filter completely included, keeps the last grouping and marks the contest
+`groupsStale`, and the grouping stays stale until a read succeeds, the answers
+served from that minute's cache included. A failure with nothing to fall back on
+lists the contest without `groups`, also stale. A short grouping is never
+published in place of the last complete one, because its counts would be wrong.
+
+A group of such a contest is queried as `group` with `competition` and no
+`period`, and every page of it repeats the same arguments. A group the current
+grouping does not hold fails with `invalid_argument` and reason
+`group_not_available`, as a period's group does. While the grouping is stale the
+failure names the outage instead of the group
+(`官方分类暂未同步，暂时无法按该分类筛选。请重试，或改为显示全部赛题。`) and
+carries no reason, because the grouping that could not be refreshed may still
+hold that group.
+
+The workbench gives these contests the same **分类** row a grouped period gets,
+with **全部** first and each group's count after it. A stale grouping adds
+`官方分类暂未同步，当前显示已有分类。` under the contest line while the groups
+already read stay usable. When a read answers `group_not_available`, the row
+returns to **全部** and says `之前选择的分类现在不可用，已改为显示全部赛题。`,
+which leaves out 本期 because the contest has no period to fall back to.
 
 ### Catalog paging and filters
 
@@ -865,13 +931,19 @@ platform.
   period, reports `count` and `groupedCount`, and does not present the sum of
   the group counts as the whole period. A period of `大科学装置专项赛` or
   `科学骑士大师赛 · 北大专区` counts 0 until its official start. The text says
-  when the seasons read failed (`seasonsUnavailable`) and when a contest's
-  schedule is stale (`periodsStale`). A row with kind `season` has no contest
+  when the seasons read failed (`seasonsUnavailable`), when a contest's
+  schedule is stale (`periodsStale`), and when a contest's own groups could not
+  be refreshed (`groupsStale`). A contest without periods carries its own
+  official groups in the same shape (`key`, `labelZh` when known, and `count`):
+  `追光者计划·招募赛` by 岗位, `科学骑士大师赛` by scoring round, and
+  `Paper2Arm 黑客松 · 第二季` by track. A row with kind `season` has no contest
   id and is shown as `season=<slug>`, the value to pass as `season`. `season`
   does not select a period.
 - `playground_list_challenges` accepts the contest `id`, period `slug`, and
   group `key` copied from that view as `competition`, `period`, and `group`,
-  and reads the selection through the catalog one page at a time. `order`
+  and reads the selection through the catalog one page at a time. A contest
+  without periods takes its own group `key` as `group` with `competition`
+  alone. `order`
   says whether a page is in official order, sorted by attempts, or newest
   first for a contest read by tag or season. Every page of a period carries
   `period` with its `count` and `groupedCount`. `hasMore` means the page is
@@ -885,8 +957,11 @@ platform.
   nothing open. `per_page` is 1 to 50, and a contest read rejects any other
   value. Argument errors carry a reason: `unknown_competition`,
   `period_needs_competition`, `competition_has_no_periods`,
-  `group_needs_period`, and, from a fresh official schedule,
-  `period_not_available` and `group_not_available`. Without `competition`,
+  `group_needs_period`, `competition_has_no_groups` for a contest with neither
+  periods nor official groups, and, from a fresh official schedule,
+  `period_not_available` and `group_not_available`. A contest whose own grouping
+  could not be refreshed fails a `group` without a reason, because the grouping
+  that is missing may still hold it. Without `competition`,
   `period`, and `group` the tool queries `GET /api/challenges` as before.
 - Personal history uses `/api/user-submissions`, not a client-side filter over public
   submissions. The plugin pages the returned array locally. Its `nextCursor` must be used with unchanged `challenge_id` and

@@ -23,6 +23,39 @@ const WEEKLY = {
 };
 const exec = { signal: new AbortController().signal };
 
+// 追光者计划·招募赛 as its own tag lists it: challenges for two of its jobs, and one with no job tag.
+const LIGHT_CHASING_ROWS = [
+  { id: 'lc-mat-2', tags: ['追光者计划·招募赛', '岗位·材料科研 Agent 全栈开发实习生'] },
+  { id: 'lc-ops-1', tags: ['追光者计划·招募赛', '岗位·运营实习生'] },
+  { id: 'lc-mat-1', tags: ['追光者计划·招募赛', '岗位·材料科研 Agent 全栈开发实习生'] },
+  { id: 'lc-plain', tags: ['追光者计划·招募赛'] },
+];
+// The job chips of that contest in the website's own order, counted from LIGHT_CHASING_ROWS. A job the
+// contest has no challenge for keeps its chip and counts 0.
+const LIGHT_CHASING_JOBS = [
+  { key: 'mat', labelZh: '材料科研 Agent 全栈开发实习生', count: 2 },
+  { key: 'drug', labelZh: 'AI for Science药物研发研究员/实习生', count: 0 },
+  { key: 'sde', labelZh: '科研 Agent 全栈开发工程师／实习生', count: 0 },
+  { key: 'fde', labelZh: 'FDE 前线部署工程师／实习生', count: 0 },
+  { key: 'lab', labelZh: 'AI4S 智能大装置工程开发实习生', count: 0 },
+  { key: 'spectra', labelZh: '创新算法研究员/实习生(解谱方向)', count: 0 },
+  { key: 'lkm', labelZh: '创新算法研究员／实习生(LKM 方向)', count: 0 },
+  { key: 'product', labelZh: '产品实习生', count: 0 },
+  { key: 'ops', labelZh: '运营实习生', count: 1 },
+];
+// Scoring rounds as the API client returns them, in the platform's own order and with an empty round the
+// season announced.
+const S4_ROUNDS = { currentSeq: 2, rounds: [
+  { seq: 1, challengeCount: 2, challengeIds: ['k4-1', 'k4-2'] },
+  { seq: 2, challengeCount: 1, challengeIds: ['k4-3'] },
+  { seq: 3, challengeCount: 0, challengeIds: [] },
+] };
+const S2_TRACKS = { rows: [
+  { id: 'p2-paper-1', track: 'paper', trackZh: '论文复现' },
+  { id: 'p2-fox-1', track: 'fox', trackZh: '科学狐狸' },
+  { id: 'p2-paper-2', track: 'paper', trackZh: '论文复现' },
+] };
+
 function register(client) {
   const tools = [];
   registerReadOnlyTools({ tools: { register: (tool) => tools.push(tool) } }, client, {
@@ -36,7 +69,7 @@ function register(client) {
   };
 }
 
-function toolsFor({ schedules = {}, listChallenges, listCompetitions, getChallenge } = {}) {
+function toolsFor({ schedules = {}, listChallenges, listCompetitions, getChallenge, taggedTags, seasonRounds, seasonTracks } = {}) {
   const called = [];
   const note = (name, fn) => async (...args) => { called.push(name); return fn(...args); };
   const client = {
@@ -45,6 +78,15 @@ function toolsFor({ schedules = {}, listChallenges, listCompetitions, getChallen
     getCompetitionSchedules: note('getCompetitionSchedules', async () => schedules),
     listChallenges: note('listChallenges', listChallenges ?? (async () => { throw new Error('platform list'); })),
     getChallenge: note('getChallenge', getChallenge ?? (async (id) => ({ id, title: `题目 ${id}` }))),
+    // The three official groupings of the contests the website groups without periods. The job grouping is
+    // read inside the contest's own tag, never by a job tag alone, so a challenge of another contest with
+    // the same job tag cannot reach a group.
+    listTaggedChallengeTags: note('listTaggedChallengeTags', taggedTags ?? (async (tag) => {
+      assert.equal(tag, '追光者计划·招募赛', 'a job group is read inside its own contest');
+      return { rows: LIGHT_CHASING_ROWS };
+    })),
+    getSeasonRounds: note('getSeasonRounds', seasonRounds ?? (async () => S4_ROUNDS)),
+    listSeasonTracks: note('listSeasonTracks', seasonTracks ?? (async () => S2_TRACKS)),
     startTask: note('startTask', async () => { throw new Error('created a session'); }),
     bind: note('bind', async () => { throw new Error('bound a conversation'); }),
     dispatch: note('dispatch', async () => { throw new Error('dispatched work'); }),
@@ -123,15 +165,79 @@ test('the contests view lists official periods and groups, and a contest without
     { key: 'graphics', labelZh: '科研绘图', count: 2 },
   ]);
   assert.equal(Object.hasOwn(bohr.periods[1], 'groups'), false);
-  assert.equal(JSON.stringify(contest(table, 'light-chasing')).includes('"groups"'), false);
+  // A contest the website groups without periods carries its own counted groups, read from the platform.
+  assert.deepEqual(contest(table, 'light-chasing').groups, LIGHT_CHASING_JOBS);
+  assert.deepEqual(contest(table, 'knight-s4').groups, [
+    { key: 'r1', labelZh: '第 1 轮', count: 2 },
+    { key: 'r2', labelZh: '第 2 轮', count: 1 },
+  ]);
+  assert.deepEqual(contest(table, 'paper2arm-s2').groups, [
+    { key: 'paper', labelZh: '论文复现', count: 2 },
+    { key: 'fox', labelZh: '科学狐狸', count: 1 },
+  ]);
+  // A contest the website does not group has no groups, and neither has one grouped inside its periods.
+  for (const id of ['agent', 'paper2arm-s3', 'bohr-product']) {
+    assert.equal(Object.hasOwn(contest(table, id), 'groups'), false, id);
+  }
   const rendered = text(competitions, table);
   assert.match(rendered, /\n- `bohr-product` 玻尔AI产品周赛 · live/);
   assert.match(rendered, /\n {2}- period `4` 第四期 · live · 7 in this period, 7 of them in groups\n {4}- group `slides` 学术PPT · 5\n/);
   assert.match(rendered, /\n {2}- period `1` 第一期 · ended · 1 in this period\n/);
+  assert.match(rendered, /\n {2}- group `mat` 材料科研 Agent 全栈开发实习生 · 2\n {2}- group `drug` AI for Science药物研发研究员\/实习生 · 0\n/);
+  assert.match(rendered, /\n {2}- group `ops` 运营实习生 · 1\n/);
+  assert.match(rendered, /\n {2}- group `r1` 第 1 轮 · 2\n {2}- group `r2` 第 2 轮 · 1\n/);
+  assert.doesNotMatch(rendered, /could not be read|could not be refreshed/);
   const first = await challenges.execute({ competition: 'bohr-product', period: '4', per_page: 2 }, exec);
   assert.deepEqual(first.competition.periods, bohr.periods, 'the first page and the contests view give the same answer');
   assert.deepEqual(writes(called), []);
-  assert.deepEqual(called.filter((name) => !['listCompetitions', 'getCompetitionSchedules', 'getChallenge'].includes(name)), []);
+  assert.deepEqual(called.filter((name) => !['listCompetitions', 'getCompetitionSchedules', 'getChallenge',
+    'listTaggedChallengeTags', 'getSeasonRounds', 'listSeasonTracks'].includes(name)), []);
+});
+
+test('a contest grouped without periods pages one group, read inside that contest', async () => {
+  const reads = [];
+  const { challenges, called } = toolsFor({ taggedTags: async (tag) => {
+    reads.push(tag);
+    return { rows: LIGHT_CHASING_ROWS };
+  } });
+  const job = await challenges.execute({ competition: 'light-chasing', group: 'mat' }, exec);
+  assert.equal(job.ok, true, JSON.stringify(job.error));
+  assert.deepEqual(job.items.map((item) => item.id), ['lc-mat-2', 'lc-mat-1']);
+  assert.deepEqual([job.total, job.hasMore], [2, false]);
+  // The group holds the ids the contest's own tag read returned, so the challenge of the contest without a
+  // job tag stays out of every group and no challenge is read by a job tag alone.
+  assert.equal(JSON.stringify(job.items).includes('lc-plain'), false);
+  assert.equal(called.includes('listChallenges'), false, 'a group list does not use the platform list');
+  assert.deepEqual(job.competition.groups, LIGHT_CHASING_JOBS, 'the first page carries the groups the workbench shows as chips');
+  // One cached grouping serves the pages that follow, so a later page selects the same challenges.
+  const round = await challenges.execute({ competition: 'knight-s4', group: 'r1', per_page: 1, page: 2 }, exec);
+  assert.deepEqual(round.items.map((item) => item.id), ['k4-2']);
+  assert.deepEqual([round.total, round.hasMore], [2, false]);
+  const second = await challenges.execute({ competition: 'light-chasing', group: 'ops' }, exec);
+  assert.deepEqual(second.items.map((item) => item.id), ['lc-ops-1']);
+  // A job the contest has no challenge for is a real choice that lists nothing, not an unknown group.
+  const vacant = await challenges.execute({ competition: 'light-chasing', group: 'drug' }, exec);
+  assert.deepEqual([vacant.ok, vacant.items, vacant.total, vacant.hasMore], [true, [], 0, false]);
+  assert.deepEqual(reads, ['追光者计划·招募赛'], 'the cached grouping is not read again within its TTL');
+  assert.deepEqual(writes(called), []);
+});
+
+test('a contest grouping that cannot be read lists the contest ungrouped and says so', async () => {
+  const { competitions, challenges } = toolsFor({ taggedTags: async () => { throw new Error('HTTP 503'); } });
+  const table = await competitions.execute({ view: 'contests' }, exec);
+  const lightChasing = contest(table, 'light-chasing');
+  assert.equal(Object.hasOwn(lightChasing, 'groups'), false);
+  assert.equal(lightChasing.groupsStale, true);
+  assert.equal(contest(table, 'knight-s4').groupsStale, undefined, 'one failed grouping does not mark another');
+  const rendered = text(competitions, table);
+  const start = rendered.indexOf('- `light-chasing`');
+  const block = rendered.slice(start, rendered.indexOf('\n- `', start + 1));
+  assert.match(block, /The official groups of this contest could not be refreshed, so this list may be out of date or incomplete\./);
+  // A grouping that could not be read may still hold the group, so the failure carries no reason: the
+  // workbench keeps the choice and offers 重试 instead of silently widening the list.
+  const failed = await challenges.execute({ competition: 'light-chasing', group: 'mat' }, exec);
+  assert.deepEqual([failed.ok, failed.error.code, failed.error.reason], [false, 'invalid_argument', undefined]);
+  assert.match(failed.error.message, /官方分类暂未同步/);
 });
 
 test('paging a group returns exactly that group in official order', async () => {
@@ -254,8 +360,10 @@ test('illegal contest arguments fail with a reason instead of an empty list', as
     [{ period: '4' }, 'period_needs_competition'],
     [{ competition: 'agent', period: '1' }, 'competition_has_no_periods'],
     [{ group: 'slides' }, 'group_needs_period'],
+    [{ competition: 'agent', group: 'slides' }, 'competition_has_no_groups'],
     [{ competition: 'bohr-product', period: '9' }, 'period_not_available'],
     [{ competition: 'bohr-product', period: '4', group: 'missing' }, 'group_not_available'],
+    [{ competition: 'light-chasing', group: 'missing' }, 'group_not_available'],
   ]) {
     const result = await challenges.execute(args, exec);
     assert.equal(result.ok, false, JSON.stringify(args));
