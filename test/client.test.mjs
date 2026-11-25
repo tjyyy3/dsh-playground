@@ -126,6 +126,8 @@ test('competition alerts baseline, batch new entries and resume quietly after op
   assert.equal(buttonLabeled(f, first, '知道了').props['data-modal-autofocus'], true);
   buttonLabeled(f, first, '知道了').props.onClick();
   assert.equal(await enter(), null);
+  snapshot.sources.push('hub');
+  snapshot.items.unshift(row('next period', 'hub'));
   snapshot.items.push(row('next period', 'periods'), row('next period', 'seasons'), row('existing', 'periods'));
   const second = await enter();
   assert.deepEqual(findAll(second, (node) => node.type === 'h3').map(text), ['next period']);
@@ -2809,9 +2811,9 @@ test('refreshing the weekly contest discovers newly published periods and loads 
   let siteAvailable = true;
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-api-token', fetchImpl: async (url, options) => {
     const { pathname } = url;
-    if (pathname === '/competition/bohr-product' || pathname.startsWith('/assets/')) {
+    if (pathname === '/contests' || pathname.startsWith('/assets/')) {
       assert.equal(new Headers(options.headers).has('authorization'), false);
-      if (pathname === '/competition/bohr-product') {
+      if (pathname === '/contests') {
         return siteAvailable ? new Response(`<script type="module" src="/assets/catalog-${published}.js"></script>`)
           : new Response(null, { status: 503 });
       }

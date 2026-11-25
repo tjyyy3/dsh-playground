@@ -40,6 +40,8 @@ When available, challenge content uses the platform's version in the selected la
 
 The first time you open the controller panel, Playground remembers the current competitions and rounds. On later visits, a single dialog lists any new competitions or rounds. Each entry shows the available schedule, prizes and platform resources, with an official link when available.
 
+Opening the controller checks the official contest APIs, supported schedules and the website's contest overview. The overview can include a contest with its own page, such as Science Navigator Masters. The first successful read of each new source records its existing entries. Later additions trigger an alert.
+
 Choose **Got it** in the lower right to acknowledge this batch. Choose **Turn off competition alerts** in the lower left to disable future alerts. You can turn them back on in **Connection settings**.
 
 ## Find Codex chats in your workspace

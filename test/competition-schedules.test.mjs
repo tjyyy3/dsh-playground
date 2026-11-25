@@ -4,7 +4,7 @@ import { createCatalog } from '../lib/catalog.js';
 import { createCompetitionSchedulesReader } from '../lib/competition-schedules.js';
 import { readCompetitionNotices } from '../lib/competition-notices.js';
 
-const pageUrl = new URL('https://play.example/competition/bohr-product');
+const pageUrl = new URL('https://play.example/contests');
 const firstEntry = '/assets/index-AbCd1234.js';
 const nextEntry = '/assets/weekly-Q7v8X_9z.js';
 const page = (entry) => `<!doctype html><head><script crossorigin SRC="${entry}" type=module></script></head>`;
@@ -178,6 +178,93 @@ test('contest alerts keep healthy sources independent and extract the published 
   assert.deepEqual(partial.sources, ['catalog', 'hub']);
   assert.ok(partial.items.some((row) => row.title === 'Hub only'));
   assert.ok(!partial.items.some((row) => row.source === bohrProduct));
+});
+
+const overviewSource = (extraCards = '') => `
+  const stations = [];
+  const officialContestCards = [
+    {id: "bohr-product", track: "product", ...status(), title: "周赛", description: "", enterTarget: "competition/bohr-product"},
+    {id: "deploy-main", track: "deploy", title: "模型部署赛", description: "", enterTarget: "competition/llm-deploy"},
+    {id: "agent", track: "agent", title: "Agent 赛", description: "", enterTarget: "competition/another-agent-page"},
+    {id: "knight-s4", track: "knight", title: "科学骑士大师赛", description: "", enterTarget: "hackathon-s4"},
+    ${extraCards}
+    ...stations.map(campusContest)
+  ];
+  const unrelated = [{id: "decoy", title: "Decoy", description: "", enterTarget: "questions/decoy"}];
+`;
+
+test('contest alerts read standalone cards from the official overview and skip existing or unsafe entries', async () => {
+  const { reader, files, requests } = fixture();
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [], noticeHub: async () => [
+      { slug: 'hub-alias', nameEn: 'Hub contest', hasPage: true }, { slug: 'future-masters', nameEn: 'Separate hub contest', hasPage: true },
+    ] };
+  files.set(firstEntry, firstBundle + overviewSource());
+  const baseline = await readCompetitionNotices(client);
+  assert.ok(baseline.sources.includes('overview'));
+  assert.deepEqual(baseline.items.filter((item) => item.source === 'overview'), []);
+
+  const later = `
+    const slug = "future-masters", route = \`questions/\${slug}\`;
+    const begins = "2026-12-01T20:00:00+08:00", deadline = "2026-12-04T20:00:00+08:00";
+    ${overviewSource(`
+      {id: slug, track: "research", ...status(), title: "未来大师赛", titleEn: "Future Masters",
+        description: "未来的独立赛事", descriptionEn: "A future standalone contest",
+        date: windowText(Date.parse(begins), Date.parse(deadline)), enterTarget: route},
+      {id: "new-lab", track: "research", title: "新实验赛", description: pendingCopy(),
+        date: windowText(Date.parse("2026-02-31T00:00:00Z"), Date.parse("2026-02-21T00:00:00")), enterTarget: "competition/new-lab"},
+      {id: "duplicate-hub", track: "research", title: "赛事中心条目", description: "", enterTarget: "competition/hub-alias"},
+      {id: "foreign", track: "research", title: "Foreign", description: "", enterTarget: "https://foreign.example/competition/foreign"},
+      {id: "traversal", track: "research", title: "Traversal", description: "", enterTarget: "questions/../competition/traversal"},
+    `)}
+  `;
+  files.set(pageUrl.pathname, page(nextEntry));
+  files.set(nextEntry, nextBundle + later);
+  const snapshot = await readCompetitionNotices(client);
+  assert.deepEqual(snapshot.items.filter((item) => item.source === 'overview'), [
+    { source: 'overview', key: '["future-masters"]', titleZh: '未来大师赛', title: 'Future Masters',
+      summaryZh: '未来的独立赛事', summary: 'A future standalone contest', startAt: '2026-12-01T20:00:00+08:00',
+      endAt: '2026-12-04T20:00:00+08:00', webUrl: 'https://play.example/questions/future-masters' },
+    { source: 'overview', key: '["season","new-lab"]', titleZh: '新实验赛', title: '新实验赛', webUrl: 'https://play.example/competition/new-lab' },
+    { source: 'overview', key: '["season","hub-alias"]', titleZh: '赛事中心条目', title: '赛事中心条目', webUrl: 'https://play.example/competition/hub-alias' },
+  ]);
+  const hubCard = snapshot.items.find((item) => item.webUrl === 'https://play.example/competition/hub-alias');
+  assert.equal(hubCard.source, 'hub');
+  const withoutHub = await readCompetitionNotices({ ...client, noticeHub: async () => { throw Error('offline'); } });
+  const staticCard = withoutHub.items.find((item) => item.webUrl === hubCard.webUrl);
+  assert.equal(staticCard.source, 'overview');
+  assert.equal(staticCard.key, hubCard.key);
+  assert.deepEqual(requests, [firstEntry, nextEntry].flatMap((entry) => [pageUrl.href, new URL(entry, pageUrl).href]).concat(pageUrl.href));
+});
+
+test('a malformed or unavailable contest overview does not publish a snapshot and leaves schedule alerts available', async () => {
+  const { reader, files } = fixture();
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [], noticeHub: async () => [] };
+  const extra = '{id: "new", track: "new", title: "New", description: "", enterTarget: "questions/new"},';
+  files.set(firstEntry, firstBundle + overviewSource(extra));
+  assert.equal((await readCompetitionNotices(client)).items.find((item) => item.source === 'overview')?.title, 'New');
+
+  files.set(pageUrl.pathname, page(nextEntry));
+  for (const source of [
+    '',
+    overviewSource(extra) + overviewSource().replace('const stations', 'const otherStations').replaceAll('stations.map', 'otherStations.map')
+      .replace('officialContestCards', 'anotherContestTable').replace('const unrelated', 'const anotherDecoy'),
+    overviewSource(extra + extra),
+    overviewSource(extra + '{id: "broken", track: "new", title: "Broken", description: ""},'),
+    overviewSource(extra + '{id: computeId(), track: "new", title: "Broken", description: "", enterTarget: "questions/broken"},'),
+  ]) {
+    files.set(nextEntry, nextBundle + source);
+    const snapshot = await readCompetitionNotices(client);
+    assert.ok(!snapshot.sources.includes('overview'));
+    assert.ok(!snapshot.items.some((item) => item.source === 'overview'));
+    assert.ok(snapshot.items.some((item) => item.source === bohrProduct && item.titleZh.endsWith('第五期')));
+  }
+
+  files.set(nextEntry, nextBundle + overviewSource(extra));
+  assert.ok((await readCompetitionNotices(client)).sources.includes('overview'));
+  files.set(pageUrl.pathname, '<p>Unavailable</p>');
+  assert.ok(!(await readCompetitionNotices(client)).sources.includes('overview'));
 });
 
 test('reads the published schedules in table order from one asset and coalesces concurrent checks', async () => {
