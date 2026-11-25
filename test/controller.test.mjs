@@ -353,6 +353,8 @@ test('controller guidance delegates solution work to a separate DSH child when C
   assert.match(context, /playground_controller_link_task.*explicit challenge_id/);
   assert.doesNotMatch(context, /base_url/);
   assert.match(context, /user asks for a DSH child, call subagent directly/);
+  assert.match(context, /delegate it yourself without waiting for a separate request/);
+  assert.match(context, /request a specific missing check or revision without waiting for another user turn/);
   assert.match(context, /actual assignment directly in prompt/);
   assert.match(context, /started subagent <id>.*as child_id/);
   assert.match(context, /Skip linking for work without a challenge/);
