@@ -95,8 +95,12 @@ async function clientFixture(t, services = {}, browser = {}) {
   return { plugin, registrations, find, render, unmount, effects, workbench, mount };
 }
 
-test('competition alerts baseline, batch new entries and resume quietly after opt-in', async (t) => {
+test('upgrading enabled competition alerts retains history, batches new entries and resumes quietly after opt-in', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-25T10:00:00+08:00'));
   const values = new Map();
+  values.set('dsh-playground.competition-notices.v1', JSON.stringify({
+    enabled: true, seen: { 'https://example.com': { sources: ['seasons'], keys: ['existing'] } },
+  }));
   const f = await clientFixture(t, {}, { localStorage: {
     getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
   } });
@@ -118,12 +122,12 @@ test('competition alerts baseline, batch new entries and resume quietly after op
       rewardZh: '总奖池 17,000 元，10 个赛道。', resourcesZh: '填问卷可获得算力支持。' }, row('old period', 'periods')] };
   const first = await enter();
   assert.equal(first.type, 'native-modal');
-  assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-1', 'new-2']);
-  const [sparse, weekly] = findAll(first, (node) => node.type === 'article');
+  assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-2', 'new-1']);
+  const [weekly, sparse] = findAll(first, (node) => node.type === 'article');
   assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['截止']);
   assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['开始', '截止', '奖励', '参赛资源']);
   assert.deepEqual(findAll(weekly, (node) => node.type === 'strong').map(text), ['17,000 元', '算力支持']);
-  assert.equal(buttonLabeled(f, first, '知道了').props['data-modal-autofocus'], true);
+  assert.equal(f.find(first, (node) => node.props?.['data-modal-autofocus']).type, 'h2');
   buttonLabeled(f, first, '知道了').props.onClick();
   assert.equal(await enter(), null);
   snapshot.sources.push('hub');
@@ -146,6 +150,51 @@ test('competition alerts baseline, batch new entries and resume quietly after op
   assert.equal(await enter(), null);
   snapshot = { ...snapshot, scope: 'https://other.example.com', items: [row('other')] };
   assert.equal(await enter(), null);
+});
+
+test('English first-use alerts focus the heading, snooze until Beijing midnight and acknowledge only the displayed batch', async (t) => {
+  let now = Date.parse('2026-11-25T19:00:00+08:00');
+  t.mock.method(Date, 'now', () => now);
+  const values = new Map([['dsh-playground.ui-language', 'en']]);
+  const f = await clientFixture(t, {}, { localStorage: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+  } });
+  const main = f.registrations.get('main');
+  const row = (key, endAt) => ({ key, source: 'seasons', title: key, startAt: '2026-11-23T20:00:00+08:00', endAt });
+  const items = [row('Navigator', '2026-11-26T20:00:00+08:00'), row('Weekly', '2026-11-25T21:00:00+08:00'),
+    row('Expired', '2026-11-25T18:00:00+08:00')];
+  let reads = 0;
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async () => { reads++; return { ok: true, scope: 'site', sources: ['seasons'], items }; } };
+  const enter = () => f.mount(f.find(f.render(main.Component, props), (node) => node.type?.name === 'CompetitionNotices'));
+  const titles = (tree) => findAll(tree, (node) => node.type === 'h3').map(text);
+  const first = await enter();
+  assert.equal(first.props.title, 'Ongoing competitions');
+  assert.deepEqual(titles(first), ['Weekly', 'Navigator']);
+  const focus = f.find(first, (node) => node.props?.['data-modal-autofocus']);
+  assert.equal(focus.type, 'h2');
+  assert.equal(focus.props.tabIndex, -1);
+  buttonLabeled(f, first, 'Remind me tomorrow').props.onClick();
+  assert.equal(await enter(), null);
+
+  items.push(row('New round', '2026-11-28T20:00:00+08:00'));
+  const added = await enter();
+  assert.equal(added.props.title, 'New competition alerts');
+  assert.deepEqual(titles(added), ['New round']);
+  buttonLabeled(f, added, 'Got it').props.onClick();
+  now = Date.parse('2026-11-26T00:00:00+08:00');
+  const tomorrow = await enter();
+  assert.equal(tomorrow.props.title, 'Competition reminders');
+  assert.deepEqual(titles(tomorrow), ['Navigator']);
+  tomorrow.props.onClose();
+  assert.equal(await enter(), null);
+  items.push(row('Another round', '2026-11-28T20:00:00+08:00'));
+  const last = await enter();
+  buttonLabeled(f, last, 'Turn off competition alerts').props.onClick();
+  const readsBefore = reads;
+  assert.equal(await enter(), null);
+  assert.equal(reads, readsBefore);
 });
 
 test('each Client apply owns its stores while its registered consumers share them', async (t) => {

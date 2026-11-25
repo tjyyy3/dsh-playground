@@ -1282,12 +1282,217 @@ __name(ControllerHandoffDialog, "ControllerHandoffDialog");
 // src/client/controller/competition-notices.js
 var React6 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
-var storageKey2 = "dsh-playground.competition-notices.v1";
+
+// src/client/controller/competition-notice-state.js
+var version = 2;
+var day = 864e5;
+var beijingOffset = 8 * 36e5;
+var activeStatuses = /* @__PURE__ */ new Set(["active", "open", "in_progress"]);
+var endedStatuses = /* @__PURE__ */ new Set(["ended", "closed", "completed", "finished", "expired", "cancelled", "canceled", "archived"]);
+var isObject = /* @__PURE__ */ __name((value) => value !== null && typeof value === "object" && !Array.isArray(value), "isObject");
+var isStringArray = /* @__PURE__ */ __name((value) => Array.isArray(value) && value.every((entry) => typeof entry === "string"), "isStringArray");
+var unique = /* @__PURE__ */ __name((values) => [...new Set(values)], "unique");
+var emptySite = /* @__PURE__ */ __name(() => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] }), "emptySite");
+function timestamp(value) {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
+  if (!match) return null;
+  const [, date, time, zone] = match;
+  const calendarDay = /* @__PURE__ */ new Date(date + "T00:00:00Z");
+  if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
+  const ms = Date.parse(date + "T" + time + zone);
+  return Number.isFinite(ms) ? ms : null;
+}
+__name(timestamp, "timestamp");
+function clockTime(value) {
+  const ms = typeof value === "number" ? value : value instanceof Date ? value.getTime() : timestamp(value);
+  if (!Number.isFinite(ms)) throw new TypeError("Pass an explicit time to the notice state.");
+  return ms;
+}
+__name(clockTime, "clockTime");
+function validSite(site) {
+  return isObject(site) && isStringArray(site.initializedSources) && isStringArray(site.discovered) && (site.unverified === void 0 || isStringArray(site.unverified)) && isStringArray(site.acknowledged) && Array.isArray(site.pending) && site.pending.every((batch) => Number.isSafeInteger(batch?.id) && (batch.kind === "overview" || batch.kind === "new") && (batch.dueAt === null || Number.isFinite(batch.dueAt)) && Array.isArray(batch.entries) && batch.entries.every((entry) => typeof entry?.key === "string" && isStringArray(entry.sources) && (entry.endAt === null || Number.isFinite(entry.endAt))));
+}
+__name(validSite, "validSite");
+function createNoticeState(saved = null) {
+  if (saved?.version === version && typeof saved.enabled === "boolean" && ["first", "silent"].includes(saved.baseline) && Number.isSafeInteger(saved.nextBatchId) && isObject(saved.sites) && Object.values(saved.sites).every(validSite)) return saved;
+  const legacy = typeof saved?.enabled === "boolean" && isObject(saved.seen) && Object.values(saved.seen).every((site) => isStringArray(site?.sources) && isStringArray(site?.keys));
+  return {
+    version,
+    enabled: legacy ? saved.enabled : true,
+    baseline: legacy ? "silent" : "first",
+    nextBatchId: 1,
+    sites: legacy ? Object.fromEntries(Object.entries(saved.seen).map(([scope, site]) => [scope, {
+      ...emptySite(),
+      initializedSources: unique(site.sources),
+      // v1 recorded discovery at load, so its keys cannot establish acknowledgement.
+      discovered: unique(site.keys)
+    }])) : {}
+  };
+}
+__name(createNoticeState, "createNoticeState");
+function collectItems(items, sources, now) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    if (typeof item?.key !== "string" || !item.key || !sources.has(item.source)) continue;
+    const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
+    const start = timestamp(item.startAt);
+    const end = timestamp(item.endAt);
+    const ended = endedStatuses.has(status) || end !== null && end <= now;
+    const active = activeStatuses.has(status) || start !== null && start <= now && end !== null && now < end;
+    const upcoming = start !== null && start > now;
+    const prior = byKey.get(item.key);
+    if (!prior) {
+      byKey.set(item.key, { item, sources: [item.source], endAt: end, ended, active, upcoming });
+      continue;
+    }
+    prior.sources.push(item.source);
+    prior.ended ||= ended;
+    prior.active ||= active;
+    prior.upcoming ||= upcoming;
+    if (end !== null && (prior.endAt === null || end < prior.endAt)) {
+      prior.item = item;
+      prior.endAt = end;
+    }
+  }
+  return byKey;
+}
+__name(collectItems, "collectItems");
+function enterNotices(state, snapshot2, time) {
+  const now = clockTime(time);
+  const scope = typeof snapshot2?.scope === "string" ? snapshot2.scope : "";
+  const view = { state, scope, status: "ready", kind: "new", items: [], batchIds: [] };
+  if (!state.enabled) return { ...view, status: "disabled" };
+  if (!scope || snapshot2?.ok !== true || !isStringArray(snapshot2?.sources) || !snapshot2.sources.length || !Array.isArray(snapshot2.items)) return { ...view, status: "error" };
+  const sources = new Set(snapshot2.sources);
+  const current = collectItems(snapshot2.items, sources, now);
+  const site = Object.hasOwn(state.sites, scope) ? state.sites[scope] : emptySite();
+  const known = new Set(site.discovered);
+  const initialized = new Set(site.initializedSources);
+  const unverified = new Set(site.unverified);
+  const firstEntries = [];
+  const newEntries = [];
+  for (const [key, record] of current) {
+    const newSource = record.sources.some((source) => !initialized.has(source));
+    if (record.ended) {
+      unverified.delete(key);
+      continue;
+    }
+    if (known.has(key)) {
+      if (unverified.has(key) && newSource && record.active) {
+        firstEntries.push({ key, sources: unique(record.sources), endAt: record.endAt });
+        unverified.delete(key);
+      } else if (record.upcoming) unverified.delete(key);
+      continue;
+    }
+    const existingSource = record.sources.some((source) => initialized.has(source));
+    if (existingSource || state.baseline === "first" && record.active) {
+      (existingSource ? newEntries : firstEntries).push({ key, sources: unique(record.sources), endAt: record.endAt });
+    } else if (state.baseline === "first" && !record.upcoming) unverified.add(key);
+  }
+  const pending = [];
+  for (const batch of site.pending) {
+    const remaining = batch.entries.flatMap((entry) => {
+      const record = current.get(entry.key);
+      if (!record) {
+        const sourceUnavailable = entry.sources.some((source) => !sources.has(source));
+        const unexpired = entry.endAt === null || entry.endAt > now;
+        return sourceUnavailable && unexpired ? [entry] : [];
+      }
+      const endAt = record.endAt ?? entry.endAt;
+      if (record.ended || endAt !== null && endAt <= now) return [];
+      return [{ key: entry.key, sources: unique([...entry.sources, ...record.sources]), endAt }];
+    });
+    if (remaining.length) pending.push({ ...batch, entries: remaining });
+  }
+  const parents = new Set(newEntries.map((entry) => current.get(entry.key).item.parentKey).filter(Boolean));
+  let nextBatchId = state.nextBatchId;
+  for (const [kind, entries] of [["overview", firstEntries], ["new", newEntries.filter((entry) => !parents.has(entry.key))]]) {
+    if (entries.length) pending.push({ id: nextBatchId++, kind, dueAt: null, entries });
+  }
+  const visible = [];
+  const kinds = /* @__PURE__ */ new Set();
+  for (const batch of pending) {
+    if (batch.dueAt !== null && batch.dueAt > now) continue;
+    const available = batch.entries.filter((entry) => current.has(entry.key));
+    if (!available.length) continue;
+    view.batchIds.push(batch.id);
+    kinds.add(batch.dueAt === null ? batch.kind : "reminder");
+    visible.push(...available);
+  }
+  visible.sort((left, right) => (left.endAt ?? Infinity) - (right.endAt ?? Infinity) || (left.key < right.key ? -1 : Number(left.key > right.key)));
+  return {
+    ...view,
+    kind: kinds.size > 1 ? "reminder" : [...kinds][0] ?? "new",
+    items: visible.map(({ key }) => current.get(key).item),
+    state: {
+      ...state,
+      nextBatchId,
+      sites: { ...state.sites, [scope]: {
+        ...site,
+        initializedSources: unique([...initialized, ...sources]),
+        discovered: unique([...known, ...current.keys()]),
+        unverified: [...unverified],
+        pending
+      } }
+    }
+  };
+}
+__name(enterNotices, "enterNotices");
+function actOnNotices(state, view, action, time) {
+  if (action === "enable" || action === "disable") {
+    const enabled = action === "enable";
+    if (enabled === state.enabled) return state;
+    const sites = Object.fromEntries(Object.entries(state.sites).map(([scope, site2]) => [scope, {
+      ...site2,
+      initializedSources: [],
+      unverified: [],
+      pending: []
+    }]));
+    return { ...state, enabled, baseline: "silent", sites };
+  }
+  if (action !== "snooze" && action !== "acknowledge" || !state.enabled || view?.status !== "ready" || !Object.hasOwn(state.sites, view.scope)) return state;
+  const site = state.sites[view.scope];
+  const batchIds = new Set(view.batchIds);
+  const keys = new Set(view.items.map((item) => item.key));
+  const actedOn = [];
+  const pending = [];
+  for (const batch of site.pending) {
+    if (!batchIds.has(batch.id)) {
+      pending.push(batch);
+      continue;
+    }
+    const remaining = [];
+    for (const entry of batch.entries) {
+      if (keys.has(entry.key)) actedOn.push(entry);
+      else remaining.push(entry);
+    }
+    if (remaining.length) pending.push({ ...batch, entries: remaining });
+  }
+  if (!actedOn.length) return state;
+  const snooze = action === "snooze";
+  if (snooze) {
+    const now = clockTime(time);
+    const dueAt = (Math.floor((now + beijingOffset) / day) + 1) * day - beijingOffset;
+    pending.push({ id: state.nextBatchId, kind: "new", dueAt, entries: actedOn });
+  }
+  const acknowledged = snooze ? site.acknowledged : unique([...site.acknowledged, ...actedOn.map(({ key }) => key)]);
+  return {
+    ...state,
+    nextBatchId: state.nextBatchId + Number(snooze),
+    sites: { ...state.sites, [view.scope]: { ...site, acknowledged, pending } }
+  };
+}
+__name(actOnNotices, "actOnNotices");
+
+// src/client/controller/competition-notices.js
+var storageKey2 = "dsh-playground.competition-notices.v2";
+var legacyStorageKey = "dsh-playground.competition-notices.v1";
 function timeLabel(value) {
   if (!value) return void 0;
-  const timestamp = /^(\d{4}-\d{2}-\d{2})[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(Z|[+-]\d\d:\d\d)?$/.exec(value);
-  if (!timestamp) return value;
-  const [, date, time, seconds, offset] = timestamp;
+  const timestamp2 = /^(\d{4}-\d{2}-\d{2})[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(Z|[+-]\d\d:\d\d)?$/.exec(value);
+  if (!timestamp2) return value;
+  const [, date, time, seconds, offset] = timestamp2;
   const zone = offset === "Z" ? "UTC" : offset ? "UTC" + offset : msg("时区未注明", "time zone unspecified");
   return `${date} ${time}${seconds && seconds !== "00" ? ":" + seconds : ""} (${zone})`;
 }
@@ -1302,18 +1507,20 @@ function noticeDetail(zh, en, keywords) {
 __name(noticeDetail, "noticeDetail");
 function readState(memory) {
   try {
-    const state = JSON.parse(window.localStorage?.getItem(storageKey2) ?? "null");
-    if (typeof state?.enabled === "boolean" && state.seen && typeof state.seen === "object" && Object.values(state.seen).every((site) => Array.isArray(site?.sources) && Array.isArray(site.keys))) return state;
+    const stored = window.localStorage?.getItem(storageKey2) ?? window.localStorage?.getItem(legacyStorageKey);
+    if (stored != null && !memory.unsaved) return createNoticeState(JSON.parse(stored));
   } catch {
   }
-  return memory.state ?? { enabled: true, seen: {} };
+  return memory.state ?? createNoticeState();
 }
 __name(readState, "readState");
 function saveState(memory, state) {
   memory.state = state;
   try {
-    window.localStorage?.setItem(storageKey2, JSON.stringify(state));
+    window.localStorage.setItem(storageKey2, JSON.stringify(state));
+    memory.unsaved = false;
   } catch {
+    memory.unsaved = true;
   }
 }
 __name(saveState, "saveState");
@@ -1324,7 +1531,7 @@ function CompetitionNoticeSetting({ memory }) {
     { className: "pg-field", style: { display: "flex", alignItems: "center", gap: 8, margin: "20px 0" } },
     h("input", { type: "checkbox", checked: enabled, onChange: /* @__PURE__ */ __name((event) => {
       const checked = event.target.checked;
-      saveState(memory, { enabled: checked, seen: {} });
+      saveState(memory, actOnNotices(readState(memory), null, checked ? "enable" : "disable", Date.now()));
       setEnabled(checked);
     }, "onChange") }),
     msg("新比赛提醒", "New competition alerts")
@@ -1342,13 +1549,16 @@ var noticeCss = `
   .pg-notice-entry dt, .pg-notice-entry dd strong { font-weight:700 }
   .pg-notice-entry dd { margin:0; font-weight:400; overflow-wrap:anywhere; white-space:pre-line }
   .pg-notice-entry a { color:var(--pg-task-accent); font-weight:600; text-underline-offset:3px }
-  .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; gap:12px }
+  .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px }
+  .pg-notice-batch { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
+  .pg-contest-notice h2:focus-visible { outline:2px solid var(--pg-task-accent); outline-offset:3px; border-radius:4px }
   .pg-notice-actions .pg-task-create { min-width:90px; background:var(--dsw-alias-button-primary-fill,var(--pg-task-accent)); color:var(--dsw-alias-label-primary-foreground,#fff) }
   .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
   .pg-notice-disable:hover { text-decoration:underline }
 `;
 function CompetitionNotices({ memory, query }) {
-  const [items, setItems] = React6.useState([]);
+  const [view, setView] = React6.useState(null);
+  const hintId = React6.useId();
   React6.useEffect(() => {
     if (!readState(memory).enabled) return;
     const abort = new AbortController();
@@ -1362,34 +1572,28 @@ function CompetitionNotices({ memory, query }) {
       if (abort.signal.aborted || !snapshot2?.ok) return;
       const state = readState(memory);
       if (!state.enabled) return;
-      const site = state.seen[snapshot2.scope];
-      const initialized = new Set(site?.sources);
-      const known = new Set(site?.keys);
-      const fresh = /* @__PURE__ */ new Map();
-      for (const item of snapshot2.items) {
-        if (initialized.has(item.source) && !known.has(item.key) && !fresh.has(item.key)) fresh.set(item.key, item);
-      }
-      for (const source of snapshot2.sources) initialized.add(source);
-      for (const item of snapshot2.items) known.add(item.key);
-      saveState(memory, { enabled: true, seen: { ...state.seen, [snapshot2.scope]: { sources: [...initialized], keys: [...known] } } });
-      const additions = [...fresh.values()];
-      const parents = new Set(additions.map((item) => item.parentKey).filter(Boolean));
-      setItems(additions.filter((item) => !parents.has(item.key)));
+      const next = enterNotices(state, snapshot2, Date.now());
+      if (next.state !== state) saveState(memory, next.state);
+      setView(next);
     }
     __name(check, "check");
     void check();
     return () => abort.abort();
   }, [memory, query]);
-  if (!items.length) return null;
-  const close = /* @__PURE__ */ __name(() => setItems([]), "close");
+  if (!view?.items.length) return null;
+  function dismiss(action) {
+    saveState(memory, actOnNotices(readState(memory), view, action, Date.now()));
+    setView(null);
+  }
+  __name(dismiss, "dismiss");
   const unknown = msg("暂未公布", "Not announced");
-  const title = msg("新比赛提醒", "New competition alerts");
+  const title = view.kind === "overview" ? msg("正在进行的比赛", "Ongoing competitions") : view.kind === "reminder" ? msg("赛事提醒", "Competition reminders") : msg("新比赛提醒", "New competition alerts");
   return h(
     import_dsh_client_ui_primitives2.Modal,
-    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal pg-contest-notice", title, onClose: close },
+    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
     h("style", null, taskModalCss + noticeCss),
-    h("header", { className: "pg-task-header" }, h("h2", null, title)),
-    h("div", { className: "pg-task-body pg-notice-entries" }, items.map((item) => {
+    h("header", { className: "pg-task-header" }, h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title)),
+    h("div", { className: "pg-task-body pg-notice-entries" }, view.items.map((item) => {
       const link = openableWebUrl(item.webUrl);
       return h(
         "article",
@@ -1407,12 +1611,22 @@ function CompetitionNotices({ memory, query }) {
     })),
     h(
       "footer",
-      { className: "pg-task-footer pg-notice-actions" },
-      h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => {
-        saveState(memory, { enabled: false, seen: {} });
-        close();
-      }, "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
-      h("button", { type: "button", className: "pg-task-button pg-task-create", "data-modal-autofocus": true, onClick: close }, msg("知道了", "Got it"))
+      { className: "pg-task-footer" },
+      h("p", { id: hintId }, msg(
+        "「明天再提醒」会在北京时间次日或之后再次打开主控时，显示本批仍有效的赛事。「知道了」仅确认本批。两种操作都保留新赛期提醒。",
+        "Choose Remind me tomorrow to see this batch on your next visit tomorrow or later (Beijing time). Expired entries drop out. Got it dismisses this batch. Either choice keeps alerts for new rounds on."
+      )),
+      h(
+        "div",
+        { className: "pg-notice-actions" },
+        h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
+        h(
+          "div",
+          { className: "pg-notice-batch" },
+          h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
+          h("button", { type: "button", className: "pg-task-button pg-task-create", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it"))
+        )
+      )
     )
   );
 }
