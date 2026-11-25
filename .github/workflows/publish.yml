@@ -91,6 +91,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           archive="dsh-playground-$version.tgz"
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --max-time 30 \
+          # npm can cache early 404s for five minutes while processing a release.
+          curl --fail --silent --show-error --retry 28 --retry-delay 15 --retry-max-time 420 --retry-all-errors --max-time 30 \
             "https://registry.npmjs.org/dsh-playground/-/$archive" --output "$RUNNER_TEMP/public-$archive"
           cmp "$RUNNER_TEMP/playground-package/$archive" "$RUNNER_TEMP/public-$archive"
