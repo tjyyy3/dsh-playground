@@ -3,6 +3,19 @@ import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 
+test('only the admitted browser peer can request a DSH-managed update', async () => {
+  const peer = {};
+  let service, calls = 0;
+  const ctx = { provide: (_, value) => { service = value; }, typert: { register() {} },
+    get: () => ({ browserPeer: peer }), invocation: { peer: {} } };
+  registerWorkbenchQueries(ctx, {}, {}, undefined, async () => { calls++; return { status: 'applied' }; });
+  assert.deepEqual(await service.installRelease({ version: '1.0.0' }), { status: 'unavailable' });
+  assert.equal(calls, 0);
+  ctx.invocation.peer = peer;
+  assert.deepEqual(await service.installRelease({ version: '1.0.0' }), { status: 'applied' });
+  assert.equal(calls, 1);
+});
+
 test('challenge dispatch admits only the exact workspace, session, challenge and request identities', async () => {
   let service;
   let invocations;

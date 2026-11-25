@@ -16,9 +16,9 @@ var __export = (target, all) => {
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    for (let key2 of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key2) && key2 !== except)
+        __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
   }
   return to;
 };
@@ -130,6 +130,103 @@ function diagnosedMessage(result) {
   return result.error.message.trim().slice(0, 2e3);
 }
 __name(diagnosedMessage, "diagnosedMessage");
+
+// src/client/settings/release-checks.js
+var key = ["playground", "release-checks", "v1"].join(".");
+var day = 24 * 60 * 60 * 1e3;
+var supported = ["registry", "git_pinned", "git_unpinned", "file"];
+function createReleaseChecks(query, storage, now = Date.now) {
+  let saved;
+  try {
+    saved = JSON.parse(storage()?.getItem(key));
+  } catch {
+  }
+  const records = { ...saved?.records };
+  let channel = saved?.channel;
+  let state = { enabled: saved?.enabled !== false, version: null };
+  let active;
+  const listeners2 = /* @__PURE__ */ new Set();
+  const publish = /* @__PURE__ */ __name((version2, enabled = state.enabled) => {
+    if (enabled === state.enabled && version2 === state.version) return;
+    state = { enabled, version: version2 };
+    for (const listener of listeners2) listener();
+  }, "publish");
+  const save = /* @__PURE__ */ __name(() => {
+    try {
+      storage()?.setItem(key, JSON.stringify({ enabled: state.enabled, channel, records }));
+    } catch {
+    }
+  }, "save");
+  const identity = /* @__PURE__ */ __name((info) => [info.channel, info.currentVersion, info.installedVersion, info.source].join("/"), "identity");
+  function record(result) {
+    if (!["stable", "beta"].includes(result?.channel)) return;
+    channel = result.channel;
+    const ready = result.status === "ready" && result.registry?.status === "ready" && result.compatible === true && result.comparison === "upgrade" && !result.incomplete && !result.restartRequired && (result.source === "registry" || Boolean(result.target?.gitSpec));
+    const version2 = ready ? result.target?.version : null;
+    records[channel] = { identity: identity(result), at: now(), version: version2 };
+    publish(state.enabled ? version2 : null);
+    save();
+  }
+  __name(record, "record");
+  function cancel() {
+    active?.abort();
+    active = null;
+  }
+  __name(cancel, "cancel");
+  async function check() {
+    if (!state.enabled || active) return;
+    const controller = new AbortController();
+    active = controller;
+    const timer = setTimeout(() => controller.abort(), 15e4);
+    try {
+      const info = await query({ action: "releases", check: false }, controller.signal);
+      if (controller.signal.aborted || !["stable", "beta"].includes(info?.channel)) return;
+      const entry = records[info.channel];
+      if (info.restartRequired || !supported.includes(info.source)) {
+        publish(null);
+        return;
+      }
+      if (channel === info.channel && entry?.identity === identity(info) && entry.at <= now() && now() - entry.at < day) {
+        publish(typeof entry.version === "string" ? entry.version : null);
+        return;
+      }
+      record(info);
+      const result = await query({ action: "releases", check: true, verifyPackage: true }, controller.signal);
+      if (!controller.signal.aborted) record(result);
+    } catch {
+    } finally {
+      clearTimeout(timer);
+      if (active === controller) active = null;
+    }
+  }
+  __name(check, "check");
+  return {
+    getSnapshot: /* @__PURE__ */ __name(() => state, "getSnapshot"),
+    subscribe(listener) {
+      listeners2.add(listener);
+      return () => listeners2.delete(listener);
+    },
+    check,
+    cancel,
+    setEnabled(enabled) {
+      cancel();
+      publish(null, enabled);
+      save();
+      if (enabled) void check();
+    },
+    checked(result) {
+      cancel();
+      record(result);
+    },
+    installed() {
+      cancel();
+      delete records[channel];
+      publish(null);
+      save();
+    }
+  };
+}
+__name(createReleaseChecks, "createReleaseChecks");
 
 // src/client/shared/locale.js
 var locales = {
@@ -356,7 +453,7 @@ function stateLabel(state, t) {
   return Object.hasOwn(locales.en.states, state) ? t(`states.${state}`) : state || t("unknown");
 }
 __name(stateLabel, "stateLabel");
-var zhText = /* @__PURE__ */ __name((key) => key.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key, "zhText");
+var zhText = /* @__PURE__ */ __name((key2) => key2.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key2, "zhText");
 
 // src/client/controller/index.js
 var React7 = __toESM(require("react"), 1);
@@ -774,11 +871,60 @@ __name(LanguageMenu, "LanguageMenu");
 // src/client/settings/releases.js
 var React3 = __toESM(require("react"), 1);
 var releaseCss = `
-  .pg-release{margin-top:12px;overflow-wrap:anywhere}.pg-release-version strong{color:var(--dsw-alias-label-primary)}.pg-release .pg-error{color:var(--pg-error)}
-  .pg-release-controls{align-items:flex-end;justify-content:flex-start;margin-top:10px}
-  .pg-release-link{box-sizing:border-box;display:inline-flex;align-items:center;text-decoration:none}.pg-release-spec{display:block;user-select:all;margin:8px 0}
+  .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
+  .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
+  .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
+  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--dsw-alias-label-secondary); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
+  .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
+  .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
+  .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
+  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--dsw-alias-label-secondary) }.pg-release-version small { font-size:12px }
+  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--dsw-alias-label-primary) }
+  .pg-release-arrow { color:var(--dsw-alias-label-secondary) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
+  .pg-release-pref { min-height:54px; border-top:1px solid var(--dsw-alias-border-l2); font-weight:600; cursor:pointer }
+  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--dsw-alias-label-secondary); border-radius:12px; background:var(--dsw-alias-bg-base); cursor:pointer }
+  .pg-release-pref input::before { content:""; background:var(--dsw-alias-label-secondary); width:14px; height:14px; margin:2px; border-radius:50% }
+  .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
+  @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
+  .pg-release-details { border-top:1px solid var(--dsw-alias-border-l2); padding:10px var(--inset); color:var(--dsw-alias-label-secondary); font-size:13px }.pg-release-details summary { cursor:pointer }
+  .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
+  @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
 `;
-function ReleaseStatusPanel({ query }) {
+function icon(path, size = 16) {
+  return h("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.65,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true
+  }, h("path", { d: path }));
+}
+__name(icon, "icon");
+function ReleaseIndicator({ checks, active, open }) {
+  const { version: version2 } = React3.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
+  React3.useEffect(() => {
+    if (!active) return;
+    void checks.check();
+    window.addEventListener?.("focus", checks.check);
+    return () => window.removeEventListener?.("focus", checks.check);
+  }, [checks, active]);
+  return version2 ? h("button", {
+    type: "button",
+    className: "pg-release-indicator",
+    onClick: open,
+    title: msg(`查看版本 ${version2}`, `View version ${version2}`)
+  }, icon("M4 10a8 8 0 0 1 13-4l3 3m0-5v5h-5M20 14a8 8 0 0 1-13 4l-3-3m0 5v-5h5"), msg("有新版本", "Update available")) : null;
+}
+__name(ReleaseIndicator, "ReleaseIndicator");
+function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
+  const { enabled } = React3.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
+  const heading = React3.useRef(null);
+  const [installState, setInstallState] = React3.useState("");
+  const installing = React3.useRef(false);
   const [info, setInfo] = React3.useState(null);
   const [release, setRelease] = React3.useState({ status: "loading" });
   const [copyStatus, setCopyStatus] = React3.useState("");
@@ -796,7 +942,7 @@ function ReleaseStatusPanel({ query }) {
     const timer = setTimeout(() => controller.abort(new Error("release_rpc_timeout")), check ? 15e4 : 1e4);
     try {
       const next = await Promise.race([
-        query({ action: "releases", check }, controller.signal),
+        query({ action: "releases", check, ...check && checks.getSnapshot().version ? { verifyPackage: true } : {} }, controller.signal),
         new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))
       ]);
       if (latest.controller !== controller) return;
@@ -805,6 +951,7 @@ function ReleaseStatusPanel({ query }) {
         return;
       }
       if (next.channel) setInfo(next);
+      if (check) checks.checked(next);
       setRelease(next.status === "ready" || !release.target ? next : {
         ...release,
         ...next,
@@ -825,9 +972,10 @@ function ReleaseStatusPanel({ query }) {
     }
   }, "load");
   React3.useEffect(() => {
-    load(false);
+    if (visit) heading.current?.focus();
+    load(Boolean(visit));
     return cancel;
-  }, [query]);
+  }, [query, visit]);
   React3.useEffect(() => {
     if (release.error !== "rate_limited" || !release.resetAt) return;
     const timer = setTimeout(() => setRelease({
@@ -841,7 +989,6 @@ function ReleaseStatusPanel({ query }) {
   const channelLabels = { stable: msg("正式版", "Stable"), beta: "Beta" };
   const { status, comparison } = release;
   const target = release.target;
-  const runningChannel = channelLabels[info?.currentChannel];
   const targetChannel = target?.prerelease ? channelLabels.beta : channelLabels.stable;
   const targetLabel = target ? msg(`${target.version}（${targetChannel}）`, `${target.version} (${targetChannel})`) : "";
   const notesUrl = openableWebUrl(target?.notesUrl);
@@ -850,7 +997,7 @@ function ReleaseStatusPanel({ query }) {
   const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
   const registrySource = info?.source === "registry";
   const registryReady = status === "ready" && release.registry?.status === "ready";
-  const installSpec = gitSource ? gitSpec : registrySource && registryReady && target ? `dsh-playground@${target.version}` : null;
+  const installSpec = gitSource ? gitSpec : registrySource && registryReady && target && release.compatible !== false ? `dsh-playground@${target.version}` : null;
   const specLabel = gitSource ? "Git spec" : "npm spec";
   const rateLimited = release.error === "rate_limited";
   const errorText = {
@@ -866,45 +1013,108 @@ function ReleaseStatusPanel({ query }) {
     unchecked: msg("尚未检查更新。", "Updates have not been checked yet."),
     checking: msg("正在检查发布版本…", "Checking releases…"),
     unavailable: errorText,
-    ready: target && registrySource && !registryReady ? release.registry?.status === "pending" ? msg(`GitHub 已发布 ${targetLabel}，npm ${release.registry.stage === "tarball" ? "安装包" : "版本"}尚未就绪（404）。请稍后再次检查更新。`, `GitHub released ${targetLabel}. The npm ${release.registry.stage === "tarball" ? "package" : "version"} is unavailable (404). Check again later.`) : msg(`GitHub 已发布 ${targetLabel}，无法确认 npm 版本及安装包是否就绪${release.registry?.error === "timeout" ? "（检查超时）" : ""}。请检查网络后重试。`, `GitHub released ${targetLabel}. Could not verify npm version and package availability${release.registry?.error === "timeout" ? " (check timed out)" : ""}. Check the network and try again.`) : target ? {
+    ready: target && registrySource && !registryReady ? release.registry?.status === "pending" ? msg(`GitHub 已发布 ${targetLabel}，npm ${release.registry.stage === "tarball" ? "安装包" : "版本"}尚未就绪（404）。请稍后再次检查更新。`, `GitHub released ${targetLabel}. The npm ${release.registry.stage === "tarball" ? "package" : "version"} is unavailable (404). Check again later.`) : msg(`GitHub 已发布 ${targetLabel}，无法确认 npm 版本及安装包是否就绪${release.registry?.error === "timeout" ? "（检查超时）" : ""}。请检查网络后重试。`, `GitHub released ${targetLabel}. Could not verify npm version and package availability${release.registry?.error === "timeout" ? " (check timed out)" : ""}. Check the network and try again.`) : target && release.compatible === false ? msg(`版本 ${targetLabel} 与当前 DSH 不兼容。`, `Version ${targetLabel} is incompatible with this DSH host.`) : target ? {
       current: msg(`当前已运行此版本（${targetChannel}）。`, `You are running this version (${targetChannel}).`),
       upgrade: msg(`可升级至 ${targetLabel}。`, `Update available: ${targetLabel}.`),
       downgrade: msg(`此渠道最新版本 ${targetLabel} 早于运行版本。降级前请核对兼容性；DSH 更新操作不接受旧版本。`, `The newest release on this channel (${targetLabel}) is older than your running version. Check compatibility before downgrading. DSH updates require a newer version.`)
-    }[comparison] || msg(`已发布 ${targetLabel}。`, `${targetLabel} has been released.`) : info?.channel === "beta" ? "Beta 渠道暂无发布。" : "暂无稳定版发布。"
+    }[comparison] || msg(`已发布 ${targetLabel}。`, `${targetLabel} has been released.`) : info?.channel === "beta" ? msg("Beta 渠道暂无发布。", "No releases on the beta channel yet.") : msg("暂无稳定版发布。", "No stable release yet.")
   }[status];
+  const showTarget = status === "ready" && comparison === "upgrade" && target && release.compatible !== false && !info?.restartRequired && (!registrySource || registryReady);
   return h(
     "section",
     { className: "pg-guide pg-release", "aria-label": msg("Playground 版本与更新", "Playground version and updates") },
     h("style", null, releaseCss),
-    h("h2", { className: "pg-brand" }, msg("Playground 版本与更新", "Playground version and updates")),
-    h("p", { className: "pg-note pg-release-version" }, info?.currentVersion ? h(React3.Fragment, null, msg("当前运行版本 ", "Running version "), h("strong", null, info.currentVersion), runningChannel ? ` · ${runningChannel}` : "") : status === "loading" ? msg("正在读取运行版本…", "Reading running version…") : msg("无法读取运行版本。", "Could not read the running version.")),
-    info?.installedVersion ? h("p", { className: "pg-note" }, msg(`磁盘版本 ${info.installedVersion}。${info.restartRequired ? "磁盘版本较新，需要重启 DSH。" : ""}`, `Installed version: ${info.installedVersion}.${info.restartRequired ? " Restart DSH to use the newer version." : ""}`)) : null,
-    info?.sourceHint ? h("p", { className: "pg-note" }, msg(info.sourceHint, {
-      registry: "Installed from npm. Checking for updates verifies the version and its public package on npm.",
-      git_pinned: "Installed from a pinned Git commit. Update in the DSH plugin manager with the release Git spec from the same repository and directory.",
-      git_unpinned: "The current Git spec lacks a full commit SHA. Check releases, then paste a pinned Git spec into the DSH third-party installation field to replace this copy. DSH may request a restart. Remove and reinstall only if DSH returns already-installed.",
-      link: "Local development link. Update the code in the linked directory, then reload or restart as prompted by DSH.",
-      file: "Installed from a local file or archive. Copy a pinned Git spec from GitHub Releases and paste it into the DSH third-party installation field. A restart may be required. Remove and reinstall only if DSH returns already-installed.",
-      unknown: "Installation source unknown. Check the source in the DSH plugin manager before installing or updating."
-    }[info.source] || info.sourceHint)) : null,
     h(
-      "div",
-      { className: "pg-head pg-release-controls" },
-      h("span", { className: "pg-note" }, msg(`更新渠道 ${channelLabels[info?.channel] || "读取中"}。在插件配置 releaseChannel 中修改。`, `Update channel: ${channelLabels[info?.channel] || "Loading"}. Change releaseChannel in the plugin configuration.`)),
+      "header",
+      { className: "pg-release-header" },
+      h("h2", { ref: heading, tabIndex: -1 }, msg("版本与更新", "Version and updates")),
       h(
         "button",
-        { type: "button", className: "pg-button", disabled: status === "loading" || status === "checking" || rateLimited, onClick: /* @__PURE__ */ __name(() => load(true), "onClick") },
+        { type: "button", className: "pg-release-check", disabled: status === "loading" || status === "checking" || rateLimited, onClick: /* @__PURE__ */ __name(() => load(true), "onClick") },
+        icon("M20 10a8 8 0 1 0 0 5m0-11v6h-6", 14),
         status === "checking" ? msg("正在检查…", "Checking…") : rateLimited ? msg("等待额度恢复", "Waiting for rate limit reset") : msg("检查更新", "Check for updates")
       )
     ),
-    info?.channel === "beta" ? h("p", { className: "pg-note" }, msg("Beta 提供抢先功能，可能不稳定。", "Beta includes early features and may be unstable.")) : null,
-    h("p", { className: status === "unavailable" ? "pg-note pg-error" : "pg-note", role: "status" }, statusText),
-    release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note" }, msg("部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。", "Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.")) : null,
-    target ? h(
-      React3.Fragment,
-      null,
-      release.incomplete ? h("p", { className: "pg-note" }, msg("发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。", "The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.")) : null,
-      canReadNotes ? h("a", { className: "pg-button pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
+    h(
+      "div",
+      { className: "pg-release-summary" },
+      h(
+        "div",
+        { className: "pg-release-versions", "aria-live": "polite" },
+        h(
+          "div",
+          { className: "pg-release-version" },
+          h("small", null, msg("当前版本", "Current version")),
+          h("strong", null, info?.currentVersion || (status === "loading" ? "…" : msg("未知", "Unknown")))
+        ),
+        showTarget || target && status === "unavailable" ? h(
+          React3.Fragment,
+          null,
+          h("span", { className: "pg-release-arrow", "aria-hidden": true }, "→"),
+          h("div", { className: "pg-release-version pg-release-target" }, h("small", null, showTarget ? msg("可更新至", "Available version") : msg("上次检查", "Last checked")), h("strong", null, target.version))
+        ) : null
+      ),
+      h(
+        "div",
+        { className: "pg-release-actions" },
+        canReadNotes ? h("a", { className: "pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
+        registryReady && release.canInstall && comparison === "upgrade" && !release.restartRequired && !release.incomplete ? h("button", {
+          type: "button",
+          className: "pg-button pg-primary",
+          disabled: installing.current || ["restart-required", "applied"].includes(installState),
+          onClick: /* @__PURE__ */ __name(async () => {
+            if (installing.current) return;
+            installing.current = true;
+            setInstallState("installing");
+            try {
+              const result = await installRelease(target.version);
+              setInstallState(result.status);
+              if (["restart-required", "applied"].includes(result.status)) {
+                checks.installed();
+                await load(false);
+              }
+            } catch {
+              setInstallState("unverified");
+            } finally {
+              installing.current = false;
+            }
+          }, "onClick")
+        }, msg("立即更新", "Update now")) : null
+      )
+    ),
+    statusText && !showTarget ? h("p", { role: "status", className: status === "unavailable" ? "pg-release-message pg-error" : "pg-note pg-release-message" }, statusText) : null,
+    info?.restartRequired && !installState ? h("p", { className: "pg-note pg-release-message" }, msg("新版已安装，重启 DSH 后生效。", "Update installed. Restart DSH when ready.")) : null,
+    installState ? h("p", { role: "status", className: "pg-note pg-release-message" }, {
+      installing: msg("DSH 正在安装更新…", "DSH is installing the update…"),
+      "restart-required": msg("新版已安装，下次重启 DSH 时生效。", "Update installed. Restart DSH when ready."),
+      applied: msg("新版已生效。", "Update applied."),
+      busy: msg("已有更新正在进行。", "An update is already in progress."),
+      restored: msg("升级失败，DSH 已恢复旧版本。", "The update failed. DSH restored the previous version."),
+      failed: msg("DSH 未能完成升级。请在插件管理器核对已安装版本。", "DSH could not finish the update. Check the installed version in the plugin manager.")
+    }[installState] || msg("请重新检查已安装版本及可用更新。", "Check the installed version and available updates again.")) : null,
+    target && release.incomplete ? h("p", { className: "pg-note pg-release-message" }, msg("发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。", "The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.")) : null,
+    release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note pg-release-message" }, msg("部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。", "Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.")) : null,
+    h(
+      "label",
+      { className: "pg-release-pref" },
+      msg("自动检查更新", "Automatically check for updates"),
+      h("input", { type: "checkbox", role: "switch", checked: enabled, onChange: /* @__PURE__ */ __name((event) => checks.setEnabled(event.target.checked), "onChange") })
+    ),
+    h(
+      "details",
+      { className: "pg-release-details" },
+      h("summary", null, msg("安装详情", "Installation details")),
+      h("p", { className: "pg-note" }, msg(`更新渠道 ${channelLabels[info?.channel] || "读取中"}。在插件配置 releaseChannel 中修改。`, `Update channel: ${channelLabels[info?.channel] || "Loading"}. Change releaseChannel in the plugin configuration.`)),
+      info?.channel === "beta" ? h("p", { className: "pg-note" }, msg("Beta 提供抢先功能，可能不稳定。", "Beta includes early features and may be unstable.")) : null,
+      info?.installedVersion ? h("p", { className: "pg-note" }, msg(`磁盘版本 ${info.installedVersion}。${info.restartRequired ? "磁盘版本较新，需要重启 DSH。" : ""}`, `Installed version: ${info.installedVersion}.${info.restartRequired ? " Restart DSH to use the newer version." : ""}`)) : null,
+      info?.sourceHint ? h("p", { className: "pg-note" }, msg(info.sourceHint, {
+        registry: "Installed from npm. Checking for updates verifies the version and its public package on npm.",
+        git_pinned: "Installed from a pinned Git commit. Update in the DSH plugin manager with the release Git spec from the same repository and directory.",
+        git_unpinned: "The current Git spec lacks a full commit SHA. Check releases, then paste a pinned Git spec into the DSH third-party installation field to replace this copy. DSH may request a restart. Remove and reinstall only if DSH returns already-installed.",
+        link: "Local development link. Update the code in the linked directory, then reload or restart as prompted by DSH.",
+        file: "Installed from a local file or archive. Copy a pinned Git spec from GitHub Releases and paste it into the DSH third-party installation field. A restart may be required. Remove and reinstall only if DSH returns already-installed.",
+        unknown: "Installation source unknown. Check the source in the DSH plugin manager before installing or updating."
+      }[info.source] || info.sourceHint)) : null,
       installSpec ? h(
         React3.Fragment,
         null,
@@ -919,9 +1129,9 @@ function ReleaseStatusPanel({ query }) {
         }, "onClick") }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)),
         h("span", { role: "status", className: "pg-note" }, copyStatus === "copied" ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === "failed" ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : "")
       ) : null,
-      registrySource && registryReady ? h("p", { className: "pg-note" }, msg("npm 版本及公开安装包已就绪。DSH 不会更新第三方 npm 插件，再次安装同名插件会返回 already-installed。先在 DSH 插件管理器卸载本插件，再把上方 npm spec 填入第三方插件安装框重新安装，可能提示重启。插件配置会保留。", "The npm version and public package are ready. DSH cannot update third-party npm plugins in place. Reinstalling an existing package returns already-installed. Remove this plugin in the DSH plugin manager, then paste the npm spec above into the third-party installation field. You may need to restart DSH. Your plugin settings are retained.")) : null,
-      gitSource && !gitSpec ? h("p", { className: "pg-note" }, msg("此 Release 未提供完整 commit SHA，无法生成固定 Git spec。", "This release lacks a full commit SHA, so a pinned Git spec is unavailable.")) : null
-    ) : null
+      registrySource && registryReady && !release.canInstall && release.compatible !== false ? h("p", { className: "pg-note" }, msg("npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。", "The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.")) : null,
+      target && gitSource && !gitSpec ? h("p", { className: "pg-note" }, msg("此 Release 未提供完整 commit SHA，无法生成固定 Git spec。", "This release lacks a full commit SHA, so a pinned Git spec is unavailable.")) : null
+    )
   );
 }
 __name(ReleaseStatusPanel, "ReleaseStatusPanel");
@@ -1285,7 +1495,7 @@ var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primi
 
 // src/client/controller/competition-notice-state.js
 var version = 2;
-var day = 864e5;
+var day2 = 864e5;
 var beijingOffset = 8 * 36e5;
 var activeStatuses = /* @__PURE__ */ new Set(["active", "open", "in_progress"]);
 var endedStatuses = /* @__PURE__ */ new Set(["ended", "closed", "completed", "finished", "expired", "cancelled", "canceled", "archived"]);
@@ -1372,23 +1582,23 @@ function enterNotices(state, snapshot2, time) {
   const unverified = new Set(site.unverified);
   const firstEntries = [];
   const newEntries = [];
-  for (const [key, record] of current) {
+  for (const [key2, record] of current) {
     const newSource = record.sources.some((source) => !initialized.has(source));
     if (record.ended) {
-      unverified.delete(key);
+      unverified.delete(key2);
       continue;
     }
-    if (known.has(key)) {
-      if (unverified.has(key) && newSource && record.active) {
-        firstEntries.push({ key, sources: unique(record.sources), endAt: record.endAt });
-        unverified.delete(key);
-      } else if (record.upcoming) unverified.delete(key);
+    if (known.has(key2)) {
+      if (unverified.has(key2) && newSource && record.active) {
+        firstEntries.push({ key: key2, sources: unique(record.sources), endAt: record.endAt });
+        unverified.delete(key2);
+      } else if (record.upcoming) unverified.delete(key2);
       continue;
     }
     const existingSource = record.sources.some((source) => initialized.has(source));
     if (existingSource || state.baseline === "first" && record.active) {
-      (existingSource ? newEntries : firstEntries).push({ key, sources: unique(record.sources), endAt: record.endAt });
-    } else if (state.baseline === "first" && !record.upcoming) unverified.add(key);
+      (existingSource ? newEntries : firstEntries).push({ key: key2, sources: unique(record.sources), endAt: record.endAt });
+    } else if (state.baseline === "first" && !record.upcoming) unverified.add(key2);
   }
   const pending = [];
   for (const batch of site.pending) {
@@ -1424,7 +1634,7 @@ function enterNotices(state, snapshot2, time) {
   return {
     ...view,
     kind: kinds.size > 1 ? "reminder" : [...kinds][0] ?? "new",
-    items: visible.map(({ key }) => current.get(key).item),
+    items: visible.map(({ key: key2 }) => current.get(key2).item),
     state: {
       ...state,
       nextBatchId,
@@ -1473,10 +1683,10 @@ function actOnNotices(state, view, action, time) {
   const snooze = action === "snooze";
   if (snooze) {
     const now = clockTime(time);
-    const dueAt = (Math.floor((now + beijingOffset) / day) + 1) * day - beijingOffset;
+    const dueAt = (Math.floor((now + beijingOffset) / day2) + 1) * day2 - beijingOffset;
     pending.push({ id: state.nextBatchId, kind: "new", dueAt, entries: actedOn });
   }
-  const acknowledged = snooze ? site.acknowledged : unique([...site.acknowledged, ...actedOn.map(({ key }) => key)]);
+  const acknowledged = snooze ? site.acknowledged : unique([...site.acknowledged, ...actedOn.map(({ key: key2 }) => key2)]);
   return {
     ...state,
     nextBatchId: state.nextBatchId + Number(snooze),
@@ -1649,6 +1859,7 @@ var controllerPanelCss = `
   .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
   .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
   .pg-controller-account { display:flex; align-items:center; position:relative; gap:4px; margin-left:auto; }
+  .pg-controller-bar .pg-release-indicator { display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600; padding:5px 2px; color:var(--dsw-alias-brand-primary); background:transparent; border:0; white-space:nowrap; }
   .pg-language { position:relative; flex:none; }
   .pg-language-menu, .pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
   .pg-language-menu { padding:4px; }
@@ -1783,6 +1994,7 @@ function ControllerPanel(props) {
   const [busy, setBusy] = React7.useState(false);
   const [errorMessage, setError] = React7.useState("");
   const [view, setView] = React7.useState("controller");
+  const [releaseVisit, setReleaseVisit] = React7.useState(0);
   const error = controllerMessage(errorMessage);
   const [dispatchState, setDispatchState] = React7.useState(null);
   const [dispatchControls] = React7.useState(() => ({ busy: false }));
@@ -2103,6 +2315,10 @@ function ControllerPanel(props) {
       h(
         "div",
         { className: "pg-controller-account" },
+        h(ReleaseIndicator, { checks: props.releaseChecks, active: view === "controller", open: /* @__PURE__ */ __name(() => {
+          setReleaseVisit(releaseVisit + 1);
+          setView("settings");
+        }, "open") }),
         h(LanguageMenu),
         h(
           "button",
@@ -2158,7 +2374,12 @@ function ControllerPanel(props) {
         h("h1", null, msg("连接设置", "Connection settings")),
         h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
         view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
-        visited.has("settings") ? h(ReleaseStatusPanel, { query: props.query }) : null
+        visited.has("settings") ? h(ReleaseStatusPanel, {
+          query: props.query,
+          checks: props.releaseChecks,
+          installRelease: props.installRelease,
+          visit: releaseVisit
+        }) : null
       ),
       ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
       view === "controller" && showTasks ? h(
@@ -2694,7 +2915,7 @@ __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
 // src/client/catalog/index.js
 var competitionGroups = /* @__PURE__ */ __name(() => [["live", msg("进行中", "Live")], ["upcoming", msg("即将开始", "Upcoming")], ["ended", msg("已结束", "Ended")]], "competitionGroups");
 var COMPETITION_TONES = { live: "success", upcoming: "warning" };
-var competitionStatusText = /* @__PURE__ */ __name((status) => (competitionGroups().find(([key]) => key === status) || [])[1] || "", "competitionStatusText");
+var competitionStatusText = /* @__PURE__ */ __name((status) => (competitionGroups().find(([key2]) => key2 === status) || [])[1] || "", "competitionStatusText");
 var competitionValue = /* @__PURE__ */ __name((item) => item.kind === "season" ? `season:${item.season}` : `competition:${item.id}`, "competitionValue");
 function scheduleText(value) {
   if (!value || currentLanguage() === "zh") return value;
@@ -2757,10 +2978,10 @@ function uniqueCards(items, seen = /* @__PURE__ */ new Set()) {
 __name(uniqueCards, "uniqueCards");
 function catalogFacets(value) {
   if (!value || typeof value !== "object" || !Array.isArray(value.top)) return void 0;
-  const key = /* @__PURE__ */ __name((entry) => typeof entry === "string" && entry.length > 0 && entry.length <= 100, "key");
+  const key2 = /* @__PURE__ */ __name((entry) => typeof entry === "string" && entry.length > 0 && entry.length <= 100, "key");
   return {
-    top: value.top.filter((entry) => key(entry?.key)).map((entry) => entry.key),
-    otherKeys: Array.isArray(value.otherKeys) ? value.otherKeys.filter(key) : []
+    top: value.top.filter((entry) => key2(entry?.key)).map((entry) => entry.key),
+    otherKeys: Array.isArray(value.otherKeys) ? value.otherKeys.filter(key2) : []
   };
 }
 __name(catalogFacets, "catalogFacets");
@@ -2935,10 +3156,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const periods = competitionPeriods(selectedCompetition);
   const selectedPeriod = period ? periods.find((item) => item.slug === period) : void 0;
   const groups = officialGroups(selectedPeriod ?? (periods.length ? void 0 : selectedCompetition));
-  const chooseGroup = /* @__PURE__ */ __name((key) => {
-    if (key === group) return;
-    setGroup(key);
-    load({ group: key });
+  const chooseGroup = /* @__PURE__ */ __name((key2) => {
+    if (key2 === group) return;
+    setGroup(key2);
+    load({ group: key2 });
   }, "chooseGroup");
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
@@ -2962,10 +3183,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const disciplineOptions = facets?.top || [];
   const activeDisciplineMissing = disciplineChoice && disciplineChoice !== OTHER_DISCIPLINE && !disciplineOptions.includes(disciplineChoice);
   const applyOther = /* @__PURE__ */ __name(() => {
-    const key = otherDiscipline.trim();
-    if (!key) return;
-    setAppliedOther(key);
-    load({}, { discipline: key });
+    const key2 = otherDiscipline.trim();
+    if (!key2) return;
+    setAppliedOther(key2);
+    load({}, { discipline: key2 });
   }, "applyOther");
   return h(
     "section",
@@ -3034,7 +3255,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
             else load({}, { discipline: nextDiscipline });
           }, "onChange") },
           h("option", { value: "" }, msg("全部学科", "All disciplines")),
-          disciplineOptions.map((key) => h("option", { key, value: key }, key)),
+          disciplineOptions.map((key2) => h("option", { key: key2, value: key2 }, key2)),
           activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
           h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
         )
@@ -3067,7 +3288,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
           }),
           h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
         ),
-        facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key) => h("option", { key, value: key }))) : null
+        facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key2) => h("option", { key: key2, value: key2 }))) : null
       ) : null,
       h(
         "label",
@@ -3693,11 +3914,11 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
         "details",
         { className: "pg-advanced" },
         h("summary", null, msg("材料引用（可选）", "Material references (optional)")),
-        h("div", { className: "pg-form" }, ...[["outputs_path", msg("产物目录", "Output directory")], ["bundle_path", msg("评测包路径", "Evaluation bundle path")], ["trace_path", msg("执行轨迹路径", "Execution trace path")], ["manifest_path", msg("Manifest 路径", "Manifest path")]].map(([key, label2]) => h("label", { key, className: "pg-field" }, label2, h("input", {
+        h("div", { className: "pg-form" }, ...[["outputs_path", msg("产物目录", "Output directory")], ["bundle_path", msg("评测包路径", "Evaluation bundle path")], ["trace_path", msg("执行轨迹路径", "Execution trace path")], ["manifest_path", msg("Manifest 路径", "Manifest path")]].map(([key2, label2]) => h("label", { key: key2, className: "pg-field" }, label2, h("input", {
           className: "pg-input",
-          value: files[key] || "",
+          value: files[key2] || "",
           disabled: disabled || active,
-          onChange: /* @__PURE__ */ __name((event) => setFiles({ ...files, [key]: event.target.value }), "onChange")
+          onChange: /* @__PURE__ */ __name((event) => setFiles({ ...files, [key2]: event.target.value }), "onChange")
         })))),
         h("p", { className: "pg-note" }, msg("仅传递路径，不读取内容或检查格式。留空时由 Agent 根据任务上下文处理，外部材料需先授权。", "Only paths are passed. The plugin does not read files or check their format. Leave the fields blank to use the task context. External materials require permission."))
       ),
@@ -4479,6 +4700,9 @@ var plugin = {
       if (result.ok) return result.value;
       throw new Error(queryFailure(result.error));
     }, "requestHost");
+    const query = /* @__PURE__ */ __name((input, signal) => requestHost("query", input, signal), "query");
+    const releaseChecks = createReleaseChecks(query, () => globalThis.window?.localStorage);
+    ctx.effect(() => () => releaseChecks.cancel());
     const actions = {
       controllerSelection,
       noticeMemory: {},
@@ -4515,7 +4739,9 @@ var plugin = {
         ctx.layout.selectPanel("playground");
       }, "openWorkbench"),
       refreshProjections: /* @__PURE__ */ __name((sessionId) => ctx.sessions.refreshProjections(sessionId), "refreshProjections"),
-      query: /* @__PURE__ */ __name((input, signal) => requestHost("query", input, signal), "query"),
+      query,
+      releaseChecks,
+      installRelease: /* @__PURE__ */ __name((version2) => requestHost("installRelease", { version: version2 }), "installRelease"),
       materials: /* @__PURE__ */ __name((input) => requestHost("materials", input), "materials"),
       submission: /* @__PURE__ */ __name((input) => requestHost("submission", input), "submission"),
       run: /* @__PURE__ */ __name(async (sessionId, input) => {
@@ -4563,7 +4789,7 @@ var plugin = {
     };
     ctx.effect(() => ctx.locale.register("playground", Object.fromEntries(
       Object.entries(locales).map(([language, messages]) => [language, Object.fromEntries(
-        Object.entries(messages).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : Object.entries(value).map(([childKey, text]) => [`${key}.${childKey}`, text]))
+        Object.entries(messages).flatMap(([key2, value]) => typeof value === "string" ? [[key2, value]] : Object.entries(value).map(([childKey, text]) => [`${key2}.${childKey}`, text]))
       )])
     )));
     ctx.slots.inject("main", () => ctx.slots.register({
@@ -4604,8 +4830,8 @@ var plugin = {
       }
     });
     ctx.slots.inject("conversation.chat.commandview", function* () {
-      for (const key of ["playground", "playground-confirm", "playground-auth-login"]) {
-        yield ctx.slots.register({ name: "conversation.chat.commandview", key, inject: /* @__PURE__ */ __name(() => actions, "inject") }, PlaygroundCommandCard);
+      for (const key2 of ["playground", "playground-confirm", "playground-auth-login"]) {
+        yield ctx.slots.register({ name: "conversation.chat.commandview", key: key2, inject: /* @__PURE__ */ __name(() => actions, "inject") }, PlaygroundCommandCard);
       }
       yield ctx.slots.register({ name: "conversation.chat.commandview", key: "playground-controller" }, ControllerWelcome);
     });

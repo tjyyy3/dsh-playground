@@ -2,6 +2,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store';
 import { h } from './shared/react.js';
 import { followHostLocale, msg } from './shared/language.js';
 import { queryFailure, safeMessage } from './shared/errors.js';
+import { createReleaseChecks } from './settings/release-checks.js';
 import { locales } from './shared/locale.js';
 import { ControllerPanel, ControllerSession, ControllerSessionContent, TRAJECTORY_VIEW_ID } from './controller/index.js';
 import { PlaygroundWorkbench } from './workbench.js';
@@ -56,6 +57,9 @@ const plugin = {
       if (result.ok) return result.value;
       throw new Error(queryFailure(result.error));
     };
+    const query = (input, signal) => requestHost('query', input, signal);
+    const releaseChecks = createReleaseChecks(query, () => globalThis.window?.localStorage);
+    ctx.effect(() => () => releaseChecks.cancel());
     const actions = {
       controllerSelection,
       noticeMemory: {},
@@ -90,7 +94,8 @@ const plugin = {
         ctx.layout.selectPanel('playground');
       },
       refreshProjections: (sessionId) => ctx.sessions.refreshProjections(sessionId),
-      query: (input, signal) => requestHost('query', input, signal),
+      query, releaseChecks,
+      installRelease: version => requestHost('installRelease', { version }),
       materials: (input) => requestHost('materials', input),
       submission: (input) => requestHost('submission', input),
       run: async (sessionId, input) => {

@@ -5,7 +5,7 @@ import { workspaceOptions } from '../shared/workspaces.js';
 import { css } from '../shared/styles.js';
 import { AuthStatusPanel } from '../settings/auth.js';
 import { LanguageMenu } from '../settings/language.js';
-import { ReleaseStatusPanel } from '../settings/releases.js';
+import { ReleaseStatusPanel, ReleaseIndicator } from '../settings/releases.js';
 import { controllerMessage } from './messages.js';
 import { CodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog } from './handoff.js';
@@ -27,6 +27,7 @@ const controllerPanelCss = `
   .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
   .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
   .pg-controller-account { display:flex; align-items:center; position:relative; gap:4px; margin-left:auto; }
+  .pg-controller-bar .pg-release-indicator { display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600; padding:5px 2px; color:var(--dsw-alias-brand-primary); background:transparent; border:0; white-space:nowrap; }
   .pg-language { position:relative; flex:none; }
   .pg-language-menu, .pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
   .pg-language-menu { padding:4px; }
@@ -148,6 +149,7 @@ function ControllerPanel(props) {
   const [busy, setBusy] = React.useState(false);
   const [errorMessage, setError] = React.useState('');
   const [view, setView] = React.useState('controller');
+  const [releaseVisit, setReleaseVisit] = React.useState(0);
   const error = controllerMessage(errorMessage);
   const [dispatchState, setDispatchState] = React.useState(null);
   const [dispatchControls] = React.useState(() => ({ busy: false }));
@@ -369,7 +371,10 @@ function ControllerPanel(props) {
       } }, h('option', { value: '' }, msg('选择工作区', 'Select workspace')), workspaceOptions(workspaces.items), h('option', { value: '__add_workspace__', disabled: busy }, msg('添加工作区…', 'Add workspace…'))),
       h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; setView(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
         [['controller', msg('对话', 'Chat')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => setView(id) }, title))),
-      h('div', { className: 'pg-controller-account' }, h(LanguageMenu),
+      h('div', { className: 'pg-controller-account' },
+      h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: () => {
+        setReleaseVisit(releaseVisit + 1); setView('settings');
+      } }), h(LanguageMenu),
       h('button', { className: 'pg-controller-connection', title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: () => setView('settings') },
         h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
         { checking: msg('检查中…', 'Checking…'), authenticated: msg('已登录', 'Signed in'), unauthenticated: msg('未登录', 'Signed out'), unavailable: msg('检测失败', 'Check failed') }[authStatus])),
@@ -397,7 +402,8 @@ function ControllerPanel(props) {
       h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } },
         h('style', null, css), h('h1', null, msg('连接设置', 'Connection settings')), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
         view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
-        visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query }) : null),
+        visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query, checks: props.releaseChecks,
+          installRelease: props.installRelease, visit: releaseVisit }) : null),
       ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff } : {}) })) : null),
       view === 'controller' && showTasks ? h(React.Fragment, null,
         h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': msg('调整任务侧栏宽度', 'Resize task sidebar'), 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,

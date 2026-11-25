@@ -4,10 +4,85 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { createReleaseQuery, classifyInstallSource } from '../lib/releases.js';
+import { createReleaseQuery, classifyInstallSource, createReleaseInstaller } from '../lib/releases.js';
+import { createReleaseChecks } from '../src/client/settings/release-checks.js';
 import { DEFAULT_MAX_RESPONSE_BYTES } from '../lib/api.js';
 
 const sha = 'a'.repeat(40);
+
+test('automatic release checks persist a verified badge, throttle per channel and respect opt-out', async () => {
+  const info = { channel: 'beta', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  const result = { status: 'ready', compatible: true, registry: { status: 'ready' },
+    comparison: 'upgrade', target: { version: '1.0.1' } };
+  let count = 0;
+  let time = 1000;
+  let saved;
+  const make = () => createReleaseChecks(async ({ check }) => {
+    if (check) count++;
+    return { ...info, ...(check ? result : { status: 'unchecked' }) };
+  }, () => ({ getItem: () => saved, setItem: (_, value) => { saved = value; } }), () => time);
+  let checks = make();
+  await Promise.all([checks.check(), checks.check()]);
+  assert.equal(count, 1);
+  checks = make();
+  await checks.check();
+  assert.equal(checks.getSnapshot().version, '1.0.1');
+  assert.equal(count, 1);
+  info.channel = 'stable';
+  result.compatible = false;
+  await checks.check();
+  assert.equal(count, 2);
+  assert.equal(checks.getSnapshot().version, null);
+  time += 86400000;
+  result.compatible = true;
+  result.registry.status = 'pending';
+  await checks.check();
+  assert.equal(count, 3);
+  assert.equal(checks.getSnapshot().version, null);
+  checks.setEnabled(false);
+  checks = make();
+  info.channel = 'beta';
+  await checks.check();
+  assert.equal(count, 3);
+  assert.equal(checks.getSnapshot().enabled, false);
+});
+
+test('a late check cannot redisplay an update after the user opts out', async () => {
+  let complete;
+  const info = { channel: 'stable', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  const checks = createReleaseChecks(async ({ check }) => check
+    ? new Promise(resolve => { complete = resolve; }) : info, () => null);
+  const pending = checks.check();
+  await Promise.resolve();
+  checks.setEnabled(false);
+  complete({ ...info, status: 'ready', comparison: 'upgrade', compatible: true, registry: { status: 'ready' }, target: { version: '2' } });
+  await pending;
+  assert.deepEqual(checks.getSnapshot(), { enabled: false, version: null });
+});
+
+test('an explicit upgrade revalidates the exact target and checks the installed version through DSH', async () => {
+  const version = '1.0.1';
+  const target = { canInstall: true, source: 'registry', comparison: 'upgrade', registry: { status: 'ready' }, target: { version } };
+  let installed = '1.0.0';
+  const calls = [];
+  const manager = { listBundles: () => [{ name: 'dsh-playground', version: installed }],
+    updateBundle(name, version) { calls.push([name, version]); return { result: { application: 'restart-required' } }; } };
+  const install = createReleaseInstaller(async () => target, () => manager);
+  assert.equal((await install({ version: 'latest' })).status, 'unavailable');
+  target.restartRequired = true;
+  assert.equal((await install({ version })).status, 'unavailable');
+  assert.deepEqual(calls, []);
+  target.restartRequired = false;
+  assert.equal((await install({ version })).status, 'unverified');
+  installed = version;
+  assert.equal((await install({ version })).status, 'restart-required');
+  assert.deepEqual(calls, [['dsh-playground', version], ['dsh-playground', version]]);
+  manager.updateBundle = () => ({ result: { application: 'failed' }, restore: { application: 'applied' } });
+  target.installedVersion = '1.0.0';
+  assert.equal((await install({ version })).status, 'unverified');
+  installed = target.installedVersion;
+  assert.equal((await install({ version })).status, 'restored');
+});
 const api = 'https://api.github.com/repos/tjyyy3/dsh-playground/releases';
 const release = (version, fields = {}) => ({ tag_name: `v${version}`, draft: false,
   prerelease: version.split('+')[0].includes('-'), body: `Commit: ${sha}\nGit spec: github:tjyyy3/dsh-playground#${sha}\n`, ...fields });

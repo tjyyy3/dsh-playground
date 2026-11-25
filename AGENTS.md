@@ -45,18 +45,13 @@ title or description uses another language.
 ## Repository boundaries
 
 - Install from DSH's third-party plugin UI with the npm spec `dsh-playground@beta`
-  (`dsh-playground` once a stable release exists). DSH does not update
-  third-party npm plugins and refuses a registry spec whose name is already
-  installed, so npm updates remove the plugin and install the spec again; the
-  profile config overrides survive. The repository URL is the fallback: Git
+  (`dsh-playground` once a stable release exists). For npm upgrades, a verified browser click may request the exact compatible release through DSH. Older hot-reload hosts require a manual reinstall; profile overrides survive. The repository URL is the fallback: Git
   updates install the pinned Git spec that the version card copies from a
   GitHub Release over the existing copy; remove and reinstall only if DSH
   returns `already-installed`. Installs before 0.6.0 use the old package name
   `@playground/dsh-playground`; migrating means removing it before installing
   `dsh-playground`, never keeping both. The low-level `plugin_manager` command
-  is a fallback for Creator-mode debugging. This plugin never installs or
-  updates itself. Its read-only version card uses the configured
-  `releaseChannel`.
+  is a fallback for Creator-mode debugging. Background checks never install. DSH owns installation, and the version panel uses the configured releaseChannel.
 - Publishing the GitHub Release draft triggers `.github/workflows/publish.yml`,
   which publishes to npm through trusted publishing (`beta` dist-tag for
   `-beta.N`, `latest` otherwise). Do not add an npm token.
@@ -130,7 +125,7 @@ passes authorized material references, and tracks verified attempt IDs and resul
 It does not upload materials or run submission prechecks. Browser cancellation
 recovers stranded requests while retaining their IDs and reconciliation context.
 Historical cards remain readable without executable submission handlers.
-The read-only version card shows running and on-disk versions, install source,
+The version card shows running and on-disk versions, install source,
 the exact npm version spec only after its public metadata and tarball are available,
 and Release-derived pinned Git specs for Git installs. Checks use the configured stable or beta channel. DSH owns
 installation and updates.

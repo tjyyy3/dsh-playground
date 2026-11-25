@@ -6,13 +6,13 @@
 
 无法访问 npm 时，从 GitHub Release 的说明复制 `github:tjyyy3/dsh-playground#<40 位 SHA>` 安装。SHA 来自 Release 正文的 `Commit: <SHA>`，插件不通过可移动的 tag 引用推导 SHA。
 
-DSH 插件管理器拥有安装、更新、兼容性检查和失败恢复。插件的版本卡只读，不下载压缩包或调用安装、更新 API。
+DSH 插件管理器负责安装、应用和恢复。自动检查只读。用户在工作台点击立即更新后，Host 再次核对精确目标并调用 DSH。
 
 不同安装来源的处理方式如下。
 
 | 来源 | 更新方式 |
 | --- | --- |
-| npm（registry） | DSH 只为官方插件目录提供更新按钮，第三方 npm 插件没有。安装框对已安装的同名插件返回 `already-installed`。先卸载，再安装版本卡复制的固定版本 spec，例如 `dsh-playground@0.6.0-beta.1`。卡片同时以文字提示浮动 tag `dsh-playground@beta` 或 `dsh-playground`。卸载不删除 profile 中的配置覆盖。 |
+| npm（registry） | 优先使用宿主的 `updateBundle`。没有此接口且未启用热重载时，由宿主安装精确版本并提示重启。无法原地更新时，卡片保留手动重装指引。 |
 | 固定 commit 的 Git spec | 向 DSH 插件管理器提供新 Release 的固定 Git spec。目标必须是同一仓库和 `path:` 目录，版本必须更高。 |
 | 未固定 commit 的 Git spec | DSH 无法更新该来源。将 Release 的固定 Git spec 填入第三方插件安装框，覆盖安装当前副本，按提示重启。 |
 | `link:` | 在链接目录更新代码，再按 DSH 提示重新加载或重启。 |
@@ -37,7 +37,7 @@ DSH 插件管理器拥有安装、更新、兼容性检查和失败恢复。插�
 releaseChannel: beta
 ```
 
-`stable` 选择最高的非预发布版本。`beta` 选择最高版本，包括正式版。打开卡片只读取本地版本与安装来源；点击 **检查更新** 后才查询公开 GitHub Releases。每个渠道的成功结果缓存三分钟，普通失败、超时和未找到目标的不完整结果不缓存，可立即重试。每页请求限时 20 秒，最多五页；客户端检查调用限时 120 秒，本地版本读取限时 10 秒。检查超时、请求失败、读取不完整和限流分别显示，已知限流恢复时间之前不再请求 GitHub。额度恢复后保留已有的版本目标和警告。
+`stable` 选择最高正式版本，`beta` 包括预发布。主控打开后按渠道自动检查，客户端在 24 小时内复用检查记录。可关闭自动检查或手动重查。成功的 GitHub 发布列表缓存三分钟；已知限流恢复前不重新请求 GitHub。
 
 ## 准备新 Release
 
@@ -66,8 +66,8 @@ Host 的 [App boot 文档](https://github.com/deepseek-ai/deepseek-harness/blob/
 ## 验证安装、更新和回退
 
 1. 在单独的 DSH 测试配置中分别从 `dsh-playground@beta` 和 Release 的固定 spec 安装，核对来源和运行版本。
-2. npm 来源卸载后重新安装较新版本，核对配置保留；Git 来源用较新版本的固定 spec 执行 Host 更新，核对兼容性拒绝和安装失败恢复。
+2. npm 来源在支持的宿主中点击立即更新并核对配置保留；旧宿主热重载模式核对手动重装指引；Git 来源用较新版本的固定 spec 执行 Host 更新，核对兼容性拒绝和安装失败恢复。
 3. 分别验证刷新、重建、重启和卡片按钮，核对磁盘较新时的重启提示。
 4. 回退前核对目标 Release 的兼容信息。npm 来源卸载后安装 `dsh-playground@<旧版本>`。Git 来源的 Host 更新拒绝旧版本，可通过第三方插件安装框覆盖安装旧的固定 spec；仅当返回 `already-installed` 时才移除后重新安装。
 
-截至此变更，npm 发布工作流未实际运行，真实 DSH 的 npm 安装、卸载重装及上述交互尚未验证。离线测试只能证明使用伪 Host 和伪 GitHub 响应时的行为。
+升级验证使用隔离的 profile。重启后核对磁盘版本、工作区和原对话，避免把“安装请求已接受”当成升级完成。
