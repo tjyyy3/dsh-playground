@@ -121,7 +121,7 @@ test('competition alerts baseline, batch new entries and resume quietly after op
   assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-1', 'new-2']);
   const [sparse, weekly] = findAll(first, (node) => node.type === 'article');
   assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['截止']);
-  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['截止', '奖励', '参赛资源', '开始']);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['开始', '截止', '奖励', '参赛资源']);
   assert.deepEqual(findAll(weekly, (node) => node.type === 'strong').map(text), ['17,000 元', '算力支持']);
   assert.equal(buttonLabeled(f, first, '知道了').props['data-modal-autofocus'], true);
   buttonLabeled(f, first, '知道了').props.onClick();

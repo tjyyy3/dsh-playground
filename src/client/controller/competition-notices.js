@@ -108,10 +108,10 @@ export function CompetitionNotices({ memory, query }) {
         h('h3', null, msg(item.titleZh || item.title, item.title || item.titleZh)),
         h('p', null, msg(item.summaryZh || item.summary, item.summary || item.summaryZh) || msg('比赛简介暂未公布', 'Competition summary not announced')),
         h('dl', null, [
+          [msg('开始', 'Starts'), timeLabel(item.startAt)],
           [msg('截止', 'Deadline'), timeLabel(item.endAt) || unknown],
           [msg('奖励', 'Rewards'), noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i)],
           [msg('参赛资源', 'Resources'), noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i)],
-          [msg('开始', 'Starts'), timeLabel(item.startAt)],
         ].filter(([, value]) => value).map(([label, value]) => h(React.Fragment, { key: label }, h('dt', null, label), h('dd', null, value)))),
         link ? h('a', { href: link, target: '_blank', rel: 'noopener noreferrer' }, msg('查看比赛', 'View competition')) : null);
     })),
