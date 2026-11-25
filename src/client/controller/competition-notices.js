@@ -16,6 +16,14 @@ function timeLabel(value) {
   return `${date} ${time}${seconds && seconds !== '00' ? ':' + seconds : ''} (${zone})`;
 }
 
+function noticeDetail(zh, en, keywords) {
+  const published = (value) => value?.trim().replace(/^(?:暂未公布|尚未公布|待公布|未公布|无|not announced|to be announced|none|TBA|TBD)[。.!！]?$/i, '');
+  const chinese = published(zh);
+  const english = published(en);
+  const value = msg(chinese || english, english || chinese);
+  return value && value.split(keywords).map((part, index) => index % 2 ? h('strong', { key: index }, part) : part);
+}
+
 function readState(memory) {
   try {
     const state = JSON.parse(window.localStorage?.getItem(storageKey) ?? 'null');
@@ -42,16 +50,16 @@ export function CompetitionNoticeSetting({ memory }) {
 }
 
 const noticeCss = `
-  .pg-task-modal.pg-contest-notice { border:1px solid var(--pg-task-border); box-shadow:0 12px 48px rgba(0,0,0,.16) }
-  .pg-notice-entries { overflow-y:auto; overscroll-behavior:contain; min-height:0 }
+  .pg-task-modal.pg-contest-notice { width:590px; border:1px solid var(--pg-task-border); box-shadow:0 12px 48px rgba(0,0,0,.16) }
+  .pg-notice-entries { overflow-y:auto; overscroll-behavior:contain; min-height:0; gap:16px }
   .pg-notice-entry { min-width:0 }
   .pg-notice-entry + .pg-notice-entry { border-top:1px solid var(--pg-task-border); padding-top:16px }
-  .pg-notice-entry h3 { font-size:16px; line-height:1.5; margin:0; overflow-wrap:anywhere }
-  .pg-notice-entry p { line-height:1.6; margin:4px 0 12px; overflow-wrap:anywhere }
+  .pg-notice-entry h3 { font-size:19px; line-height:1.35; font-weight:700; margin:0; overflow-wrap:anywhere }
+  .pg-notice-entry p { color:var(--pg-task-secondary); line-height:1.6; margin:6px 0 12px; overflow-wrap:anywhere }
   .pg-notice-entry dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 16px; margin:0 0 12px; line-height:1.5 }
-  .pg-notice-entry dt { color:var(--pg-task-secondary) }
-  .pg-notice-entry dd { margin:0; overflow-wrap:anywhere; white-space:pre-line }
-  .pg-notice-entry a { color:var(--pg-task-accent); text-underline-offset:3px }
+  .pg-notice-entry dt, .pg-notice-entry dd strong { font-weight:700 }
+  .pg-notice-entry dd { margin:0; font-weight:400; overflow-wrap:anywhere; white-space:pre-line }
+  .pg-notice-entry a { color:var(--pg-task-accent); font-weight:600; text-underline-offset:3px }
   .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; gap:12px }
   .pg-notice-actions .pg-task-create { min-width:90px; background:var(--dsw-alias-button-primary-fill,var(--pg-task-accent)); color:var(--dsw-alias-label-primary-foreground,#fff) }
   .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
@@ -100,10 +108,11 @@ export function CompetitionNotices({ memory, query }) {
         h('h3', null, msg(item.titleZh || item.title, item.title || item.titleZh)),
         h('p', null, msg(item.summaryZh || item.summary, item.summary || item.summaryZh) || msg('比赛简介暂未公布', 'Competition summary not announced')),
         h('dl', null, [
-          [msg('开始时间', 'Starts'), timeLabel(item.startAt)], [msg('结束时间', 'Ends'), timeLabel(item.endAt)],
-          [msg('奖励', 'Rewards'), msg(item.rewardZh || item.reward, item.reward || item.rewardZh)],
-          [msg('平台资源', 'Platform resources'), msg(item.resourcesZh || item.resources, item.resources || item.resourcesZh)],
-        ].map(([label, value]) => h(React.Fragment, { key: label }, h('dt', null, label), h('dd', null, value || unknown)))),
+          [msg('截止', 'Deadline'), timeLabel(item.endAt) || unknown],
+          [msg('奖励', 'Rewards'), noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i)],
+          [msg('参赛资源', 'Resources'), noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i)],
+          [msg('开始', 'Starts'), timeLabel(item.startAt)],
+        ].filter(([, value]) => value).map(([label, value]) => h(React.Fragment, { key: label }, h('dt', null, label), h('dd', null, value)))),
         link ? h('a', { href: link, target: '_blank', rel: 'noopener noreferrer' }, msg('查看比赛', 'View competition')) : null);
     })),
     h('footer', { className: 'pg-task-footer pg-notice-actions' },

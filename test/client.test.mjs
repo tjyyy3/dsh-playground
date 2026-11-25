@@ -113,10 +113,16 @@ test('competition alerts baseline, batch new entries and resume quietly after op
   snapshot = { ...snapshot, sources: [], items: [] };
   assert.equal(await enter(), null);
   snapshot = { ...snapshot, sources: ['seasons', 'periods'], items: [row('existing'), row('new contest'),
-    { ...row('new-1'), parentKey: 'new contest' }, { ...row('new-2'), parentKey: 'new contest' }, row('old period', 'periods')] };
+    { ...row('new-1'), parentKey: 'new contest', rewardZh: '暂未公布', resources: ' ' },
+    { ...row('new-2'), parentKey: 'new contest', endAt: '2026-11-25T21:00:00+08:00', startAt: '2026-11-18',
+      rewardZh: '总奖池 17,000 元，10 个赛道。', resourcesZh: '填问卷可获得算力支持。' }, row('old period', 'periods')] };
   const first = await enter();
   assert.equal(first.type, 'native-modal');
   assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-1', 'new-2']);
+  const [sparse, weekly] = findAll(first, (node) => node.type === 'article');
+  assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['截止']);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['截止', '奖励', '参赛资源', '开始']);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'strong').map(text), ['17,000 元', '算力支持']);
   assert.equal(buttonLabeled(f, first, '知道了').props['data-modal-autofocus'], true);
   buttonLabeled(f, first, '知道了').props.onClick();
   assert.equal(await enter(), null);
