@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createCatalog } from '../lib/catalog.js';
 import { createCompetitionSchedulesReader } from '../lib/competition-schedules.js';
+import { readCompetitionNotices } from '../lib/competition-notices.js';
+import { actOnNotices, createNoticeState, enterNotices } from '../src/client/controller/competition-notice-state.js';
 
-const pageUrl = new URL('https://play.example/competition/bohr-product');
+const pageUrl = new URL('https://play.example/contests');
 const firstEntry = '/assets/index-AbCd1234.js';
 const nextEntry = '/assets/weekly-Q7v8X_9z.js';
 const page = (entry) => `<!doctype html><head><script crossorigin SRC="${entry}" type=module></script></head>`;
@@ -11,6 +13,92 @@ const bohrProduct = 'bohr-product';
 const scientificFacilities = 'scientific-facilities';
 const pku = 'pku';
 const unavailable = { periods: undefined, stale: true };
+
+test('first visit lists confirmed live contests by deadline, ignoring expired status, invalid dates and unzoned windows', () => {
+  const now = Date.parse('2026-11-25T10:00:00+08:00');
+  const item = (key, fields) => ({ key, source: 'seasons', ...fields });
+  const snapshot = { ok: true, scope: 'example', sources: ['seasons', 'hub'], items: [
+    item('no-date', { officialStatus: 'active' }),
+    item('active-but-ended', { officialStatus: 'open', endAt: '2026-11-25T02:00:00Z' }),
+    item('invalid-calendar', { startAt: '2026-02-30T00:00:00Z', endAt: '2027-01-01T00:00:00Z' }),
+    item('need-zone', { startAt: '2026-01-01T00:00:00', endAt: '2027-01-01T00:00:00' }),
+    item('closed', { officialStatus: 'closed', startAt: '2026-11-20T12:00:00Z', endAt: '2026-12-20T12:00:00Z' }),
+    item('today', { startAt: '2026-11-25T02:00:00Z', endAt: '2026-11-25T21:00:00+08:00' }),
+    item('today', { source: 'hub', officialStatus: 'active' }),
+    item('future', { startAt: '2026-11-26T10:00:00+08:00', endAt: '2026-11-27T10:00:00+08:00' }),
+  ] };
+  const fresh = createNoticeState();
+  assert.equal(enterNotices(fresh, { ...snapshot, ok: false }, now).state, fresh);
+  const first = enterNotices(fresh, snapshot, now);
+  assert.equal(first.kind, 'overview');
+  assert.deepEqual(first.items.map(({ key }) => key), ['today', 'no-date']);
+  const confirmed = actOnNotices(first.state, first, 'acknowledge', now);
+  assert.deepEqual(enterNotices(createNoticeState(JSON.parse(JSON.stringify(confirmed))), snapshot, now).items, []);
+  const empty = enterNotices(fresh, { ...snapshot, items: [] }, now);
+  assert.deepEqual(empty.items, []);
+  assert.equal(enterNotices(empty.state, snapshot, now).kind, 'new');
+});
+
+test('Beijing midnight snooze retains only unexpired entries and does not hide or acknowledge another batch', () => {
+  const time = '2026-11-25T23:58:00+08:00';
+  const row = (key, endAt) => ({ key, source: 'seasons', officialStatus: 'open', endAt });
+  const snapshot = { ok: true, scope: 'example', sources: ['seasons'], items: [
+    row('at-midnight', '2026-11-26T00:00:00+08:00'), row('remaining', '2026-11-27T00:00:00+08:00'),
+  ] };
+  const overview = enterNotices(createNoticeState(), snapshot, time);
+  const snoozed = actOnNotices(overview.state, overview, 'snooze', time);
+  snapshot.items.push(row('new-round', '2026-11-28T00:00:00+08:00'));
+  const newlyPublished = enterNotices(snoozed, snapshot, '2026-11-25T15:59:59Z');
+  assert.deepEqual(newlyPublished.items.map(({ key }) => key), ['new-round']);
+  const handled = actOnNotices(newlyPublished.state, newlyPublished, 'acknowledge', time);
+  const partial = enterNotices(handled, { ...snapshot, sources: ['hub'], items: [] }, '2026-11-25T16:00:00Z');
+  assert.deepEqual(partial.items, []);
+  const resumed = enterNotices(partial.state, snapshot, '2026-11-25T16:00:00Z');
+  assert.equal(resumed.kind, 'reminder');
+  assert.deepEqual(resumed.items.map(({ key }) => key), ['remaining']);
+  assert.deepEqual(resumed.state.sites.example.acknowledged, ['new-round']);
+});
+
+test('a recovering source can confirm a previously unverified first-use contest alongside a due reminder', () => {
+  const row = (source, key, officialStatus) => ({ source, key, officialStatus });
+  const firstDay = '2026-11-25T10:00:00+08:00';
+  const secondDay = '2026-11-26T10:00:00+08:00';
+  const snapshot = { ok: true, scope: 'example', sources: ['hub'], items: [
+    row('hub', 'snoozed', 'active'), row('hub', 'unknown'), row('hub', 'finished', 'closed'),
+  ] };
+  const first = enterNotices(createNoticeState(), snapshot, firstDay);
+  assert.deepEqual(first.items.map(item => item.key), ['snoozed']);
+  const snoozed = actOnNotices(first.state, first, 'snooze', firstDay);
+  snapshot.items[1].officialStatus = 'active';
+  const sameSource = enterNotices(snoozed, snapshot, firstDay);
+  assert.deepEqual(sameSource.items, []);
+  snapshot.sources.push('seasons');
+  snapshot.items = [row('seasons', 'unknown', 'active'), row('seasons', 'snoozed', 'active'), row('seasons', 'finished', 'active')];
+  const recovered = enterNotices(sameSource.state, snapshot, secondDay);
+  assert.deepEqual(recovered.items.map(item => item.key), ['snoozed', 'unknown']);
+  assert.equal(recovered.kind, 'reminder');
+  const acknowledged = actOnNotices(recovered.state, recovered, 'acknowledge', secondDay);
+  snapshot.sources.push('overview');
+  snapshot.items.push(row('overview', 'unknown', 'active'));
+  assert.deepEqual(enterNotices(acknowledged, snapshot, secondDay).items, []);
+});
+
+test('v1 migration preserves discovery and opt-out without treating historical discovery as acknowledgment', () => {
+  const site = 'https://play.example';
+  const input = { enabled: false, seen: { [site]: { sources: ['seasons'], keys: ['known'] } } };
+  const migrated = createNoticeState(input);
+  const snapshot = { ok: true, scope: site, sources: ['seasons'], items: [{ key: 'known', source: 'seasons', officialStatus: 'active' }] };
+  assert.deepEqual(migrated.sites[site].acknowledged, []);
+  const now = Date.now();
+  assert.equal(enterNotices(migrated, snapshot, now).status, 'disabled');
+  const enabled = actOnNotices(migrated, null, 'enable', now);
+  const next = enterNotices(enabled, snapshot, now);
+  assert.deepEqual(next.items, []);
+  snapshot.items.push({ key: 'next', source: 'seasons', officialStatus: 'active' });
+  assert.deepEqual(enterNotices(next.state, snapshot, now).items.map(({ key }) => key), ['next']);
+  const enabledUpgrade = enterNotices(createNoticeState({ ...input, enabled: true }), snapshot, now);
+  assert.deepEqual(enabledUpgrade.items.map(({ key }) => key), ['next']);
+});
 
 function bohrBundle(includeFifth = false) {
   return `
@@ -112,13 +200,13 @@ function pkuBundle(extended = false) {
 }
 
 const pkuPeriods = [
-  { slug: 'science-1', labelZh: '科学挑战 · 第一期', startAt: '2026-11-06T20:00:00+08:00', endAt: '2026-11-07T20:00:00+08:00',
+  { slug: 'science-1', labelZh: '科学挑战 · 第一期', labelEn: 'Science Challenge · Round 1', startAt: '2026-11-06T20:00:00+08:00', endAt: '2026-11-07T20:00:00+08:00',
     challengeIds: ['pku-science-z', 'pku-science-a'] },
-  { slug: 'efficiency-1', labelZh: '学术效率 · 第一期', startAt: '2026-11-06T20:00:00+08:00', endAt: '2026-11-13T20:00:00+08:00',
+  { slug: 'efficiency-1', labelZh: '学术效率 · 第一期', labelEn: 'Research Productivity · Round 1', startAt: '2026-11-06T20:00:00+08:00', endAt: '2026-11-13T20:00:00+08:00',
     challengeIds: ['pku-product'] },
 ];
 const extendedPkuPeriods = [pkuPeriods[0], { ...pkuPeriods[1], labelZh: '学术效率赛道 · 第一期' }, {
-  slug: 'efficiency-3', labelZh: '学术效率赛道 · 第三期', startAt: '2026-11-20T20:00:00+08:00', endAt: '2026-11-27T20:00:00+08:00',
+  slug: 'efficiency-3', labelZh: '学术效率赛道 · 第三期', labelEn: 'Research Productivity · Round 3', startAt: '2026-11-20T20:00:00+08:00', endAt: '2026-11-27T20:00:00+08:00',
   challengeIds: ['pku-slides-z', 'pku-writing-a'],
   groups: [{ key: 'writing', labelZh: '写作', labelEn: 'Writing', challengeIds: ['pku-writing-a'] }, { key: 'slides', labelZh: '幻灯片', labelEn: 'Slides', challengeIds: ['pku-slides-z'] }],
 }];
@@ -154,6 +242,119 @@ function fixture() {
   });
   return { reader, files, requests };
 }
+
+test('contest alerts keep healthy sources independent and extract the published weekly summary, rewards and resources', async () => {
+  const { reader, files } = fixture();
+  files.set(firstEntry, firstBundle + `const pageCopy = {zh:{themeTitle:"主题", chatCardCompute:"进群申领算力", periods:{1:{intro:"本期阅读论文"}},rewardPool:"周赛奖励"},
+    en:{themeTitle:"Theme",chatCardCompute:"Request compute",periods:{1:{intro:"Read research papers"}},rewardPool:"Weekly prizes"}};`);
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [{ slug: 'new', nameZh: '新比赛', status: 'active', rules: { awards: [{ zh: '优秀奖' }] }, rounds: [{ seq: 1, status: 'closed' }] }],
+    noticeHub: async () => [{ slug: 'new', nameZh: '新比赛', hasPage: true, hub: { description: { en: 'A contest' } } },
+      { slug: 'hub-only', nameEn: 'Hub only', hasPage: false }] };
+  const snapshot = await readCompetitionNotices(client);
+  const first = snapshot.items.find((row) => row.source === bohrProduct);
+  assert.deepEqual([first.summaryZh, first.summary, first.rewardZh, first.resources], ['本期阅读论文', 'Read research papers', '周赛奖励', 'Request compute']);
+  const season = snapshot.items.find((row) => row.source === 'seasons');
+  const round = snapshot.items.find((row) => row.parentKey === season.key);
+  assert.equal(season.officialStatus, 'active');
+  assert.equal(round.officialStatus, 'closed');
+  assert.equal(round.rewardZh, '全赛奖项：优秀奖');
+  assert.equal(round.summary, 'A contest');
+  assert.equal(season.key, snapshot.items.find((row) => row.source === 'hub').key);
+  assert.equal(season.webUrl, 'https://play.example/competition/new');
+  const partial = await readCompetitionNotices({ ...client, noticeSeasons: async () => { throw Error('offline'); },
+    getCompetitionSchedules: async () => ({ [bohrProduct]: { periods: fourPeriods, stale: true } }) });
+  assert.deepEqual(partial.sources, ['catalog', 'hub']);
+  assert.ok(partial.items.some((row) => row.title === 'Hub only'));
+  assert.ok(!partial.items.some((row) => row.source === bohrProduct));
+});
+
+const overviewSource = (extraCards = '') => `
+  const stations = [];
+  const officialContestCards = [
+    {id: "bohr-product", track: "product", ...status(), title: "周赛", description: "", enterTarget: "competition/bohr-product"},
+    {id: "deploy-main", track: "deploy", title: "模型部署赛", description: "", enterTarget: "competition/llm-deploy"},
+    {id: "agent", track: "agent", title: "Agent 赛", description: "", enterTarget: "competition/another-agent-page"},
+    {id: "knight-s4", track: "knight", title: "科学骑士大师赛", description: "", enterTarget: "hackathon-s4"},
+    ${extraCards}
+    ...stations.map(campusContest)
+  ];
+  const unrelated = [{id: "decoy", title: "Decoy", description: "", enterTarget: "questions/decoy"}];
+`;
+
+test('contest alerts read standalone cards from the official overview and skip existing or unsafe entries', async () => {
+  const { reader, files, requests } = fixture();
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [], noticeHub: async () => [
+      { slug: 'hub-alias', nameEn: 'Hub contest', hasPage: true }, { slug: 'future-masters', nameEn: 'Separate hub contest', hasPage: true },
+    ] };
+  files.set(firstEntry, firstBundle + overviewSource());
+  const baseline = await readCompetitionNotices(client);
+  assert.ok(baseline.sources.includes('overview'));
+  assert.deepEqual(baseline.items.filter((item) => item.source === 'overview'), []);
+
+  const later = `
+    const slug = "future-masters", route = \`questions/\${slug}\`;
+    const begins = "2026-12-01T20:00:00+08:00", deadline = "2026-12-04T20:00:00+08:00";
+    ${overviewSource(`
+      {id: slug, track: "research", ...status(), title: "未来大师赛", titleEn: "Future Masters",
+        description: "未来的独立赛事", descriptionEn: "A future standalone contest",
+        date: windowText(Date.parse(begins), Date.parse(deadline)), enterTarget: route},
+      {id: "new-lab", track: "research", title: "新实验赛", description: pendingCopy(),
+        date: windowText(Date.parse("2026-02-31T00:00:00Z"), Date.parse("2026-02-21T00:00:00")), enterTarget: "competition/new-lab"},
+      {id: "duplicate-hub", track: "research", title: "赛事中心条目", description: "", enterTarget: "competition/hub-alias"},
+      {id: "foreign", track: "research", title: "Foreign", description: "", enterTarget: "https://foreign.example/competition/foreign"},
+      {id: "traversal", track: "research", title: "Traversal", description: "", enterTarget: "questions/../competition/traversal"},
+    `)}
+  `;
+  files.set(pageUrl.pathname, page(nextEntry));
+  files.set(nextEntry, nextBundle + later);
+  const snapshot = await readCompetitionNotices(client);
+  assert.deepEqual(snapshot.items.filter((item) => item.source === 'overview'), [
+    { source: 'overview', key: '["future-masters"]', titleZh: '未来大师赛', title: 'Future Masters',
+      summaryZh: '未来的独立赛事', summary: 'A future standalone contest', startAt: '2026-12-01T20:00:00+08:00',
+      endAt: '2026-12-04T20:00:00+08:00', webUrl: 'https://play.example/questions/future-masters' },
+    { source: 'overview', key: '["season","new-lab"]', titleZh: '新实验赛', title: '新实验赛', webUrl: 'https://play.example/competition/new-lab' },
+    { source: 'overview', key: '["season","hub-alias"]', titleZh: '赛事中心条目', title: '赛事中心条目', webUrl: 'https://play.example/competition/hub-alias' },
+  ]);
+  const hubCard = snapshot.items.find((item) => item.webUrl === 'https://play.example/competition/hub-alias');
+  assert.equal(hubCard.source, 'hub');
+  const withoutHub = await readCompetitionNotices({ ...client, noticeHub: async () => { throw Error('offline'); } });
+  const staticCard = withoutHub.items.find((item) => item.webUrl === hubCard.webUrl);
+  assert.equal(staticCard.source, 'overview');
+  assert.equal(staticCard.key, hubCard.key);
+  assert.deepEqual(requests, [firstEntry, nextEntry].flatMap((entry) => [pageUrl.href, new URL(entry, pageUrl).href]).concat(pageUrl.href));
+});
+
+test('a malformed or unavailable contest overview does not publish a snapshot and leaves schedule alerts available', async () => {
+  const { reader, files } = fixture();
+  const client = { baseUrl: pageUrl.origin, getCompetitionSchedules: (options) => reader.read(options),
+    noticeSeasons: async () => [], noticeHub: async () => [] };
+  const extra = '{id: "new", track: "new", title: "New", description: "", enterTarget: "questions/new"},';
+  files.set(firstEntry, firstBundle + overviewSource(extra));
+  assert.equal((await readCompetitionNotices(client)).items.find((item) => item.source === 'overview')?.title, 'New');
+
+  files.set(pageUrl.pathname, page(nextEntry));
+  for (const source of [
+    '',
+    overviewSource(extra) + overviewSource().replace('const stations', 'const otherStations').replaceAll('stations.map', 'otherStations.map')
+      .replace('officialContestCards', 'anotherContestTable').replace('const unrelated', 'const anotherDecoy'),
+    overviewSource(extra + extra),
+    overviewSource(extra + '{id: "broken", track: "new", title: "Broken", description: ""},'),
+    overviewSource(extra + '{id: computeId(), track: "new", title: "Broken", description: "", enterTarget: "questions/broken"},'),
+  ]) {
+    files.set(nextEntry, nextBundle + source);
+    const snapshot = await readCompetitionNotices(client);
+    assert.ok(!snapshot.sources.includes('overview'));
+    assert.ok(!snapshot.items.some((item) => item.source === 'overview'));
+    assert.ok(snapshot.items.some((item) => item.source === bohrProduct && item.titleZh.endsWith('第五期')));
+  }
+
+  files.set(nextEntry, nextBundle + overviewSource(extra));
+  assert.ok((await readCompetitionNotices(client)).sources.includes('overview'));
+  files.set(pageUrl.pathname, '<p>Unavailable</p>');
+  assert.ok(!(await readCompetitionNotices(client)).sources.includes('overview'));
+});
 
 test('reads the published schedules in table order from one asset and coalesces concurrent checks', async () => {
   const { reader, requests } = fixture();
@@ -555,6 +756,12 @@ test('groups Scientific Facilities periods by the website\'s research directions
   const page = await query({ competition: scientificFacilities });
   const groups = page.competitionTable.find((item) => item.id === scientificFacilities).periods[0].groups;
   assert.deepEqual(groups.find((group) => group.key === 'microscopy'), { key: 'microscopy', labelZh: '显微', labelEn: 'Microscopy', count: 1 });
+  const academicRound = page.competitionTable.find((item) => item.id === pku).periods.find((period) => period.slug === 'efficiency-3');
+  assert.equal(academicRound.labelEn, 'Research Productivity · Round 3');
+  const chineseOnly = pkuBundle(true).replace(', en: "Research Productivity"', '').replace(', en: "Round 3"', '');
+  const fallback = (await readBundle(bohrBundle(true) + facilities + chineseOnly))[pku].periods;
+  assert.equal(fallback.find((period) => period.slug === 'efficiency-3').labelEn, undefined);
+  assert.equal(fallback.find((period) => period.slug === 'efficiency-1').labelEn, '学术效率赛道 · Round 1');
 
   for (const [reason, title, labels] of [
     ['title not a record', 'title: "显微"', {}], ['no title', 'heading: {zh: "显微", en: "Microscopy"}', {}],

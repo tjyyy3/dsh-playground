@@ -61,7 +61,7 @@ Host 的 [App boot 文档](https://github.com/deepseek-ai/deepseek-harness/blob/
 
 首次发布由维护者手动执行，因为 npm 只能为已存在的包配置 trusted publisher。在该 tag 的干净 checkout 中运行 `npm publish --access public --tag beta`。第一个 Release 发布后，工作流查到该版本已存在，跳过发布。首次发布后，在 npmjs.com 的包设置中添加 GitHub Actions trusted publisher，各字段必须完全一致：owner `tjyyy3`，repository `dsh-playground`，workflow `publish.yml`，environment 留空。全新包的第一个版本即使用 `--tag beta` 发布，`latest` 也会指向它；正式版发布前，`dsh-playground` 不带 tag 时安装的是该测试版。
 
-工作流失败时，Release 已经公开而 npm 可能没有新版本。修复后在 Actions 中重新运行该工作流；已发布的版本会被跳过，重跑不会重复发布。
+发布后，工作流从公开 npm registry 下载该精确版本的 tarball，与本次验证过的安装包逐字节比较。工作流失败时，Release 已经公开而 npm 可能没有新版本。排查失败步骤后可重跑；若 npm 已有该版本，工作流跳过发布，仍会验证公开下载。
 
 ## 验证安装、更新和回退
 

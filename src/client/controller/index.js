@@ -9,6 +9,7 @@ import { ReleaseStatusPanel } from '../settings/releases.js';
 import { controllerMessage } from './messages.js';
 import { CodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog } from './handoff.js';
+import { CompetitionNotices, CompetitionNoticeSetting } from './competition-notices.js';
 
 const controllerPanelCss = `
   .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
@@ -359,6 +360,7 @@ function ControllerPanel(props) {
   const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
     h('strong', null, item.label || msg('未命名任务', 'Untitled task')), h('span', null, [item.provider, taskState(item)].filter(Boolean).join(' · ')));
   return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
+    view === 'controller' ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory }) : null,
     h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
       h('select', { 'aria-label': msg('工作区', 'Workspace'), value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
         if (dispatchControls.busy) return;
@@ -394,6 +396,7 @@ function ControllerPanel(props) {
           : renderSlot('playground.controller.session', { expectedId })),
       h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } },
         h('style', null, css), h('h1', null, msg('连接设置', 'Connection settings')), h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
+        view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query }) : null),
       ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff } : {}) })) : null),
       view === 'controller' && showTasks ? h(React.Fragment, null,

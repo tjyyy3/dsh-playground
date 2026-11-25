@@ -95,6 +95,108 @@ async function clientFixture(t, services = {}, browser = {}) {
   return { plugin, registrations, find, render, unmount, effects, workbench, mount };
 }
 
+test('upgrading enabled competition alerts retains history, batches new entries and resumes quietly after opt-in', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-25T10:00:00+08:00'));
+  const values = new Map();
+  values.set('dsh-playground.competition-notices.v1', JSON.stringify({
+    enabled: true, seen: { 'https://example.com': { sources: ['seasons'], keys: ['existing'] } },
+  }));
+  const f = await clientFixture(t, {}, { localStorage: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+  } });
+  const main = f.registrations.get('main');
+  const row = (key, source = 'seasons') => ({ key, source, titleZh: key, webUrl: 'https://example.com/' });
+  let snapshot = { ok: true, sources: ['seasons'], scope: 'https://example.com', items: [row('existing')] };
+  let reads = 0;
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async ({ action }) => { assert.equal(action, 'competition_notices'); reads++; return snapshot; } };
+  const view = () => f.render(main.Component, props);
+  const enter = () => f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'));
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, sources: [], items: [] };
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, sources: ['seasons', 'periods'], items: [row('existing'), row('new contest'),
+    { ...row('new-1'), parentKey: 'new contest', rewardZh: '暂未公布', resources: ' ' },
+    { ...row('new-2'), parentKey: 'new contest', endAt: '2026-11-25T21:00:00+08:00', startAt: '2026-11-18',
+      rewardZh: '总奖池 17,000 元，10 个赛道。', resourcesZh: '填问卷可获得算力支持。' }, row('old period', 'periods')] };
+  const first = await enter();
+  assert.equal(first.type, 'native-modal');
+  assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-2', 'new-1']);
+  const [weekly, sparse] = findAll(first, (node) => node.type === 'article');
+  assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['截止']);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['开始', '截止', '奖励', '参赛资源']);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'strong').map(text), ['17,000 元', '算力支持']);
+  assert.equal(f.find(first, (node) => node.props?.['data-modal-autofocus']).type, 'h2');
+  buttonLabeled(f, first, '知道了').props.onClick();
+  assert.equal(await enter(), null);
+  snapshot.sources.push('hub');
+  snapshot.items.unshift(row('next period', 'hub'));
+  snapshot.items.push(row('next period', 'periods'), row('next period', 'seasons'), row('existing', 'periods'));
+  const second = await enter();
+  assert.deepEqual(findAll(second, (node) => node.type === 'h3').map(text), ['next period']);
+  buttonLabeled(f, second, '关闭新比赛提醒').props.onClick();
+  const before = reads;
+  assert.equal(await enter(), null);
+  assert.equal(reads, before);
+  f.find(view(), (node) => node.type === 'button' && node.props.title === '连接设置').props.onClick();
+  assert.equal(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'), undefined);
+  const setting = await f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNoticeSetting'));
+  const checkbox = f.find(setting, (node) => node.type === 'input');
+  assert.equal(checkbox.props.checked, false);
+  checkbox.props.onChange({ target: { checked: true } });
+  f.find(view(), (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  snapshot.items.push(row('during-opt-out'));
+  assert.equal(await enter(), null);
+  snapshot = { ...snapshot, scope: 'https://other.example.com', items: [row('other')] };
+  assert.equal(await enter(), null);
+});
+
+test('English first-use alerts focus the heading, snooze until Beijing midnight and acknowledge only the displayed batch', async (t) => {
+  let now = Date.parse('2026-11-25T19:00:00+08:00');
+  t.mock.method(Date, 'now', () => now);
+  const values = new Map([['dsh-playground.ui-language', 'en']]);
+  const f = await clientFixture(t, {}, { localStorage: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+  } });
+  const main = f.registrations.get('main');
+  const row = (key, endAt) => ({ key, source: 'seasons', title: key, startAt: '2026-11-23T20:00:00+08:00', endAt });
+  const items = [row('Navigator', '2026-11-26T20:00:00+08:00'), row('Weekly', '2026-11-25T21:00:00+08:00'),
+    row('Expired', '2026-11-25T18:00:00+08:00')];
+  let reads = 0;
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async () => { reads++; return { ok: true, scope: 'site', sources: ['seasons'], items }; } };
+  const enter = () => f.mount(f.find(f.render(main.Component, props), (node) => node.type?.name === 'CompetitionNotices'));
+  const titles = (tree) => findAll(tree, (node) => node.type === 'h3').map(text);
+  const first = await enter();
+  assert.equal(first.props.title, 'Ongoing competitions');
+  assert.deepEqual(titles(first), ['Weekly', 'Navigator']);
+  const focus = f.find(first, (node) => node.props?.['data-modal-autofocus']);
+  assert.equal(focus.type, 'h2');
+  assert.equal(focus.props.tabIndex, -1);
+  buttonLabeled(f, first, 'Remind me tomorrow').props.onClick();
+  assert.equal(await enter(), null);
+
+  items.push(row('New round', '2026-11-28T20:00:00+08:00'));
+  const added = await enter();
+  assert.equal(added.props.title, 'New competition alerts');
+  assert.deepEqual(titles(added), ['New round']);
+  buttonLabeled(f, added, 'Got it').props.onClick();
+  now = Date.parse('2026-11-26T00:00:00+08:00');
+  const tomorrow = await enter();
+  assert.equal(tomorrow.props.title, 'Competition reminders');
+  assert.deepEqual(titles(tomorrow), ['Navigator']);
+  tomorrow.props.onClose();
+  assert.equal(await enter(), null);
+  items.push(row('Another round', '2026-11-28T20:00:00+08:00'));
+  const last = await enter();
+  buttonLabeled(f, last, 'Turn off competition alerts').props.onClick();
+  const readsBefore = reads;
+  assert.equal(await enter(), null);
+  assert.equal(reads, readsBefore);
+});
+
 test('each Client apply owns its stores while its registered consumers share them', async (t) => {
   const { plugin, registrations: first } = await clientFixture(t);
   const second = new Map();
@@ -2758,9 +2860,9 @@ test('refreshing the weekly contest discovers newly published periods and loads 
   let siteAvailable = true;
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', token: 'test-api-token', fetchImpl: async (url, options) => {
     const { pathname } = url;
-    if (pathname === '/competition/bohr-product' || pathname.startsWith('/assets/')) {
+    if (pathname === '/contests' || pathname.startsWith('/assets/')) {
       assert.equal(new Headers(options.headers).has('authorization'), false);
-      if (pathname === '/competition/bohr-product') {
+      if (pathname === '/contests') {
         return siteAvailable ? new Response(`<script type="module" src="/assets/catalog-${published}.js"></script>`)
           : new Response(null, { status: 503 });
       }

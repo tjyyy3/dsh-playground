@@ -359,7 +359,7 @@ __name(stateLabel, "stateLabel");
 var zhText = /* @__PURE__ */ __name((key) => key.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key, "zhText");
 
 // src/client/controller/index.js
-var React6 = __toESM(require("react"), 1);
+var React7 = __toESM(require("react"), 1);
 
 // src/client/shared/workspaces.js
 function workspaceOptions(items) {
@@ -1279,6 +1279,359 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
 }
 __name(ControllerHandoffDialog, "ControllerHandoffDialog");
 
+// src/client/controller/competition-notices.js
+var React6 = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/client/controller/competition-notice-state.js
+var version = 2;
+var day = 864e5;
+var beijingOffset = 8 * 36e5;
+var activeStatuses = /* @__PURE__ */ new Set(["active", "open", "in_progress"]);
+var endedStatuses = /* @__PURE__ */ new Set(["ended", "closed", "completed", "finished", "expired", "cancelled", "canceled", "archived"]);
+var isObject = /* @__PURE__ */ __name((value) => value !== null && typeof value === "object" && !Array.isArray(value), "isObject");
+var isStringArray = /* @__PURE__ */ __name((value) => Array.isArray(value) && value.every((entry) => typeof entry === "string"), "isStringArray");
+var unique = /* @__PURE__ */ __name((values) => [...new Set(values)], "unique");
+var emptySite = /* @__PURE__ */ __name(() => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] }), "emptySite");
+function timestamp(value) {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
+  if (!match) return null;
+  const [, date, time, zone] = match;
+  const calendarDay = /* @__PURE__ */ new Date(date + "T00:00:00Z");
+  if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
+  const ms = Date.parse(date + "T" + time + zone);
+  return Number.isFinite(ms) ? ms : null;
+}
+__name(timestamp, "timestamp");
+function clockTime(value) {
+  const ms = typeof value === "number" ? value : value instanceof Date ? value.getTime() : timestamp(value);
+  if (!Number.isFinite(ms)) throw new TypeError("Pass an explicit time to the notice state.");
+  return ms;
+}
+__name(clockTime, "clockTime");
+function validSite(site) {
+  return isObject(site) && isStringArray(site.initializedSources) && isStringArray(site.discovered) && (site.unverified === void 0 || isStringArray(site.unverified)) && isStringArray(site.acknowledged) && Array.isArray(site.pending) && site.pending.every((batch) => Number.isSafeInteger(batch?.id) && (batch.kind === "overview" || batch.kind === "new") && (batch.dueAt === null || Number.isFinite(batch.dueAt)) && Array.isArray(batch.entries) && batch.entries.every((entry) => typeof entry?.key === "string" && isStringArray(entry.sources) && (entry.endAt === null || Number.isFinite(entry.endAt))));
+}
+__name(validSite, "validSite");
+function createNoticeState(saved = null) {
+  if (saved?.version === version && typeof saved.enabled === "boolean" && ["first", "silent"].includes(saved.baseline) && Number.isSafeInteger(saved.nextBatchId) && isObject(saved.sites) && Object.values(saved.sites).every(validSite)) return saved;
+  const legacy = typeof saved?.enabled === "boolean" && isObject(saved.seen) && Object.values(saved.seen).every((site) => isStringArray(site?.sources) && isStringArray(site?.keys));
+  return {
+    version,
+    enabled: legacy ? saved.enabled : true,
+    baseline: legacy ? "silent" : "first",
+    nextBatchId: 1,
+    sites: legacy ? Object.fromEntries(Object.entries(saved.seen).map(([scope, site]) => [scope, {
+      ...emptySite(),
+      initializedSources: unique(site.sources),
+      // v1 recorded discovery at load, so its keys cannot establish acknowledgement.
+      discovered: unique(site.keys)
+    }])) : {}
+  };
+}
+__name(createNoticeState, "createNoticeState");
+function collectItems(items, sources, now) {
+  const byKey = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    if (typeof item?.key !== "string" || !item.key || !sources.has(item.source)) continue;
+    const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
+    const start = timestamp(item.startAt);
+    const end = timestamp(item.endAt);
+    const ended = endedStatuses.has(status) || end !== null && end <= now;
+    const active = activeStatuses.has(status) || start !== null && start <= now && end !== null && now < end;
+    const upcoming = start !== null && start > now;
+    const prior = byKey.get(item.key);
+    if (!prior) {
+      byKey.set(item.key, { item, sources: [item.source], endAt: end, ended, active, upcoming });
+      continue;
+    }
+    prior.sources.push(item.source);
+    prior.ended ||= ended;
+    prior.active ||= active;
+    prior.upcoming ||= upcoming;
+    if (end !== null && (prior.endAt === null || end < prior.endAt)) {
+      prior.item = item;
+      prior.endAt = end;
+    }
+  }
+  return byKey;
+}
+__name(collectItems, "collectItems");
+function enterNotices(state, snapshot2, time) {
+  const now = clockTime(time);
+  const scope = typeof snapshot2?.scope === "string" ? snapshot2.scope : "";
+  const view = { state, scope, status: "ready", kind: "new", items: [], batchIds: [] };
+  if (!state.enabled) return { ...view, status: "disabled" };
+  if (!scope || snapshot2?.ok !== true || !isStringArray(snapshot2?.sources) || !snapshot2.sources.length || !Array.isArray(snapshot2.items)) return { ...view, status: "error" };
+  const sources = new Set(snapshot2.sources);
+  const current = collectItems(snapshot2.items, sources, now);
+  const site = Object.hasOwn(state.sites, scope) ? state.sites[scope] : emptySite();
+  const known = new Set(site.discovered);
+  const initialized = new Set(site.initializedSources);
+  const unverified = new Set(site.unverified);
+  const firstEntries = [];
+  const newEntries = [];
+  for (const [key, record] of current) {
+    const newSource = record.sources.some((source) => !initialized.has(source));
+    if (record.ended) {
+      unverified.delete(key);
+      continue;
+    }
+    if (known.has(key)) {
+      if (unverified.has(key) && newSource && record.active) {
+        firstEntries.push({ key, sources: unique(record.sources), endAt: record.endAt });
+        unverified.delete(key);
+      } else if (record.upcoming) unverified.delete(key);
+      continue;
+    }
+    const existingSource = record.sources.some((source) => initialized.has(source));
+    if (existingSource || state.baseline === "first" && record.active) {
+      (existingSource ? newEntries : firstEntries).push({ key, sources: unique(record.sources), endAt: record.endAt });
+    } else if (state.baseline === "first" && !record.upcoming) unverified.add(key);
+  }
+  const pending = [];
+  for (const batch of site.pending) {
+    const remaining = batch.entries.flatMap((entry) => {
+      const record = current.get(entry.key);
+      if (!record) {
+        const sourceUnavailable = entry.sources.some((source) => !sources.has(source));
+        const unexpired = entry.endAt === null || entry.endAt > now;
+        return sourceUnavailable && unexpired ? [entry] : [];
+      }
+      const endAt = record.endAt ?? entry.endAt;
+      if (record.ended || endAt !== null && endAt <= now) return [];
+      return [{ key: entry.key, sources: unique([...entry.sources, ...record.sources]), endAt }];
+    });
+    if (remaining.length) pending.push({ ...batch, entries: remaining });
+  }
+  const parents = new Set(newEntries.map((entry) => current.get(entry.key).item.parentKey).filter(Boolean));
+  let nextBatchId = state.nextBatchId;
+  for (const [kind, entries] of [["overview", firstEntries], ["new", newEntries.filter((entry) => !parents.has(entry.key))]]) {
+    if (entries.length) pending.push({ id: nextBatchId++, kind, dueAt: null, entries });
+  }
+  const visible = [];
+  const kinds = /* @__PURE__ */ new Set();
+  for (const batch of pending) {
+    if (batch.dueAt !== null && batch.dueAt > now) continue;
+    const available = batch.entries.filter((entry) => current.has(entry.key));
+    if (!available.length) continue;
+    view.batchIds.push(batch.id);
+    kinds.add(batch.dueAt === null ? batch.kind : "reminder");
+    visible.push(...available);
+  }
+  visible.sort((left, right) => (left.endAt ?? Infinity) - (right.endAt ?? Infinity) || (left.key < right.key ? -1 : Number(left.key > right.key)));
+  return {
+    ...view,
+    kind: kinds.size > 1 ? "reminder" : [...kinds][0] ?? "new",
+    items: visible.map(({ key }) => current.get(key).item),
+    state: {
+      ...state,
+      nextBatchId,
+      sites: { ...state.sites, [scope]: {
+        ...site,
+        initializedSources: unique([...initialized, ...sources]),
+        discovered: unique([...known, ...current.keys()]),
+        unverified: [...unverified],
+        pending
+      } }
+    }
+  };
+}
+__name(enterNotices, "enterNotices");
+function actOnNotices(state, view, action, time) {
+  if (action === "enable" || action === "disable") {
+    const enabled = action === "enable";
+    if (enabled === state.enabled) return state;
+    const sites = Object.fromEntries(Object.entries(state.sites).map(([scope, site2]) => [scope, {
+      ...site2,
+      initializedSources: [],
+      unverified: [],
+      pending: []
+    }]));
+    return { ...state, enabled, baseline: "silent", sites };
+  }
+  if (action !== "snooze" && action !== "acknowledge" || !state.enabled || view?.status !== "ready" || !Object.hasOwn(state.sites, view.scope)) return state;
+  const site = state.sites[view.scope];
+  const batchIds = new Set(view.batchIds);
+  const keys = new Set(view.items.map((item) => item.key));
+  const actedOn = [];
+  const pending = [];
+  for (const batch of site.pending) {
+    if (!batchIds.has(batch.id)) {
+      pending.push(batch);
+      continue;
+    }
+    const remaining = [];
+    for (const entry of batch.entries) {
+      if (keys.has(entry.key)) actedOn.push(entry);
+      else remaining.push(entry);
+    }
+    if (remaining.length) pending.push({ ...batch, entries: remaining });
+  }
+  if (!actedOn.length) return state;
+  const snooze = action === "snooze";
+  if (snooze) {
+    const now = clockTime(time);
+    const dueAt = (Math.floor((now + beijingOffset) / day) + 1) * day - beijingOffset;
+    pending.push({ id: state.nextBatchId, kind: "new", dueAt, entries: actedOn });
+  }
+  const acknowledged = snooze ? site.acknowledged : unique([...site.acknowledged, ...actedOn.map(({ key }) => key)]);
+  return {
+    ...state,
+    nextBatchId: state.nextBatchId + Number(snooze),
+    sites: { ...state.sites, [view.scope]: { ...site, acknowledged, pending } }
+  };
+}
+__name(actOnNotices, "actOnNotices");
+
+// src/client/controller/competition-notices.js
+var storageKey2 = "dsh-playground.competition-notices.v2";
+var legacyStorageKey = "dsh-playground.competition-notices.v1";
+function timeLabel(value) {
+  if (!value) return void 0;
+  const timestamp2 = /^(\d{4}-\d{2}-\d{2})[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(Z|[+-]\d\d:\d\d)?$/.exec(value);
+  if (!timestamp2) return value;
+  const [, date, time, seconds, offset] = timestamp2;
+  const zone = offset === "Z" ? "UTC" : offset ? "UTC" + offset : msg("时区未注明", "time zone unspecified");
+  return `${date} ${time}${seconds && seconds !== "00" ? ":" + seconds : ""} (${zone})`;
+}
+__name(timeLabel, "timeLabel");
+function noticeDetail(zh, en, keywords) {
+  const published = /* @__PURE__ */ __name((value2) => value2?.trim().replace(/^(?:暂未公布|尚未公布|待公布|未公布|无|not announced|to be announced|none|TBA|TBD)[。.!！]?$/i, ""), "published");
+  const chinese = published(zh);
+  const english = published(en);
+  const value = msg(chinese || english, english || chinese);
+  return value && value.split(keywords).map((part, index) => index % 2 ? h("strong", { key: index }, part) : part);
+}
+__name(noticeDetail, "noticeDetail");
+function readState(memory) {
+  try {
+    const stored = window.localStorage?.getItem(storageKey2) ?? window.localStorage?.getItem(legacyStorageKey);
+    if (stored != null && !memory.unsaved) return createNoticeState(JSON.parse(stored));
+  } catch {
+  }
+  return memory.state ?? createNoticeState();
+}
+__name(readState, "readState");
+function saveState(memory, state) {
+  memory.state = state;
+  try {
+    window.localStorage.setItem(storageKey2, JSON.stringify(state));
+    memory.unsaved = false;
+  } catch {
+    memory.unsaved = true;
+  }
+}
+__name(saveState, "saveState");
+function CompetitionNoticeSetting({ memory }) {
+  const [enabled, setEnabled] = React6.useState(() => readState(memory).enabled);
+  return h(
+    "label",
+    { className: "pg-field", style: { display: "flex", alignItems: "center", gap: 8, margin: "20px 0" } },
+    h("input", { type: "checkbox", checked: enabled, onChange: /* @__PURE__ */ __name((event) => {
+      const checked = event.target.checked;
+      saveState(memory, actOnNotices(readState(memory), null, checked ? "enable" : "disable", Date.now()));
+      setEnabled(checked);
+    }, "onChange") }),
+    msg("新比赛提醒", "New competition alerts")
+  );
+}
+__name(CompetitionNoticeSetting, "CompetitionNoticeSetting");
+var noticeCss = `
+  .pg-task-modal.pg-contest-notice { width:590px; border:1px solid var(--pg-task-border); box-shadow:0 12px 48px rgba(0,0,0,.16) }
+  .pg-notice-entries { overflow-y:auto; overscroll-behavior:contain; min-height:0; gap:16px }
+  .pg-notice-entry { min-width:0 }
+  .pg-notice-entry + .pg-notice-entry { border-top:1px solid var(--pg-task-border); padding-top:16px }
+  .pg-notice-entry h3 { font-size:19px; line-height:1.35; font-weight:700; margin:0; overflow-wrap:anywhere }
+  .pg-notice-entry p { color:var(--pg-task-secondary); line-height:1.6; margin:6px 0 12px; overflow-wrap:anywhere }
+  .pg-notice-entry dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 16px; margin:0 0 12px; line-height:1.5 }
+  .pg-notice-entry dt, .pg-notice-entry dd strong { font-weight:700 }
+  .pg-notice-entry dd { margin:0; font-weight:400; overflow-wrap:anywhere; white-space:pre-line }
+  .pg-notice-entry a { color:var(--pg-task-accent); font-weight:600; text-underline-offset:3px }
+  .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px }
+  .pg-notice-batch { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
+  .pg-contest-notice h2:focus-visible { outline:2px solid var(--pg-task-accent); outline-offset:3px; border-radius:4px }
+  .pg-notice-actions .pg-task-create { min-width:90px; background:var(--dsw-alias-button-primary-fill,var(--pg-task-accent)); color:var(--dsw-alias-label-primary-foreground,#fff) }
+  .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
+  .pg-notice-disable:hover { text-decoration:underline }
+`;
+function CompetitionNotices({ memory, query }) {
+  const [view, setView] = React6.useState(null);
+  const hintId = React6.useId();
+  React6.useEffect(() => {
+    if (!readState(memory).enabled) return;
+    const abort = new AbortController();
+    async function check() {
+      let snapshot2;
+      try {
+        snapshot2 = await query({ action: "competition_notices" }, abort.signal);
+      } catch {
+        return;
+      }
+      if (abort.signal.aborted || !snapshot2?.ok) return;
+      const state = readState(memory);
+      if (!state.enabled) return;
+      const next = enterNotices(state, snapshot2, Date.now());
+      if (next.state !== state) saveState(memory, next.state);
+      setView(next);
+    }
+    __name(check, "check");
+    void check();
+    return () => abort.abort();
+  }, [memory, query]);
+  if (!view?.items.length) return null;
+  function dismiss(action) {
+    saveState(memory, actOnNotices(readState(memory), view, action, Date.now()));
+    setView(null);
+  }
+  __name(dismiss, "dismiss");
+  const unknown = msg("暂未公布", "Not announced");
+  const title = view.kind === "overview" ? msg("正在进行的比赛", "Ongoing competitions") : view.kind === "reminder" ? msg("赛事提醒", "Competition reminders") : msg("新比赛提醒", "New competition alerts");
+  return h(
+    import_dsh_client_ui_primitives2.Modal,
+    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
+    h("style", null, taskModalCss + noticeCss),
+    h("header", { className: "pg-task-header" }, h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title)),
+    h("div", { className: "pg-task-body pg-notice-entries" }, view.items.map((item) => {
+      const link = openableWebUrl(item.webUrl);
+      return h(
+        "article",
+        { key: item.key, className: "pg-notice-entry" },
+        h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
+        h("p", null, msg(item.summaryZh || item.summary, item.summary || item.summaryZh) || msg("比赛简介暂未公布", "Competition summary not announced")),
+        h("dl", null, [
+          [msg("开始", "Starts"), timeLabel(item.startAt)],
+          [msg("截止", "Deadline"), timeLabel(item.endAt) || unknown],
+          [msg("奖励", "Rewards"), noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i)],
+          [msg("参赛资源", "Resources"), noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i)]
+        ].filter(([, value]) => value).map(([label2, value]) => h(React6.Fragment, { key: label2 }, h("dt", null, label2), h("dd", null, value)))),
+        link ? h("a", { href: link, target: "_blank", rel: "noopener noreferrer" }, msg("查看比赛", "View competition")) : null
+      );
+    })),
+    h(
+      "footer",
+      { className: "pg-task-footer" },
+      h("p", { id: hintId }, msg(
+        "「明天再提醒」会在北京时间次日或之后再次打开主控时，显示本批仍有效的赛事。「知道了」仅确认本批。两种操作都保留新赛期提醒。",
+        "Choose Remind me tomorrow to see this batch on your next visit tomorrow or later (Beijing time). Expired entries drop out. Got it dismisses this batch. Either choice keeps alerts for new rounds on."
+      )),
+      h(
+        "div",
+        { className: "pg-notice-actions" },
+        h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
+        h(
+          "div",
+          { className: "pg-notice-batch" },
+          h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
+          h("button", { type: "button", className: "pg-task-button pg-task-create", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it"))
+        )
+      )
+    )
+  );
+}
+__name(CompetitionNotices, "CompetitionNotices");
+
 // src/client/controller/index.js
 var controllerPanelCss = `
   .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
@@ -1392,14 +1745,14 @@ function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useCo
   usePluginLanguage();
   const trajectoryAvailable = useControllerTrajectory((value) => value);
   const viewRequest = useStore?.((value) => value.viewRequest);
-  const [traceSessionId, setTraceSessionId] = React6.useState(null);
+  const [traceSessionId, setTraceSessionId] = React7.useState(null);
   const showViewSwitch = trajectoryAvailable && canSwitchView;
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
   }, [sessionId, showViewSwitch, viewRequest]);
   const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
   return h(
-    React6.Fragment,
+    React7.Fragment,
     null,
     showViewSwitch ? h(
       "div",
@@ -1424,32 +1777,32 @@ function ControllerPanel(props) {
   const controllerTarget = useControllerTarget((value) => value);
   const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
   const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-  const [workspaceId, setWorkspaceId] = React6.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
-  const [inspection, setInspection] = React6.useState(null);
-  const [expectedId, setExpectedId] = React6.useState("");
-  const [busy, setBusy] = React6.useState(false);
-  const [errorMessage, setError] = React6.useState("");
-  const [view, setView] = React6.useState("controller");
+  const [workspaceId, setWorkspaceId] = React7.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
+  const [inspection, setInspection] = React7.useState(null);
+  const [expectedId, setExpectedId] = React7.useState("");
+  const [busy, setBusy] = React7.useState(false);
+  const [errorMessage, setError] = React7.useState("");
+  const [view, setView] = React7.useState("controller");
   const error = controllerMessage(errorMessage);
-  const [dispatchState, setDispatchState] = React6.useState(null);
-  const [dispatchControls] = React6.useState(() => ({ busy: false }));
-  const [authStatus, setAuthStatus] = React6.useState("checking");
-  const [visited] = React6.useState(() => /* @__PURE__ */ new Set());
+  const [dispatchState, setDispatchState] = React7.useState(null);
+  const [dispatchControls] = React7.useState(() => ({ busy: false }));
+  const [authStatus, setAuthStatus] = React7.useState("checking");
+  const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
-  const [preferences] = React6.useState(() => {
+  const [preferences] = React7.useState(() => {
     try {
       return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
     } catch {
       return {};
     }
   });
-  const [showTasks, setShowTasks] = React6.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
-  const [taskWidth, setTaskWidth] = React6.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
-  const [selectedTask, setSelectedTask] = React6.useState("");
-  const [showMaintenance, setShowMaintenance] = React6.useState(false);
-  const [closedChallenges, setClosedChallenges] = React6.useState(() => /* @__PURE__ */ new Set());
-  const [taskActionStatus, setTaskActionStatus] = React6.useState("");
-  const [pane] = React6.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
+  const [showTasks, setShowTasks] = React7.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
+  const [taskWidth, setTaskWidth] = React7.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+  const [selectedTask, setSelectedTask] = React7.useState("");
+  const [showMaintenance, setShowMaintenance] = React7.useState(false);
+  const [closedChallenges, setClosedChallenges] = React7.useState(() => /* @__PURE__ */ new Set());
+  const [taskActionStatus, setTaskActionStatus] = React7.useState("");
+  const [pane] = React7.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
     Object.assign(preferences, change);
     try {
@@ -1469,16 +1822,16 @@ function ControllerPanel(props) {
     savePane({ open: !showTasks });
     setShowTasks(!showTasks);
   }, "toggleTasks");
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     if (pane.focus === "heading") pane.heading?.focus();
     else if (pane.focus === "back") pane.back?.focus();
     else if (pane.focus) pane.rows.get(pane.focus)?.focus();
     pane.focus = "";
   }, [selectedTask, showTasks]);
-  const [taskSnapshot, setTaskSnapshot] = React6.useState(null);
+  const [taskSnapshot, setTaskSnapshot] = React7.useState(null);
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
-  const [retry, setRetry] = React6.useState(0);
-  const [taskRetry, setTaskRetry] = React6.useState(0);
+  const [retry, setRetry] = React7.useState(0);
+  const [taskRetry, setTaskRetry] = React7.useState(0);
   const selectWorkspace = /* @__PURE__ */ __name((id) => {
     if (id === workspaceId) return;
     props.controllerSelection.workspaceId = id;
@@ -1492,14 +1845,14 @@ function ControllerPanel(props) {
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     if (!targetWorkspaceId) return;
     setView("controller");
     if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
     else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
     props.clearControllerTarget(controllerTarget);
   }, [controllerTarget, targetWorkspaceId]);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     const media = window.matchMedia?.("(max-width: 600px)");
     if (!media) return;
     const changed = /* @__PURE__ */ __name((event) => {
@@ -1509,13 +1862,13 @@ function ControllerPanel(props) {
     media.addEventListener("change", changed);
     return () => media.removeEventListener("change", changed);
   }, []);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
       props.controllerSelection.workspaceId = selectedMarker.workspaceId;
       setWorkspaceId(selectedMarker.workspaceId);
     }
   }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     setExpectedId("");
     setInspection(null);
     setError("");
@@ -1539,10 +1892,10 @@ function ControllerPanel(props) {
     });
     return () => abort.abort();
   }, [workspaceId, retry]);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     setTaskSnapshot(null);
   }, [workspaceId, expectedId]);
-  React6.useEffect(() => {
+  React7.useEffect(() => {
     if (!workspaceId || !expectedId || !controllerTasks) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -1713,6 +2066,7 @@ function ControllerPanel(props) {
     "div",
     { className: "pg-controller" },
     h("style", null, controllerPanelCss),
+    view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory }) : null,
     h(
       "header",
       { className: "pg-controller-bar" },
@@ -1803,11 +2157,12 @@ function ControllerPanel(props) {
         h("style", null, css),
         h("h1", null, msg("连接设置", "Connection settings")),
         h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
+        view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has("settings") ? h(ReleaseStatusPanel, { query: props.query }) : null
       ),
       ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
       view === "controller" && showTasks ? h(
-        React6.Fragment,
+        React7.Fragment,
         null,
         h("div", {
           className: "pg-controller-resize",
@@ -1895,7 +2250,7 @@ function ControllerPanel(props) {
               taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
               row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
             ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
-              React6.Fragment,
+              React7.Fragment,
               null,
               [...challengeGroups].map(([groupKey, group]) => h(
                 "details",
@@ -1944,7 +2299,7 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
-var React14 = __toESM(require("react"), 1);
+var React15 = __toESM(require("react"), 1);
 
 // src/client/tasks/attempts.js
 function attemptScore(item) {
@@ -2131,13 +2486,13 @@ async function refreshAttempts(store, ids) {
 __name(refreshAttempts, "refreshAttempts");
 
 // src/client/catalog/index.js
-var React9 = __toESM(require("react"), 1);
+var React10 = __toESM(require("react"), 1);
 
 // src/client/catalog/detail.js
-var React8 = __toESM(require("react"), 1);
+var React9 = __toESM(require("react"), 1);
 
 // src/client/shared/drawer.js
-var React7 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
   return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => typeof node.getClientRects !== "function" || node.getClientRects().length > 0);
@@ -2146,7 +2501,7 @@ __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
 var DOCUMENT_POSITION_FOLLOWING = 4;
 function useDrawerFocus(fallback) {
-  const [focus] = React7.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
+  const [focus] = React8.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
   }, "dismiss") }));
   focus.fallback = fallback;
   focus.restore = () => {
@@ -2155,7 +2510,7 @@ function useDrawerFocus(fallback) {
     const body = typeof document === "undefined" ? void 0 : document.body;
     [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
   };
-  React7.useEffect(() => {
+  React8.useEffect(() => {
     focus.restored = false;
     focus.title?.focus?.();
     const inForeignDialog = /* @__PURE__ */ __name((target) => {
@@ -2205,12 +2560,12 @@ function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
 __name(DispatchChallengeButton, "DispatchChallengeButton");
 var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
 function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
-  const [detail, setDetail] = React8.useState(null);
-  const [busy, setBusy] = React8.useState(false);
-  const [failed, setFailed] = React8.useState(false);
-  const [expanded, setExpanded] = React8.useState(false);
-  const [status, setStatus] = React8.useState(null);
-  const [latest] = React8.useState(() => ({ controller: null, closed: false }));
+  const [detail, setDetail] = React9.useState(null);
+  const [busy, setBusy] = React9.useState(false);
+  const [failed, setFailed] = React9.useState(false);
+  const [expanded, setExpanded] = React9.useState(false);
+  const [status, setStatus] = React9.useState(null);
+  const [latest] = React9.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
   const load = /* @__PURE__ */ __name(async () => {
     latest.controller?.abort();
@@ -2246,7 +2601,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
     close();
   }, "dismiss");
   focus.dismiss = dismiss;
-  React8.useEffect(() => {
+  React9.useEffect(() => {
     latest.closed = false;
     load();
     return () => {
@@ -2416,25 +2771,25 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
 function CatalogPanel({ query, handoff, onWebBase }) {
-  const [search, setSearch] = React9.useState("");
-  const [season, setSeason] = React9.useState("");
-  const [period, setPeriod] = React9.useState("");
-  const [group, setGroup] = React9.useState("");
-  const [origin, setOrigin] = React9.useState("");
-  const [disciplineChoice, setDisciplineChoice] = React9.useState("");
-  const [otherDiscipline, setOtherDiscipline] = React9.useState("");
-  const [appliedOther, setAppliedOther] = React9.useState(null);
-  const [sort, setSort] = React9.useState("newest");
-  const [openOnly, setOpenOnly] = React9.useState(false);
-  const [competitionTable, setCompetitionTable] = React9.useState(null);
-  const [list, setList] = React9.useState(null);
-  const [facets, setFacets] = React9.useState(null);
-  const [busy, setBusy] = React9.useState("");
-  const [failure, setFailure] = React9.useState(null);
-  const [status, setStatus] = React9.useState(null);
-  const [notice, setNotice] = React9.useState(null);
-  const [latest] = React9.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
-  const [detail, setDetail] = React9.useState(null);
+  const [search, setSearch] = React10.useState("");
+  const [season, setSeason] = React10.useState("");
+  const [period, setPeriod] = React10.useState("");
+  const [group, setGroup] = React10.useState("");
+  const [origin, setOrigin] = React10.useState("");
+  const [disciplineChoice, setDisciplineChoice] = React10.useState("");
+  const [otherDiscipline, setOtherDiscipline] = React10.useState("");
+  const [appliedOther, setAppliedOther] = React10.useState(null);
+  const [sort, setSort] = React10.useState("newest");
+  const [openOnly, setOpenOnly] = React10.useState(false);
+  const [competitionTable, setCompetitionTable] = React10.useState(null);
+  const [list, setList] = React10.useState(null);
+  const [facets, setFacets] = React10.useState(null);
+  const [busy, setBusy] = React10.useState("");
+  const [failure, setFailure] = React10.useState(null);
+  const [status, setStatus] = React10.useState(null);
+  const [notice, setNotice] = React10.useState(null);
+  const [latest] = React10.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [detail, setDetail] = React10.useState(null);
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
   const filters = { search, season, period, group, origin, sort, discipline };
@@ -2562,14 +2917,14 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     }
   }, "loadMore");
   const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
-  React9.useEffect(() => {
+  React10.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
       latest.controller = null;
     };
   }, [query]);
-  React9.useEffect(() => {
+  React10.useEffect(() => {
     const ids = latest.refocus;
     if (!ids) return;
     latest.refocus = null;
@@ -2868,17 +3223,17 @@ function CatalogPanel({ query, handoff, onWebBase }) {
 __name(CatalogPanel, "CatalogPanel");
 
 // src/client/tasks/list.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React12 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // src/client/cards/tool.js
-var React11 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React10 = __toESM(require("react"), 1);
-var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+var React11 = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false }) {
   return h(
     "button",
@@ -2895,17 +3250,17 @@ function TaskStartOverlay(props) {
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React10.useState("");
-  const [busy, setBusy] = React10.useState(false);
-  const [adding, setAdding] = React10.useState(false);
-  const [error, setError] = React10.useState("");
-  const [inspection, setInspection] = React10.useState(null);
+  const [selectedId, setSelectedId] = React11.useState("");
+  const [busy, setBusy] = React11.useState(false);
+  const [adding, setAdding] = React11.useState(false);
+  const [error, setError] = React11.useState("");
+  const [inspection, setInspection] = React11.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
   const snapshot2 = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
   const checking = Boolean(inspectId && !snapshot2);
-  React10.useEffect(() => {
+  React11.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -2960,7 +3315,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     Promise.resolve(openTask(created)).catch((failure) => console.warn("Playground: failed to open the new task conversation", failure));
   }, "confirm");
   return h(
-    import_dsh_client_ui_primitives2.Modal,
+    import_dsh_client_ui_primitives3.Modal,
     {
       open: true,
       headless: true,
@@ -3121,7 +3476,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
     ) : null,
     data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, msg("打开工作台", "Open workbench")) : null,
     data ? h(
-      React11.Fragment,
+      React12.Fragment,
       null,
       h(
         "div",
@@ -3155,7 +3510,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React11.Fragment,
+        React12.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -3181,11 +3536,11 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
-  const [snapshot2, setSnapshot] = React12.useState(null);
-  const [scope, setScope] = React12.useState("operation");
-  const [recursive, setRecursive] = React12.useState(false);
-  const [error, setError] = React12.useState("");
-  const [busy, setBusy] = React12.useState(false);
+  const [snapshot2, setSnapshot] = React13.useState(null);
+  const [scope, setScope] = React13.useState("operation");
+  const [recursive, setRecursive] = React13.useState(false);
+  const [error, setError] = React13.useState("");
+  const [busy, setBusy] = React13.useState(false);
   const refresh = /* @__PURE__ */ __name(async () => {
     try {
       const value = await materials({ action: "status", sessionId });
@@ -3196,7 +3551,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       setError(failure.message);
     }
   }, "refresh");
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     setScope("operation");
     setRecursive(false);
     refresh();
@@ -3245,7 +3600,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       }, item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording"))
     )),
     snapshot2?.grants?.length ? h(
-      React12.Fragment,
+      React13.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("本次任务已允许的范围", "Access granted for this task")),
       ...snapshot2.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
@@ -3261,19 +3616,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React12.useState(state?.materials || {});
-  const [busy, setBusy] = React12.useState(false);
-  const [error, setError] = React12.useState("");
-  const [request, setRequest] = React12.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React12.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React12.useState(Boolean(state?.materialAccess));
-  React12.useEffect(() => {
+  const [files, setFiles] = React13.useState(state?.materials || {});
+  const [busy, setBusy] = React13.useState(false);
+  const [error, setError] = React13.useState("");
+  const [request, setRequest] = React13.useState(state?.submission);
+  const [accessRequest, setAccessRequest] = React13.useState(state?.materialAccess);
+  const [showAccess, setShowAccess] = React13.useState(Boolean(state?.materialAccess));
+  React13.useEffect(() => {
     setFiles(state?.materials || {});
   }, [state?.materials]);
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     setRequest(state?.submission);
   }, [state?.submission]);
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     if (state?.materialAccess) {
       setAccessRequest(state.materialAccess);
       setShowAccess(true);
@@ -3319,19 +3674,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
-      React12.Fragment,
+      React13.Fragment,
       null,
       h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, msg("外部材料权限", "External material permissions")),
       showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React12.Fragment,
+      React13.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("出题模式目前只支持本地准备。", "Authoring mode currently supports local preparation only.")),
       h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation"))
     ) : null,
     task && task.mode !== "author" ? h(
-      React12.Fragment,
+      React13.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent submits through the official CLI or API according to the challenge requirements. It records the submission ID and tracks the result.")),
       h(
@@ -3361,7 +3716,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React12.Fragment,
+        React13.Fragment,
         null,
         h("p", { className: "pg-confirm-impact" }, msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)),
         h(
@@ -3386,8 +3741,8 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
 __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
-  const [error, setError] = React12.useState("");
-  React12.useEffect(() => {
+  const [error, setError] = React13.useState("");
+  React13.useEffect(() => {
     refreshProjections(session.id).catch((failure) => setError(failure.message));
   }, [session.id, refreshProjections]);
   if (error || projection?.state === "error" || projection?.state === "migration-required") {
@@ -3448,13 +3803,13 @@ function taskAttemptIds(state) {
 }
 __name(taskAttemptIds, "taskAttemptIds");
 function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
-  const [history, setHistory] = React13.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React13.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React13.useState(false);
-  const [error, setError] = React13.useState("");
-  const [signedOut, setSignedOut] = React13.useState(false);
-  const [status, setStatus] = React13.useState(null);
-  const [latest] = React13.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const [history, setHistory] = React14.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React14.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React14.useState(false);
+  const [error, setError] = React14.useState("");
+  const [signedOut, setSignedOut] = React14.useState(false);
+  const [status, setStatus] = React14.useState(null);
+  const [latest] = React14.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -3512,7 +3867,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
       }
     }
   }, "load");
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
@@ -3707,22 +4062,22 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React14.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React14.useState(false);
-  const [archiveBusy, setArchiveBusy] = React14.useState("");
-  const [archiveError, setArchiveError] = React14.useState(noArchiveError);
-  const [split, setSplit] = React14.useState(50);
-  const [announcement, setAnnouncement] = React14.useState("");
-  const [drawerOpen, setDrawerOpen] = React14.useState(false);
-  const [nav] = React14.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React15.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React15.useState(false);
+  const [archiveBusy, setArchiveBusy] = React15.useState("");
+  const [archiveError, setArchiveError] = React15.useState(noArchiveError);
+  const [split, setSplit] = React15.useState(50);
+  const [announcement, setAnnouncement] = React15.useState("");
+  const [drawerOpen, setDrawerOpen] = React15.useState(false);
+  const [nav] = React15.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React14.useState("");
-  const [openError, setOpenError] = React14.useState("");
-  const [, setVersion] = React14.useState(0);
-  const [store] = React14.useState(() => {
+  const [webBase, setWebBase] = React15.useState("");
+  const [openError, setOpenError] = React15.useState("");
+  const [, setVersion] = React15.useState(0);
+  const [store] = React15.useState(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -3752,14 +4107,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
   }));
   const anyPending = pendingIds.length > 0;
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     store.query = query;
     store.taskIds = taskIds;
     store.pendingIds = pendingIds;
     store.receipts = receiptsById;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     store.disposed = !active;
     if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingIds);
     return () => {
@@ -3768,7 +4123,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       store.controller = null;
     };
   }, [active]);
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refreshAttempts(store, store.pendingIds);
@@ -3785,13 +4140,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [active, anyPending]);
   const refreshing = Boolean(store.controller);
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (performance.now() - pending.at > unarchiveFocusMs) {
@@ -4126,6 +4481,7 @@ var plugin = {
     }, "requestHost");
     const actions = {
       controllerSelection,
+      noticeMemory: {},
       clearControllerTarget: /* @__PURE__ */ __name((target) => {
         if (controllerTarget.getSnapshot() === target) controllerTarget.set(null);
       }, "clearControllerTarget"),
