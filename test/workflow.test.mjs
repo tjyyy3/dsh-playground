@@ -7,6 +7,7 @@ import test, { mock } from 'node:test';
 import { createPlaygroundClient, PlaygroundApiError } from '../lib/api.js';
 import { COMPETITION_IDS, PUBLISHED_SCHEDULE_IDS } from '../lib/competitions.js';
 import { apply, presentationMeta } from '../index.js';
+import { registerTaskTools } from '../lib/host/tools.js';
 import { createPlaygroundCli } from '../lib/cli.js';
 import { windowsJobLaunch } from '../lib/windows-process.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
@@ -91,6 +92,27 @@ test('creating a task uses a new native session and preserves the exploration se
   assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
   assert.match(f.calls.find(([kind]) => kind === 'prompt')[1].content[0].text, /不是操作授权/);
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
+});
+
+test('the controller rejects standalone task tool calls while a confirmed workbench start still creates a task', async () => {
+  const controller = { owns: (agent) => agent.id === 'source' };
+  const f = await fixture(undefined, { isController: controller.owns });
+  const tools = [];
+  registerTaskTools({ tools: { register: (tool) => tools.push(tool) } }, f.workflow, controller);
+  const start = tools.find((tool) => tool.name === 'playground_start_task');
+  const input = { challenge_id: 'challenge-a', cwd: f.cwd };
+  const result = await start.execute(input, f.exec);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'controller_conversation');
+  assert.match(result.error.message, /subagent.*prompt/);
+  assert.deepEqual(f.calls, []);
+
+  const confirmed = await f.workflow.command({ ...f.exec, rawInput: JSON.stringify({
+    action: 'start', challenge_id: 'challenge-a', workspace_id: 'workspace',
+  }) });
+  assert.equal(confirmed.kind, 'success');
+  assert.equal(JSON.parse(confirmed.text).sessionId, 'new-task');
+  assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
 });
 
 // A long synthetic statement and resource list must never reach the first prompt.

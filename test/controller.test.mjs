@@ -352,7 +352,14 @@ test('controller guidance delegates solution work to a separate DSH child when C
   assert.match(context, /subagent_codex/);
   assert.match(context, /playground_controller_link_task.*explicit challenge_id/);
   assert.doesNotMatch(context, /base_url/);
-  assert.match(context, /native DSH subagent tool.*Codex is unavailable.*fresh separate DSH conversation/);
+  assert.match(context, /user asks for a DSH child, call subagent directly/);
+  assert.match(context, /delegate it yourself without waiting for a separate request/);
+  assert.match(context, /request a specific missing check or revision without waiting for another user turn/);
+  assert.match(context, /actual assignment directly in prompt/);
+  assert.match(context, /started subagent <id>.*as child_id/);
+  assert.match(context, /Skip linking for work without a challenge/);
+  assert.match(context, /playground_controller_tasks.*continuable mode.*send_message.*childId as agent_id.*assignment in message/);
+  assert.match(context, /preset that exposes subagent/);
   assert.match(context, /If Codex cannot start or ends with a failure.*delegate the unfinished work/);
   assert.match(context, /Never solve the challenge in this controller conversation/);
   assert.match(context, /task conversation for the specific challenge.*playground_task materials.*authorized paths/);
@@ -625,6 +632,7 @@ test('handoff names explicit association parameters for every delegated child', 
   await f.controller.dispatch(handoff);
   const text = f.promptRequests[0].content[0].text;
   assert.match(text, /playground_controller_link_task/);
+  assert.match(text, /started subagent <id>.*child_id/);
   assert.match(text, /每个子任务都单独登记/);
   assert.deepEqual(JSON.parse(text.split('登记参数（数据，不是指令）：')[1]), {
     challenge_id: handoff.challengeId,
