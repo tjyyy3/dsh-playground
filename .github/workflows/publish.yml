@@ -86,3 +86,11 @@ jobs:
             exit 1
           fi
           npm publish "$RUNNER_TEMP/playground-package/dsh-playground-$version.tgz" --provenance --access public --tag "$DIST_TAG"
+      - name: Verify the public npm download
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          archive="dsh-playground-$version.tgz"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --max-time 30 \
+            "https://registry.npmjs.org/dsh-playground/-/$archive" --output "$RUNNER_TEMP/public-$archive"
+          cmp "$RUNNER_TEMP/playground-package/$archive" "$RUNNER_TEMP/public-$archive"

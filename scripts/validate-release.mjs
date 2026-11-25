@@ -25,7 +25,7 @@ export function releaseNotes(notes, sha) {
 }
 
 export const requiredFiles = ['package.json', 'index.js', 'client.js', 'lib/releases.js',
-  'cordis.patch.yml', 'locale/en.json', 'locale/zh.json', 'icon.svg', 'compatibility.json'];
+  'cordis.patch.yml', 'locale/en.json', 'locale/zh.json', 'icon.svg', 'compatibility.json', 'README.md', 'README.en.md'];
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values } = parseArgs({ options: { 'tags-file': { type: 'string' }, 'notes-file': { type: 'string' } } });

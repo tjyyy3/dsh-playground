@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![Beta 0.6.0-beta.2](https://img.shields.io/badge/beta-0.6.0--beta.2-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.2)
+[![Beta 0.6.0-beta.3](https://img.shields.io/badge/beta-0.6.0--beta.3-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.3)
 
 Browse Playground challenges in DeepSeek Harness (DSH), hand a challenge to your workspace controller, and track the agents' results, submissions and scores.
 
@@ -34,15 +34,13 @@ Keeping both packages installed registers the same configuration entry twice. DS
 
 Playground follows DSH by default. Change the language under **More → Settings → General settings → Language** and Playground switches with it. To set a language just for Playground, select the translation icon immediately to the left of the sign-in status in the top bar, then choose **English** or **中文**. Select **Follow DSH** to resume automatic switching.
 
-When available, challenge content uses the platform's version in the selected language. Chats and text you enter stay in their original language. The language menu and local Codex chats described below are available in the source tree. The published `0.6.0-beta.2` package predates both features.
+Challenge titles and groups use the platform's translation when available. Challenge statements, chats and text you enter keep their original wording.
 
-## New competition alerts (local preview)
+## Competition alerts
 
-The first time you open the controller panel, Playground remembers the current competitions and rounds. On later visits, a single dialog lists any new competitions or rounds. Each entry shows the available schedule, prizes and platform resources, with an official link when available.
+On your first visit to the controller, Playground lists competitions and rounds confirmed to be in progress by their official status or time-zone-aware schedule, with the nearest deadline first. If none qualify, the controller opens directly. Later visits check the public contest APIs, supported schedules and the website's contest overview for new competitions and rounds.
 
-Opening the controller checks the official contest APIs, supported schedules and the website's contest overview. The overview can include a contest with its own page, such as Science Navigator Masters. The first successful read of each new source records its existing entries. Later additions trigger an alert.
-
-Choose **Got it** in the lower right to acknowledge this batch. Choose **Turn off competition alerts** in the lower left to disable future alerts. You can turn them back on in **Connection settings**.
+Choose **Remind me tomorrow** to see the still-valid entries in this batch the next time you open the controller on or after the next Beijing calendar day. **Got it** acknowledges only this batch. New rounds can still trigger an alert after either choice. **Turn off competition alerts** in the lower left disables all alerts. Turn them back on in **Connection settings**. The client stores your preference and alert history locally.
 
 ## Find Codex chats in your workspace
 
