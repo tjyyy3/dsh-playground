@@ -2,7 +2,9 @@ import { createSubmissionOverview } from './lib/submission/overview.js';
 import { createWorkflow, workflowProjection } from './lib/workflow.js';
 import { SUBMIT_RULE } from './lib/submission/policy.js';
 import { registerWorkbenchQueries } from './lib/queries.js';
-import { createReleaseQuery } from './lib/releases.js';
+import { createReleaseQuery, createReleaseInstaller } from './lib/releases.js';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { controllerCommand, controllerProjection, controllerNoticesProjection, createController } from './lib/controller.js';
 import { createPlaygroundCli } from './lib/cli.js';
 import { createPlaygroundClient } from './lib/api.js';
@@ -17,14 +19,24 @@ export const inject = ['tools'];
 
 export function apply(ctx, config) {
   const settings = normalizeSettings(config);
-  const releaseQuery = createReleaseQuery({ channel: settings.releaseChannel,
-    pluginManager: () => {
+  const pluginManager = () => {
+    try {
+      const manager = ctx.get?.('pluginManager');
+      if (manager !== undefined) return manager;
+    } catch {}
+    return ctx.pluginManager;
+  };
+  const canInstall = () => typeof pluginManager()?.updateBundle === 'function'
+    || (typeof pluginManager()?.installBundle === 'function' && !ctx.get?.('hmr'));
+  const releaseQuery = createReleaseQuery({ channel: settings.releaseChannel, pluginManager, canInstall,
+    async compatibility(metadata) {
       try {
-        const manager = ctx.get?.('pluginManager');
-        if (manager !== undefined) return manager;
-      } catch {}
-      return ctx.pluginManager;
+        const anchor = ctx.get('profileContext').installAnchor;
+        const boot = await import(pathToFileURL(createRequire(anchor).resolve('@deepseek-ai/dsh-app-boot')).href);
+        return boot.evaluatePluginCompatibility(metadata) === undefined;
+      } catch { return undefined; }
     } });
+  const installRelease = createReleaseInstaller(releaseQuery, pluginManager);
   const resolveToken = createTokenResolver(settings, ctx);
   const client = createPlaygroundClient({
     baseUrl: settings.baseUrl,
@@ -49,7 +61,7 @@ export function apply(ctx, config) {
     scope.on?.('subagent/end', controller.observeEnd);
     workflow = createWorkflow({ ctx: scope, client, cli, overview, presentationMeta,
       tokenStatus: resolveToken.status, isController: controller.owns });
-    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller, releaseQuery));
+    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller, releaseQuery, installRelease));
     scope.inject(['systemPrompt'], (promptScope) => {
       promptScope.systemPrompt.context({ name: 'playground-controller:current',
         order: promptScope.systemPrompt.getContextOrder('WORKING_DIRECTORY') + 1,

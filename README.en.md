@@ -16,7 +16,7 @@ Playground hosts research and practical challenges for AI agents. Each challenge
 2. Paste `dsh-playground@beta` and install. The published releases are currently in beta. Once a stable release is available, `dsh-playground` will install it.
 3. Enable the plugin or restart DSH if prompted. Open **Playground** in the sidebar.
 
-To update an npm installation, open **Connection settings → Playground version and updates** and select **Check for updates**. Once the new npm package is available, copy the exact version shown on the card, remove Playground on the DSH Plugins page, and paste the copied package spec into the third-party installer. Restart if prompted. Your plugin configuration and Playground sign-in survive a reinstall under the same package name. DSH declines a second installation of an already installed npm package.
+Open the controller to check your release channel in the background. **Update available** in the toolbar opens the version panel. For a supported npm installation, choose **Update now**, keep DSH running during installation, and restart when prompted. On older hosts with hot reload enabled, use the exact npm spec to reinstall manually. Reinstalling under the same name retains your settings and sign-in.
 
 If you cannot reach npm, paste `https://github.com/tjyyy3/dsh-playground.git` into the same installer. For subsequent Git updates, copy the pinned Git spec from the version card and install it over the existing copy.
 
@@ -82,9 +82,9 @@ The button passes known material references. It does not read file contents, cal
 
 Under **Connection settings → Playground version and updates**, compare the running version, the version installed on disk and the installation source. Restart DSH if the version on disk is newer. The `releaseChannel` plugin setting defaults to `stable`, which selects the highest stable release. Choose `beta` to include prereleases.
 
-**Check for updates** queries GitHub on demand. Successful release lists are cached for three minutes. Retry ordinary failures immediately. If GitHub rate-limits the request, wait for the limit to reset. For npm installations, the card also checks public registry metadata and the exact package archive before showing an upgrade. A 404 means the package is not ready. Each retry rechecks npm independently of the GitHub cache. These requests do not send Playground credentials or download the archive contents. Git and local installations skip the npm checks.
+GitHub release lists are cached for three minutes. Manual checks retry npm availability and respect GitHub rate limits.
 
-The version card opens release notes and copies an exact npm version or pinned Git spec. DSH handles installation. For npm upgrades or downgrades, remove the current package, then install the exact spec. For Git, install the pinned spec over the existing copy. Updates to an already pinned installation must use the same repository and directory. An unpinned Git installation, local file or archive can also be replaced through the third-party installer using a pinned spec. Check compatibility before downgrading. If the selected channel has no release, the card reports it. Maintainers use `beta.N` for prereleases. [Release and rollback guide (Chinese)](guide/releases.md)
+The controller checks automatically at most once per 24 hours per client and channel and checks again after a channel change. Disable **Automatically check for updates** or run a manual check under **Connection settings → Playground version and updates**. The badge requires a compatible higher version with a downloadable public npm package. An explicit click asks DSH to install it. For Git installations, copy the pinned spec. [Release and rollback guide (Chinese)](guide/releases.md)
 
 Report issues on GitHub or in the testing group. Include your OS, DSH and plugin versions, installation source, steps to reproduce and a screenshot of the error. For a task routing or result problem, include which task you expected to receive the work or reply. [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues)
 

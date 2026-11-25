@@ -5842,20 +5842,47 @@ async function releasePanel(t, reply) {
 const releaseTarget = (version, extra = {}) => ({ version, prerelease: version.includes('-'),
   notesUrl: `https://github.com/tjyyy3/dsh-playground/releases/tag/v${version}`,
   gitSpec: `github:tjyyy3/dsh-playground#${'a'.repeat(40)}`, ...extra });
+
+test('verified update entry opens the release panel and only Update now dispatches installation', async (t) => {
+  const installs = [];
+  const target = releaseTarget('0.6.0-beta.4');
+  const f = await clientFixture(t, { connection: { rpc: { call: async (_route, method, { args: { input } }) => {
+    if (method.endsWith('/installRelease')) {
+      installs.push(input); return { ok: true, value: { status: 'restart-required' } };
+    }
+    return releaseReply(input, { source: 'registry', restartRequired: false, installedVersion: '0.6.0-beta.3',
+      ...(input.check ? { target, comparison: 'upgrade', registry: { status: 'ready' }, compatible: true, canInstall: true } : {}) });
+  } } } });
+  const main = f.registrations.get('main');
+  const props = { ...main.definition.inject(), useControllerTarget: fn => fn(null),
+    useWorkspaces: fn => fn({ phase: 'ready', items: [] }), useSessions: fn => fn({ ids: [], byId: {} }), renderSlot: () => null };
+  const render = () => f.render(main.Component, props);
+  const entry = f.find(render(), node => node.type?.name === 'ReleaseIndicator');
+  const button = await f.mount(entry);
+  assert.equal(text(button).trim(), '有新版本');
+  button.props.onClick();
+  const panel = f.find(render(), node => node.type?.name === 'ReleaseStatusPanel');
+  assert.ok(panel.props.visit);
+  const tree = await f.mount(panel);
+  assert.equal(installs.length, 0);
+  await f.find(tree, node => node.type === 'button' && text(node) === '立即更新').props.onClick();
+  assert.deepEqual(installs, [{ version: target.version }]);
+  assert.match(text(f.render(panel.type, panel.props)), /下次重启 DSH 时生效/);
+});
 const runningRelease = { currentVersion: '0.5.0-preview.7', currentChannel: 'beta', channel: 'stable',
   installedVersion: '0.5.1-beta.1', restartRequired: true, source: 'git_unpinned',
   sourceHint: '当前 Git spec 未固定完整 commit，DSH 无法更新该来源。用固定 spec 覆盖安装。仅当返回 already-installed 时才移除后重新安装。' };
 const releaseReply = (input, fields = {}) => ({ ok: true, value: { ...runningRelease,
   status: input.check ? 'ready' : 'unchecked', target: null, comparison: null, ...fields } });
 
-test('release settings are read-only, display running and disk versions, and copy the Release pinned spec', async (t) => {
+test('release settings display running and disk versions and copy the pinned Git spec', async (t) => {
   const target = releaseTarget('0.4.4');
   const nextTarget = releaseTarget('0.4.5', { gitSpec: `github:tjyyy3/dsh-playground#${'b'.repeat(40)}` });
   let checks = 0;
   const panel = await releasePanel(t, (input) => releaseReply(input, input.check ? { target: ++checks === 1 ? target : nextTarget, comparison: 'downgrade' } : {}));
   assert.deepEqual(panel.calls.map(({ method, input }) => [method, input]), [['playgroundQueries/query', { action: 'releases', check: false }]]);
   assert.equal(panel.find(panel.render(), (node) => node.type === 'select'), undefined);
-  assert.match(text(panel.render()), /当前运行版本\s+0\.5\.0-preview\.7\s+· Beta/);
+  assert.match(text(panel.render()), /当前版本\s+0\.5\.0-preview\.7/);
   assert.match(text(panel.render()), /磁盘版本 0\.5\.1-beta\.1.*需要重启/);
   assert.match(text(panel.render()), /DSH 无法更新该来源.*覆盖安装/);
   assert.match(text(panel.render()), /尚未检查更新/);
@@ -5876,7 +5903,7 @@ test('release settings are read-only, display running and disk versions, and cop
   await panel.find(tree, (node) => node.type === 'button' && text(node) === '复制 Git spec').props.onClick();
   assert.deepEqual(copied, [target.gitSpec]);
   assert.deepEqual(panel.calls.map(({ method, input }) => [method, input.check]), [['playgroundQueries/query', false], ['playgroundQueries/query', true]]);
-  assert.equal(panel.writes.length, 0);
+  assert.equal(panel.writes.length, 1);
   assert.match(text(panel.render()), /已复制 Git spec/);
   await panel.check();
   assert.ok(text(panel.render()).includes(nextTarget.gitSpec));
@@ -5960,16 +5987,16 @@ test('registry card waits for the exact public tarball before exposing installat
   assert.doesNotMatch(text(panel.render()), /可升级至|卸载|复制 npm spec/);
   tarball.resolve(new Response(null));
   await checking;
-  assert.match(text(panel.render()), /可升级至 0\.6\.0-beta\.2.*复制 npm spec.*卸载/);
+  assert.match(text(panel.render()), /可更新至\s+0\.6\.0-beta\.2.*复制 npm spec.*卸载/);
 });
 
-test('release settings read the beta channel from host config without browser persistence', async (t) => {
+test('the host chooses the channel while the browser records completed checks', async (t) => {
   const panel = await releasePanel(t, (input) => releaseReply(input, { channel: 'beta' }));
   assert.match(text(panel.render()), /更新渠道 Beta.*插件配置 releaseChannel/);
   assert.match(text(panel.render()), /Beta 提供抢先功能/);
   await panel.check();
   assert.match(text(panel.render()), /Beta 渠道暂无发布/);
-  assert.deepEqual(panel.writes, []);
+  assert.equal(JSON.parse(panel.writes.at(-1)[1]).records.beta.version, null);
   assert.ok(panel.calls.every(({ input }) => !('channel' in input)));
 });
 
@@ -5995,7 +6022,7 @@ test('release settings distinguish an unavailable check, no releases, and the ve
   assert.deepEqual(findAll(panel.render(), (node) => node.type === 'a').map(text), ['发布说明']);
   await panel.check();
   assert.equal(findAll(panel.render(), (node) => node.type === 'a').length, 0);
-  assert.equal(panel.writes.length, 0);
+  assert.ok(panel.writes.every(([key]) => key === 'playground.release-checks.v1'));
 });
 
 test('release settings show distinct errors and block checks during a GitHub rate limit', async (t) => {
@@ -6070,7 +6097,7 @@ test('the initial release RPC times out and cannot leave the check button disabl
   hung.resolve(releaseReply({ check: false }, { currentVersion: 'stale' }));
   await settle();
   assert.doesNotMatch(text(panel.render()), /stale/);
-  assert.match(text(panel.render()), /当前运行版本/);
+  assert.match(text(panel.render()), /当前版本/);
 });
 
 test('task detail renders recognized result text with a preserved raw notice and keeps unknown states honest', async (t) => {
