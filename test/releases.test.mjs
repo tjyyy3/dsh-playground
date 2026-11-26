@@ -47,6 +47,25 @@ test('automatic release checks persist a verified badge, throttle per channel an
   assert.equal(checks.getSnapshot().enabled, false);
 });
 
+test('current and older releases need no compatibility decision to cache the absence of an upgrade', async () => {
+  for (const comparison of ['current', 'downgrade']) {
+    const info = { channel: 'beta', source: 'registry', currentVersion: '1.0.1', installedVersion: '1.0.1' };
+    let count = 0;
+    let time = 0;
+    const checks = createReleaseChecks(async ({ check }) => {
+      if (!check) return info;
+      count++;
+      return { ...info, status: 'ready', registry: { status: 'ready' }, comparison,
+        target: { version: comparison === 'current' ? '1.0.1' : '1.0.0' } };
+    }, () => null, () => time);
+    await checks.check();
+    time += 23 * 60 * 60 * 1000;
+    await checks.check();
+    assert.equal(count, 1);
+    assert.equal(checks.getSnapshot().version, null);
+  }
+});
+
 test('automatic release checks retry provisional results before the next day', async () => {
   const info = { channel: 'beta', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
   const ready = { status: 'ready', compatible: true, registry: { status: 'ready' }, comparison: 'upgrade', target: { version: '1.0.1' } };

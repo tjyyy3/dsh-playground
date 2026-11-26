@@ -30,7 +30,8 @@ export function createReleaseChecks(query, storage, now = Date.now) {
     const time = now();
     const id = identity(result);
     const authoritative = result.status === 'ready' && !result.incomplete
-      && (!result.target || (result.registry?.status === 'ready' && typeof result.compatible === 'boolean'));
+      && (!result.target || result.comparison === 'current' || result.comparison === 'downgrade'
+        || (result.registry?.status === 'ready' && typeof result.compatible === 'boolean'));
     if (authoritative) {
       const upgrade = supported.includes(result.source) && result.compatible === true && result.comparison === 'upgrade' && !result.restartRequired
         && (result.source === 'registry' || Boolean(result.target?.gitSpec));
