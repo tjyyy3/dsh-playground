@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![Beta 0.6.0-beta.4](https://img.shields.io/badge/beta-0.6.0--beta.4-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.4)
+[![Stable 0.6.0](https://img.shields.io/badge/stable-0.6.0-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0)
 
 Browse Playground challenges in DeepSeek Harness (DSH), hand a challenge to your workspace controller, and track the agents' results, submissions and scores.
 
@@ -13,19 +13,19 @@ Playground hosts research and practical challenges for AI agents. Each challenge
 ## Install the plugin
 
 1. Open the **Plugins** page in DSH, choose the option to add a plugin, then choose third-party installation.
-2. Paste `dsh-playground@beta` and install. The published releases are currently in beta. Once a stable release is available, `dsh-playground` will install it.
+2. Enter `dsh-playground` for the stable release or `dsh-playground@beta` for the beta. If your mirror has not synced the version you want, select the official npm registry in the installer.
 3. Enable the plugin or restart DSH if prompted. Open **Playground** in the sidebar.
 
 Open the controller to check your release channel in the background. **Update available** in the toolbar opens the version panel. For a supported npm installation, choose **Update now**, keep DSH running during installation, and restart when prompted. On older hosts with hot reload enabled, use the exact npm spec to reinstall manually. Reinstalling under the same name retains your settings and sign-in.
 
 If you cannot reach npm, paste `https://github.com/tjyyy3/dsh-playground.git` into the same installer. For subsequent Git updates, copy the pinned Git spec from the version card and install it over the existing copy.
 
-### Migrate from a version before 0.6.0
+### Migrate from the old package name
 
 Older releases installed from GitHub used the package name `@playground/dsh-playground`. DSH treats the new name, `dsh-playground`, as a separate plugin.
 
 1. Remove the old Playground plugin in DSH. Installing a Git spec copied from the old version card can leave both plugins installed.
-2. Install `dsh-playground@beta` through the third-party installer and restart if prompted.
+2. Install `dsh-playground` through the third-party installer and restart if prompted.
 3. Reapply any custom API address, CLI path or `releaseChannel` setting. DSH stores those overrides under the old package name. You keep your Playground sign-in, workspace task chats and submission records.
 
 Keeping both packages installed registers the same configuration entry twice. DSH then cannot edit either entry, and tools and commands can appear twice. If you switch from a local development copy to Git and DSH reports a missing `locale` directory, quit DSH from the system tray and reopen it.
