@@ -1,6 +1,6 @@
 {
   "name": "dsh-playground",
-  "version": "0.6.0-beta.3",
+  "version": "0.6.0-beta.4",
   "license": "MIT",
   "type": "module",
   "description": "DSH plugin for Playground challenges: browse challenges, dispatch tasks to Agents, and track submissions and scores.",

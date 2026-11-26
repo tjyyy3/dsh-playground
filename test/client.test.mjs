@@ -5913,6 +5913,7 @@ test('release settings display running and disk versions and copy the pinned Git
 test('release settings copy only the confirmed exact npm version for a registry install', async (t) => {
   const replies = [{ target: releaseTarget('0.6.0-beta.2'), comparison: 'upgrade' }, { target: releaseTarget('0.6.0'), comparison: 'upgrade' }];
   const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。', registry: { status: 'ready' },
+    installedVersion: runningRelease.currentVersion, restartRequired: false,
     ...(input.check ? replies.shift() : {}) }));
   assert.doesNotMatch(text(panel.render()), /dsh-playground@beta|复制/);
   const copied = [];
@@ -5920,7 +5921,7 @@ test('release settings copy only the confirmed exact npm version for a registry 
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (value) => copied.push(value) } } });
   t.after(() => { if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor); else delete globalThis.navigator; });
   await panel.check();
-  assert.match(text(panel.render()), /可升级至 0\.6\.0-beta\.2/);
+  assert.match(text(panel.render()), /可更新至 0\.6\.0-beta\.2/);
   assert.doesNotMatch(text(panel.render()), /github:|Git spec/);
   assert.match(text(panel.render()), /公开安装包已就绪.*先在 DSH 插件管理器卸载.*配置会保留/);
   await panel.find(panel.render(), (node) => node.type === 'button' && text(node) === '复制 npm spec').props.onClick();
@@ -5935,8 +5936,9 @@ test('release settings copy only the confirmed exact npm version for a registry 
 test('registry settings withhold upgrade and uninstall guidance until both npm checks succeed', async (t) => {
   let registry = { status: 'pending', stage: 'version' };
   const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。',
+    installedVersion: runningRelease.currentVersion, restartRequired: false,
     ...(input.check ? { target: releaseTarget('0.6.0-beta.2'), comparison: 'upgrade', registry } : {}) }));
-  const withheld = () => assert.doesNotMatch(text(panel.render()), /可升级至|卸载|重新安装|复制 npm spec|dsh-playground@/);
+  const withheld = () => assert.doesNotMatch(text(panel.render()), /可升级至|可更新至|卸载|重新安装|复制 npm spec|dsh-playground@/);
   withheld();
   await panel.check();
   withheld();
@@ -5957,12 +5959,53 @@ test('registry settings withhold upgrade and uninstall guidance until both npm c
   }
   registry = { status: 'ready' };
   await panel.check();
-  assert.match(text(panel.render()), /可升级至.*复制 npm spec.*卸载/);
+  assert.match(text(panel.render()), /可更新至.*复制 npm spec.*卸载/);
   registry = { status: 'pending', stage: 'tarball' };
   const pending = panel.check();
   withheld();
   await pending;
   withheld();
+});
+
+test('registry settings recommend manual reinstallation only for an upgrade that can be applied', async (t) => {
+  const cases = [
+    { target: releaseTarget('0.5.0-preview.7'), comparison: 'current' },
+    { target: releaseTarget('0.4.0'), comparison: 'downgrade' },
+    { target: releaseTarget('0.6.0'), comparison: 'upgrade', restartRequired: true },
+    { target: releaseTarget('0.6.0'), comparison: 'upgrade', incomplete: true },
+    { target: releaseTarget('0.6.0'), comparison: 'upgrade' },
+  ];
+  const panel = await releasePanel(t, (input) => releaseReply(input, { source: 'registry', sourceHint: '通过 npm 安装。',
+    restartRequired: false, ...(input.check ? { registry: { status: 'ready' }, compatible: true, canInstall: false, ...cases.shift() } : {}) }));
+  const recommendations = [];
+  while (cases.length) {
+    await panel.check();
+    recommendations.push(/先在 DSH 插件管理器卸载/.test(text(panel.render())));
+  }
+  assert.deepEqual(recommendations, [false, false, false, false, true]);
+});
+
+test('a manual Git release check verifies the public npm package and host compatibility without a badge', async (t) => {
+  const target = releaseTarget('0.6.0');
+  const tarball = 'https://registry.npmjs.org/dsh-playground/-/dsh-playground-0.6.0.tgz';
+  const requests = [];
+  const compatibility = [];
+  const read = createReleaseQuery({ channel: 'stable', readVersion: () => '0.5.0',
+    pluginManager: () => ({ listBundles: () => [{ name: 'dsh-playground', update: 'git' }] }),
+    compatibility: (metadata) => { compatibility.push(metadata.version); return false; },
+    fetchImpl: async (url, { method }) => {
+      requests.push([url, method]);
+      if (url.startsWith('https://api.github.com/')) return Response.json([{ draft: false, tag_name: 'v0.6.0', prerelease: false,
+        body: `Commit: ${'a'.repeat(40)}` }]);
+      if (url === tarball) return new Response(null);
+      return Response.json({ name: 'dsh-playground', version: '0.6.0', dist: { tarball } });
+    } });
+  const panel = await releasePanel(t, async (input) => ({ ok: true, value: await read(input) }));
+  assert.deepEqual(requests, []);
+  await panel.check();
+  assert.deepEqual(requests.slice(1), [['https://registry.npmjs.org/dsh-playground/0.6.0', 'GET'], [tarball, 'HEAD']]);
+  assert.deepEqual(compatibility, [target.version]);
+  assert.match(text(panel.render()), /与当前 DSH 不兼容/);
 });
 
 test('registry card waits for the exact public tarball before exposing installation guidance', async (t) => {

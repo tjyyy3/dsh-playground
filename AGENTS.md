@@ -118,7 +118,7 @@ title or description uses another language.
 
 ## Current state
 
-Version `0.6.0-beta.3`. Version `0.6.0-beta.1` was the first version published to npm as `dsh-playground`.
+Version `0.6.0-beta.4`. Version `0.6.0-beta.1` was the first version published to npm as `dsh-playground`.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.

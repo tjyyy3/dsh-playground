@@ -47,13 +47,128 @@ test('automatic release checks persist a verified badge, throttle per channel an
   assert.equal(checks.getSnapshot().enabled, false);
 });
 
+test('current and older releases need no compatibility decision to cache the absence of an upgrade', async () => {
+  for (const comparison of ['current', 'downgrade']) {
+    const info = { channel: 'beta', source: 'registry', currentVersion: '1.0.1', installedVersion: '1.0.1' };
+    let count = 0;
+    let time = 0;
+    const checks = createReleaseChecks(async ({ check }) => {
+      if (!check) return info;
+      count++;
+      return { ...info, status: 'ready', registry: { status: 'ready' }, comparison,
+        target: { version: comparison === 'current' ? '1.0.1' : '1.0.0' } };
+    }, () => null, () => time);
+    await checks.check();
+    time += 23 * 60 * 60 * 1000;
+    await checks.check();
+    assert.equal(count, 1);
+    assert.equal(checks.getSnapshot().version, null);
+  }
+});
+
+test('automatic release checks retry provisional results before the next day', async () => {
+  const info = { channel: 'beta', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  const ready = { status: 'ready', compatible: true, registry: { status: 'ready' }, comparison: 'upgrade', target: { version: '1.0.1' } };
+  for (const provisional of [
+    { status: 'unavailable', error: 'failed' },
+    { status: 'unavailable', error: 'timeout' },
+    { ...ready, registry: { status: 'pending', stage: 'tarball' } },
+    { ...ready, incomplete: true },
+  ]) {
+    let count = 0;
+    let time = 1000;
+    let saved;
+    const make = () => createReleaseChecks(async ({ check }) => check
+      ? { ...info, ...(count++ === 0 ? provisional : ready) } : { ...info, status: 'unchecked' },
+    () => ({ getItem: () => saved, setItem: (_, value) => { saved = value; } }), () => time);
+    const checks = make();
+    await checks.check();
+    assert.equal(checks.getSnapshot().version, null);
+    const reopened = make();
+    await reopened.check();
+    assert.equal(count, 1);
+    time += 5 * 60 * 1000;
+    await reopened.check();
+    assert.equal(count, 2, provisional.error || provisional.registry?.status || 'incomplete');
+    assert.equal(reopened.getSnapshot().version, '1.0.1');
+  }
+});
+
+test('automatic release checks wait until the GitHub rate limit resets', async () => {
+  const info = { channel: 'stable', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  const reset = 30 * 60 * 1000;
+  let checks = 0;
+  let time = 1000;
+  let saved;
+  const make = () => createReleaseChecks(async ({ check }) => check ? { ...info, ...(checks++ === 0
+    ? { status: 'unavailable', error: 'rate_limited', resetAt: new Date(reset).toISOString() }
+    : { status: 'ready', compatible: true, registry: { status: 'ready' }, comparison: 'upgrade', target: { version: '1.0.1' } }) }
+    : { ...info, status: 'unchecked' },
+  () => ({ getItem: () => saved, setItem: (_, value) => { saved = value; } }), () => time);
+  await make().check();
+  const reopened = make();
+  time = reset - 1;
+  await reopened.check();
+  assert.equal(checks, 1);
+  time = reset;
+  await reopened.check();
+  assert.equal(checks, 2);
+  assert.equal(reopened.getSnapshot().version, '1.0.1');
+});
+
+test('a provisional manual check does not overwrite a verified badge or postpone refresh until tomorrow', async () => {
+  const info = { channel: 'stable', source: 'git_pinned', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  const result = { ...info, status: 'ready', compatible: true, registry: { status: 'ready' },
+    comparison: 'upgrade', target: { version: '1.0.1', gitSpec: `github:tjyyy3/dsh-playground#${sha}` } };
+  let count = 0;
+  let time = 1000;
+  const checks = createReleaseChecks(async ({ check }) => {
+    if (!check) return { ...info, status: 'unchecked' };
+    count++;
+    return result;
+  }, () => null, () => time);
+  checks.checked(result);
+  checks.checked({ ...result, registry: { status: 'pending', stage: 'tarball' }, compatible: undefined });
+  assert.equal(checks.getSnapshot().version, '1.0.1');
+  await checks.check();
+  assert.equal(count, 0);
+  time += 5 * 60 * 1000;
+  await checks.check();
+  assert.equal(count, 1);
+  assert.equal(checks.getSnapshot().version, '1.0.1');
+});
+
+test('an automatic RPC that stalls can retry after its timeout', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000 });
+  const info = { channel: 'stable', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
+  let count = 0;
+  let signal;
+  const checks = createReleaseChecks(async ({ check }, requestSignal) => {
+    if (!check) return { ...info, status: 'unchecked' };
+    if (count++ > 0) return { ...info, status: 'ready', target: null, comparison: null };
+    signal = requestSignal;
+    return new Promise(() => {});
+  }, () => null);
+  const pending = checks.check();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(signal);
+  t.mock.timers.tick(150000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(signal.aborted);
+  assert.equal(count, 1);
+  t.mock.timers.tick(5 * 60 * 1000);
+  await checks.check();
+  assert.equal(count, 2);
+  await pending;
+});
+
 test('a late check cannot redisplay an update after the user opts out', async () => {
   let complete;
   const info = { channel: 'stable', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
   const checks = createReleaseChecks(async ({ check }) => check
-    ? new Promise(resolve => { complete = resolve; }) : info, () => null);
+    ? new Promise(resolve => { complete = resolve; }) : { ...info, status: 'unchecked' }, () => null);
   const pending = checks.check();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   checks.setEnabled(false);
   complete({ ...info, status: 'ready', comparison: 'upgrade', compatible: true, registry: { status: 'ready' }, target: { version: '2' } });
   await pending;

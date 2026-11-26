@@ -134,6 +134,8 @@ __name(diagnosedMessage, "diagnosedMessage");
 // src/client/settings/release-checks.js
 var key = ["playground", "release-checks", "v1"].join(".");
 var day = 24 * 60 * 60 * 1e3;
+var retryDelay = 3 * 60 * 1e3;
+var channels = ["stable", "beta"];
 var supported = ["registry", "git_pinned", "git_unpinned", "file"];
 function createReleaseChecks(query, storage, now = Date.now) {
   let saved;
@@ -143,6 +145,8 @@ function createReleaseChecks(query, storage, now = Date.now) {
   }
   const records = { ...saved?.records };
   let channel = saved?.channel;
+  let rateLimitUntil = Number.isFinite(saved?.rateLimitUntil) ? saved.rateLimitUntil : 0;
+  let infoRetryAt = 0;
   let state = { enabled: saved?.enabled !== false, version: null };
   let active;
   const listeners2 = /* @__PURE__ */ new Set();
@@ -153,18 +157,32 @@ function createReleaseChecks(query, storage, now = Date.now) {
   }, "publish");
   const save = /* @__PURE__ */ __name(() => {
     try {
-      storage()?.setItem(key, JSON.stringify({ enabled: state.enabled, channel, records }));
+      storage()?.setItem(key, JSON.stringify({ enabled: state.enabled, channel, records, rateLimitUntil }));
     } catch {
     }
   }, "save");
   const identity = /* @__PURE__ */ __name((info) => [info.channel, info.currentVersion, info.installedVersion, info.source].join("/"), "identity");
+  const fresh = /* @__PURE__ */ __name((entry, time) => entry?.checkedAt <= time && time - entry.checkedAt < day, "fresh");
   function record(result) {
-    if (!["stable", "beta"].includes(result?.channel)) return;
+    if (!channels.includes(result?.channel)) return;
     channel = result.channel;
-    const ready = result.status === "ready" && result.registry?.status === "ready" && result.compatible === true && result.comparison === "upgrade" && !result.incomplete && !result.restartRequired && (result.source === "registry" || Boolean(result.target?.gitSpec));
-    const version2 = ready ? result.target?.version : null;
-    records[channel] = { identity: identity(result), at: now(), version: version2 };
-    publish(state.enabled ? version2 : null);
+    const time = now();
+    const id = identity(result);
+    const authoritative = result.status === "ready" && !result.incomplete && (!result.target || result.comparison === "current" || result.comparison === "downgrade" || result.registry?.status === "ready" && typeof result.compatible === "boolean");
+    if (authoritative) {
+      const upgrade = supported.includes(result.source) && result.compatible === true && result.comparison === "upgrade" && !result.restartRequired && (result.source === "registry" || Boolean(result.target?.gitSpec));
+      records[channel] = { identity: id, checkedAt: time, version: upgrade ? result.target?.version ?? null : null };
+    } else {
+      const previous = records[channel];
+      const resetAt = result.error === "rate_limited" ? Date.parse(result.resetAt) : NaN;
+      if (resetAt > time) rateLimitUntil = Math.max(rateLimitUntil, resetAt);
+      records[channel] = {
+        ...previous?.identity === id && fresh(previous, time) ? previous : { identity: id },
+        retryAt: resetAt > time ? resetAt : time + retryDelay
+      };
+    }
+    const entry = records[channel];
+    publish(state.enabled && fresh(entry, time) ? entry.version : null);
     save();
   }
   __name(record, "record");
@@ -174,26 +192,39 @@ function createReleaseChecks(query, storage, now = Date.now) {
   }
   __name(cancel, "cancel");
   async function check() {
-    if (!state.enabled || active) return;
+    if (!state.enabled || active || infoRetryAt > now()) return;
     const controller = new AbortController();
     active = controller;
     const timer = setTimeout(() => controller.abort(), 15e4);
+    const aborted = new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }));
+    let info;
     try {
-      const info = await query({ action: "releases", check: false }, controller.signal);
-      if (controller.signal.aborted || !["stable", "beta"].includes(info?.channel)) return;
-      const entry = records[info.channel];
+      info = await Promise.race([query({ action: "releases", check: false }, controller.signal), aborted]);
+      if (controller.signal.aborted) return;
+      if (!channels.includes(info?.channel) || info.status === "unavailable") {
+        infoRetryAt = now() + retryDelay;
+        publish(null);
+        return;
+      }
       if (info.restartRequired || !supported.includes(info.source)) {
         publish(null);
         return;
       }
-      if (channel === info.channel && entry?.identity === identity(info) && entry.at <= now() && now() - entry.at < day) {
-        publish(typeof entry.version === "string" ? entry.version : null);
-        return;
-      }
-      record(info);
-      const result = await query({ action: "releases", check: true, verifyPackage: true }, controller.signal);
-      if (!controller.signal.aborted) record(result);
+      const entry = records[info.channel];
+      const time = now();
+      const matches = entry?.identity === identity(info);
+      const cached = channel === info.channel && matches && fresh(entry, time);
+      publish(cached ? entry.version : null);
+      if (rateLimitUntil > time || matches && entry.retryAt > time || cached && entry.retryAt === void 0) return;
+      const result = await Promise.race([query({ action: "releases", check: true, verifyPackage: true }, controller.signal), aborted]);
+      if (!controller.signal.aborted) record(channels.includes(result?.channel) ? result : info);
     } catch {
+      if (active !== controller) return;
+      if (info) record(info);
+      else {
+        infoRetryAt = now() + retryDelay;
+        publish(null);
+      }
     } finally {
       clearTimeout(timer);
       if (active === controller) active = null;
@@ -216,6 +247,7 @@ function createReleaseChecks(query, storage, now = Date.now) {
     },
     checked(result) {
       cancel();
+      infoRetryAt = 0;
       record(result);
     },
     installed() {
@@ -942,7 +974,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     const timer = setTimeout(() => controller.abort(new Error("release_rpc_timeout")), check ? 15e4 : 1e4);
     try {
       const next = await Promise.race([
-        query({ action: "releases", check, ...check && checks.getSnapshot().version ? { verifyPackage: true } : {} }, controller.signal),
+        query({ action: "releases", check, ...check ? { verifyPackage: true } : {} }, controller.signal),
         new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))
       ]);
       if (latest.controller !== controller) return;
@@ -997,6 +1029,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
   const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
   const registrySource = info?.source === "registry";
   const registryReady = status === "ready" && release.registry?.status === "ready";
+  const registryUpgrade = registrySource && registryReady && target && comparison === "upgrade" && release.compatible !== false && !release.restartRequired && !release.incomplete;
   const installSpec = gitSource ? gitSpec : registrySource && registryReady && target && release.compatible !== false ? `dsh-playground@${target.version}` : null;
   const specLabel = gitSource ? "Git spec" : "npm spec";
   const rateLimited = release.error === "rate_limited";
@@ -1058,7 +1091,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
         "div",
         { className: "pg-release-actions" },
         canReadNotes ? h("a", { className: "pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
-        registryReady && release.canInstall && comparison === "upgrade" && !release.restartRequired && !release.incomplete ? h("button", {
+        registryUpgrade && release.canInstall ? h("button", {
           type: "button",
           className: "pg-button pg-primary",
           disabled: installing.current || ["restart-required", "applied"].includes(installState),
@@ -1129,7 +1162,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
         }, "onClick") }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)),
         h("span", { role: "status", className: "pg-note" }, copyStatus === "copied" ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === "failed" ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : "")
       ) : null,
-      registrySource && registryReady && !release.canInstall && release.compatible !== false ? h("p", { className: "pg-note" }, msg("npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。", "The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.")) : null,
+      registryUpgrade && !release.canInstall ? h("p", { className: "pg-note" }, msg("npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。", "The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.")) : null,
       target && gitSource && !gitSpec ? h("p", { className: "pg-note" }, msg("此 Release 未提供完整 commit SHA，无法生成固定 Git spec。", "This release lacks a full commit SHA, so a pinned Git spec is unavailable.")) : null
     )
   );
