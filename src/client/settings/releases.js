@@ -62,7 +62,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     const timer = setTimeout(() => controller.abort(new Error('release_rpc_timeout')), check ? 150000 : 10000);
     try {
       const next = await Promise.race([
-        query({ action: 'releases', check, ...(check && checks.getSnapshot().version ? { verifyPackage: true } : {}) }, controller.signal),
+        query({ action: 'releases', check, ...(check ? { verifyPackage: true } : {}) }, controller.signal),
         new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })),
       ]);
       if (latest.controller !== controller) return;
@@ -104,6 +104,8 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
   const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
   const registrySource = info?.source === 'registry';
   const registryReady = status === 'ready' && release.registry?.status === 'ready';
+  const registryUpgrade = registrySource && registryReady && target && comparison === 'upgrade'
+    && release.compatible !== false && !release.restartRequired && !release.incomplete;
   const installSpec = gitSource ? gitSpec : registrySource && registryReady && target && release.compatible !== false ? `dsh-playground@${target.version}` : null;
   const specLabel = gitSource ? 'Git spec' : 'npm spec';
   const rateLimited = release.error === 'rate_limited';
@@ -149,7 +151,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
           h('div', { className: 'pg-release-version pg-release-target' }, h('small', null, showTarget ? msg('可更新至', 'Available version') : msg('上次检查', 'Last checked')), h('strong', null, target.version))) : null),
       h('div', { className: 'pg-release-actions' },
         canReadNotes ? h('a', { className: 'pg-release-link', href: notesUrl, target: '_blank', rel: 'noopener noreferrer' }, msg('发布说明', 'Release notes')) : null,
-        registryReady && release.canInstall && comparison === 'upgrade' && !release.restartRequired && !release.incomplete
+        registryUpgrade && release.canInstall
           ? h('button', { type: 'button', className: 'pg-button pg-primary', disabled: installing.current || ['restart-required', 'applied'].includes(installState),
             onClick: async () => {
               if (installing.current) return;
@@ -193,7 +195,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
           try { await navigator.clipboard.writeText(installSpec); setCopyStatus('copied'); }
           catch { setCopyStatus('failed'); }
         } }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)), h('span', { role: 'status', className: 'pg-note'  }, copyStatus === 'copied' ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === 'failed' ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : '')) : null,
-      registrySource && registryReady && !release.canInstall && release.compatible !== false ? h('p', { className: 'pg-note' }, msg('npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。', 'The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.')) : null,
+      registryUpgrade && !release.canInstall ? h('p', { className: 'pg-note' }, msg('npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。', 'The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.')) : null,
       target && gitSource && !gitSpec ? h('p', { className: 'pg-note' }, msg('此 Release 未提供完整 commit SHA，无法生成固定 Git spec。', 'This release lacks a full commit SHA, so a pinned Git spec is unavailable.')) : null));
 }
 

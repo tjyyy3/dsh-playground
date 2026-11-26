@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-[![测试版 0.6.0-beta.3](https://img.shields.io/badge/beta-0.6.0--beta.3-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.3)
+[![测试版 0.6.0-beta.4](https://img.shields.io/badge/beta-0.6.0--beta.4-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.4)
 
 在 DeepSeek Harness（DSH）里浏览赛题，让工作区主控分派任务、汇总结果，并查看提交历史和评分。
 
@@ -86,7 +86,7 @@ Playground 主控面板默认显示对话。DSH 开启开发者工具并提供�
 
 ## 更新和反馈
 
-在 **连接设置 → 版本与更新** 可关闭 **自动检查更新** 或立即手动检查。默认后台检查按客户端和渠道间隔 24 小时，打开主控或返回窗口时触发，渠道变化后重新检查。插件配置 `releaseChannel` 默认为 `stable`，设为 `beta` 可查看测试版。磁盘版本较新时请重启 DSH。
+在 **连接设置 → 版本与更新** 可关闭 **自动检查更新** 或立即手动检查。打开主控或返回窗口时，工作台按客户端和渠道检查更新。成功完成的检查缓存 24 小时。临时失败和安装包同步中会较早重试，限流时等待额度恢复。切换渠道会重新检查。插件配置 `releaseChannel` 默认为 `stable`，设为 `beta` 可查看测试版。磁盘版本较新时请重启 DSH。
 
 npm 来源还会检查该精确版本的公开 registry 元数据及安装包。两者均可访问后，卡片才显示可升级、卸载重装说明和可复制的精确 npm spec。版本或安装包返回 404 时显示尚未就绪，网络错误或超时则提示重试；再次点击会立即重查 npm，不受 GitHub 列表缓存影响。检查不会发送 Playground 凭据或下载安装包内容。Git、本地链接和本地文件来源不检查 npm。
 

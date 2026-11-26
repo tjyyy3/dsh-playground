@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-[![Beta 0.6.0-beta.3](https://img.shields.io/badge/beta-0.6.0--beta.3-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.3)
+[![Beta 0.6.0-beta.4](https://img.shields.io/badge/beta-0.6.0--beta.4-blue)](https://github.com/tjyyy3/dsh-playground/releases/tag/v0.6.0-beta.4)
 
 Browse Playground challenges in DeepSeek Harness (DSH), hand a challenge to your workspace controller, and track the agents' results, submissions and scores.
 
@@ -84,7 +84,7 @@ Under **Connection settings → Playground version and updates**, compare the ru
 
 GitHub release lists are cached for three minutes. Manual checks retry npm availability and respect GitHub rate limits.
 
-The controller checks automatically at most once per 24 hours per client and channel and checks again after a channel change. Disable **Automatically check for updates** or run a manual check under **Connection settings → Playground version and updates**. The badge requires a compatible higher version with a downloadable public npm package. An explicit click asks DSH to install it. For Git installations, copy the pinned spec. [Release and rollback guide (Chinese)](guide/releases.md)
+Opening the controller or returning to its window checks for updates. Completed checks are cached for 24 hours per client and channel. Temporary failures and packages still propagating are retried sooner. Rate-limited requests wait for the reset. Changing channels triggers a new check. Disable **Automatically check for updates** or run a manual check under **Connection settings → Playground version and updates**. The badge requires a compatible higher version with a downloadable public npm package. An explicit click asks DSH to install it. For Git installations, copy the pinned spec. [Release and rollback guide (Chinese)](guide/releases.md)
 
 Report issues on GitHub or in the testing group. Include your OS, DSH and plugin versions, installation source, steps to reproduce and a screenshot of the error. For a task routing or result problem, include which task you expected to receive the work or reply. [GitHub Issues](https://github.com/tjyyy3/dsh-playground/issues)
 

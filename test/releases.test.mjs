@@ -131,8 +131,7 @@ test('an automatic RPC that stalls can retry after its timeout', async (t) => {
     return new Promise(() => {});
   }, () => null);
   const pending = checks.check();
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   assert.ok(signal);
   t.mock.timers.tick(150000);
   await new Promise(resolve => setImmediate(resolve));
@@ -148,9 +147,9 @@ test('a late check cannot redisplay an update after the user opts out', async ()
   let complete;
   const info = { channel: 'stable', source: 'registry', currentVersion: '1.0.0', installedVersion: '1.0.0' };
   const checks = createReleaseChecks(async ({ check }) => check
-    ? new Promise(resolve => { complete = resolve; }) : info, () => null);
+    ? new Promise(resolve => { complete = resolve; }) : { ...info, status: 'unchecked' }, () => null);
   const pending = checks.check();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   checks.setEnabled(false);
   complete({ ...info, status: 'ready', comparison: 'upgrade', compatible: true, registry: { status: 'ready' }, target: { version: '2' } });
   await pending;
