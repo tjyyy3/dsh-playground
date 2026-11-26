@@ -47,7 +47,7 @@ title or description uses another language.
 - Install from DSH's third-party plugin UI with `dsh-playground` for stable or `dsh-playground@beta` for beta. For npm upgrades, a verified browser click may request the exact compatible release through DSH. Older hot-reload hosts require a manual reinstall; profile overrides survive. The repository URL is the fallback: Git
   updates install the pinned Git spec that the version card copies from a
   GitHub Release over the existing copy; remove and reinstall only if DSH
-  returns `already-installed`. Installs before 0.6.0 use the old package name
+  returns `already-installed`. Early Git installs used the old package name
   `@playground/dsh-playground`; migrating means removing it before installing
   `dsh-playground`, never keeping both. The low-level `plugin_manager` command
   is a fallback for Creator-mode debugging. Background checks never install. DSH owns installation, and the version panel uses the configured releaseChannel.

@@ -25,7 +25,7 @@ DSH 插件管理器负责安装、应用和恢复。自动检查只读。用户�
 
 ## 从 `@playground/dsh-playground` 迁移
 
-0.6.0 起包名改为 `dsh-playground`。DSH 按包名记录插件，新旧两个包名是两个插件。旧版用户先卸载旧插件，再安装 `dsh-playground@beta`。不要用旧版版本卡复制的 Git spec 覆盖安装：pnpm 会以新包名新增依赖，旧包仍然保留。
+如果已安装的包名是 `@playground/dsh-playground`，请先卸载它，再安装正式版 `dsh-playground`。DSH 按包名分别记录插件。从 0.6.0-beta.1 起发布的 npm 包已使用新包名。不要用旧版版本卡复制的 Git spec 覆盖安装：pnpm 会以新包名新增依赖，旧包仍然保留。
 
 两个包都插入 id 为 `playground-competition` 的配置行。同时安装时，DSH 配置编辑器只列出 id 唯一的行，两者都无法编辑，工具和命令也可能重复注册。配置覆盖按 id 和包名匹配，旧包名下保存的覆盖在新包中被跳过，需要重新设置。
 
