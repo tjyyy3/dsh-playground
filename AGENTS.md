@@ -44,11 +44,10 @@ title or description uses another language.
 
 ## Repository boundaries
 
-- Install from DSH's third-party plugin UI with the npm spec `dsh-playground@beta`
-  (`dsh-playground` once a stable release exists). For npm upgrades, a verified browser click may request the exact compatible release through DSH. Older hot-reload hosts require a manual reinstall; profile overrides survive. The repository URL is the fallback: Git
+- Install from DSH's third-party plugin UI with `dsh-playground` for stable or `dsh-playground@beta` for beta. For npm upgrades, a verified browser click may request the exact compatible release through DSH. Older hot-reload hosts require a manual reinstall; profile overrides survive. The repository URL is the fallback: Git
   updates install the pinned Git spec that the version card copies from a
   GitHub Release over the existing copy; remove and reinstall only if DSH
-  returns `already-installed`. Installs before 0.6.0 use the old package name
+  returns `already-installed`. Early Git installs used the old package name
   `@playground/dsh-playground`; migrating means removing it before installing
   `dsh-playground`, never keeping both. The low-level `plugin_manager` command
   is a fallback for Creator-mode debugging. Background checks never install. DSH owns installation, and the version panel uses the configured releaseChannel.
@@ -118,7 +117,7 @@ title or description uses another language.
 
 ## Current state
 
-Version `0.6.0-beta.4`. Version `0.6.0-beta.1` was the first version published to npm as `dsh-playground`.
+Version `0.6.0` is the first stable release. Version `0.6.0-beta.1` was the first version published to npm as `dsh-playground`.
 
 The workbench dispatches submission requests to each task's existing Agent,
 passes authorized material references, and tracks verified attempt IDs and results.
