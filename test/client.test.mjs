@@ -1398,13 +1398,46 @@ test('one workbench lookup preserves the newer final receipt while updating a qu
   platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-02T22:00:00+08:00' });
   await h.button().props.onClick();
   await h.settled();
-  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '参考 41']);
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
 
   platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-03T14:00:00Z' });
   await h.button().props.onClick();
   await h.settled();
   assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
   assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7]);
+});
+
+test('workbench refresh keeps each accepted attempt revision through stale shared responses', async (t) => {
+  const at = (hour) => `2026-10-02T${hour}:00:00Z`;
+  const platform = new Map([[7, { ...finalAttempt(90), updatedAt: at('12') }]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, { ...finalAttempt(90), updatedAt: at('08') })],
+    ['other', receiptOf(7, { ...queuedAttempt, updatedAt: at('08') })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '90 分']);
+
+  h.sessions[1].projectionValues.playgroundTask.receipt = receiptOf(7, { ...queuedAttempt, updatedAt: at('08'), trackedAt: at('13') });
+  h.flush();
+  platform.set(7, { ...queuedAttempt, updatedAt: at('09') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '—']);
+
+  platform.set(7, { ...finalAttempt(70), updatedAt: at('12') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: at('13') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+
+  platform.set(7, { ...queuedAttempt, updatedAt: at('13') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7, 7]);
 });
 
 test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {

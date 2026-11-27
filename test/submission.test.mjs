@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, presentationMeta } from '../index.js';
+import { registerTaskTools } from '../lib/host/tools.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
 import { createPlaygroundClient } from '../lib/api.js';
 import { createPlaygroundCli } from '../lib/cli.js';
@@ -493,6 +494,49 @@ test('Agent progress for a cancelled handoff attempt resolves the recovery reque
   assert.deepEqual(f.state().submission, following.submission);
   assert.equal(f.state().receipt.submissionState, 'uploaded');
   assert.deepEqual(f.state().attemptIds, [7]);
+});
+
+test('registered task progress resolves the same attempt after two cancelled handoffs', async (t) => {
+  const f = await fixture(t);
+  const tools = new Map();
+  registerTaskTools({ ...f.ctx, tools: { register: (tool) => tools.set(tool.name, tool) } }, f.workflow);
+  const task = tools.get('playground_task');
+  const report = async (action, submission_state) => {
+    const result = await task.execute({ action, attempt_id: 7, submission_state }, f.exec);
+    assert.equal(result.ok, true);
+    f.record(result);
+  };
+
+  const initial = await f.submit();
+  await report('track', 'created');
+  await f.submit({ action: 'cancel', requestId: initial.submission.requestId });
+  const resumed = await f.submit();
+  assert.equal(resumed.submission.recovery.attemptId, 7);
+  const beforeSecondCancel = f.state();
+  const cancelledAgain = await f.submit({ action: 'cancel', requestId: resumed.submission.requestId });
+  const resumedAgain = await f.submit();
+  await report('progress', 'uploaded');
+
+  const assertResolved = async () => {
+    const status = (await f.submit({ action: 'status' })).submission;
+    assert.equal(status.requestId, resumedAgain.submission.requestId);
+    assert.equal(status.attemptId, 7);
+    assert.equal(status.status, 'uploaded');
+  };
+  await assertResolved();
+  assert.equal(cancelledAgain.submission.recovery.attemptId, 7);
+  assert.deepEqual(f.state().attemptIds, [7]);
+  assert.equal((await f.submit()).status, 'dispatched');
+
+  f.setState(beforeSecondCancel);
+  for (const { submission } of [cancelledAgain, resumedAgain]) {
+    const recovery = { ...submission.recovery };
+    delete recovery.attemptId;
+    const text = JSON.stringify({ playgroundWorkflow: { kind: 'submission', submission: { ...submission, recovery } } });
+    f.setState(workflowProjection.apply(f.state(), { type: 'command/done', data: { text } }));
+  }
+  await report('progress', 'uploaded');
+  await assertResolved();
 });
 
 test('#74 r2: a restored dispatching request without a Host lock can be cancelled and reconciled', async (t) => {

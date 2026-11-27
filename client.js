@@ -2723,15 +2723,21 @@ function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
-  const order = compareAttemptUpdates(receipt.updatedAt, entry.attempt.updatedAt);
-  const settled = receiptSettled(receipt);
-  if (order === -1 || order === 0 && settled) return receipt;
-  const merged = { ...receipt };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-  return order === void 0 && settled && !receiptSettled(merged) ? receipt : merged;
+  const overlay = entry?.overlays?.get(receiptKey(receipt));
+  return overlay ? { ...receipt, ...overlay } : receipt;
 }
 __name(withLatestAttempt, "withLatestAttempt");
+function updateAttemptOverlay(receipt, overlay, attempt) {
+  const previous = { ...receipt, ...overlay };
+  const order = compareAttemptUpdates(previous.updatedAt, attempt.updatedAt);
+  const settled = receiptSettled(previous);
+  if (order === -1 || order === 0 && settled || order !== 1 && overlay?.updatedAt !== void 0) return overlay;
+  const updated = {};
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) updated[field] = attempt[field];
+  if (Number.isFinite(parsePlatformTime(attempt.updatedAt))) updated.updatedAt = attempt.updatedAt;
+  return order === void 0 && settled && !receiptSettled({ ...receipt, ...updated }) ? overlay : updated;
+}
+__name(updateAttemptOverlay, "updateAttemptOverlay");
 function withSettledAttempt(item, entry, { closed = false } = {}) {
   const row = (closed || entry?.attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
   if (!entry?.attempt || receiptSettled(row)) return row;
@@ -2745,8 +2751,8 @@ var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
   const wanted = keys.map((key2) => {
-    const { scope, attemptId, receiptKeys } = store.receipts.get(key2);
-    return { key: key2, input: { action: "attempt", attemptId, ...scope }, receiptKeys };
+    const { scope, attemptId, snapshots } = store.receipts.get(key2);
+    return { key: key2, input: { action: "attempt", attemptId, ...scope }, snapshots };
   });
   const controller = new AbortController();
   store.controller = controller;
@@ -2756,10 +2762,14 @@ async function refreshAttempts(store, keys) {
   let next = 0;
   const worker = /* @__PURE__ */ __name(async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const { key: key2, input, receiptKeys } = wanted[next++];
+      const { key: key2, input, snapshots } = wanted[next++];
       try {
         const attempt = await store.query(input, controller.signal);
-        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key2, { attempt, receiptKeys }]);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
+          const previous = store.attempts[key2];
+          const overlays = new Map([...snapshots].map(([snapshot2, receipt]) => [snapshot2, updateAttemptOverlay(receipt, previous?.overlays?.get(snapshot2), attempt)]));
+          fresh.push([key2, { attempt: updateAttemptOverlay({}, previous?.attempt, attempt), overlays }]);
+        }
       } catch {
       }
     }
@@ -4427,8 +4437,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const attemptId = receiptAttemptId(receipt);
     const key2 = attemptKey(scope, attemptId);
     if (!key2) continue;
-    if (!receipts.has(key2)) receipts.set(key2, { scope, attemptId, receiptKeys: /* @__PURE__ */ new Set() });
-    receipts.get(key2).receiptKeys.add(receiptKey(receipt));
+    if (!receipts.has(key2)) receipts.set(key2, { scope, attemptId, snapshots: /* @__PURE__ */ new Map() });
+    receipts.get(key2).snapshots.set(receiptKey(receipt), receipt);
     if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;

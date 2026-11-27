@@ -1,6 +1,6 @@
 import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
-import { compareAttemptUpdates, taskAttemptScope } from '../../../lib/task/evidence.js';
+import { compareAttemptUpdates, parsePlatformTime, taskAttemptScope } from '../../../lib/task/evidence.js';
 
 // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
 // final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
@@ -196,13 +196,19 @@ function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
-  const order = compareAttemptUpdates(receipt.updatedAt, entry.attempt.updatedAt);
-  const settled = receiptSettled(receipt);
-  if (order === -1 || (order === 0 && settled)) return receipt;
-  const merged = { ...receipt };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-  return order === undefined && settled && !receiptSettled(merged) ? receipt : merged;
+  const overlay = entry?.overlays?.get(receiptKey(receipt));
+  return overlay ? { ...receipt, ...overlay } : receipt;
+}
+
+function updateAttemptOverlay(receipt, overlay, attempt) {
+  const previous = { ...receipt, ...overlay };
+  const order = compareAttemptUpdates(previous.updatedAt, attempt.updatedAt);
+  const settled = receiptSettled(previous);
+  if (order === -1 || (order === 0 && settled) || (order !== 1 && overlay?.updatedAt !== undefined)) return overlay;
+  const updated = {};
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) updated[field] = attempt[field];
+  if (Number.isFinite(parsePlatformTime(attempt.updatedAt))) updated.updatedAt = attempt.updatedAt;
+  return order === undefined && settled && !receiptSettled({ ...receipt, ...updated }) ? overlay : updated;
 }
 
 // A submission-history row with the workbench refresh's result for the same id laid over it, but
@@ -227,8 +233,8 @@ const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:$
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
   const wanted = keys.map((key) => {
-    const { scope, attemptId, receiptKeys } = store.receipts.get(key);
-    return { key, input: { action: 'attempt', attemptId, ...scope }, receiptKeys };
+    const { scope, attemptId, snapshots } = store.receipts.get(key);
+    return { key, input: { action: 'attempt', attemptId, ...scope }, snapshots };
   });
   const controller = new AbortController();
   store.controller = controller;
@@ -238,11 +244,16 @@ async function refreshAttempts(store, keys) {
   let next = 0;
   const worker = async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const { key, input, receiptKeys } = wanted[next++];
+      const { key, input, snapshots } = wanted[next++];
       try {
         const attempt = await store.query(input, controller.signal);
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl)
-          && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key, { attempt, receiptKeys }]);
+          && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
+          const previous = store.attempts[key];
+          const overlays = new Map([...snapshots].map(([snapshot, receipt]) =>
+            [snapshot, updateAttemptOverlay(receipt, previous?.overlays?.get(snapshot), attempt)]));
+          fresh.push([key, { attempt: updateAttemptOverlay({}, previous?.attempt, attempt), overlays }]);
+        }
       } catch { /* counted as failed */ }
     }
   };
