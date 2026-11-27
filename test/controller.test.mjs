@@ -22,7 +22,7 @@ async function fixture(t) {
   const client = { baseUrl: 'https://playground.example.test/api', getChallenge: async (id, request) => {
     challengeReads.push([id, request]);
     if (id === 'missing') throw Object.assign(Error('not found'), { code: 'not_found' });
-    return { id, title: 'Same title' };
+    return { id, title: 'Same title', contentGated: options.challengeGated ?? false };
   } };
   const task = { task: { challengeId: 'fixture' }, prepared: null, receipt: { attemptId: 42 }, attemptIds: [42] };
   const snapshot = (marker, playgroundTask = { task: null }, blank = false) => ({ kind: 'sequenced', asOfSeq: 4,
@@ -181,14 +181,20 @@ test('competition handoff reopens an explicitly linked challenge and retries the
   assert.deepEqual(focused.linkedChildIds, ['linked-child']);
   assert.ok(focused.rows.some((row) => row.childId === 'linked-child'));
   assert.equal((await f.controller.tasks({ workspaceId, sessionId })).rows.length, 100);
+  f.options.challengeGated = true;
+  assert.equal((await f.controller.dispatch({ ...handoff, notice })).code, 'content_gated');
+  f.options.challengeGated = false;
   children.shift();
   assert.equal((await f.controller.dispatch({ ...handoff, notice })).code, 'linked_task_unavailable');
   assert.equal(f.disk.get(sessionId).values.playgroundController.taskChallenges['linked-child'].id, challengeId);
   assert.deepEqual(f.promptRequests, []);
+  const readsBeforeWrongPlatform = f.challengeReads.length;
   assert.equal((await f.controller.dispatch({ ...handoff, notice: { ...notice, scope: 'https://other.example' } })).code, 'platform_changed');
+  assert.equal(f.challengeReads.length, readsBeforeWrongPlatform);
   const other = { ...handoff, challengeId: 'unlinked', notice };
-  assert.equal((await f.controller.dispatch(other)).kind, 'accepted');
-  assert.equal((await f.controller.dispatch({ ...other, requestId: crypto.randomUUID() })).kind, 'accepted');
+  const results = await Promise.all([f.controller.dispatch(other), f.controller.dispatch({ ...other, requestId: crypto.randomUUID() })]);
+  assert.deepEqual(results.map(({ kind }) => kind), ['accepted', 'accepted']);
+  assert.deepEqual(f.challengeReads.slice(readsBeforeWrongPlatform).map(([id]) => id), ['unlinked', 'unlinked']);
   assert.equal(f.admitted.size, 1);
   assert.equal(f.promptRequests[0].requestId, f.promptRequests[1].requestId);
   assert.match(f.promptRequests[0].content[0].text, /"unlinked".*不授权提交评测/);
