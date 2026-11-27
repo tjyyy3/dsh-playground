@@ -345,7 +345,7 @@ test('#112: a competition the website groups without periods takes a group key o
 });
 
 
-test('controller task and promotion RPCs accept only workspace and session identity', () => {
+test('controller task reads can include a linked challenge while promotion uses only workspace and session identity', () => {
   const invocations = [];
   const services = new Map();
   registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (descriptor) => invocations.push(...descriptor.invocations) } }, {}, {});
@@ -354,5 +354,7 @@ test('controller task and promotion RPCs accept only workspace and session ident
     assert.deepEqual(schema.parse({ workspaceId: 'w', sessionId: 's' }), { workspaceId: 'w', sessionId: 's' });
     assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', cwd: '/other' }).success, false);
     assert.equal(schema.safeParse({ workspaceId: 'w' }).success, false);
+    assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', includeChallengeId: 'linked' }).success, method === 'controllerTasks');
+    assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', includeChallengeId: ' ' }).success, false);
   }
 });

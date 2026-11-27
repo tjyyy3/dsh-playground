@@ -1866,21 +1866,20 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       const abort = new AbortController();
       reading.current = abort;
       setReadingKey(item.key);
-      let detail;
-      try {
-        detail = await query({ action: "challenge", challengeId: target.challengeId }, abort.signal);
-      } catch {
-      }
+      const { challengeId, title: title2, ...source } = target;
+      const detail = await query({ action: "challenge", challengeId }, abort.signal).catch(() => void 0);
       if (abort.signal.aborted) return;
       reading.current = null;
       setReadingKey("");
-      target = detail?.ok && String(detail.id) === target.challengeId ? { ...target, title: msg(detail.titleZh || detail.title, detail.title || detail.titleZh) || target.title } : { kind: "collection" };
+      const resolved = detail?.ok && String(detail.id) === challengeId;
+      target = resolved && !detail.contentGated ? { kind: "challenge", challengeId, title: msg(detail.titleZh || detail.title, detail.title || detail.titleZh) || title2 } : { ...source, kind: "collection", ...resolved && detail.contentGated && { gatedChallengeId: challengeId } };
     }
     onCoordinate(target, {
       scope: view.scope,
       key: item.key,
       webUrl: openableWebUrl(item.webUrl),
-      title: msg(item.titleZh || item.title, item.title || item.titleZh),
+      title: item.title,
+      titleZh: item.titleZh,
       acknowledge: /* @__PURE__ */ __name(() => saveState(memory, actOnNotices(readState(memory), { ...view, items: [item] }, "acknowledge", Date.now())), "acknowledge")
     });
     setView(null);
@@ -2145,6 +2144,7 @@ function ControllerPanel(props) {
     pane.focus = "";
   }, [selectedTask, showTasks]);
   const [taskSnapshot, setTaskSnapshot] = React7.useState(null);
+  const [includeChallengeId, setIncludeChallengeId] = React7.useState("");
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
   const [retry, setRetry] = React7.useState(0);
   const [taskRetry, setTaskRetry] = React7.useState(0);
@@ -2157,6 +2157,7 @@ function ControllerPanel(props) {
     setError("");
     setSelectedTask("");
     setTaskSnapshot(null);
+    setIncludeChallengeId("");
     setClosedChallenges(/* @__PURE__ */ new Set());
     setWorkspaceId(id);
   }, "selectWorkspace");
@@ -2218,7 +2219,7 @@ function ControllerPanel(props) {
     const refresh = /* @__PURE__ */ __name(() => {
       if (inFlight) return;
       inFlight = true;
-      void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal).then((value) => {
+      void controllerTasks({ workspaceId, sessionId: expectedId, ...includeChallengeId && { includeChallengeId } }, abort.signal).then((value) => {
         if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value });
       }).catch(() => {
         if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: "unavailable" } });
@@ -2232,7 +2233,7 @@ function ControllerPanel(props) {
       abort.abort();
       clearInterval(timer);
     };
-  }, [workspaceId, expectedId, controllerTasks, taskRetry]);
+  }, [workspaceId, expectedId, controllerTasks, taskRetry, includeChallengeId]);
   const selectController = /* @__PURE__ */ __name((sessionId) => {
     setInspection({ kind: "existing", sessionId, archived: false });
     props.controllerSelection.sessionId = sessionId;
@@ -2258,7 +2259,7 @@ function ControllerPanel(props) {
   const handoffWorkspace = dispatchState?.notice && dispatchState.workspaceId !== workspaceId ? void 0 : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === "existing" && !inspection.archived ? inspection.sessionId : "";
   const canInitialize = selectedWorkspace && (inspection?.kind === "absent" || inspection?.kind === "incomplete");
-  const needsRecheck = dispatchState?.phase === "error" && dispatchState.workspaceId === workspaceId && (["controller_changed", "controller_missing", "controller_init_required", "controller_archived", "workspace_mismatch"].includes(dispatchState.code) || dispatchState.notice && ["controller_init_failed", "controller_attach_failed"].includes(dispatchState.code) || dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
+  const needsRecheck = dispatchState?.phase === "error" && dispatchState.workspaceId === workspaceId && (["controller_changed", "controller_missing", "controller_init_required", "controller_archived", "workspace_mismatch"].includes(dispatchState.code) || dispatchState.notice && ["controller_init_failed", "controller_attach_failed", "controller_open_failed"].includes(dispatchState.code) || dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
   const recheckHandoff = /* @__PURE__ */ __name(() => {
     setDispatchState({
       phase: "guide",
@@ -2272,10 +2273,18 @@ function ControllerPanel(props) {
       await openControllerChat(state.sessionId);
       selectController(state.sessionId);
       if (state.linked) {
+        const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => void 0);
+        if (value?.kind !== "ready" || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
+          setDispatchState({ ...state, phase: "error", code: "linked_task_unavailable" });
+          return;
+        }
+        setIncludeChallengeId(state.challenge.id);
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
         setShowTasks(true);
-        setSelectedTask(state.childId || "");
+        setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
         setClosedChallenges(/* @__PURE__ */ new Set());
       }
+      state.notice?.acknowledge();
       setDispatchState(null);
       setView("controller");
     } catch {
@@ -2310,6 +2319,15 @@ function ControllerPanel(props) {
         }
         attempt = { ...attempt, sessionId: opened.sessionId };
         if (state.notice) {
+          try {
+            await openControllerChat(opened.sessionId);
+          } catch {
+            setExpectedId("");
+            setInspection(null);
+            setError("无法打开主控对话，请重试。");
+            setDispatchState({ ...attempt, phase: "error", code: "controller_open_failed", message: "无法打开主控对话，请重试。" });
+            return;
+          }
           selectController(opened.sessionId);
           setDispatchState({ ...attempt, phase: "guide" });
           return;
@@ -2324,8 +2342,7 @@ function ControllerPanel(props) {
         ...state.notice && { notice: { scope: state.notice.scope, key: state.notice.key } }
       });
       if ((result.kind === "accepted" || result.kind === "linked") && result.sessionId === attempt.sessionId) {
-        state.notice?.acknowledge();
-        await openAfterDispatch({ ...attempt, linked: result.kind === "linked", childId: result.childId });
+        await openAfterDispatch({ ...attempt, linked: result.kind === "linked", childIds: result.childIds });
       } else {
         setDispatchState({ ...attempt, phase: "error", code: result.code, message: result.reason || "DSH 未确认接收请求，请重试。" });
       }
@@ -2377,6 +2394,8 @@ function ControllerPanel(props) {
       handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
     } else if (dispatchState.code === "platform_changed") {
       handoffMessage = controllerMessage(dispatchState.message);
+    } else if (dispatchState.code === "linked_task_unavailable") {
+      handoffMessage = msg("无法打开已关联的子任务，请在主控对话中核对已有工作。", "The linked child task could not be opened. Check the existing work in the controller chat.");
     } else if (needsRecheck) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
@@ -2914,12 +2933,13 @@ __name(useDrawerFocus, "useDrawerFocus");
 // src/client/catalog/detail.js
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
   const busy = ["sending", "initializing", "opening"].includes(handoff.state?.phase);
-  return h("button", { type: "button", className: "pg-button pg-primary", "aria-disabled": busy || void 0, onClick: /* @__PURE__ */ __name((event) => {
-    if (busy) return;
+  const gated = handoff.catalogNotice?.target.gatedChallengeId === String(challenge.id);
+  return h("button", { type: "button", className: "pg-button pg-primary", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
+    if (busy || gated) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
     handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
-  }, "onClick") }, busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
+  }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
 var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
@@ -3137,10 +3157,11 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
 function CatalogPanel({ query, handoff, onWebBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
+  const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
   const [search, setSearch] = React10.useState("");
   const [season, setSeason] = React10.useState(target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : "");
   const [period, setPeriod] = React10.useState(target?.period ?? "");
-  const [group, setGroup] = React10.useState("");
+  const [group, setGroup] = React10.useState(target?.group ?? "");
   const [origin, setOrigin] = React10.useState("");
   const [disciplineChoice, setDisciplineChoice] = React10.useState("");
   const [otherDiscipline, setOtherDiscipline] = React10.useState("");
@@ -3348,7 +3369,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     catalogNotice ? h(
       "p",
       { className: "pg-note" },
-      msg(`来自「${catalogNotice.title}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${catalogNotice.title}”. Choose a challenge, then confirm its workspace and controller.`),
+      msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
       catalogNotice.webUrl ? h("a", { href: catalogNotice.webUrl, target: "_blank", rel: "noopener noreferrer", style: { marginInlineStart: 8 } }, msg("查看比赛", "View competition")) : null
     ) : null,
     h(

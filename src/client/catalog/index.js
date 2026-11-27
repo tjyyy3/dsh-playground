@@ -111,12 +111,13 @@ const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total
 function CatalogPanel({ query, handoff, onWebBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
+  const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
   const [search, setSearch] = React.useState('');
   const [season, setSeason] = React.useState(target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : '');
   // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
   const [period, setPeriod] = React.useState(target?.period ?? '');
   // The chosen official group of that period; '' is 全部 and the value whenever the period has no groups.
-  const [group, setGroup] = React.useState('');
+  const [group, setGroup] = React.useState(target?.group ?? '');
   const [origin, setOrigin] = React.useState('');
   // The 学科 select: '' (all), a top discipline key, or OTHER_DISCIPLINE with the key typed in `otherDiscipline`.
   const [disciplineChoice, setDisciplineChoice] = React.useState('');
@@ -321,7 +322,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, msg('选择比赛或赛题', 'Choose a competition or challenge')),
       h('button', { className: 'pg-button', disabled: busy === 'load' || otherPending, onClick: () => load({}, { refresh: true }) }, busy === 'load' ? msg('正在刷新…', 'Refreshing…') : msg('刷新目录', 'Refresh catalog'))),
     catalogNotice ? h('p', { className: 'pg-note' },
-      msg(`来自「${catalogNotice.title}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${catalogNotice.title}”. Choose a challenge, then confirm its workspace and controller.`),
+      msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
       catalogNotice.webUrl ? h('a', { href: catalogNotice.webUrl, target: '_blank', rel: 'noopener noreferrer', style: { marginInlineStart: 8 } }, msg('查看比赛', 'View competition')) : null) : null,
     h('div', { className: 'pg-search' },
       h('input', { className: 'pg-input', 'aria-label': msg('搜索 Playground 赛题', 'Search Playground challenges'), placeholder: msg('按题目名称、方向或关键词搜索', 'Search by title, discipline, or keyword'), value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),

@@ -176,6 +176,7 @@ function ControllerPanel(props) {
   const toggleTasks = () => { if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = 'heading'; props.controllerSelection.showTasks = !showTasks; savePane({ open: !showTasks }); setShowTasks(!showTasks); };
   React.useEffect(() => { if (pane.focus === 'heading') pane.heading?.focus(); else if (pane.focus === 'back') pane.back?.focus(); else if (pane.focus) pane.rows.get(pane.focus)?.focus(); pane.focus = ''; }, [selectedTask, showTasks]);
   const [taskSnapshot, setTaskSnapshot] = React.useState(null);
+  const [includeChallengeId, setIncludeChallengeId] = React.useState('');
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
   const [retry, setRetry] = React.useState(0);
   const [taskRetry, setTaskRetry] = React.useState(0);
@@ -188,6 +189,7 @@ function ControllerPanel(props) {
     setError('');
     setSelectedTask('');
     setTaskSnapshot(null);
+    setIncludeChallengeId('');
     setClosedChallenges(new Set());
     setWorkspaceId(id);
   };
@@ -232,7 +234,7 @@ function ControllerPanel(props) {
     const refresh = () => {
       if (inFlight) return;
       inFlight = true;
-      void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal)
+      void controllerTasks({ workspaceId, sessionId: expectedId, ...(includeChallengeId && { includeChallengeId }) }, abort.signal)
         .then((value) => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value }); })
         .catch(() => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: 'unavailable' } }); })
         .finally(() => { inFlight = false; });
@@ -240,7 +242,7 @@ function ControllerPanel(props) {
     void refresh();
     const timer = setInterval(refresh, 4000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [workspaceId, expectedId, controllerTasks, taskRetry]);
+  }, [workspaceId, expectedId, controllerTasks, taskRetry, includeChallengeId]);
   const selectController = (sessionId) => {
     setInspection({ kind: 'existing', sessionId, archived: false });
     props.controllerSelection.sessionId = sessionId;
@@ -261,7 +263,7 @@ function ControllerPanel(props) {
   const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
   const needsRecheck = dispatchState?.phase === 'error' && dispatchState.workspaceId === workspaceId &&
     (['controller_changed', 'controller_missing', 'controller_init_required', 'controller_archived', 'workspace_mismatch'].includes(dispatchState.code) ||
-      dispatchState.notice && ['controller_init_failed', 'controller_attach_failed'].includes(dispatchState.code) ||
+      dispatchState.notice && ['controller_init_failed', 'controller_attach_failed', 'controller_open_failed'].includes(dispatchState.code) ||
       dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
   const recheckHandoff = () => {
     setDispatchState({ phase: 'guide', challenge: dispatchState.challenge,
@@ -273,10 +275,18 @@ function ControllerPanel(props) {
       await openControllerChat(state.sessionId);
       selectController(state.sessionId);
       if (state.linked) {
+        const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => undefined);
+        if (value?.kind !== 'ready' || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
+          setDispatchState({ ...state, phase: 'error', code: 'linked_task_unavailable' });
+          return;
+        }
+        setIncludeChallengeId(state.challenge.id);
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
         setShowTasks(true);
-        setSelectedTask(state.childId || '');
+        setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : '');
         setClosedChallenges(new Set());
       }
+      state.notice?.acknowledge();
       setDispatchState(null);
       setView('controller');
     } catch {
@@ -305,6 +315,12 @@ function ControllerPanel(props) {
         }
         attempt = { ...attempt, sessionId: opened.sessionId };
         if (state.notice) {
+          try { await openControllerChat(opened.sessionId); }
+          catch {
+            setExpectedId(''); setInspection(null); setError('无法打开主控对话，请重试。');
+            setDispatchState({ ...attempt, phase: 'error', code: 'controller_open_failed', message: '无法打开主控对话，请重试。' });
+            return;
+          }
           selectController(opened.sessionId);
           setDispatchState({ ...attempt, phase: 'guide' });
           return;
@@ -315,8 +331,7 @@ function ControllerPanel(props) {
         challengeId: attempt.challenge.id, requestId: attempt.requestId,
         ...(state.notice && { notice: { scope: state.notice.scope, key: state.notice.key } }) });
       if ((result.kind === 'accepted' || result.kind === 'linked') && result.sessionId === attempt.sessionId) {
-        state.notice?.acknowledge();
-        await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childId: result.childId });
+        await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childIds: result.childIds });
       } else {
         setDispatchState({ ...attempt, phase: 'error', code: result.code, message: result.reason || 'DSH 未确认接收请求，请重试。' });
       }
@@ -372,6 +387,8 @@ function ControllerPanel(props) {
       handoffAction = { label: msg('重新核对', 'Check again'), run: () => setRetry(retry + 1) };
     } else if (dispatchState.code === 'platform_changed') {
       handoffMessage = controllerMessage(dispatchState.message);
+    } else if (dispatchState.code === 'linked_task_unavailable') {
+      handoffMessage = msg('无法打开已关联的子任务，请在主控对话中核对已有工作。', 'The linked child task could not be opened. Check the existing work in the controller chat.');
     } else if (needsRecheck) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg('重新核对', 'Check again'), run: recheckHandoff };

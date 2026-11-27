@@ -280,10 +280,20 @@ test('only a published period with one available challenge has a concrete notice
     }) };
   const { items } = await readCompetitionNotices(client);
   assert.deepEqual(items.filter((item) => item.source === bohrProduct).map((item) => item.target), [
-    { kind: 'collection', competition: bohrProduct, period: '1' }, { kind: 'challenge', challengeId: 'actual-id', title: 'actual-id' },
+    { kind: 'collection', competition: bohrProduct, period: '1' },
+    { kind: 'challenge', challengeId: 'actual-id', title: 'actual-id', competition: bohrProduct, period: '5' },
   ]);
   assert.deepEqual(items.find((item) => item.source === scientificFacilities).target, { kind: 'collection', competition: scientificFacilities, period: '5' });
   assert.ok(!JSON.stringify(items).includes('unreleased-id'));
+});
+
+test('a Science Knights scoring round alert names its exact official catalog group', async () => {
+  const client = { baseUrl: pageUrl.origin, noticeSeasons: async () => [{ slug: 's4', rounds: [{ seq: 8 }, { seq: 9 }] }],
+    noticeHub: async () => [], getCompetitionSchedules: async () => ({}) };
+  const { items } = await readCompetitionNotices(client);
+  assert.deepEqual(items.filter((item) => item.parentKey).map((item) => item.target), [
+    { kind: 'collection', competition: 'knight-s4', group: 'r8' }, { kind: 'collection', competition: 'knight-s4', group: 'r9' },
+  ]);
 });
 
 const overviewSource = (extraCards = '') => `

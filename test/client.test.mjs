@@ -5565,11 +5565,12 @@ function noticeQuery(target, { detail = challengeCard, reads = [] } = {}) {
     ] };
     if (input.action === 'challenge') return { ok: true, ...detail };
     assert.equal(input.action, 'catalog');
-    return { ok: true, competitionTable: [{ id: 'bohr-product', kind: 'competition', periods: [{ slug: '5' }] }],
+    return { ok: true, competitionTable: [{ id: 'bohr-product', kind: 'competition', periods: [{ slug: '5' }] },
+      { id: 'knight-s4', kind: 'competition', groups: [{ key: 'r8', count: 2 }] }],
       challenges: { items: [challengeCard] } };
   };
 }
-const singleNotice = { kind: 'challenge', challengeId: challengeCard.id, title: challengeCard.id };
+const singleNotice = { kind: 'challenge', challengeId: challengeCard.id, title: challengeCard.id, competition: 'bohr-product', period: '5' };
 
 test('coordinate participation in a fresh install offers workspace registration before any controller action', async (t) => {
   const h = await controllerHandoffHarness(t, { workspaceItems: [], inspections: { registered: { kind: 'absent' } },
@@ -5620,14 +5621,24 @@ test('an alert confirms a chosen workspace and named controller even when one is
 
 for (const [inspection, label] of [[{ kind: 'absent' }, '创建主控对话'], [{ kind: 'incomplete', sessionId: 'partial' }, '初始化主控对话']]) {
   test(`alert with an ${inspection.kind} controller separates setup from challenge dispatch`, async (t) => {
+    let nativeSession = 'unrelated';
     const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: inspection },
-      query: noticeQuery(singleNotice), dispatch: admittedController });
+      query: noticeQuery(singleNotice), dispatch: admittedController, navigate: (id) => { nativeSession = id; } });
     await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
     assert.equal(h.modalButton(label), undefined);
     h.modalWorkspace().props.onChange({ target: { value: 'one' } });
     await h.modalButton(label).props.onClick();
-    assert.deepEqual(h.calls, [['initialize', { workspaceId: 'one', expectedSessionId: inspection.sessionId ?? null, createIfMissing: true }]]);
+    assert.deepEqual(h.calls, [['initialize', { workspaceId: 'one', expectedSessionId: inspection.sessionId ?? null, createIfMissing: true }],
+      ['open', inspection.sessionId || 'new-controller']]);
     assert.match(text(h.modal()), new RegExp(inspection.sessionId || 'new-controller'));
+    h.modalButton('取消').props.onClick();
+    assert.equal(h.modal(), undefined);
+    const embedded = h.f.find(h.view(), (node) => node.props?.name === 'playground.controller.session');
+    assert.equal(embedded.props.data.expectedId, inspection.sessionId || 'new-controller');
+    assert.equal(nativeSession, embedded.props.data.expectedId);
+    assert.deepEqual(h.dispatchCalls(), []);
+    await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
     await h.modalButton('确认交给主控').props.onClick();
     assert.equal(h.dispatchCalls()[0].sessionId, inspection.sessionId || 'new-controller');
   });
@@ -5652,10 +5663,29 @@ test('a collection alert opens its catalog period and dispatches only the challe
   assert.ok(!reads.some((input) => input.action === 'challenge'));
 });
 
+test('a catalog opened by a bilingual notice follows the active language', async (t) => {
+  const query = noticeQuery({ kind: 'collection', competition: 'bohr-product', period: '5' });
+  const h = await controllerHandoffHarness(t, { dispatch: admittedController, query: (input) => {
+    const result = query(input);
+    if (input.action === 'competition_notices') result.items[0].titleZh = '本周比赛';
+    return result;
+  } });
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  assert.match(text(await h.f.mount(h.catalog())), /本周比赛/);
+  const menu = h.f.find(h.view(), (node) => node.type?.name === 'LanguageMenu');
+  const renderMenu = () => h.f.render(menu.type, menu.props);
+  h.f.find(renderMenu(), (node) => node.props?.['aria-label'] === '界面语言').props.onClick();
+  h.f.find(renderMenu(), (node) => node.props?.role === 'menuitemradio' && /English/.test(text(node))).props.onClick();
+  const panel = h.catalog();
+  assert.match(text(h.f.render(panel.type, panel.props)), /opened the catalog from “Weekly contest”/);
+});
+
 test('a linked alert opens the controller with its existing child task selected', async (t) => {
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
-    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childId: 'original' }),
-    controllerTasks: async () => ({ kind: 'ready', rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] }) });
+    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['original'] }),
+    controllerTasks: async ({ includeChallengeId }) => includeChallengeId === challengeCard.id
+      ? { kind: 'ready', linkedChildIds: ['original'], rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] }
+      : { kind: 'ready', rows: [] } });
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
   h.modalWorkspace().props.onChange({ target: { value: 'one' } });
   await h.modalButton('确认交给主控').props.onClick();
@@ -5666,19 +5696,63 @@ test('a linked alert opens the controller with its existing child task selected'
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
 });
 
-test('an unreadable single alert falls back to the catalog, and an archived controller cannot receive its selection', async (t) => {
+test('an unreadable single alert keeps its original period, and an archived controller cannot receive its selection', async (t) => {
   const reads = [];
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: { ...existingController('old'), archived: true } },
     query: noticeQuery(singleNotice, { reads, detail: { ok: false } }), dispatch: admittedController });
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
   assert.equal(h.modal(), undefined);
   await h.f.mount(h.catalog());
-  assert.deepEqual(reads.at(-1), { action: 'catalog', search: '', per_page: 20 });
+  assert.deepEqual(reads.at(-1), { action: 'catalog', search: '', competition: 'bohr-product', period: '5', per_page: 20 });
   h.cardButton().props.onClick();
   h.modalWorkspace().props.onChange({ target: { value: 'one' } });
   assert.match(text(h.modal()), /已归档/);
   assert.equal(h.modalButton('确认交给主控'), undefined);
   assert.deepEqual(h.calls, []);
+});
+
+for (const [name, target, filters] of [['gated detail', singleNotice, { competition: 'bohr-product', period: '5' }],
+  ['scoring round', { kind: 'collection', competition: 'knight-s4', group: 'r8' }, { competition: 'knight-s4', group: 'r8' }]]) {
+  test(`a ${name} notice retains its catalog scope without dispatch`, async (t) => {
+    const reads = [];
+    const h = await controllerHandoffHarness(t, { query: noticeQuery(target, { reads, detail: { ...challengeCard, contentGated: true } }), dispatch: admittedController });
+    await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+    assert.equal(h.modal(), undefined);
+    await h.f.mount(h.catalog());
+    assert.deepEqual(reads.at(-1), { action: 'catalog', search: '', ...filters, per_page: 20 });
+    if (target.kind === 'challenge') {
+      assert.equal(h.cardButton().props.disabled, true);
+      h.cardButton().props.onClick();
+      assert.equal(h.modal(), undefined);
+    }
+    assert.deepEqual(h.dispatchCalls(), []);
+  });
+}
+
+test('an alert stays pending when the linked work cannot be opened', async (t) => {
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['original'] }),
+    navigate: async () => { throw Error('native navigation unavailable'); } });
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  await h.modalButton('确认交给主控').props.onClick();
+  assert.match(text(h.modal()), /已有主控任务/);
+  h.modal().props.onClose();
+  assert.ok(findAll(await h.notices(), (node) => node.type === 'h3').map(text).includes('Weekly contest'));
+});
+
+test('a child removed before native navigation finishes leaves its notice pending', async (t) => {
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['previous'] }),
+    controllerTasks: async () => ({ kind: 'unavailable' }) });
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  await h.modalButton('确认交给主控').props.onClick();
+  assert.match(text(h.modal()), /无法打开已关联的子任务/);
+  assert.equal(h.modalButton('确认交给主控'), undefined);
+  h.modal().props.onClose();
+  assert.ok(findAll(await h.notices(), (node) => node.type === 'h3').map(text).includes('Weekly contest'));
+  assert.equal(h.dispatchCalls().length, 1);
 });
 test('an explicit controller result changes the selected workspace in the mounted panel and after remount', async (t) => {
   const h = await controllerHandoffHarness(t, { workspaceId: 'one',

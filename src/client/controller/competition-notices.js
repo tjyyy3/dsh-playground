@@ -107,18 +107,18 @@ export function CompetitionNotices({ memory, query, onCoordinate }) {
       const abort = new AbortController();
       reading.current = abort;
       setReadingKey(item.key);
-      let detail;
-      try { detail = await query({ action: 'challenge', challengeId: target.challengeId }, abort.signal); }
-      catch { /* The official page and catalog remain available. */ }
+      const { challengeId, title, ...source } = target;
+      const detail = await query({ action: 'challenge', challengeId }, abort.signal).catch(() => undefined);
       if (abort.signal.aborted) return;
       reading.current = null;
       setReadingKey('');
-      target = detail?.ok && String(detail.id) === target.challengeId
-        ? { ...target, title: msg(detail.titleZh || detail.title, detail.title || detail.titleZh) || target.title }
-        : { kind: 'collection' };
+      const resolved = detail?.ok && String(detail.id) === challengeId;
+      target = resolved && !detail.contentGated
+        ? { kind: 'challenge', challengeId, title: msg(detail.titleZh || detail.title, detail.title || detail.titleZh) || title }
+        : { ...source, kind: 'collection', ...(resolved && detail.contentGated && { gatedChallengeId: challengeId }) };
     }
     onCoordinate(target, { scope: view.scope, key: item.key, webUrl: openableWebUrl(item.webUrl),
-      title: msg(item.titleZh || item.title, item.title || item.titleZh),
+      title: item.title, titleZh: item.titleZh,
       acknowledge: () => saveState(memory, actOnNotices(readState(memory), { ...view, items: [item] }, 'acknowledge', Date.now())) });
     setView(null);
   }
