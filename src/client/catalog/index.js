@@ -109,12 +109,17 @@ const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0 });
 
 function CatalogPanel({ query, handoff, onWebBase }) {
+  const catalogNotice = handoff?.catalogNotice;
+  const target = catalogNotice?.target;
+  const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
+  const noticeCompetition = target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : '';
+  const [gatedIds] = React.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
   const [search, setSearch] = React.useState('');
-  const [season, setSeason] = React.useState('');
+  const [season, setSeason] = React.useState(noticeCompetition);
   // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
-  const [period, setPeriod] = React.useState('');
+  const [period, setPeriod] = React.useState(target?.period ?? '');
   // The chosen official group of that period; '' is 全部 and the value whenever the period has no groups.
-  const [group, setGroup] = React.useState('');
+  const [group, setGroup] = React.useState(target?.group ?? '');
   const [origin, setOrigin] = React.useState('');
   // The 学科 select: '' (all), a top discipline key, or OTHER_DISCIPLINE with the key typed in `otherDiscipline`.
   const [disciplineChoice, setDisciplineChoice] = React.useState('');
@@ -287,6 +292,13 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // Challenges show only for the selection they were read for, never under another competition's, period's or group's controls.
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
+  const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: (challenge) => {
+    if (gatedIds.has(challenge.id)) return;
+    // Keep the notice for deduplication within its competition. The Host verifies exact membership.
+    const fromNoticeCompetition = noticeCompetition && shownList?.filters.season === noticeCompetition
+      && loaded.some((item) => String(item.id) === challenge.id);
+    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : undefined);
+  } } : handoff;
   const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
   const total = shownList?.total;
   // Fixed ids of the shown list that the Host could not read; the info row says the list is incomplete.
@@ -318,6 +330,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status && msg(...status)),
     h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, msg('选择比赛或赛题', 'Choose a competition or challenge')),
       h('button', { className: 'pg-button', disabled: busy === 'load' || otherPending, onClick: () => load({}, { refresh: true }) }, busy === 'load' ? msg('正在刷新…', 'Refreshing…') : msg('刷新目录', 'Refresh catalog'))),
+    catalogNotice ? h('p', { className: 'pg-note' },
+      msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
+      catalogNotice.webUrl ? h('a', { href: catalogNotice.webUrl, target: '_blank', rel: 'noopener noreferrer', style: { marginInlineStart: 8 } }, msg('查看比赛', 'View competition')) : null) : null,
     h('div', { className: 'pg-search' },
       h('input', { className: 'pg-input', 'aria-label': msg('搜索 Playground 赛题', 'Search Playground challenges'), placeholder: msg('按题目名称、方向或关键词搜索', 'Search by title, discipline, or keyword'), value: search, onChange: (event) => setSearch(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter') load(); } }),
       h('select', { className: 'pg-input', 'aria-label': msg('选择比赛', 'Choose a competition'), value: season, onChange: (event) => {
@@ -414,7 +429,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? msg(`难度 ${item.difficulty}`, `Difficulty ${item.difficulty}`) : null].filter(Boolean).join(' · ') || msg('Playground 赛题', 'Playground challenge')),
       h('p', { className: 'pg-note' }, msg(`题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`, `Challenge ID: ${item.id}${item.attempts !== undefined ? ` · Submissions: ${item.attempts}` : ''}`)),
       h('div', { className: 'pg-actions' },
-        handoff ? h(DispatchChallengeButton, { challenge: item, handoff }) : null,
+        handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null,
         h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': msg(`查看详情：${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`, `View details: ${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`), onClick: () => setDetail(item),
           ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, msg('查看详情', 'View details')),
         openWebButton(item.webUrl, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id))
@@ -424,7 +439,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', 'aria-disabled': busy ? true : undefined, 'aria-busy': busy === 'more', onClick: loadMore,
       ref: (node) => { latest.more = node; } }, busy === 'more' ? msg('正在加载…', 'Loading…') : msg('加载更多', 'Load more')) : null,
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
-    detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff, close: () => setDetail(null),
+    detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff: catalogHandoff, close: () => setDetail(null),
       focusFallback: () => [latest.details.get(String(detail.id)), latest.heading] }) : null);
 }
 
