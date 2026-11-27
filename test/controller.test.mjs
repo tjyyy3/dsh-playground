@@ -22,7 +22,7 @@ async function fixture(t) {
   const client = { baseUrl: 'https://playground.example.test/api', getChallenge: async (id, request) => {
     challengeReads.push([id, request]);
     if (id === 'missing') throw Object.assign(Error('not found'), { code: 'not_found' });
-    return { id, title: 'Same title' };
+    return { id, title: 'Same title', contentGated: options.challengeGated ?? false };
   } };
   const task = { task: { challengeId: 'fixture' }, prepared: null, receipt: { attemptId: 42 }, attemptIds: [42] };
   const snapshot = (marker, playgroundTask = { task: null }, blank = false) => ({ kind: 'sequenced', asOfSeq: 4,
@@ -159,6 +159,140 @@ test('handoff reports a native rejection and never claims admission', async (t) 
   assert.equal(f.promptRequests.length, 1);
   assert.equal(f.admitted.size, 0);
 });
+
+test('competition handoff reopens an explicitly linked challenge and retries the same notice once at DSH', async (t) => {
+  const f = await fixture(t);
+  const { workspaceId, sessionId, challengeId } = handoff;
+  f.put(workspaceId, sessionId, f.snapshot({ workspaceId, sessionId }));
+  const children = [{ id: 'linked-child', mode: 'external', createdAt: 1 }];
+  const previous = f.ctx.get;
+  f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children } : previous(name);
+  const { agent } = await f.ctx.sessionController.resolveAgent(sessionId);
+  const { association } = await f.controller.linkTask({ child_id: 'linked-child', challenge_id: challengeId }, { agent, signal: new AbortController().signal });
+  const entry = f.live.get(sessionId);
+  entry.marker = controllerProjection.apply(entry.marker, { seq: 5, type: 'tool/result', data: { meta: { playgroundControllerAssociation: association } } });
+  await f.ctx.get('sessions').flush(agent.session);
+  children.push(...Array.from({ length: 102 }, (_, index) => ({ id: 'newer-' + index, mode: 'external', createdAt: 10 + index })));
+  const notice = { scope: 'https://playground.example.test', key: 'period-9' };
+  const linked = await f.controller.dispatch({ ...handoff, notice });
+  assert.equal(linked.kind, 'linked');
+  assert.equal(linked.childId, 'linked-child');
+  const focused = await f.controller.tasks({ workspaceId, sessionId, includeChallengeId: challengeId });
+  assert.deepEqual(focused.linkedChildIds, ['linked-child']);
+  assert.ok(focused.rows.some((row) => row.childId === 'linked-child'));
+  assert.equal((await f.controller.tasks({ workspaceId, sessionId })).rows.length, 100);
+  f.options.challengeGated = true;
+  assert.equal((await f.controller.dispatch({ ...handoff, notice })).code, 'content_gated');
+  f.options.challengeGated = false;
+  children.shift();
+  assert.equal((await f.controller.dispatch({ ...handoff, notice })).code, 'linked_task_unavailable');
+  assert.equal(f.disk.get(sessionId).values.playgroundController.taskChallenges['linked-child'].id, challengeId);
+  assert.deepEqual(f.promptRequests, []);
+  const readsBeforeWrongPlatform = f.challengeReads.length;
+  assert.equal((await f.controller.dispatch({ ...handoff, notice: { ...notice, scope: 'https://other.example' } })).code, 'platform_changed');
+  assert.equal(f.challengeReads.length, readsBeforeWrongPlatform);
+  const other = { ...handoff, challengeId: 'unlinked', notice };
+  const results = await Promise.all([f.controller.dispatch(other), f.controller.dispatch({ ...other, requestId: crypto.randomUUID() })]);
+  assert.deepEqual(results.map(({ kind }) => kind), ['accepted', 'accepted']);
+  assert.deepEqual(f.challengeReads.slice(readsBeforeWrongPlatform).map(([id]) => id), ['unlinked', 'unlinked']);
+  assert.equal(f.admitted.size, 1);
+  assert.equal(f.promptRequests[0].requestId, f.promptRequests[1].requestId);
+  assert.match(f.promptRequests[0].content[0].text, /"unlinked".*不授权提交评测/);
+  assert.ok(!f.promptRequests[0].content[0].text.includes('period-9'));
+});
+
+test('controller setup for a notice only acts on the absence or exact partial chat the user confirmed', async (t) => {
+  const f = await fixture(t);
+  const create = (expectedSessionId) => f.controller.open({ workspaceId: 'one', createIfMissing: true, expectedSessionId });
+  assert.equal((await create('missing-partial')).code, 'controller_changed');
+  f.put('one', 'replacement', f.snapshot({ workspaceId: 'one', sessionId: 'replacement' }, undefined, true));
+  assert.equal((await create(null)).code, 'controller_changed');
+  assert.equal((await create('previous')).code, 'controller_changed');
+  assert.deepEqual(f.createRequests, []);
+  assert.deepEqual(f.promptRequests, []);
+  assert.equal((await create('replacement')).sessionId, 'replacement');
+  assert.match(f.promptRequests[0].content[0].text, /只回复/);
+  assert.equal(f.promptRequests.length, 1);
+});
+
+test('a deleted or unverifiable linked child blocks the notice and preserves ownership without another prompt', async (t) => {
+  const f = await fixture(t);
+  const { workspaceId, sessionId, challengeId } = handoff;
+  const challenge = { id: challengeId, baseUrl: f.client.baseUrl };
+  f.put(workspaceId, sessionId, f.snapshot({ workspaceId, sessionId, taskChallenges: { orphan: challenge } }));
+  const previous = f.ctx.get;
+  for (const children of [[], undefined]) {
+    f.ctx.get = (name) => name === 'subagents' ? children && { listChildren: async () => children } : previous(name);
+    const result = await f.controller.dispatch({ ...handoff, notice: { scope: 'https://playground.example.test', key: 'orphan-edition' } });
+    assert.equal(result.code, 'linked_task_unavailable');
+    assert.deepEqual(result.sessionIds, [sessionId]);
+  }
+  assert.deepEqual(f.promptRequests, []);
+  assert.deepEqual(f.disk.get(sessionId).values.playgroundController.taskChallenges.orphan, challenge);
+});
+
+for (const history of ['complete', 'missing', 'truncated', 'wrong-session', 'different-projection']) {
+  test(`a saturated controller verifies evicted ownership with ${history} parent history`, async (t) => {
+    const f = await fixture(t);
+    const { workspaceId, sessionId, challengeId } = handoff;
+    const marker = { workspaceId, sessionId };
+    const header = { id: sessionId };
+    const command = (seq) => ({ seq, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: marker }) } });
+    const association = (seq, childId, id, supersedes) => ({ seq, type: 'tool/result', data: { meta: { playgroundControllerAssociation: {
+      ...marker, childId, challenge: { id, baseUrl: f.client.baseUrl }, ...(supersedes && { supersedes }),
+    } } } });
+    const inheritedEventCount = 2;
+    const events = [command(0), association(1, 'inherited', challengeId), command(2)];
+    const children = [];
+    for (let n = 0; n < 101; n++) {
+      const childId = 'child-' + n;
+      children.push({ id: childId, mode: 'external', createdAt: n });
+      events.push(association(events.length, childId, n === 100 ? challengeId : 'other-' + n));
+      if (n === 0) events.push(association(events.length, childId, challengeId, 'other-0'));
+    }
+    const state = events.reduce((state, event) => controllerProjection.apply(state, event), controllerProjection.init(header, inheritedEventCount));
+    assert.equal(state.taskChallenges['child-0'], undefined);
+    f.put(workspaceId, sessionId, f.snapshot(controllerProjection.wire.view(state)));
+    const projections = f.ctx.sessionController.projections;
+    f.ctx.sessionController.projections = async (...args) => ({ ...await projections(...args), asOfSeq: events.at(-1).seq });
+    const previous = f.ctx.get;
+    const reads = [];
+    f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children }
+      : name === 'sessionQuery' ? { readSession: async (id) => {
+        reads.push(id);
+        if (history === 'missing') return;
+        const recorded = history === 'different-projection' ? [...events.slice(0, -1), association(events.length - 1, 'different-child', 'other')] : events;
+        return { session: history === 'wrong-session' ? { id: 'foreign' } : header, inheritedEventCount,
+          events: history === 'truncated' ? recorded.slice(2) : recorded };
+      } } : previous(name);
+    const input = { ...handoff, notice: { scope: 'https://playground.example.test', key: 'reopened-round' } };
+    const response = await f.controller.dispatch(input);
+    if (history === 'complete') {
+      assert.equal(response.kind, 'linked');
+      assert.deepEqual(response.childIds, ['child-0', 'child-100']);
+      const focused = await f.controller.tasks({ ...marker, includeChallengeId: challengeId });
+      assert.equal(focused.rows.find((row) => row.childId === 'child-0')?.challenge.id, challengeId);
+      assert.deepEqual(focused.linkedChildIds, ['child-0', 'child-100']);
+      assert.equal((await f.controller.dispatch({ ...input, challengeId: 'other-0' })).kind, 'accepted');
+      assert.equal(f.promptRequests.length, 1);
+      assert.equal(reads.length, 1);
+      const newest = association(events.length, 'just-registered', 'new-task');
+      children.push({ id: 'just-registered', mode: 'external', createdAt: 102 });
+      events.push(newest);
+      const live = f.live.get(sessionId);
+      live.marker = controllerProjection.apply(live.marker, newest);
+      assert.deepEqual((await f.controller.dispatch({ ...input, challengeId: 'new-task' })).childIds, ['just-registered']);
+      assert.equal(reads.length, 2);
+      children.shift();
+      assert.equal((await f.controller.dispatch(input)).code, 'linked_task_unavailable');
+      assert.equal(f.promptRequests.length, 1);
+    } else {
+      assert.equal(response.code, 'controller_history_unavailable');
+      assert.deepEqual(f.promptRequests, []);
+    }
+    assert.ok(reads.length && reads.every((id) => id === sessionId));
+  });
+}
 
 test('explicit concurrent creation writes one native session and cold reopening keeps its id', async (t) => {
   const f = await fixture(t);

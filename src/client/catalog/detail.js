@@ -8,13 +8,14 @@ import { openWebButton } from '../shared/display.js';
 // Right-side drawer for one catalog challenge. It reads the detail once when it opens, through the
 // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
-  const busy = handoff.state?.phase === 'sending' || handoff.state?.phase === 'opening';
-  return h('button', { type: 'button', className: 'pg-button pg-primary', 'aria-disabled': busy || undefined, onClick: (event) => {
-    if (busy) return;
+  const busy = ['sending', 'initializing', 'opening'].includes(handoff.state?.phase);
+  const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
+  return h('button', { type: 'button', className: 'pg-button pg-primary', disabled: gated, 'aria-disabled': busy || gated || undefined, onClick: (event) => {
+    if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
     handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
-  } }, busy && handoff.state.challenge.id === String(challenge.id) ? msg('正在交接…', 'Handing off…') : msg('交给主控', 'Hand off to controller'));
+  } }, gated ? msg('题面需要权限', 'Statement access required') : busy && handoff.state.challenge.id === String(challenge.id) ? msg('正在交接…', 'Handing off…') : msg('交给主控', 'Hand off to controller'));
 }
 
 const challengeDetailCss = '.pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}';
@@ -38,6 +39,10 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
       const result = await query({ action: 'challenge', challengeId }, controller.signal);
       if (latest.controller !== controller) return;
       if (!result || typeof result !== 'object' || result.ok === false) throw new Error('challenge detail unavailable');
+      if (handoff?.gatedIds) {
+        if (result.contentGated === true) handoff.gatedIds.add(challengeId);
+        else if (result.contentGated === false && String(result.id) === challengeId) handoff.gatedIds.delete(challengeId);
+      }
       setDetail(result); setStatus(['赛题详情已读取。', 'Challenge details loaded.']);
     } catch {
       if (latest.controller !== controller) return;

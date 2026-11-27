@@ -257,6 +257,8 @@ test('contest alerts keep healthy sources independent and extract the published 
   const season = snapshot.items.find((row) => row.source === 'seasons');
   const round = snapshot.items.find((row) => row.parentKey === season.key);
   assert.equal(season.officialStatus, 'active');
+  assert.deepEqual(season.target, { kind: 'collection', season: 'new' });
+  assert.deepEqual(round.target, season.target);
   assert.equal(round.officialStatus, 'closed');
   assert.equal(round.rewardZh, '全赛奖项：优秀奖');
   assert.equal(round.summary, 'A contest');
@@ -267,6 +269,31 @@ test('contest alerts keep healthy sources independent and extract the published 
   assert.deepEqual(partial.sources, ['catalog', 'hub']);
   assert.ok(partial.items.some((row) => row.title === 'Hub only'));
   assert.ok(!partial.items.some((row) => row.source === bohrProduct));
+});
+
+test('only a published period with one available challenge has a concrete notice target', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-26T08:00:00Z'));
+  const client = { baseUrl: pageUrl.origin, noticeSeasons: async () => [], noticeHub: async () => [],
+    getCompetitionSchedules: async () => ({
+      [bohrProduct]: { periods: [fourPeriods[0], { ...fifthPeriod, challengeIds: ['actual-id'] }] },
+      [scientificFacilities]: { periods: [{ ...fifthPeriod, startAt: '2026-12-02T00:00:00Z', challengeIds: ['unreleased-id'] }] },
+    }) };
+  const { items } = await readCompetitionNotices(client);
+  assert.deepEqual(items.filter((item) => item.source === bohrProduct).map((item) => item.target), [
+    { kind: 'collection', competition: bohrProduct, period: '1' },
+    { kind: 'challenge', challengeId: 'actual-id', title: 'actual-id', competition: bohrProduct, period: '5' },
+  ]);
+  assert.deepEqual(items.find((item) => item.source === scientificFacilities).target, { kind: 'collection', competition: scientificFacilities, period: '5' });
+  assert.ok(!JSON.stringify(items).includes('unreleased-id'));
+});
+
+test('a Science Knights scoring round alert names its exact official catalog group', async () => {
+  const client = { baseUrl: pageUrl.origin, noticeSeasons: async () => [{ slug: 's4', rounds: [{ seq: 8 }, { seq: 9 }] }],
+    noticeHub: async () => [], getCompetitionSchedules: async () => ({}) };
+  const { items } = await readCompetitionNotices(client);
+  assert.deepEqual(items.filter((item) => item.parentKey).map((item) => item.target), [
+    { kind: 'collection', competition: 'knight-s4', group: 'r8' }, { kind: 'collection', competition: 'knight-s4', group: 'r9' },
+  ]);
 });
 
 const overviewSource = (extraCards = '') => `
@@ -313,9 +340,9 @@ test('contest alerts read standalone cards from the official overview and skip e
   assert.deepEqual(snapshot.items.filter((item) => item.source === 'overview'), [
     { source: 'overview', key: '["future-masters"]', titleZh: '未来大师赛', title: 'Future Masters',
       summaryZh: '未来的独立赛事', summary: 'A future standalone contest', startAt: '2026-12-01T20:00:00+08:00',
-      endAt: '2026-12-04T20:00:00+08:00', webUrl: 'https://play.example/questions/future-masters' },
-    { source: 'overview', key: '["season","new-lab"]', titleZh: '新实验赛', title: '新实验赛', webUrl: 'https://play.example/competition/new-lab' },
-    { source: 'overview', key: '["season","hub-alias"]', titleZh: '赛事中心条目', title: '赛事中心条目', webUrl: 'https://play.example/competition/hub-alias' },
+      endAt: '2026-12-04T20:00:00+08:00', webUrl: 'https://play.example/questions/future-masters', target: { kind: 'collection' } },
+    { source: 'overview', key: '["season","new-lab"]', titleZh: '新实验赛', title: '新实验赛', webUrl: 'https://play.example/competition/new-lab', target: { kind: 'collection' } },
+    { source: 'overview', key: '["season","hub-alias"]', titleZh: '赛事中心条目', title: '赛事中心条目', webUrl: 'https://play.example/competition/hub-alias', target: { kind: 'collection' } },
   ]);
   const hubCard = snapshot.items.find((item) => item.webUrl === 'https://play.example/competition/hub-alias');
   assert.equal(hubCard.source, 'hub');

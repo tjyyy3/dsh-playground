@@ -40,6 +40,8 @@ Challenge titles and groups use the platform's translation when available. Chall
 
 On your first visit to the controller, Playground lists competitions and rounds confirmed to be in progress by their official status or time-zone-aware schedule, with the nearest deadline first. If none qualify, the controller opens directly. Later visits check the public contest APIs, supported schedules and the website's contest overview for new competitions and rounds.
 
+Select **Coordinate participation** on an alert. A round with one verified challenge takes you to workspace selection. For other competitions, choose a challenge in the catalog or visit the official page. Create or initialize a controller if needed, then confirm the workspace and controller shown. The controller opens existing linked work for that challenge. Submitting for evaluation requires a separate request.
+
 Choose **Remind me tomorrow** to see the still-valid entries in this batch the next time you open the controller on or after the next Beijing calendar day. **Got it** acknowledges only this batch. New rounds can still trigger an alert after either choice. **Turn off competition alerts** in the lower left disables all alerts. Turn them back on in **Connection settings**. The client stores your preference and alert history locally.
 
 ## Find Codex chats in your workspace

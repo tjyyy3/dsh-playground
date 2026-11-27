@@ -8,7 +8,7 @@ import { LanguageMenu } from '../settings/language.js';
 import { ReleaseStatusPanel, ReleaseIndicator } from '../settings/releases.js';
 import { controllerMessage } from './messages.js';
 import { CodexChats } from './codex-chats.js';
-import { ControllerHandoffDialog } from './handoff.js';
+import { ControllerHandoffDialog, noticeHandoffCopy } from './handoff.js';
 import { CompetitionNotices, CompetitionNoticeSetting } from './competition-notices.js';
 
 const controllerPanelCss = `
@@ -152,6 +152,11 @@ function ControllerPanel(props) {
   const [releaseVisit, setReleaseVisit] = React.useState(0);
   const error = controllerMessage(errorMessage);
   const [dispatchState, setDispatchState] = React.useState(null);
+  const [catalogNotice, setCatalogNotice] = React.useState(null);
+  const selectTab = (tab) => {
+    if (tab === 'catalog' && view !== 'catalog') setCatalogNotice(null);
+    setView(tab);
+  };
   const [dispatchControls] = React.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React.useState('checking');
   const [visited] = React.useState(() => new Set());
@@ -171,6 +176,7 @@ function ControllerPanel(props) {
   const toggleTasks = () => { if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = 'heading'; props.controllerSelection.showTasks = !showTasks; savePane({ open: !showTasks }); setShowTasks(!showTasks); };
   React.useEffect(() => { if (pane.focus === 'heading') pane.heading?.focus(); else if (pane.focus === 'back') pane.back?.focus(); else if (pane.focus) pane.rows.get(pane.focus)?.focus(); pane.focus = ''; }, [selectedTask, showTasks]);
   const [taskSnapshot, setTaskSnapshot] = React.useState(null);
+  const [includeChallengeId, setIncludeChallengeId] = React.useState('');
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
   const [retry, setRetry] = React.useState(0);
   const [taskRetry, setTaskRetry] = React.useState(0);
@@ -183,6 +189,7 @@ function ControllerPanel(props) {
     setError('');
     setSelectedTask('');
     setTaskSnapshot(null);
+    setIncludeChallengeId('');
     setClosedChallenges(new Set());
     setWorkspaceId(id);
   };
@@ -227,7 +234,7 @@ function ControllerPanel(props) {
     const refresh = () => {
       if (inFlight) return;
       inFlight = true;
-      void controllerTasks({ workspaceId, sessionId: expectedId }, abort.signal)
+      void controllerTasks({ workspaceId, sessionId: expectedId, ...(includeChallengeId && { includeChallengeId }) }, abort.signal)
         .then((value) => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value }); })
         .catch(() => { if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: 'unavailable' } }); })
         .finally(() => { inFlight = false; });
@@ -235,7 +242,7 @@ function ControllerPanel(props) {
     void refresh();
     const timer = setInterval(refresh, 4000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [workspaceId, expectedId, controllerTasks, taskRetry]);
+  }, [workspaceId, expectedId, controllerTasks, taskRetry, includeChallengeId]);
   const selectController = (sessionId) => {
     setInspection({ kind: 'existing', sessionId, archived: false });
     props.controllerSelection.sessionId = sessionId;
@@ -251,19 +258,36 @@ function ControllerPanel(props) {
     finally { setBusy(false); }
   };
   const selectedWorkspace = workspaces.phase === 'ready' && workspaces.items.find((item) => item.workspaceId === workspaceId);
+  const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? undefined : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
   const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
   const needsRecheck = dispatchState?.phase === 'error' && dispatchState.workspaceId === workspaceId &&
     (['controller_changed', 'controller_missing', 'controller_init_required', 'controller_archived', 'workspace_mismatch'].includes(dispatchState.code) ||
+      dispatchState.coordination && ['controller_init_failed', 'controller_attach_failed', 'controller_open_failed'].includes(dispatchState.code) ||
       dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
   const recheckHandoff = () => {
-    setDispatchState({ phase: 'guide', challenge: dispatchState.challenge });
+    setDispatchState({ phase: 'guide', challenge: dispatchState.challenge,
+      ...(dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }) });
     setRetry(retry + 1);
   };
   const openAfterDispatch = async (state) => {
     try {
       await openControllerChat(state.sessionId);
       selectController(state.sessionId);
+      if (state.linked) {
+        const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => undefined);
+        if (value?.kind !== 'ready' || value.missingLinkedChildren || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
+          setDispatchState({ ...state, phase: 'error', code: 'linked_task_unavailable' });
+          return;
+        }
+        setIncludeChallengeId(state.challenge.id);
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
+        setShowTasks(true);
+        setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : '');
+        setClosedChallenges(new Set());
+      }
+      const notice = state.coordination?.notice;
+      if (notice && state.noticeKey === notice.key) notice.acknowledge();
       setDispatchState(null);
       setView('controller');
     } catch {
@@ -280,22 +304,36 @@ function ControllerPanel(props) {
   const sendChallenge = async (state, target, initialize = false) => {
     if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
     dispatchControls.busy = true;
-    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: 'sending' };
+    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: initialize && state.coordination ? 'initializing' : 'sending' };
     setDispatchState(attempt);
     try {
       if (initialize) {
-        const opened = await openController({ workspaceId: target.workspaceId, createIfMissing: true });
+        const opened = await openController({ workspaceId: target.workspaceId, createIfMissing: true,
+          ...(state.coordination && { expectedSessionId: target.sessionId || null }) });
         if (opened.kind !== 'opened') {
-          setDispatchState({ ...attempt, phase: 'error', message: opened.reason });
+          setDispatchState({ ...attempt, phase: 'error', code: opened.code, message: opened.reason });
           return;
         }
         attempt = { ...attempt, sessionId: opened.sessionId };
+        if (state.coordination) {
+          try { await openControllerChat(opened.sessionId); }
+          catch {
+            setExpectedId(''); setInspection(null); setError('无法打开主控对话，请重试。');
+            setDispatchState({ ...attempt, phase: 'error', code: 'controller_open_failed', message: '无法打开主控对话，请重试。' });
+            return;
+          }
+          selectController(opened.sessionId);
+          setDispatchState({ ...attempt, phase: 'guide' });
+          return;
+        }
         setInspection({ kind: 'existing', sessionId: opened.sessionId, archived: false });
       }
+      const notice = state.coordination?.notice;
       const result = await dispatchChallenge({ workspaceId: attempt.workspaceId, sessionId: attempt.sessionId,
-        challengeId: attempt.challenge.id, requestId: attempt.requestId });
-      if (result.kind === 'accepted' && result.sessionId === attempt.sessionId) {
-        await openAfterDispatch(attempt);
+        challengeId: attempt.challenge.id, requestId: attempt.requestId,
+        ...(notice && { notice: { scope: notice.scope, key: notice.key } }) });
+      if ((result.kind === 'accepted' || result.kind === 'linked') && result.sessionId === attempt.sessionId) {
+        await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childIds: result.childIds, noticeKey: result.noticeKey });
       } else {
         setDispatchState({ ...attempt, phase: 'error', code: result.code, message: result.reason || 'DSH 未确认接收请求，请重试。' });
       }
@@ -305,8 +343,12 @@ function ControllerPanel(props) {
       dispatchControls.busy = false;
     }
   };
-  const startHandoff = (challenge) => {
+  const startHandoff = (challenge, coordination) => {
     if (busy || dispatchControls.busy) return;
+    if (coordination) {
+      setDispatchState({ phase: 'guide', challenge, coordination, workspaceId: '', showDialog: true });
+      return;
+    }
     if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
     const retry = dispatchState?.phase === 'error' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
     const state = retry ? dispatchState : { challenge };
@@ -314,35 +356,56 @@ function ControllerPanel(props) {
     if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry && state.sessionId || selectedController });
     setDispatchState({ ...state, phase: 'guide', showDialog: true });
   };
-  const handoff = { state: dispatchState, start: startHandoff };
-  const handoffBusy = dispatchState?.phase === 'sending' || dispatchState?.phase === 'opening';
+  const coordinate = (target, notice) => {
+    if (target.kind === 'challenge') return startHandoff({ id: target.challengeId, title: target.title }, { notice });
+    setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
+    setView('catalog');
+  };
+  const handoff = { state: dispatchState, start: (challenge, notice) => startHandoff(challenge, catalogNotice ? { notice } : undefined), catalogNotice };
+  const selectHandoffWorkspace = (id) => {
+    if (dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
+    }
+    selectWorkspace(id);
+  };
+  const handoffBusy = ['sending', 'initializing', 'opening'].includes(dispatchState?.phase);
   const showHandoffDialog = dispatchState && (dispatchState.phase !== 'sending' || dispatchState.showDialog);
   let handoffMessage;
   let handoffAction;
   if (showHandoffDialog) {
     if (handoffBusy) {
-      handoffMessage = dispatchState.phase === 'sending' ? msg('正在交给主控…', 'Handing off to the controller…') : msg('正在打开主控对话…', 'Opening controller chat…');
+      handoffMessage = dispatchState.phase === 'initializing' ? msg('正在初始化主控对话…', 'Setting up controller chat…')
+        : dispatchState.phase === 'sending' ? msg('正在交给主控…', 'Handing off to the controller…') : msg('正在打开主控对话…', 'Opening controller chat…');
     } else if (dispatchState.phase === 'accepted') {
-      handoffMessage = msg('主控已接收请求，无法打开对话。', 'The controller received the request, but its chat could not be opened.');
+      handoffMessage = dispatchState.linked ? msg('此题已有主控任务，暂时无法打开对话。', 'This challenge already has controller work. Its chat could not be opened.')
+        : msg('主控已接收请求，无法打开对话。', 'The controller received the request, but its chat could not be opened.');
       if (dispatchState.workspaceId === workspaceId) handoffAction = { label: msg('打开主控对话', 'Open controller chat'), run: () => retryOpenAfterDispatch(dispatchState) };
-    } else if (!selectedWorkspace) {
+    } else if (!handoffWorkspace) {
       handoffMessage = workspaces.state === 'error' ? msg('无法读取 DSH 工作区，请重启 DSH 后重试。', 'Could not load DSH workspaces. Restart DSH and try again.')
         : workspaces.phase !== 'ready' ? msg('正在读取 DSH 工作区…', 'Loading DSH workspaces…')
         : workspaces.items.length ? msg('请选择赛题工作所在的工作区。', 'Choose the workspace for this challenge.') : msg('还没有工作区。请选择一个目录添加为工作区。', 'No workspaces yet. Choose a folder to add one.');
     } else if (inspection?.kind === 'blocked' || inspection?.archived) {
       handoffMessage = controllerMessage(inspection.reason) || msg('主控对话已归档，请先取消归档。', 'The controller chat is archived. Unarchive it to continue.');
       handoffAction = { label: msg('重新核对', 'Check again'), run: () => setRetry(retry + 1) };
+    } else if (dispatchState.code === 'platform_changed') {
+      handoffMessage = controllerMessage(dispatchState.message);
+    } else if (dispatchState.code === 'linked_task_unavailable') {
+      handoffMessage = msg('无法打开已关联的子任务，请在主控对话中核对已有工作。', 'The linked child task could not be opened. Check the existing work in the controller chat.');
+    } else if (dispatchState.code === 'controller_history_unavailable') {
+      handoffMessage = msg('无法核对完整派工历史，请在主控对话中检查已有工作。', 'The full assignment history could not be verified. Check existing work in the controller chat.');
     } else if (needsRecheck) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg('重新核对', 'Check again'), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
       const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId
         ? { challenge: dispatchState.challenge } : dispatchState;
-      const sessionId = state.sessionId || selectedController;
-      handoffMessage = dispatchState.phase === 'error' && state === dispatchState ? controllerMessage(dispatchState.message)
-        : canInitialize ? msg('DSH 会发送一条初始化消息，再把赛题交给主控。', 'DSH will send a setup message before handing the challenge to the controller.') : undefined;
-      handoffAction = { label: selectedController ? msg('交给主控', 'Hand off to controller') : inspection.kind === 'incomplete' ? msg('初始化并交接', 'Initialize and hand off') : msg('创建主控并交接', 'Create controller and hand off'),
-        run: () => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController) };
+      const sessionId = state.sessionId || selectedController || (state.coordination && inspection.sessionId);
+      const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
+        label: selectedController ? msg('交给主控', 'Hand off to controller') : inspection.kind === 'incomplete' ? msg('初始化并交接', 'Initialize and hand off') : msg('创建主控并交接', 'Create controller and hand off'),
+        message: canInitialize ? msg('DSH 会发送一条初始化消息，再把赛题交给主控。', 'DSH will send a setup message before handing the challenge to the controller.') : undefined,
+      };
+      handoffMessage = dispatchState.phase === 'error' && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
+      handoffAction = { label: copy.label, run: () => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController) };
     } else {
       handoffMessage = error || msg('正在核对工作区的主控对话…', 'Checking the workspace controller chat…');
       if (error) handoffAction = { label: msg('重新核对', 'Check again'), run: () => setRetry(retry + 1) };
@@ -362,15 +425,15 @@ function ControllerPanel(props) {
   const listRow = (item) => h('button', { key: item.childId, className: 'pg-controller-row', ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); }, onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
     h('strong', null, item.label || msg('未命名任务', 'Untitled task')), h('span', null, [item.provider, taskState(item)].filter(Boolean).join(' · ')));
   return h('div', { className: 'pg-controller' }, h('style', null, controllerPanelCss),
-    view === 'controller' ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory }) : null,
+    view === 'controller' ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
     h('header', { className: 'pg-controller-bar' }, h('h1', null, 'Playground'),
       h('select', { 'aria-label': msg('工作区', 'Workspace'), value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
         if (dispatchControls.busy) return;
         if (event.target.value === '__add_workspace__') { setBusy(true); setError(''); try { await props.addTaskWorkspace(); } catch { setError('无法添加工作区，请重试。'); } finally { setBusy(false); } return; }
         selectWorkspace(event.target.value);
       } }, h('option', { value: '' }, msg('选择工作区', 'Select workspace')), workspaceOptions(workspaces.items), h('option', { value: '__add_workspace__', disabled: busy }, msg('添加工作区…', 'Add workspace…'))),
-      h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; setView(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
-        [['controller', msg('对话', 'Chat')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => setView(id) }, title))),
+      h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; selectTab(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
+        [['controller', msg('对话', 'Chat')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
       h('div', { className: 'pg-controller-account' },
       h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: () => {
         setReleaseVisit(releaseVisit + 1); setView('settings');
@@ -441,8 +504,8 @@ function ControllerPanel(props) {
                   group.challenge ? h('small', null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h('small', null, msg('缺少明确的赛题关联，保留原任务和结果。', 'The original task and result are available without a confirmed challenge link.'))),
                 group.rows.map(listRow))),
                 tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, msg(`后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === 'maintenance').length})`)), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),
-    showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: selectedWorkspace, busy: handoffBusy,
-      selectWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
+    showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: handoffWorkspace, busy: handoffBusy,
+      selectWorkspace: selectHandoffWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
       close: () => { if (!dispatchControls.busy) setDispatchState(null); } }) : null);
 
 }
