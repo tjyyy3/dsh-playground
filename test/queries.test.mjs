@@ -3,13 +3,21 @@ import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow } from '../lib/workflow.js';
+import { credentialRecords } from './fixtures/account-credentials.mjs';
 
 test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
   const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [], cleanups = [];
-  let work, service, invocations, cleanupBlocked = false;
+  let work, service, invocations, cleanupBlocked = false, reservationBlocked = false;
+  const records = credentialRecords();
   const publish = (key) => { work = events.get('credentials/reference-updated')(key); };
   const credentials = {
+    ...records,
+    async modifyRecord(key, mutate) {
+      if (reservationBlocked) throw Error('store unavailable');
+      return records.modifyRecord(key, mutate);
+    },
     resolve: async (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : ambient.get(key),
+    describe: async (key) => saved.has(key) ? { source: 'file' } : { source: ambient.get(key)?.source },
     set(key, value) { saved.set(key, value); publish(key); },
     async unset(key) {
       if (cleanupBlocked) throw Error('store unavailable');
@@ -37,11 +45,14 @@ test('the browser collects each Host account verification once and the Host clea
   assert.equal(schema('query').safeParse({ action: 'auth', candidateId: crypto.randomUUID() }).success, false);
   assert.equal(schema('verifyAccount').safeParse({ id: crypto.randomUUID(), token: 'synthetic' }).success, false);
   ctx.invocation.peer = {};
-  assert.deepEqual(begin(), { ok: false });
+  assert.deepEqual(await begin(), { ok: false });
   ctx.invocation.peer = peer;
+  reservationBlocked = true;
+  assert.deepEqual(await begin(), { ok: false }, 'a browser cannot write without a durable cleanup record');
+  reservationBlocked = false;
 
   for (const source of ['env', 'project-env', 'user-env']) {
-    const { id, credential } = begin();
+    const { id, credential } = await begin();
     ambient.set(credential, { source, value: 'synthetic-environment' });
     publish(credential);
     assert.equal((await collect(id)).authenticated, false);
@@ -50,7 +61,7 @@ test('the browser collects each Host account verification once and the Host clea
   assert.deepEqual(reads, []);
 
   for (const [token, reason] of [['synthetic-network', 'network'], ['synthetic-rejected', 'rejected']]) {
-    const { id, credential } = begin();
+    const { id, credential } = await begin();
     const result = collect(id);
     assert.equal((await collect(id)).authenticated, false, 'another collector cannot consume the same ticket');
     credentials.set(credential, token);
@@ -62,12 +73,12 @@ test('the browser collects each Host account verification once and the Host clea
     assert.equal(saved.has(credential), false);
   }
   assert.deepEqual(reads, ['synthetic-network', 'synthetic-rejected']);
-  const disconnected = begin();
+  const disconnected = await begin();
   credentials.set(disconnected.credential, 'synthetic-disconnected');
   await work;
   assert.equal(saved.has(disconnected.credential), false, 'a dropped browser never has to call verify or unset for cleanup');
   assert.deepEqual(reads.at(-1), 'synthetic-disconnected');
-  const blocked = begin();
+  const blocked = await begin();
   cleanupBlocked = true;
   credentials.set(blocked.credential, 'synthetic-blocked');
   assert.equal((await collect(blocked.id)).reason, 'cleanup_failed');

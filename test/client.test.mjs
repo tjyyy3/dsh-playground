@@ -9,6 +9,7 @@ import { publicChallengeUrl } from '../lib/links.js';
 import { createReleaseQuery } from '../lib/releases.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 let fixtureId = 0;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -4230,9 +4231,11 @@ test('switch account previews a different account, then verifies the active DSH 
   const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-old']]);
   const events = new Map();
   const credentials = {
+    ...credentialRecords(),
     set(key, value) { saved.set(key, value); events.get('credentials/reference-updated')?.(key); },
     unset(key) { if (saved.delete(key)) events.get('credentials/reference-updated')?.(key); },
     resolve: (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : undefined,
+    describe: (key) => saved.has(key) ? { source: 'file' } : undefined,
   };
   const ctx = { get: () => credentials, on: (event, handler) => events.set(event, handler), effect: (register) => t.after(register()) };
   const resolver = createTokenResolver(normalizeSettings({ credentialsPath: file }), ctx);
@@ -4279,6 +4282,79 @@ test('switch account previews a different account, then verifies the active DSH 
     if (method === 'playgroundQueries/query') assert.equal(payload.args.input.action, 'auth');
     assert.doesNotMatch(JSON.stringify(payload), /synthetic-(old|new|cli)/);
   }
+});
+
+test('a new Host clears a candidate committed after the old Host and browser closed without recovering its ticket', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'playground-account-recovery-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const settings = { credentialsPath: join(folder, 'credentials.env'), cliPath: join(folder, 'unavailable-cli') };
+  const unrelated = 'PLAYGROUND_SWITCH_' + 'D'.repeat(8) + '_' + 'A'.repeat(32);
+  const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current'], [unrelated, 'synthetic-unrelated']]);
+  const records = new Map([['other-plugin/' + unrelated.toLowerCase().replaceAll('_', '-'), { kind: 'grant', payload: null }]]);
+  const writeEntered = deferred(), releaseWrite = deferred(), writeCommitted = deferred();
+  const handlers = new Set();
+  const read = [];
+  const makeStore = () => ({
+    ...credentialRecords(records),
+    set(name, value) {
+      saved.set(name, value);
+      for (const handle of handlers) handle(name);
+    },
+    unset(name) {
+      if (saved.delete(name)) for (const handle of handlers) handle(name);
+    },
+    resolve(name) {
+      read.push(name);
+      return saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined;
+    },
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
+  });
+  const fetch = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.equal(init.headers.authorization, 'Bearer synthetic-current');
+    return Response.json({ id: 'current', name: 'Current account' });
+  });
+  const credentials = makeStore();
+  const before = mountAccountHost(credentials, handlers, settings);
+  let ticket, lastCall;
+  const panel = await tokenPanel(t, undefined, { credentials: {
+    async set(name, value) {
+      writeEntered.resolve();
+      await releaseWrite.promise;
+      credentials.set(name, value);
+      writeCommitted.resolve();
+      // The credential operation still commits after the browser loses its connection.
+      return new Promise(() => {});
+    },
+    unset() { assert.fail('the browser closed before it could clean up'); },
+  }, call: async (_route, endpoint, payload) => {
+    lastCall = before.service[endpoint.split('/')[1]](payload.args.input);
+    const value = await lastCall;
+    if (endpoint.endsWith('/startAccountSwitch')) ticket = value;
+    return { ok: true, value };
+  } });
+  await lastCall; await settle(); panel.rerender();
+  enterSwitchToken(panel, 'synthetic-candidate');
+  void submitTokenForm(panel);
+  await writeEntered.promise;
+  const candidateRecord = 'playground-competition/' + ticket.credential.toLowerCase().replaceAll('_', '-');
+  assert.deepEqual(records.get(candidateRecord), { kind: 'grant', payload: null });
+
+  panel.f.unmount(panel.element.type);
+  before.dispose();
+  assert.equal(handlers.size, 0);
+  releaseWrite.resolve();
+  await writeCommitted.promise;
+  assert.equal(saved.get(ticket.credential), 'synthetic-candidate');
+
+  const after = mountAccountHost(makeStore(), handlers, settings);
+  t.after(after.dispose);
+  await settle();
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current'], [unrelated, 'synthetic-unrelated']]);
+  assert.equal(records.has(candidateRecord), false);
+  assert.equal(records.size, 1);
+  assert.deepEqual(await after.service.verifyAccount({ id: ticket.id }), { authenticated: false, reason: 'unavailable' });
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.deepEqual(read, ['PLAYGROUND_TOKEN']);
 });
 
 test('a rejected, unreachable or unidentifiable candidate preserves the active token, and a preview can be cancelled', async (t) => {

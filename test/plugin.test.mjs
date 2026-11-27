@@ -10,6 +10,7 @@ import { PlaygroundApiError } from '../lib/api.js';
 import { workflowProjection } from '../lib/workflow.js';
 import { createMaterialAccess } from '../lib/material-access.js';
 import { controllerProjection } from '../lib/controller.js';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 function mount(config = {}) {
   const registered = [];
@@ -55,7 +56,8 @@ test('read-only tools register before injected task services become available', 
 });
 
 test('Host reload settles pending verification and removes candidate writes from the disposed instance', async (t) => {
-  const peer = {}, handlers = new Set(), saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const handlers = new Set(), saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const records = new Map();
   const cleanupEntered = Promise.withResolvers();
   const releaseCleanup = Promise.withResolvers();
   const releaseWrite = Promise.withResolvers();
@@ -63,7 +65,9 @@ test('Host reload settles pending verification and removes candidate writes from
   let cleanupHeldFor;
   const publish = (name) => Promise.all([...handlers].map((handler) => handler(name)));
   const credentials = {
+    ...credentialRecords(records),
     resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
     async set(name, value) {
       saved.set(name, value);
       await publish(name);
@@ -76,46 +80,28 @@ test('Host reload settles pending verification and removes candidate writes from
       if (saved.delete(name)) await publish(name);
     },
   };
-  function mountHost() {
-    const disposers = [];
-    let service;
-    const scope = {
-      get: (name) => name === 'credentials' ? credentials : name === 'connection' ? { browserPeer: peer } : undefined,
-      invocation: { peer },
-      tools: { register() {} }, commands: { register() {} }, sessionProjections: { register() {} }, typert: { register() {} },
-      provide: (_name, value) => { service = value; },
-      on(name, handler) {
-        if (name !== 'credentials/reference-updated') return;
-        handlers.add(handler);
-        disposers.push(() => handlers.delete(handler));
-      },
-      effect(register) { disposers.push(register()); },
-      inject(keys, activate) { if (keys.includes('typert')) activate(scope); },
-    };
-    apply({ ...scope, inject: (_keys, activate) => activate(scope) }, { baseUrl: 'https://example.test/api' });
-    return { service, dispose: () => disposers.reverse().forEach((dispose) => dispose()) };
-  }
-  const before = mountHost();
-  const cleaning = before.service.startAccountSwitch();
+  const before = mountAccountHost(credentials, handlers);
+  const cleaning = await before.service.startAccountSwitch();
   cleanupHeldFor = cleaning.credential;
   let answer;
   const verify = before.service.verifyAccount({ id: cleaning.id }).then((value) => { answer = value; });
   const cleaningWrite = credentials.set(cleaning.credential, 'synthetic-cleaning');
   await cleanupEntered.promise;
-  const queued = before.service.startAccountSwitch();
+  const queued = await before.service.startAccountSwitch();
   const queuedWrite = releaseWrite.promise.then(() => credentials.set(queued.credential, 'synthetic-queued'));
 
   before.dispose();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(answer, { authenticated: false, reason: 'unavailable' }, 'disposal releases the browser before the credential lock opens');
-  assert.deepEqual(before.service.startAccountSwitch(), { ok: false });
-  const after = mountHost();
+  assert.deepEqual(await before.service.startAccountSwitch(), { ok: false });
+  const after = mountAccountHost(credentials, handlers);
   t.after(after.dispose);
   releaseCleanup.resolve();
   releaseWrite.resolve();
   await Promise.all([verify, cleaningWrite, queuedWrite]);
   assert.deepEqual(await after.service.verifyAccount({ id: queued.id }), { authenticated: false, reason: 'unavailable' });
   assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  assert.equal(records.size, 0);
   assert.equal(fetch.mock.callCount(), 0);
 });
 
