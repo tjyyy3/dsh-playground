@@ -19,6 +19,7 @@ const verdict = (source) => source.text || (source.result === 'empty' ? msg('最
 export function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
   const [detection, setDetection] = React.useState(null);
   const [open, setOpen] = React.useState(false);
+  const [hasOpened, setHasOpened] = React.useState(false);
   React.useEffect(() => {
     const abort = new AbortController();
     async function detect() {
@@ -32,13 +33,20 @@ export function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
     void detect();
     return () => abort.abort();
   }, [workspaceId, sessionId, query, refresh]);
-  if (!detection?.available || detection.query !== query || detection.refresh !== refresh) return null;
-  return h('details', { className: 'pg-controller-external-chats', open, onToggle: (event) => setOpen(event.currentTarget.open) },
-    h('summary', null, msg('外部 Codex 对话', 'External Codex chats')),
-    open ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false }) : null);
+  const available = detection?.available === true && detection.query === query && detection.refresh === refresh;
+  if (!available && !hasOpened) return null;
+  return h('details', { className: 'pg-controller-external-chats', hidden: !available, open,
+    onToggle: (event) => {
+      const expanded = event.currentTarget.open;
+      setOpen(expanded);
+      if (expanded) setHasOpened(true);
+    } },
+  available ? h('summary', null, msg('外部 Codex 对话', 'External Codex chats')) : null,
+  hasOpened ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false, visible: available,
+    listRefresh: available && open ? refresh : null }) : null);
 }
 
-export function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true }) {
+export function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
   const [data, setData] = React.useState(initial || null);
   const [selected, select] = React.useState(null);
   const [target, setTarget] = React.useState('');
@@ -50,9 +58,14 @@ export function CodexChats({ workspaceId, sessionId, query, initial, showHeading
   const [control] = React.useState(() => ({ active: true, writing: false, read: null }));
   React.useEffect(() => {
     control.active = true;
-    if (!initial) read('list');
     return () => { control.active = false; control.read?.abort(); };
   }, [query]);
+  React.useEffect(() => {
+    if (initial || listRefresh === null) return;
+    void read('list');
+    const abort = control.read;
+    return () => abort.abort();
+  }, [query, listRefresh]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -96,7 +109,9 @@ export function CodexChats({ workspaceId, sessionId, query, initial, showHeading
       if (control.active) setBusy(false);
     }
   }
+  if (!visible) return null;
   const rows = data?.rows || [];
+  const hasFollowUp = rows.length > 0 || selected || (!initial && (target || draft));
   return h('section', { className: 'pg-codex-chats', 'aria-label': msg('工作区 Codex 对话', 'Workspace Codex chats') },
     showHeading ? h('h3', null, msg('工作区 Codex 对话', 'Workspace Codex chats')) : null,
     !data ? h('p', { role: 'status' }, msg('正在查找本工作区对话…', 'Finding chats in this workspace…')) :
@@ -110,7 +125,7 @@ export function CodexChats({ workspaceId, sessionId, query, initial, showHeading
     data?.partial ? h('p', null, msg('仅显示最近的部分对话。可通过完整会话编号指定目标。', 'Showing recent chats only. Enter the full chat ID to select another.')) : null,
     rows.length > 0 && data.kind !== 'summary' ? h('button', { type: 'button', className: 'pg-controller-action',
       disabled: busy, onClick: () => read('summary') }, msg('汇总最近结果', 'Summarize recent results')) : null,
-    rows.length || selected ? h('div', null,
+    hasFollowUp ? h('div', null,
       selected ? h('p', null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h('button', { type: 'button', disabled: busy,
         onClick: () => { select(null); setChoices(null); } }, msg('更换目标', 'Change target'))) :
       h('label', null, msg('目标会话', 'Target chat'), h('input', { value: target, disabled: busy, placeholder: msg('完整编号或标题', 'Full ID or title'),

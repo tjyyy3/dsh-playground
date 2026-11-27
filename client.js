@@ -1348,6 +1348,7 @@ var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result =
 function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
   const [detection, setDetection] = React4.useState(null);
   const [open, setOpen] = React4.useState(false);
+  const [hasOpened, setHasOpened] = React4.useState(false);
   React4.useEffect(() => {
     const abort = new AbortController();
     async function detect() {
@@ -1362,16 +1363,33 @@ function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
     void detect();
     return () => abort.abort();
   }, [workspaceId, sessionId, query, refresh]);
-  if (!detection?.available || detection.query !== query || detection.refresh !== refresh) return null;
+  const available = detection?.available === true && detection.query === query && detection.refresh === refresh;
+  if (!available && !hasOpened) return null;
   return h(
     "details",
-    { className: "pg-controller-external-chats", open, onToggle: /* @__PURE__ */ __name((event) => setOpen(event.currentTarget.open), "onToggle") },
-    h("summary", null, msg("外部 Codex 对话", "External Codex chats")),
-    open ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false }) : null
+    {
+      className: "pg-controller-external-chats",
+      hidden: !available,
+      open,
+      onToggle: /* @__PURE__ */ __name((event) => {
+        const expanded = event.currentTarget.open;
+        setOpen(expanded);
+        if (expanded) setHasOpened(true);
+      }, "onToggle")
+    },
+    available ? h("summary", null, msg("外部 Codex 对话", "External Codex chats")) : null,
+    hasOpened ? h(CodexChats, {
+      workspaceId,
+      sessionId,
+      query,
+      showHeading: false,
+      visible: available,
+      listRefresh: available && open ? refresh : null
+    }) : null
   );
 }
 __name(ExternalCodexChats, "ExternalCodexChats");
-function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true }) {
+function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
   const [data, setData] = React4.useState(initial || null);
   const [selected, select] = React4.useState(null);
   const [target, setTarget] = React4.useState("");
@@ -1383,12 +1401,17 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
   const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
   React4.useEffect(() => {
     control.active = true;
-    if (!initial) read("list");
     return () => {
       control.active = false;
       control.read?.abort();
     };
   }, [query]);
+  React4.useEffect(() => {
+    if (initial || listRefresh === null) return;
+    void read("list");
+    const abort = control.read;
+    return () => abort.abort();
+  }, [query, listRefresh]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -1450,7 +1473,9 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
     }
   }
   __name(send, "send");
+  if (!visible) return null;
   const rows = data?.rows || [];
+  const hasFollowUp = rows.length > 0 || selected || !initial && (target || draft);
   return h(
     "section",
     { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
@@ -1483,7 +1508,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
       disabled: busy,
       onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
     }, msg("汇总最近结果", "Summarize recent results")) : null,
-    rows.length || selected ? h(
+    hasFollowUp ? h(
       "div",
       null,
       selected ? h("p", null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h("button", {

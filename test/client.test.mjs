@@ -7559,8 +7559,32 @@ async function codexSidebarFixture(t, codexChats) {
     f.effects.length = 0;
     return f.render(element.type, element.props);
   };
+  let chatsType;
+  let chatsEffects = [];
+  const renderChats = (details) => {
+    const element = f.find(details, (node) => node.type?.name === 'CodexChats');
+    if (!element) {
+      for (const effect of chatsEffects) effect.cleanup?.();
+      if (chatsType) f.unmount(chatsType);
+      chatsType = undefined;
+      chatsEffects = [];
+      return null;
+    }
+    chatsType = element.type;
+    f.effects.length = 0;
+    const tree = f.render(chatsType, element.props);
+    chatsEffects = f.effects.splice(0).map((effect, index) => {
+      const previous = chatsEffects[index];
+      if (previous?.deps && effect.deps && previous.deps.length === effect.deps.length &&
+        effect.deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return previous;
+      previous?.cleanup?.();
+      return { deps: effect.deps, cleanup: effect() };
+    });
+    return tree;
+  };
+  t.after(() => renderChats(null));
   const refresh = () => buttonLabeled(f, sidebar(), '刷新任务').props.onClick();
-  return { f, sidebar, external, renderExternal, refresh, runEffects };
+  return { f, sidebar, external, renderExternal, renderChats, refresh, runEffects };
 }
 
 test('task sidebar hides external chats during detection and when detection is unavailable or fails', async (t) => {
@@ -7590,7 +7614,7 @@ test('task sidebar hides external chats during detection and when detection is u
 
 test('external chats follow all task groups and only list when expanded', async (t) => {
   const calls = [];
-  const { f, sidebar, external, renderExternal, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
+  const { f, sidebar, external, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
     calls.push(action);
     return action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] };
   });
@@ -7612,15 +7636,100 @@ test('external chats follow all task groups and only list when expanded', async 
 
   const expanded = renderExternal();
   assert.equal(expanded.props.open, true);
-  assert.match(text(await f.mount(list(expanded))), /本工作区暂无可见的 Codex 对话/);
+  renderChats(expanded); await settle();
+  assert.match(text(renderChats(renderExternal())), /本工作区暂无可见的 Codex 对话/);
   assert.deepEqual(calls, ['detect', 'list']);
   refresh();
-  assert.equal(renderExternal(), null);
-  runEffects(); await settle();
+  const checking = renderExternal(); runEffects();
+  assert.doesNotMatch(text(checking), /codex/i);
+  assert.equal(renderChats(checking), null);
+  assert.deepEqual(calls, ['detect', 'list', 'detect']);
+  await settle();
   const refreshed = renderExternal();
   assert.equal(refreshed.props.open, true);
-  await f.mount(list(refreshed));
+  renderChats(refreshed);
   assert.deepEqual(calls, ['detect', 'list', 'detect', 'list']);
+
+  refreshed.props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  refresh();
+  const checkingWhileClosed = renderExternal(); runEffects(); renderChats(checkingWhileClosed);
+  await settle();
+  const closedAfterRefresh = renderExternal();
+  assert.equal(closedAfterRefresh.props.open, false);
+  renderChats(closedAfterRefresh);
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list', 'detect']);
+});
+
+test('external chats retain the target and draft across collapse and refresh', async (t) => {
+  const rows = [{ title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000010' }];
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) =>
+    action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: rows[0].threadId } });
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  const collapsed = renderExternal();
+  assert.equal(collapsed.props.open, false);
+  renderChats(collapsed);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const checkDraft = () => {
+    const chats = renderChats(renderExternal());
+    assert.equal(f.find(chats, (node) => node.type === 'input')?.props.value, rows[0].threadId);
+    assert.equal(f.find(chats, (node) => node.type === 'textarea')?.props.value, 'Keep this draft');
+  };
+  checkDraft();
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  checkDraft();
+});
+
+test('external chats retain a pending send and its reply across refresh and collapse', async (t) => {
+  const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000011' };
+  const delivery = Promise.withResolvers();
+  const sends = [];
+  let listed = false;
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') {
+      const rows = listed ? [] : [source];
+      listed = true;
+      return { kind: 'ready', rows };
+    }
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return delivery.promise;
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'One follow-up' } });
+  tree = renderChats(renderExternal());
+  const send = buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].threadId, source.threadId);
+
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  assert.equal(buttonLabeled(f, renderChats(renderExternal()), '等待原会话回复…')?.props.disabled, true);
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  delivery.resolve({ kind: 'sent', source, turnStatus: 'completed', text: 'Reply to the original send' });
+  await send;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  tree = renderChats(renderExternal());
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /Reply to the original send/);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, '');
+  assert.equal(sends.length, 1);
 });
 
 test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
