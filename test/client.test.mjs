@@ -1230,7 +1230,8 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
   const held = [];
   const control = { hold: false };
   const respond = (entry) => {
-    const reply = platform.get(entry.id);
+    const stored = platform.get(entry.id);
+    const reply = typeof stored === 'function' ? stored(entry.payload.args.input) : stored;
     if (reply instanceof Error) entry.reject(reply); else entry.resolve({ ok: true, value: reply });
   };
   const f = await localizedFixture(t, {
@@ -1284,6 +1285,37 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
 }
 
 const receiptOf = (attemptId, attempt = queuedAttempt) => ({ attemptId, ok: true, ...attempt });
+
+test('queued Agent-reported attempts keep their report and poll until the platform scores them', async (t) => {
+  const platform = new Map([[7, queuedAttempt], [8, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(7, { ...queuedAttempt, submissionState: 'created' })],
+    ['b', receiptOf(8, { ...queuedAttempt, submissionState: 'uploaded' })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.badge), ['已创建，上传未确认', 'Agent 报告已上传']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 8]);
+  platform.set(7, finalAttempt(70)); platform.set(8, finalAttempt(80));
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['70 分', '80 分']);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 4);
+});
+
+test('workbench refresh isolates identical attempt numbers across platforms and challenges', async (t) => {
+  const original = 'https://original.example/api';
+  const active = 'https://active.example/api';
+  const platform = new Map([[7, () => ({ id: 7, baseUrl: active, challengeId: 'fixture', ...finalAttempt(80) })]]);
+  const h = await refreshHarness(t, [['old', receiptOf(7)], ['other-challenge', receiptOf(7)], ['current', receiptOf(7)]], platform);
+  const [old, other, current] = h.sessions.map((session) => session.projectionValues.playgroundTask.task);
+  old.baseUrl = original;
+  other.baseUrl = active; other.challengeId = 'other';
+  current.baseUrl = active;
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.id, row.score]), [['old', '—'], ['other-challenge', '—'], ['current', '80 分']]);
+  assert.match(h.status(), /刷新失败/);
+});
 
 test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {
   const platform = new Map([[61, queuedAttempt], [63, evaluatingAttempt]]);

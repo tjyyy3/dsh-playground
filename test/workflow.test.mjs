@@ -49,7 +49,7 @@ async function fixture(cli, options = {}) {
         return { sessionId: 'new-task' };
       },
       async rename(request) { calls.push(['rename', request]); },
-      async prompt(request) { calls.push(['prompt', request]); },
+      async prompt(request) { calls.push(['prompt', request]); return { accepted: true }; },
     },
   };
   let workflow;
@@ -92,6 +92,43 @@ test('creating a task uses a new native session and preserves the exploration se
   assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
   assert.match(f.calls.find(([kind]) => kind === 'prompt')[1].content[0].text, /不是操作授权/);
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
+});
+
+test('a task start reports its session when DSH declines or cannot confirm the opening prompt', async () => {
+  for (const admission of [{ accepted: false }, undefined, new Error('lost admission reply')]) {
+    const f = await fixture();
+    f.ctx.sessionController.prompt = async (request) => {
+      f.calls.push(['prompt', request]);
+      if (admission instanceof Error) throw admission;
+      return admission;
+    };
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+    assert.equal(result.ok, false);
+    assert.equal(result.sessionId, 'new-task');
+    assert.match(result.error.message, /new-task/);
+    assert.deepEqual(f.calls.map(([kind]) => kind), ['new', 'rename', 'prompt']);
+    assert.equal(f.states.get('new-task').task.challengeId, 'challenge-a');
+  }
+});
+
+test('a failed task context returns the created session and can be repaired by binding there', async () => {
+  for (const failure of [{ result: { kind: 'error' } }, new Error('context write failed')]) {
+    const f = await fixture();
+    f.ctx.commands.execute = async () => {
+      if (failure instanceof Error) throw failure;
+      return failure;
+    };
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+    assert.equal(result.ok, false);
+    assert.equal(result.sessionId, 'new-task');
+    assert.match(result.error.message, /new-task/);
+    assert.match(result.error.message, /playground_bind_task/);
+    assert.deepEqual(f.calls.map(([kind]) => kind), ['new']);
+    const agent = f.ctx.agents.get(result.sessionId);
+    const bound = await f.workflow.bind({ challenge_id: 'challenge-a' }, { ...f.exec, agent });
+    f.record(bound, agent);
+    assert.equal(f.states.get(result.sessionId).task.challengeId, 'challenge-a');
+  }
 });
 
 test('the controller rejects standalone task tool calls while a confirmed workbench start still creates a task', async () => {
