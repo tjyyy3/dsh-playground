@@ -286,7 +286,8 @@ function ControllerPanel(props) {
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : '');
         setClosedChallenges(new Set());
       }
-      state.coordination?.notice?.acknowledge();
+      const notice = state.coordination?.notice;
+      if (notice && state.noticeKey === notice.key) notice.acknowledge();
       setDispatchState(null);
       setView('controller');
     } catch {
@@ -332,7 +333,7 @@ function ControllerPanel(props) {
         challengeId: attempt.challenge.id, requestId: attempt.requestId,
         ...(notice && { notice: { scope: notice.scope, key: notice.key } }) });
       if ((result.kind === 'accepted' || result.kind === 'linked') && result.sessionId === attempt.sessionId) {
-        await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childIds: result.childIds });
+        await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childIds: result.childIds, noticeKey: result.noticeKey });
       } else {
         setDispatchState({ ...attempt, phase: 'error', code: result.code, message: result.reason || 'DSH 未确认接收请求，请重试。' });
       }
