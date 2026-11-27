@@ -135,10 +135,18 @@ const plugin = {
         if (!ticket?.ok || !/^PLAYGROUND_SWITCH_[A-F0-9]{8}_[A-F0-9]{32}$/.test(ticket.credential)) {
           throw new Error(msg('DSH 暂时无法验证新账号。请重新检测后重试。', 'DSH could not start account verification. Select Check again and retry.'));
         }
-        await storeToken(ticket.credential, value);
-        const result = await requestHost('verifyAccount', { id: ticket.id });
-        if (result?.reason === 'cleanup_failed') {
-          throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
+        let result;
+        try {
+          await storeToken(ticket.credential, value);
+          result = await requestHost('verifyAccount', { id: ticket.id });
+        } finally {
+          // The write may finish between Host instances or after the verification ticket is gone.
+          if (!result || ['unavailable', 'cleanup_failed'].includes(result.reason)) {
+            try { await ctx.remote.credentials.unset(ticket.credential); }
+            catch {
+              throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
+            }
+          }
         }
         return result;
       },

@@ -4234,7 +4234,7 @@ test('switch account previews a different account, then verifies the active DSH 
     unset(key) { if (saved.delete(key)) events.get('credentials/reference-updated')?.(key); },
     resolve: (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : undefined,
   };
-  const ctx = { get: () => credentials, on: (event, handler) => events.set(event, handler) };
+  const ctx = { get: () => credentials, on: (event, handler) => events.set(event, handler), effect: (register) => t.after(register()) };
   const resolver = createTokenResolver(normalizeSettings({ credentialsPath: file }), ctx);
   const entered = deferred(), verified = deferred();
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', resolveToken: resolver,
@@ -4330,6 +4330,26 @@ test('a failed recheck of an existing account still requires preview and confirm
   const unknown = await tokenPanel(t, { authenticated: false, reason: 'network' });
   assert.ok(unknown.button('验证新账号'));
   assert.equal(unknown.button('保存令牌'), undefined);
+});
+
+test('the browser removes a candidate credential if verification is unavailable after its write', async (t) => {
+  const id = crypto.randomUUID();
+  const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
+  const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const panel = await tokenPanel(t, undefined, {
+    credentials: { set: (name, value) => saved.set(name, value), unset: (name) => saved.delete(name) },
+    call: async (_route, method) => {
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential } };
+      if (method.endsWith('/verifyAccount')) assert.equal(saved.get(credential), 'synthetic-candidate');
+      return { ok: true, value: { authenticated: false, reason: 'unavailable' } };
+    },
+  });
+  panel.tokenInput().props.onChange({ target: { value: 'synthetic-candidate' } });
+  panel.rerender();
+  await submitTokenForm(panel);
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  assert.match(text(panel.rerender()), /暂时无法核实新令牌的账号/);
+  assert.equal(panel.button('使用此账号'), undefined);
 });
 
 test('the switch result distinguishes the same account, an overriding source, a different ID and an unverified save', async (t) => {
@@ -4540,6 +4560,42 @@ function deferred() {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+test('email sign-in discards a delayed candidate identity and leaves the CLI account active', async (t) => {
+  const id = crypto.randomUUID();
+  const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
+  const pending = deferred();
+  const verifying = deferred();
+  let auth = { authenticated: false, reason: 'network' };
+  const panel = await tokenPanel(t, undefined, {
+    call: async (_route, method) => {
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential } };
+      if (method.endsWith('/verifyAccount')) {
+        verifying.resolve();
+        return pending.promise;
+      }
+      if (method.endsWith('/login')) {
+        auth = { authenticated: true, tokenSource: 'cli_file', user: { id: 'cli', name: 'CLI account' } };
+        return { ok: true, value: { ok: true } };
+      }
+      return { ok: true, value: auth };
+    },
+  });
+  panel.tokenInput().props.onChange({ target: { value: 'synthetic-candidate' } });
+  panel.rerender();
+  const verification = submitTokenForm(panel);
+  await verifying.promise;
+  assert.match(text(panel.rerender()), /正在验证/);
+  await emailLogin(panel);
+  assert.match(panel.text(), /账号 ID：cli/);
+  assert.equal(panel.button('切换账号').props.disabled, false);
+  pending.resolve({ ok: true, value: { authenticated: true, user: { id: 'candidate', name: 'Candidate' } } });
+  await verification;
+  assert.match(text(panel.rerender()), /账号 ID：cli/);
+  assert.equal(panel.button('使用此账号'), undefined);
+  assert.equal(panel.tokenForm(), undefined);
+  assert.equal(panel.calls.some(([kind, name]) => kind === 'set' && name === 'PLAYGROUND_TOKEN'), false);
+});
 
 test('#12: an email login while a DSH token is in use says, outside the collapsed section, that the stored token still wins', async (t) => {
   const refused = { authenticated: false, baseUrl: BASE, reason: 'rejected', tokenSource: 'dsh', ...FILE_FACTS };

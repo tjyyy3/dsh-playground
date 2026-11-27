@@ -54,6 +54,71 @@ test('read-only tools register before injected task services become available', 
   ]);
 });
 
+test('Host reload settles pending verification and removes candidate writes from the disposed instance', async (t) => {
+  const peer = {}, handlers = new Set(), saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const cleanupEntered = Promise.withResolvers();
+  const releaseCleanup = Promise.withResolvers();
+  const releaseWrite = Promise.withResolvers();
+  const fetch = t.mock.method(globalThis, 'fetch', async () => assert.fail('a disposed verification reached the platform'));
+  let cleanupHeldFor;
+  const publish = (name) => Promise.all([...handlers].map((handler) => handler(name)));
+  const credentials = {
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    async set(name, value) {
+      saved.set(name, value);
+      await publish(name);
+    },
+    async unset(name) {
+      if (name === cleanupHeldFor) {
+        cleanupEntered.resolve();
+        await releaseCleanup.promise;
+      }
+      if (saved.delete(name)) await publish(name);
+    },
+  };
+  function mountHost() {
+    const disposers = [];
+    let service;
+    const scope = {
+      get: (name) => name === 'credentials' ? credentials : name === 'connection' ? { browserPeer: peer } : undefined,
+      invocation: { peer },
+      tools: { register() {} }, commands: { register() {} }, sessionProjections: { register() {} }, typert: { register() {} },
+      provide: (_name, value) => { service = value; },
+      on(name, handler) {
+        if (name !== 'credentials/reference-updated') return;
+        handlers.add(handler);
+        disposers.push(() => handlers.delete(handler));
+      },
+      effect(register) { disposers.push(register()); },
+      inject(keys, activate) { if (keys.includes('typert')) activate(scope); },
+    };
+    apply({ ...scope, inject: (_keys, activate) => activate(scope) }, { baseUrl: 'https://example.test/api' });
+    return { service, dispose: () => disposers.reverse().forEach((dispose) => dispose()) };
+  }
+  const before = mountHost();
+  const cleaning = before.service.startAccountSwitch();
+  cleanupHeldFor = cleaning.credential;
+  let answer;
+  const verify = before.service.verifyAccount({ id: cleaning.id }).then((value) => { answer = value; });
+  const cleaningWrite = credentials.set(cleaning.credential, 'synthetic-cleaning');
+  await cleanupEntered.promise;
+  const queued = before.service.startAccountSwitch();
+  const queuedWrite = releaseWrite.promise.then(() => credentials.set(queued.credential, 'synthetic-queued'));
+
+  before.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(answer, { authenticated: false, reason: 'unavailable' }, 'disposal releases the browser before the credential lock opens');
+  assert.deepEqual(before.service.startAccountSwitch(), { ok: false });
+  const after = mountHost();
+  t.after(after.dispose);
+  releaseCleanup.resolve();
+  releaseWrite.resolve();
+  await Promise.all([verify, cleaningWrite, queuedWrite]);
+  assert.deepEqual(await after.service.verifyAccount({ id: queued.id }), { authenticated: false, reason: 'unavailable' });
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
 test('release channel comes from plugin config and defaults to stable', () => {
   assert.equal(normalizeSettings({}).releaseChannel, 'stable');
   assert.equal(normalizeSettings({ releaseChannel: 'beta' }).releaseChannel, 'beta');

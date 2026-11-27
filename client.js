@@ -661,6 +661,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   const preview = accountSwitch?.phase === "preview" ? accountSwitch.expected : null;
   const firstSignIn = state?.reason === "no_token" && !latest.credential && (!state.tokenSource || state.tokenSource === "none");
   const verifyFirst = editing || !state?.authenticated && !firstSignIn;
+  const writingToken = tokenBusy && !latest.previewRequest;
   const check = /* @__PURE__ */ __name(async () => {
     const seq = ++latest.seq;
     setChecking(true);
@@ -688,10 +689,16 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated");
   }, [state, checking, onStatusChange]);
   const submitLogin = /* @__PURE__ */ __name(async () => {
+    if (latest.previewRequest) {
+      latest.previewRequest = void 0;
+      setTokenBusy(false);
+    }
     setLoginBusy(true);
     setLoginError("");
     setLoginDone(false);
     setAccountSwitch(null);
+    setToken("");
+    setTokenError("");
     try {
       await login(email, password);
       setPassword("");
@@ -709,12 +716,16 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
       setTokenError("请先粘贴 API 令牌。");
       return;
     }
+    const request = verifyFirst && !preview ? /* @__PURE__ */ Symbol() : void 0;
+    latest.previewRequest = request;
+    const obsolete = /* @__PURE__ */ __name(() => request && request !== latest.previewRequest, "obsolete");
     setTokenBusy(true);
     setTokenError("");
     setLoginDone(false);
     try {
-      if (verifyFirst && !preview) {
+      if (request) {
         const identity = await previewToken(token);
+        if (obsolete()) return;
         if (!identity?.authenticated || identity.user?.id == null && !identity.user?.email) {
           setTokenError(["rejected", "forbidden"].includes(identity?.reason) ? msg("Playground 拒绝了新令牌。请核对令牌后重试。当前 DSH 令牌未被替换。", "Playground rejected the new token. Check the token and try again. The current DSH token was kept.") : msg("暂时无法核实新令牌的账号。请稍后重试。当前 DSH 令牌未被替换。", "Could not verify the account for the new token. Try again later. The current DSH token was kept."));
           return;
@@ -728,9 +739,12 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
       latest.refocus = true;
       await check();
     } catch (failure) {
-      setTokenError(failure.message);
+      if (!obsolete()) setTokenError(failure.message);
     } finally {
-      setTokenBusy(false);
+      if (!obsolete()) {
+        latest.previewRequest = void 0;
+        setTokenBusy(false);
+      }
     }
   }, "submitToken");
   const removeToken = /* @__PURE__ */ __name(async () => {
@@ -769,18 +783,18 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   const badge = /* @__PURE__ */ __name((tone, label2) => h("span", { className: "pg-badge", "data-tone": tone }, label2), "badge");
   const sourceTail = sourceLabel ? msg(` 令牌来源：${sourceLabel}`, ` Token source: ${sourceLabel}`) : "";
   const summary = loading ? msg("正在检查当前 DSH 是否已配置 Playground 凭据…", "Checking DSH for Playground credentials…") : current.authenticated ? h(React2.Fragment, null, badge("success", msg("已登录", "Signed in")), " ", user.name || user.email || msg("Playground 用户", "Playground user")) : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", msg("检测失败", "Check failed")), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? msg("检测失败", "Check failed") : msg("未登录", "Signed out")), msg(" 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。", " You can browse public challenges. Sign in to view your submissions and upload evaluation packages."));
-  const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: removeToken }, msg("清除令牌", "Clear token")) : null;
+  const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy || loginBusy, onClick: removeToken }, msg("清除令牌", "Clear token")) : null;
   const tokenForm = h(
     "form",
     { className: "pg-form pg-auth-token", "aria-label": verifyFirst ? msg("切换账号", "Switch account") : msg("API 令牌登录", "Sign in with an API token"), onSubmit: /* @__PURE__ */ __name((event) => {
       event.preventDefault();
-      if (!tokenBusy) return submitToken();
+      if (!tokenBusy && !loginBusy) return submitToken();
     }, "onSubmit") },
     h("p", { className: "pg-note" }, verifyFirst ? msg("粘贴目标账号的 API 令牌。核实账号后，再决定是否替换 DSH 保存的令牌。已有任务和提交记录保留原归属。", "Paste the API token for the account you want to use. Check the account before replacing the token saved in DSH. Existing tasks and submissions keep their original owners.") : msg(`在${TOKEN_PAGE()}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`, `Sign in to ${TOKEN_PAGE()} and generate a personal or agent account token. Paste it here to save it in DSH credentials and check sign-in automatically. The token stays out of chats, commands and logs.`)),
     pageUrl ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(() => {
       window.open(pageUrl, "_blank", "noopener,noreferrer");
     }, "onClick") }, msg("去网站生成令牌", "Generate token on website"))) : null,
-    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled: tokenBusy, onChange: /* @__PURE__ */ __name((event) => {
+    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled: tokenBusy || loginBusy, onChange: /* @__PURE__ */ __name((event) => {
       setToken(event.target.value);
       setTokenError("");
       if (preview) setAccountSwitch({ phase: "editing", previous: accountSwitch.previous });
@@ -797,7 +811,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
       { className: "pg-actions" },
       h(
         "button",
-        { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy },
+        { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy || loginBusy },
         verifyFirst && !preview ? tokenBusy ? msg("正在验证…", "Verifying…") : msg("验证新账号", "Verify new account") : tokenBusy ? msg("正在保存…", "Saving…") : preview ? msg("使用此账号", "Use this account") : msg("保存令牌", "Save token")
       ),
       editing ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: /* @__PURE__ */ __name(() => {
@@ -841,7 +855,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
       sourceLabel ? h("p", { className: "pg-note" }, msg(`令牌来源：${sourceLabel}`, `Token source: ${sourceLabel}`)) : null,
       !editing && note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
       current.baseUrl ? h("p", { className: "pg-note pg-path" }, msg(`API：${current.baseUrl}`, `API: ${current.baseUrl}`)) : null,
-      !editing ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button pg-primary", disabled: fromConfig || tokenBusy, onClick: /* @__PURE__ */ __name(() => {
+      !editing ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button pg-primary", disabled: fromConfig || tokenBusy || loginBusy, onClick: /* @__PURE__ */ __name(() => {
         setAccountSwitch({ phase: "editing", previous: user });
         setToken("");
         setTokenError("");
@@ -866,11 +880,11 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
           "form",
           { className: "pg-form", onSubmit: /* @__PURE__ */ __name((event) => {
             event.preventDefault();
-            if (!loginBusy && email.trim() && password) submitLogin();
+            if (!loginBusy && !writingToken && email.trim() && password) submitLogin();
           }, "onSubmit") },
           h("label", { className: "pg-field" }, msg("Playground 邮箱", "Playground email"), h("input", { className: "pg-input", type: "email", value: email, autoComplete: "username", onChange: /* @__PURE__ */ __name((event) => setEmail(event.target.value), "onChange") })),
           h("label", { className: "pg-field" }, msg("Playground 密码", "Playground password"), h("input", { className: "pg-input", type: "password", value: password, autoComplete: "current-password", onChange: /* @__PURE__ */ __name((event) => setPassword(event.target.value), "onChange") })),
-          h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || !email.trim() || !password }, loginBusy ? msg("正在登录…", "Signing in…") : msg("登录 Playground", "Sign in to Playground")),
+          h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || writingToken || !email.trim() || !password }, loginBusy ? msg("正在登录…", "Signing in…") : msg("登录 Playground", "Sign in to Playground")),
           loginError ? h("p", { className: "pg-error", role: "alert" }, loginError) : null
         )
       )
@@ -4902,10 +4916,18 @@ var plugin = {
         if (!ticket?.ok || !/^PLAYGROUND_SWITCH_[A-F0-9]{8}_[A-F0-9]{32}$/.test(ticket.credential)) {
           throw new Error(msg("DSH 暂时无法验证新账号。请重新检测后重试。", "DSH could not start account verification. Select Check again and retry."));
         }
-        await storeToken(ticket.credential, value);
-        const result = await requestHost("verifyAccount", { id: ticket.id });
-        if (result?.reason === "cleanup_failed") {
-          throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
+        let result;
+        try {
+          await storeToken(ticket.credential, value);
+          result = await requestHost("verifyAccount", { id: ticket.id });
+        } finally {
+          if (!result || ["unavailable", "cleanup_failed"].includes(result.reason)) {
+            try {
+              await ctx.remote.credentials.unset(ticket.credential);
+            } catch {
+              throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
+            }
+          }
         }
         return result;
       }, "previewToken"),

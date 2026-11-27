@@ -5,7 +5,7 @@ import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow } from '../lib/workflow.js';
 
 test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
-  const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [];
+  const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [], cleanups = [];
   let work, service, invocations, cleanupBlocked = false;
   const publish = (key) => { work = events.get('credentials/reference-updated')(key); };
   const credentials = {
@@ -19,6 +19,7 @@ test('the browser collects each Host account verification once and the Host clea
   const ctx = {
     get: (name) => name === 'credentials' ? credentials : { browserPeer: peer },
     on: (name, fn) => events.set(name, fn), invocation: { peer },
+    effect: (register) => cleanups.push(register()),
     provide: (_, result) => { service = result; }, typert: { register: (result) => { invocations = result.invocations; } },
   };
   const client = { baseUrl: 'https://example.test/api', async getCurrentUser({ token }) {
@@ -29,7 +30,7 @@ test('the browser collects each Host account verification once and the Host clea
     return { authenticated: true, user: { id: 'account-2' } };
   } };
   registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
-  t.after(() => events.get('dispose')());
+  t.after(() => cleanups.forEach((cleanup) => cleanup()));
   const schema = (method) => invocations.find((entry) => entry.method === method).parameters[0].codec.create();
   const begin = () => service.startAccountSwitch(schema('startAccountSwitch').parse({}));
   const collect = (id) => service.verifyAccount(schema('verifyAccount').parse({ id }));
