@@ -5,6 +5,18 @@ import { h } from '../shared/react.js';
 import { taskModalCss } from '../shared/styles.js';
 import { workspaceOptions } from '../shared/workspaces.js';
 
+function noticeHandoffCopy(inspection, workspace) {
+  const name = workspace.title || workspace.workspaceId;
+  if (inspection.kind === 'absent') return { label: msg('创建主控对话', 'Create controller chat'),
+    message: msg(`工作区「${name}」还没有主控。创建后可确认交接赛题。`, `Workspace “${name}” has no controller. Create one to continue to handoff confirmation.`) };
+  if (inspection.kind === 'incomplete') return { label: msg('初始化主控对话', 'Initialize controller chat'),
+    message: msg(`请先完成工作区「${name}」的主控 ${inspection.sessionId} 的初始化，再确认交接赛题。`,
+      `Finish setting up controller ${inspection.sessionId} in workspace “${name}”, then confirm the handoff.`) };
+  return { label: msg('确认交给主控', 'Confirm handoff'),
+    message: msg(`工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。提交评测需另行授权。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work. Submission requires a separate request.`) };
+}
+
 function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
   const [picker] = React.useState(() => ({ pending: false }));
   const [adding, setAdding] = React.useState(false);
@@ -58,8 +70,8 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
         h('button', { type: 'button', className: 'pg-task-button', disabled: busy || adding, onClick: dismiss }, accepted ? msg('关闭', 'Close') : msg('取消', 'Cancel')),
         action || busy ? h('button', { type: 'button', className: 'pg-task-button pg-task-create', disabled: busy || adding, 'data-busy': busy, onClick: action?.run },
           busy ? h('svg', { viewBox: '0 0 24 24', 'aria-hidden': true }, h('path', { d: 'M21 12a9 9 0 1 1-9-9' })) : null,
-          busy ? state.phase === 'opening' ? msg('正在打开…', 'Opening…') : msg('正在交接…', 'Handing off…') : action.label) : null)));
+          busy ? state.phase === 'opening' ? msg('正在打开…', 'Opening…') : state.phase === 'initializing' ? msg('正在初始化…', 'Setting up…') : msg('正在交接…', 'Handing off…') : action.label) : null)));
 }
 
-export { ControllerHandoffDialog };
+export { ControllerHandoffDialog, noticeHandoffCopy };
 

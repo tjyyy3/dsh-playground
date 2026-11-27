@@ -29,6 +29,10 @@ test('challenge dispatch admits only the exact workspace, session, challenge and
   const input = { workspaceId: 'workspace-a', sessionId: 'controller-a', challengeId: 'a b/c', requestId: '98bcdf27-3bfb-4120-8ad2-06c2eca5810d' };
   assert.deepEqual(await service.dispatchChallenge(schema.parse(input), signal), { kind: 'accepted', sessionId: 'controller-a' });
   assert.deepEqual(calls, [[input, signal]]);
+  const notice = { scope: 'https://platform.example', key: 'period-1' };
+  await service.dispatchChallenge(schema.parse({ ...input, notice }), signal);
+  assert.deepEqual(calls.at(-1), [{ ...input, notice }, signal]);
+  assert.equal(schema.safeParse({ ...input, notice: { ...notice, agentPrompt: 'invented' } }).success, false);
   assert.equal(schema.safeParse({ ...input, challengeTitle: 'Unused hint' }).success, false);
   for (const invalid of [{ ...input, title: 'other' }, { ...input, prompt: 'other' }, { ...input, workspaceId: '' },
     { ...input, sessionId: undefined }, { ...input, challengeId: ' ' }, { ...input, requestId: 'random' }]) {
@@ -178,6 +182,11 @@ test('controller RPCs separate inspection from explicit creation and name only t
   assert.equal((await service.inspectController(inspect.parse(input), signal)).kind, 'absent');
   assert.equal((await service.openController(open.parse(selected), signal)).sessionId, 'c');
   assert.deepEqual(calls, [['inspect', input, signal], ['open', selected, signal]]);
+  for (const expectedSessionId of [null, 'partial-controller']) {
+    const confirmed = { ...selected, expectedSessionId };
+    await service.openController(open.parse(confirmed), signal);
+    assert.deepEqual(calls.at(-1), ['open', confirmed, signal]);
+  }
   assert.equal(inspect.safeParse(selected).success, false);
   assert.equal(open.safeParse(input).success, false);
   for (const target of [{ cwd: '/example' }, { workspaceId: '' }, { ...input, sessionId: 'foreign' }]) {

@@ -8,7 +8,7 @@ import { openWebButton } from '../shared/display.js';
 // Right-side drawer for one catalog challenge. It reads the detail once when it opens, through the
 // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
-  const busy = handoff.state?.phase === 'sending' || handoff.state?.phase === 'opening';
+  const busy = ['sending', 'initializing', 'opening'].includes(handoff.state?.phase);
   return h('button', { type: 'button', className: 'pg-button pg-primary', 'aria-disabled': busy || undefined, onClick: (event) => {
     if (busy) return;
     event?.currentTarget?.focus();

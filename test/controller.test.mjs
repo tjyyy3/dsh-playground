@@ -160,6 +160,38 @@ test('handoff reports a native rejection and never claims admission', async (t) 
   assert.equal(f.admitted.size, 0);
 });
 
+test('competition handoff reopens an explicitly linked challenge and retries the same notice once at DSH', async (t) => {
+  const f = await fixture(t);
+  const { workspaceId, sessionId, challengeId } = handoff;
+  const marker = { workspaceId, sessionId, taskChallenges: { 'linked-child': { id: challengeId, baseUrl: f.client.baseUrl } } };
+  f.put(workspaceId, sessionId, f.snapshot(marker));
+  const notice = { scope: 'https://playground.example.test', key: 'period-9' };
+  assert.deepEqual(await f.controller.dispatch({ ...handoff, notice }), { kind: 'linked', sessionId, childId: 'linked-child' });
+  assert.deepEqual(f.promptRequests, []);
+  assert.equal((await f.controller.dispatch({ ...handoff, notice: { ...notice, scope: 'https://other.example' } })).code, 'platform_changed');
+  const other = { ...handoff, challengeId: 'unlinked', notice };
+  assert.equal((await f.controller.dispatch(other)).kind, 'accepted');
+  assert.equal((await f.controller.dispatch({ ...other, requestId: crypto.randomUUID() })).kind, 'accepted');
+  assert.equal(f.admitted.size, 1);
+  assert.equal(f.promptRequests[0].requestId, f.promptRequests[1].requestId);
+  assert.match(f.promptRequests[0].content[0].text, /"unlinked".*不授权提交评测/);
+  assert.ok(!f.promptRequests[0].content[0].text.includes('period-9'));
+});
+
+test('controller setup for a notice only acts on the absence or exact partial chat the user confirmed', async (t) => {
+  const f = await fixture(t);
+  const create = (expectedSessionId) => f.controller.open({ workspaceId: 'one', createIfMissing: true, expectedSessionId });
+  assert.equal((await create('missing-partial')).code, 'controller_changed');
+  f.put('one', 'replacement', f.snapshot({ workspaceId: 'one', sessionId: 'replacement' }, undefined, true));
+  assert.equal((await create(null)).code, 'controller_changed');
+  assert.equal((await create('previous')).code, 'controller_changed');
+  assert.deepEqual(f.createRequests, []);
+  assert.deepEqual(f.promptRequests, []);
+  assert.equal((await create('replacement')).sessionId, 'replacement');
+  assert.match(f.promptRequests[0].content[0].text, /只回复/);
+  assert.equal(f.promptRequests.length, 1);
+});
+
 test('explicit concurrent creation writes one native session and cold reopening keeps its id', async (t) => {
   const f = await fixture(t);
   f.put('one', 'challenge', f.snapshot(null, f.task));

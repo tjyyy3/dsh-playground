@@ -1,6 +1,7 @@
 import { msg } from '../shared/language.js';
 
 const controllerMessages = new Map([
+  ['赛事所属平台已变更，请重新打开赛事提醒。', 'The competition platform has changed. Reopen the competition alert.'],
   ['该子任务关联的平台与当前平台不一致，未更改已有归属。', 'The child task belongs to another platform. Its association was preserved.'],
   ['该子任务已关联另一道赛题，未更改已有归属。', 'The child task already belongs to another challenge. Its association was preserved.'],
   ['该编号不属于当前主控可见的直接子任务。', 'This ID is not a direct child task visible to this controller.'],
