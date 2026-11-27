@@ -225,6 +225,9 @@ test('task result, tracking and history reads reject a changed platform before l
   for (const [taskBase, receiptBase] of [[original, undefined], [undefined, original], [original, f.client.baseUrl]]) {
     f.setState({ ...saved, task: { ...saved.task, baseUrl: taskBase }, receipt: { ...saved.receipt, baseUrl: receiptBase } });
     const before = f.state();
+    assert.equal((await f.workflow.taskPolicy(f.exec)).error?.code, 'platform_changed');
+    assert.equal((await f.submit()).error?.code, 'platform_changed');
+    assert.equal(f.calls.length, 0);
     for (const result of [await f.workflow.results({}, f.exec), await f.workflow.track({ attempt_id: 8 }, f.exec)]) {
       assert.equal(result.error?.code, 'platform_changed');
       f.record(result);

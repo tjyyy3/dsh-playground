@@ -2555,6 +2555,21 @@ __name(ControllerPanel, "ControllerPanel");
 // src/client/workbench.js
 var React15 = __toESM(require("react"), 1);
 
+// lib/task/evidence.js
+var workChallengeId = /* @__PURE__ */ __name((item) => {
+  const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
+  return id === void 0 || id === null ? void 0 : String(id);
+}, "workChallengeId");
+function taskAttemptScope(state) {
+  const { task, receipt } = state || {};
+  const taskId = workChallengeId(task);
+  const receiptId = workChallengeId(receipt);
+  if (task?.baseUrl && receipt?.baseUrl && task.baseUrl !== receipt.baseUrl) return { conflict: "platform_changed" };
+  if (taskId && receiptId && taskId !== receiptId) return { conflict: "challenge_mismatch" };
+  return { baseUrl: task?.baseUrl || receipt?.baseUrl, challengeId: taskId || receiptId };
+}
+__name(taskAttemptScope, "taskAttemptScope");
+
 // src/client/tasks/attempts.js
 function attemptScore(item) {
   const raw = item?.scoringState;
@@ -2671,7 +2686,7 @@ var refreshConcurrency = 4;
 var visibleRefreshGapMs = 3e4;
 function receiptPending(receipt) {
   if (receiptAttemptId(receipt) === void 0 || receipt.bundleStatus === "incomplete") return false;
-  const { stage } = receiptProgress(receipt, zhText);
+  const { stage } = receiptProgress({ ...receipt, submissionState: void 0 }, zhText);
   if (stage === "evaluating") return true;
   if (stage === "incomplete" && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
   const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes("awaiting_review");
@@ -2679,6 +2694,7 @@ function receiptPending(receipt) {
 }
 __name(receiptPending, "receiptPending");
 var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
+var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
 var receiptKey = /* @__PURE__ */ __name((receipt) => receipt ? JSON.stringify([
   receipt.attemptId,
   receipt.updatedAt,
@@ -2688,8 +2704,11 @@ var receiptKey = /* @__PURE__ */ __name((receipt) => receipt ? JSON.stringify([
   receipt.score,
   receipt.scoringState
 ]) : void 0, "receiptKey");
-function withLatestAttempt(receipt, entry) {
-  if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
+function withLatestAttempt(state, attempts) {
+  const receipt = state?.receipt;
+  if (!receipt) return receipt;
+  const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
+  if (!entry || entry.receiptKey !== receiptKey(receipt)) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
   return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
@@ -2705,21 +2724,24 @@ function withSettledAttempt(item, entry, { closed = false } = {}) {
 }
 __name(withSettledAttempt, "withSettledAttempt");
 var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
-async function refreshAttempts(store, ids) {
-  const wanted = [...new Set(ids)];
-  if (!wanted.length || store.controller || store.disposed) return;
+async function refreshAttempts(store, keys) {
+  if (!keys.length || store.controller || store.disposed) return;
+  const wanted = keys.map((key2) => {
+    const { scope, receipt } = store.receipts.get(key2);
+    return { key: key2, input: { action: "attempt", attemptId: receiptAttemptId(receipt), ...scope }, receiptKey: receiptKey(receipt) };
+  });
   const controller = new AbortController();
   store.controller = controller;
   store.startedAt = Date.now();
-  const keys = wanted.map((id) => receiptKey(store.receipts.get(id)));
   store.publish();
-  const outcomes = [];
+  const fresh = [];
   let next = 0;
   const worker = /* @__PURE__ */ __name(async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const index = next++;
+      const { key: key2, input, receiptKey: receiptKey2 } = wanted[next++];
       try {
-        outcomes[index] = { value: await store.query({ action: "attempt", attemptId: wanted[index] }, controller.signal) };
+        const attempt = await store.query(input, controller.signal);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key2, { attempt, receiptKey: receiptKey2 }]);
       } catch {
       }
     }
@@ -2727,8 +2749,6 @@ async function refreshAttempts(store, ids) {
   await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
   if (store.controller !== controller) return;
   store.controller = null;
-  const usable = /* @__PURE__ */ __name((outcome) => outcome && outcome.value && typeof outcome.value === "object", "usable");
-  const fresh = wanted.flatMap((id, index) => usable(outcomes[index]) ? [[id, { attempt: outcomes[index].value, receiptKey: keys[index] }]] : []);
   store.attempts = { ...store.attempts, ...Object.fromEntries(fresh) };
   store.failed = fresh.length < wanted.length;
   if (!store.failed) {
@@ -4004,7 +4024,7 @@ function SelectedTask({ session, projection, attempts, useSessionAccess, refresh
   }
   if (projection?.state !== "ready") return h("p", { className: "pg-note", role: "status" }, msg("正在读取任务状态…", "Loading task status…"));
   const task = projection.values.playgroundTask;
-  const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
+  const receipt = withLatestAttempt(task, attempts);
   return h(TaskWorkflow, {
     ...props,
     sessionId: session.id,
@@ -4020,7 +4040,7 @@ __name(SelectedTask, "SelectedTask");
 function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
   const state = session.projectionValues?.playgroundTask || {};
   const task = state.task;
-  const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
+  const receipt = withLatestAttempt(state, attempts);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
   const title = task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const challengeId = task?.challengeId || msg("赛题待读取", "Challenge pending");
@@ -4056,7 +4076,7 @@ function taskAttemptIds(state) {
   return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 }
 __name(taskAttemptIds, "taskAttemptIds");
-function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React14.useState({ items: [], nextCursor: null, loaded: false });
   const [overview, setOverview] = React14.useState({ counts: void 0, partial: "" });
   const [busy, setBusy] = React14.useState(false);
@@ -4077,7 +4097,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
     setBusy(true);
     setStatus(["正在读取提交历史…", "Loading submission history…"]);
     try {
-      const result = await query({ action: "my_attempts", challengeId, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
+      const result = await query({ action: "my_attempts", challengeId, ...baseUrl ? { baseUrl } : {}, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
       if (latest.controller !== controller) return;
       if (result?.ok === false) {
         if (result.error?.code === "authentication_required") {
@@ -4161,7 +4181,8 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
         node.focus?.();
       }
     }, "ref") }, items.map((item) => {
-      const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)], { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
+      const entry = attempts?.[attemptKey({ baseUrl, challengeId }, Number(item.id))];
+      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
       const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString(msg("zh-CN", "en-US"), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("提交时间未知", "Submission time unknown");
       const own = linked.has(Number(item.id));
       return h(
@@ -4252,13 +4273,14 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const state = session?.projectionValues?.playgroundTask || {};
   const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const current = projection?.state === "ready" && projection.values?.playgroundTask || state;
-  const historyChallenge = current.task?.challengeId || state.task?.challengeId;
+  const scope = taskAttemptScope({ task: current.task || state.task, receipt: current.receipt });
+  const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
   const attemptIds = taskAttemptIds(current);
-  const latestReceipt = withLatestAttempt(current.receipt, props.attempts?.[receiptAttemptId(current.receipt)]);
+  const latestReceipt = withLatestAttempt(current, props.attempts);
   const closedIds = [.../* @__PURE__ */ new Set([
     ...Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : [],
     ...latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : [],
-    ...attemptIds.filter((id) => props.attempts?.[id]?.attempt?.bundleNotReceived === true)
+    ...attemptIds.filter((id) => props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true)
   ])].filter((id) => Number.isSafeInteger(id) && id > 0);
   const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
   const archived = Boolean(archive?.archived);
@@ -4299,7 +4321,18 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
       // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-      historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ""}:${current.receipt?.confirmedAt ?? current.receipt?.trackedAt ?? ""}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null
+      historyChallenge && query ? h(AttemptHistory, {
+        key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
+        baseUrl: scope.baseUrl,
+        challengeId: historyChallenge,
+        attemptIds,
+        bundleMissingIds: taskBundleMissingIds(current),
+        closedIds,
+        limits: submissionLimitsOf(current, historyChallenge),
+        attempts: props.attempts,
+        query,
+        t: props.t
+      }) : null
     )
   );
 }
@@ -4342,35 +4375,35 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       startedAt: void 0,
       version: 0,
       query: null,
-      pendingIds: [],
-      taskIds: [],
+      pendingKeys: [],
+      taskKeys: [],
       receipts: /* @__PURE__ */ new Map()
     };
     holder.publish = () => setVersion(++holder.version);
     return holder;
   });
-  const receiptsById = /* @__PURE__ */ new Map();
+  const receipts = /* @__PURE__ */ new Map();
+  const pendingKeys = /* @__PURE__ */ new Set();
   for (const item of taskSessions) {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    const id = receiptAttemptId(receipt);
-    if (id !== void 0 && !receiptsById.has(id)) receiptsById.set(id, receipt);
+    const state = item.projectionValues?.playgroundTask;
+    const receipt = state?.receipt;
+    const scope = taskAttemptScope(state);
+    const key2 = attemptKey(scope, receiptAttemptId(receipt));
+    if (!key2) continue;
+    if (!receipts.has(key2)) receipts.set(key2, { scope, receipt });
+    if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key2);
   }
-  const taskIds = [...receiptsById.keys()];
-  const pendingIds = taskIds.filter((id) => taskSessions.some((item) => {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
-  }));
-  const anyPending = pendingIds.length > 0;
+  const anyPending = pendingKeys.size > 0;
   React15.useEffect(() => {
     store.query = query;
-    store.taskIds = taskIds;
-    store.pendingIds = pendingIds;
-    store.receipts = receiptsById;
+    store.taskKeys = [...receipts.keys()];
+    store.pendingKeys = [...pendingKeys];
+    store.receipts = receipts;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
   React15.useEffect(() => {
     store.disposed = !active;
-    if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingIds);
+    if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingKeys);
     return () => {
       store.disposed = true;
       store.controller?.abort();
@@ -4380,7 +4413,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   React15.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
-      if (pageVisible()) refreshAttempts(store, store.pendingIds);
+      if (pageVisible()) refreshAttempts(store, store.pendingKeys);
     }, "tick");
     const onVisibility = /* @__PURE__ */ __name(() => {
       if (store.startedAt === void 0 || Date.now() - store.startedAt >= visibleRefreshGapMs) tick();
@@ -4497,8 +4530,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
               taskSessions.length ? h("button", {
                 type: "button",
                 className: "pg-button pg-refresh",
-                disabled: refreshing || !taskIds.length,
-                onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskIds), "onClick")
+                disabled: refreshing || !receipts.size,
+                onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskKeys), "onClick")
               }, refreshing ? msg("正在刷新…", "Refreshing…") : msg("刷新", "Refresh")) : null
             )
           ),

@@ -1,6 +1,6 @@
 import { msg, usePluginLanguage } from './shared/language.js';
 import * as React from 'react';
-import { attemptRefreshMs, clock, noArchiveError, receiptAttemptId, receiptPending, refreshAttempts, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt } from './tasks/attempts.js';
+import { attemptKey, attemptRefreshMs, clock, noArchiveError, receiptAttemptId, receiptPending, refreshAttempts, taskAttemptScope, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt } from './tasks/attempts.js';
 import { h } from './shared/react.js';
 import { css } from './shared/styles.js';
 import { AuthStatusPanel } from './settings/auth.js';
@@ -42,31 +42,31 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const [, setVersion] = React.useState(0);
   const [store] = React.useState(() => {
     const holder = { attempts: {}, refreshedAt: undefined, failed: false, partial: false, controller: null, disposed: false, startedAt: undefined,
-      version: 0, query: null, pendingIds: [], taskIds: [], receipts: new Map() };
+      version: 0, query: null, pendingKeys: [], taskKeys: [], receipts: new Map() };
     holder.publish = () => setVersion(++holder.version);
     return holder;
   });
-  const receiptsById = new Map();
+  const receipts = new Map();
+  const pendingKeys = new Set();
   for (const item of taskSessions) {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    const id = receiptAttemptId(receipt);
-    if (id !== undefined && !receiptsById.has(id)) receiptsById.set(id, receipt);
+    const state = item.projectionValues?.playgroundTask;
+    const receipt = state?.receipt;
+    const scope = taskAttemptScope(state);
+    const key = attemptKey(scope, receiptAttemptId(receipt));
+    if (!key) continue;
+    if (!receipts.has(key)) receipts.set(key, { scope, receipt });
+    if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key);
   }
-  const taskIds = [...receiptsById.keys()];
-  const pendingIds = taskIds.filter((id) => taskSessions.some((item) => {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
-  }));
-  const anyPending = pendingIds.length > 0;
+  const anyPending = pendingKeys.size > 0;
   // The timers and listeners below read these at call time. Declared first, so they are current
   // when the mount and polling effects run.
-  React.useEffect(() => { store.query = query; store.taskIds = taskIds; store.pendingIds = pendingIds; store.receipts = receiptsById; });
+  React.useEffect(() => { store.query = query; store.taskKeys = [...receipts.keys()]; store.pendingKeys = [...pendingKeys]; store.receipts = receipts; });
   const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
   // Opening the workbench reads the pending submissions once. A mount that follows a cleanup, as in
   // StrictMode, starts over.
   React.useEffect(() => {
     store.disposed = !active;
-    if (active && pageVisible() && section !== 'catalog') refreshAttempts(store, store.pendingIds);
+    if (active && pageVisible() && section !== 'catalog') refreshAttempts(store, store.pendingKeys);
     return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
   }, [active]);
   // While any submission is unscored: every two minutes, and when the page becomes visible again unless a
@@ -74,7 +74,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   // task finishing neither requests again nor resets the timer. The ids are read when a round starts.
   React.useEffect(() => {
     if (!active || section === 'catalog' || !anyPending) return undefined;
-    const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingIds); };
+    const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingKeys); };
     const onVisibility = () => { if (store.startedAt === undefined || Date.now() - store.startedAt >= visibleRefreshGapMs) tick(); };
     // Pending submissions that appear before any round has run (a list that loaded after mounting).
     if (store.startedAt === undefined) tick();
@@ -171,8 +171,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         section === 'catalog' ? null : h('section', { className: 'pg-workbench-column', 'aria-label': msg('Playground 任务总览', 'Playground task overview') },
           h('div', { className: 'pg-column-heading' }, h('h2', { tabIndex: -1, ref: (node) => { nav.heading = node; } }, msg('任务总览', 'Task overview')),
             h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, msg(`${taskSessions.length} 个任务`, `${taskSessions.length} task${taskSessions.length === 1 ? "" : "s"}`)),
-              taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !taskIds.length,
-                onClick: () => refreshAttempts(store, store.taskIds) }, refreshing ? msg('正在刷新…', 'Refreshing…') : msg('刷新', 'Refresh')) : null)),
+              taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !receipts.size,
+                onClick: () => refreshAttempts(store, store.taskKeys) }, refreshing ? msg('正在刷新…', 'Refreshing…') : msg('刷新', 'Refresh')) : null)),
           store.failed ? h('p', { className: 'pg-note pg-refresh-status pg-error', role: 'status' },
             store.partial ? msg('刷新失败，部分任务显示的不是最新状态', 'Refresh failed. Some task statuses may be out of date.')
               : store.refreshedAt ? msg(`刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态`, `Refresh failed. Showing statuses from ${clock(store.refreshedAt)}.`) : msg('刷新失败，显示的是任务记录中的状态', 'Refresh failed. Showing the statuses saved in the task records.'))

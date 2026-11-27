@@ -1,5 +1,6 @@
 import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
+import { taskAttemptScope } from '../../../lib/task/evidence.js';
 
 // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
 // final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
@@ -174,7 +175,8 @@ const visibleRefreshGapMs = 30000;
 // ("bundle missing") or, after a re-upload from elsewhere, starts evaluating it.
 function receiptPending(receipt) {
   if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
-  const { stage } = receiptProgress(receipt, zhText);
+  // Agent reports describe the upload. Only the platform's progress determines whether to poll.
+  const { stage } = receiptProgress({ ...receipt, submissionState: undefined }, zhText);
   if (stage === 'evaluating') return true;
   if (stage === 'incomplete' && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
   const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes('awaiting_review');
@@ -184,17 +186,19 @@ function receiptPending(receipt) {
 // The platform fields a refreshed submission lays over a receipt or a history row.
 const ATTEMPT_STATE_FIELDS = ['status', 'bundleStatus', 'score', 'scoringState', 'scoringQueue', 'bundleNotReceived'];
 
+const attemptKey = (scope, id) => scope.conflict || id === undefined ? undefined : JSON.stringify([scope.baseUrl, scope.challengeId, id]);
+
 // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
 // resubmission under the same id or by "查询结果", no longer matches the stored result.
 const receiptKey = (receipt) => receipt ? JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.ok, receipt.status,
   receipt.bundleStatus, receipt.score, receipt.scoringState]) : undefined;
 
-// Lays the latest platform state of a submission over its receipt. `entry` is `{ attempt, receiptKey }`
-// from the workbench store. A result fetched for an earlier state of the receipt is ignored. Only the
-// fields the platform returned replace receipt values. A non-final lookup never replaces a receipt
-// that already has a final, failed or rejected result.
-function withLatestAttempt(receipt, entry) {
-  if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
+// A lookup overlays the receipt it was fetched for. Preserve missing fields and settled results.
+function withLatestAttempt(state, attempts) {
+  const receipt = state?.receipt;
+  if (!receipt) return receipt;
+  const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
+  if (!entry || entry.receiptKey !== receiptKey(receipt)) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
   return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
@@ -219,35 +223,37 @@ function withSettledAttempt(item, entry, { closed = false } = {}) {
 
 const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
-// Reads the given submissions through the session-free `attempt` query, one request per id, and keeps
-// the results in `store`, each with the receipt it was fetched for. Nothing is written to any
-// conversation. A round never overlaps another and keeps at most `refreshConcurrency` requests in flight.
-async function refreshAttempts(store, ids) {
-  const wanted = [...new Set(ids)];
-  if (!wanted.length || store.controller || store.disposed) return;
+// A round reads each scoped attempt once, keeps the receipt snapshot and limits concurrent requests.
+async function refreshAttempts(store, keys) {
+  if (!keys.length || store.controller || store.disposed) return;
+  const wanted = keys.map((key) => {
+    const { scope, receipt } = store.receipts.get(key);
+    return { key, input: { action: 'attempt', attemptId: receiptAttemptId(receipt), ...scope }, receiptKey: receiptKey(receipt) };
+  });
   const controller = new AbortController();
   store.controller = controller;
   store.startedAt = Date.now();
-  const keys = wanted.map((id) => receiptKey(store.receipts.get(id)));
   store.publish();
-  const outcomes = [];
+  const fresh = [];
   let next = 0;
   const worker = async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const index = next++;
-      try { outcomes[index] = { value: await store.query({ action: 'attempt', attemptId: wanted[index] }, controller.signal) }; } catch { /* counted as failed */ }
+      const { key, input, receiptKey } = wanted[next++];
+      try {
+        const attempt = await store.query(input, controller.signal);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl)
+          && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key, { attempt, receiptKey }]);
+      } catch { /* counted as failed */ }
     }
   };
   await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
   if (store.controller !== controller) return;
   store.controller = null;
-  const usable = (outcome) => outcome && outcome.value && typeof outcome.value === 'object';
-  const fresh = wanted.flatMap((id, index) => usable(outcomes[index]) ? [[id, { attempt: outcomes[index].value, receiptKey: keys[index] }]] : []);
   store.attempts = { ...store.attempts, ...Object.fromEntries(fresh) };
   store.failed = fresh.length < wanted.length;
   if (!store.failed) { store.refreshedAt = Date.now(); store.partial = false; } else if (fresh.length) store.partial = true;
   store.publish();
 }
 
-export { attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
+export { attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
 
