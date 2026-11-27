@@ -131,15 +131,16 @@ const plugin = {
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
       saveToken: (value) => storeToken('PLAYGROUND_TOKEN', value),
       previewToken: async (value) => {
-        const candidateId = crypto.randomUUID();
-        const key = 'PLAYGROUND_SWITCH_' + candidateId.replaceAll('-', '').toUpperCase();
-        try {
-          await storeToken(key, value);
-          return await query({ action: 'auth', candidateId });
-        } finally {
-          try { await ctx.remote.credentials.unset(key); }
-          catch { throw new Error(msg(`请在 DSH 凭据中清除临时凭据 ${key}，然后重试。`, `Remove the temporary credential ${key} from DSH credentials, then try again.`)); }
+        const ticket = await requestHost('startAccountSwitch', {});
+        if (!ticket?.ok || !/^PLAYGROUND_SWITCH_[A-F0-9]{8}_[A-F0-9]{32}$/.test(ticket.credential)) {
+          throw new Error(msg('DSH 暂时无法验证新账号。请重新检测后重试。', 'DSH could not start account verification. Select Check again and retry.'));
         }
+        await storeToken(ticket.credential, value);
+        const result = await requestHost('verifyAccount', { id: ticket.id });
+        if (result?.reason === 'cleanup_failed') {
+          throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
+        }
+        return result;
       },
       // Clears only the DSH copy; the CLI credentials file is never modified.
       clearToken: async () => {

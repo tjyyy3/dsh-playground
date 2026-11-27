@@ -1061,13 +1061,18 @@ function taskViews(f, playgroundTask, t, { running = false } = {}) {
 // Routes the Client's session-free query through the real query contract and workflow onto a fake Playground client.
 function historyRpc(client, calls, options = {}) {
   const services = new Map();
+  const peer = {};
   let contribution;
-  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } },
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } },
+    get: () => ({ browserPeer: peer }), invocation: { peer } },
     createWorkflow({ ctx: {}, client, ...options }));
-  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
   return async (route, endpoint, payload, signal) => {
     calls.push([route, endpoint, payload]);
-    try { return { ok: true, value: await services.get('playgroundQueries').query(schema.parse(payload.args.input), signal) }; }
+    try {
+      const method = endpoint.split('/')[1];
+      const schema = contribution.invocations.find((item) => item.method === method).parameters[0].codec.create();
+      return { ok: true, value: await services.get('playgroundQueries')[method](schema.parse(payload.args.input), signal) };
+    }
     catch (error) { return { ok: false, error: { code: 'gateway/internal', message: error.message } }; }
   };
 }
@@ -4184,7 +4189,15 @@ async function tokenPanel(t, auth, { credentials, call, language } = {}) {
         unset: async (name) => { calls.push(['unset', name]); await credentials?.unset(name); },
       },
     },
-    connection: { rpc: { call: async (...args) => { calls.push(['rpc', ...args.slice(0, 3)]); return call ? call(...args) : { ok: true, value: await value }; } } },
+    connection: { rpc: { call: async (...args) => {
+      calls.push(['rpc', ...args.slice(0, 3)]);
+      if (call) return call(...args);
+      if (args[1] === 'playgroundQueries/startAccountSwitch') {
+        const id = crypto.randomUUID();
+        return { ok: true, value: { ok: true, id, credential: 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase() } };
+      }
+      return { ok: true, value: await value };
+    } } },
   }, { localStorage: { getItem: (key) => key === 'dsh-playground.ui-language' ? language ?? null : null } });
   globalThis.window.open = (...args) => { opened.push(args); };
   const element = f.workbench(undefined).auth;
@@ -4215,11 +4228,13 @@ test('switch account previews a different account, then verifies the active DSH 
   const shared = 'PLAYGROUND_TOKEN=synthetic-cli\n';
   await writeFile(file, shared);
   const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-old']]);
+  const events = new Map();
   const credentials = {
-    set: (key, value) => saved.set(key, value), unset: (key) => saved.delete(key),
+    set(key, value) { saved.set(key, value); events.get('credentials/reference-updated')?.(key); },
+    unset(key) { if (saved.delete(key)) events.get('credentials/reference-updated')?.(key); },
     resolve: (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : undefined,
   };
-  const ctx = { get: () => credentials };
+  const ctx = { get: () => credentials, on: (event, handler) => events.set(event, handler) };
   const resolver = createTokenResolver(normalizeSettings({ credentialsPath: file }), ctx);
   const entered = deferred(), verified = deferred();
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', resolveToken: resolver,
@@ -4260,8 +4275,8 @@ test('switch account previews a different account, then verifies the active DSH 
   assert.deepEqual([...saved], []);
   for (const [route, method, payload] of requests) {
     assert.equal(route, '/api');
-    assert.equal(method, 'playgroundQueries/query');
-    assert.equal(payload.args.input.action, 'auth');
+    assert.ok(['playgroundQueries/startAccountSwitch', 'playgroundQueries/verifyAccount', 'playgroundQueries/query'].includes(method));
+    if (method === 'playgroundQueries/query') assert.equal(payload.args.input.action, 'auth');
     assert.doesNotMatch(JSON.stringify(payload), /synthetic-(old|new|cli)/);
   }
 });
@@ -4288,9 +4303,33 @@ test('a rejected, unreachable or unidentifiable candidate preserves the active t
   assert.ok(text(panel.rerender()).includes('切换账号'));
   assert.equal(panel.tokenForm(), undefined);
   assert.equal(panel.calls.some(([kind, key]) => ['set', 'unset'].includes(kind) && key === 'PLAYGROUND_TOKEN'), false);
-  assert.deepEqual(panel.calls.filter(([kind]) => kind === 'unset').map(([, key]) => key),
-    panel.calls.filter(([kind]) => kind === 'set').map(([, key]) => key));
   assert.doesNotMatch(JSON.stringify(rpcCalls(panel.calls)), /synthetic-candidate|different-input/);
+});
+
+test('a failed recheck of an existing account still requires preview and confirmation before replacement', async (t) => {
+  const prior = { authenticated: true, tokenSource: 'dsh', user: { id: 1, name: 'Ada' } };
+  const target = { authenticated: true, tokenSource: 'dsh', user: { id: 2, name: 'New user' } };
+  for (const failed of [{ authenticated: false, reason: 'network' }, { authenticated: false, reason: 'rejected', tokenSource: 'dsh' }]) {
+    const panel = await tokenPanel(t, prior);
+    panel.setAuth(failed);
+    await panel.button('重新检测').props.onClick();
+    panel.rerender();
+    assert.match(panel.text(), /上次核实的账号为 Ada \(#1\)/);
+    assert.equal(panel.button('保存令牌'), undefined);
+    panel.tokenInput().props.onChange({ target: { value: 'synthetic-replacement' } });
+    panel.rerender();
+    panel.setAuth(target);
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), /新令牌属于 New user \(#2\)/);
+    assert.equal(panel.calls.some(([kind, key]) => kind === 'set' && key === 'PLAYGROUND_TOKEN'), false);
+    assert.ok(panel.button('使用此账号'));
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), /已切换到 New user \(#2\)/);
+    assert.equal(panel.calls.filter(([kind, key]) => kind === 'set' && key === 'PLAYGROUND_TOKEN').length, 1);
+  }
+  const unknown = await tokenPanel(t, { authenticated: false, reason: 'network' });
+  assert.ok(unknown.button('验证新账号'));
+  assert.equal(unknown.button('保存令牌'), undefined);
 });
 
 test('the switch result distinguishes the same account, an overriding source, a different ID and an unverified save', async (t) => {

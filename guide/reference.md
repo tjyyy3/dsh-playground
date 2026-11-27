@@ -712,9 +712,14 @@ and its effective source.
 
 To switch accounts, select **切换账号** (**Switch account**), paste the target
 account's token, and select **验证新账号** (**Verify new account**). The Host
-reads `/api/auth/me` with the candidate from a temporary DSH credential.
-The Client clears that credential after the check. The active token still
-works while you review the account name and ID.
+reserves a one-time reference. The browser writes the token through DSH's
+credential channel. When DSH commits the write, the Host reads and removes
+the saved candidate before requesting `/api/auth/me`. The browser can collect
+the identity result once. Closing the browser after writing the token does
+not interrupt Host cleanup. The active token still works while you review
+the account name and ID. A failed recheck or a rejected existing credential
+also uses this verification flow. Direct token sign-in requires a check
+that reports no credential.
 
 Select **使用此账号** (**Use this account**) to save the token in DSH. The
 workbench checks the effective credential source and account again. A matching

@@ -2,6 +2,76 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
+import { createWorkflow } from '../lib/workflow.js';
+
+test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
+  const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [];
+  let work, service, invocations, cleanupBlocked = false;
+  const publish = (key) => { work = events.get('credentials/reference-updated')(key); };
+  const credentials = {
+    resolve: async (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : ambient.get(key),
+    set(key, value) { saved.set(key, value); publish(key); },
+    async unset(key) {
+      if (cleanupBlocked) throw Error('store unavailable');
+      if (saved.delete(key)) publish(key);
+    },
+  };
+  const ctx = {
+    get: (name) => name === 'credentials' ? credentials : { browserPeer: peer },
+    on: (name, fn) => events.set(name, fn), invocation: { peer },
+    provide: (_, result) => { service = result; }, typert: { register: (result) => { invocations = result.invocations; } },
+  };
+  const client = { baseUrl: 'https://example.test/api', async getCurrentUser({ token }) {
+    assert.equal([...saved.values()].includes(token), false, 'outbound identity checks wait for removal');
+    reads.push(token);
+    if (token === 'synthetic-network') throw Object.assign(Error('offline'), { code: 'network_error' });
+    if (token === 'synthetic-rejected') return { authenticated: false, reason: 'rejected' };
+    return { authenticated: true, user: { id: 'account-2' } };
+  } };
+  registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
+  t.after(() => events.get('dispose')());
+  const schema = (method) => invocations.find((entry) => entry.method === method).parameters[0].codec.create();
+  const begin = () => service.startAccountSwitch(schema('startAccountSwitch').parse({}));
+  const collect = (id) => service.verifyAccount(schema('verifyAccount').parse({ id }));
+  assert.equal(schema('query').safeParse({ action: 'auth', candidateId: crypto.randomUUID() }).success, false);
+  assert.equal(schema('verifyAccount').safeParse({ id: crypto.randomUUID(), token: 'synthetic' }).success, false);
+  ctx.invocation.peer = {};
+  assert.deepEqual(begin(), { ok: false });
+  ctx.invocation.peer = peer;
+
+  for (const source of ['env', 'project-env', 'user-env']) {
+    const { id, credential } = begin();
+    ambient.set(credential, { source, value: 'synthetic-environment' });
+    publish(credential);
+    assert.equal((await collect(id)).authenticated, false);
+    assert.equal((await collect(id)).authenticated, false);
+  }
+  assert.deepEqual(reads, []);
+
+  for (const [token, reason] of [['synthetic-network', 'network'], ['synthetic-rejected', 'rejected']]) {
+    const { id, credential } = begin();
+    const result = collect(id);
+    assert.equal((await collect(id)).authenticated, false, 'another collector cannot consume the same ticket');
+    credentials.set(credential, token);
+    assert.equal((await result).reason, reason);
+    assert.equal(saved.has(credential), false);
+    assert.equal((await collect(id)).authenticated, false);
+    credentials.set(credential, 'synthetic-replay');
+    await work;
+    assert.equal(saved.has(credential), false);
+  }
+  assert.deepEqual(reads, ['synthetic-network', 'synthetic-rejected']);
+  const disconnected = begin();
+  credentials.set(disconnected.credential, 'synthetic-disconnected');
+  await work;
+  assert.equal(saved.has(disconnected.credential), false, 'a dropped browser never has to call verify or unset for cleanup');
+  assert.deepEqual(reads.at(-1), 'synthetic-disconnected');
+  const blocked = begin();
+  cleanupBlocked = true;
+  credentials.set(blocked.credential, 'synthetic-blocked');
+  assert.equal((await collect(blocked.id)).reason, 'cleanup_failed');
+  assert.equal(reads.includes('synthetic-blocked'), false);
+});
 
 test('only the admitted browser peer can request a DSH-managed update', async () => {
   const peer = {};
