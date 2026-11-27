@@ -2,6 +2,7 @@ import { apply } from '../../index.js';
 
 export function credentialRecords(records = new Map()) {
   return {
+    async readRecord(key) { return records.get(key); },
     async listRecords() { return [...records].map(([key, record]) => ({ key, kind: record.kind })); },
     async modifyRecord(key, mutate) {
       const next = await mutate(records.get(key));

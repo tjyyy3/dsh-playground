@@ -85,10 +85,10 @@ test('Host reload settles pending verification and removes candidate writes from
   cleanupHeldFor = cleaning.credential;
   let answer;
   const verify = before.service.verifyAccount({ id: cleaning.id }).then((value) => { answer = value; });
-  const cleaningWrite = credentials.set(cleaning.credential, 'synthetic-cleaning');
+  const cleaningWrite = credentials.set(cleaning.credential, `${cleaning.proof}:synthetic-cleaning`);
   await cleanupEntered.promise;
   const queued = await before.service.startAccountSwitch();
-  const queuedWrite = releaseWrite.promise.then(() => credentials.set(queued.credential, 'synthetic-queued'));
+  const queuedWrite = releaseWrite.promise.then(() => credentials.set(queued.credential, `${queued.proof}:synthetic-queued`));
 
   before.dispose();
   await new Promise((resolve) => setImmediate(resolve));
@@ -103,6 +103,72 @@ test('Host reload settles pending verification and removes candidate writes from
   assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
   assert.equal(records.size, 0);
   assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('Host only cleans files bound to its own account switch recovery record', async (t) => {
+  const handlers = new Set(), saved = new Map(), records = new Map(), removed = [];
+  const publish = (name) => Promise.all([...handlers].map((handler) => handler(name)));
+  const credentials = {
+    ...credentialRecords(records),
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    async set(name, value) { saved.set(name, value); await publish(name); },
+    async unset(name) { removed.push(name); saved.delete(name); },
+  };
+  const host = mountAccountHost(credentials, handlers);
+  t.after(host.dispose);
+  const outside = 'PLAYGROUND_SWITCH_' + 'F'.repeat(8) + '_' + 'A'.repeat(32);
+  records.set('other-plugin/' + outside.toLowerCase().replaceAll('_', '-'), { kind: 'grant', payload: null });
+  await credentials.set(outside, 'synthetic-outside');
+  const ticket = await host.service.startAccountSwitch();
+  await credentials.set(ticket.credential, 'synthetic-unrelated');
+  assert.deepEqual([...saved], [[outside, 'synthetic-outside'], [ticket.credential, 'synthetic-unrelated']]);
+  assert.deepEqual(removed, []);
+});
+
+test('Host retries recovery record deletion after a successful unset', async (t) => {
+  const handlers = new Set(), saved = new Map(), records = new Map(), removed = [];
+  const recordStore = credentialRecords(records);
+  const deleteFailed = Promise.withResolvers();
+  const deleted = Promise.withResolvers();
+  let failDelete = true;
+  const credentials = {
+    ...recordStore,
+    describe: (name) => saved.has(name) ? { source: 'file' } : { configured: false },
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    set(name, value) { saved.set(name, value); },
+    async unset(name) { removed.push(name); saved.delete(name); },
+    async deleteRecord(key) {
+      if (failDelete) {
+        deleteFailed.resolve();
+        throw Error('synthetic record write failure');
+      }
+      await recordStore.deleteRecord(key);
+      if (!records.size) deleted.resolve();
+    },
+  };
+  const original = mountAccountHost(credentials, handlers);
+  const tickets = await Promise.all([original.service.startAccountSwitch(), original.service.startAccountSwitch()]);
+  original.dispose();
+  for (const ticket of tickets) saved.set(ticket.credential, `${ticket.proof}:synthetic-candidate`);
+
+  const first = mountAccountHost(credentials, handlers);
+  await deleteFailed.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  first.dispose();
+  assert.equal(saved.size, 0);
+  assert.equal(records.size, 2);
+  assert.ok([...records.values()].every((record) => record.payload.observed));
+
+  const foreign = tickets[0].credential;
+  saved.set(foreign, 'synthetic-unrelated');
+  failDelete = false;
+  const retry = mountAccountHost(credentials, handlers);
+  t.after(retry.dispose);
+  await deleted.promise;
+  assert.deepEqual([...saved], [[foreign, 'synthetic-unrelated']]);
+  assert.deepEqual(removed.sort(), tickets.map((ticket) => ticket.credential).sort());
+  assert.equal(records.size, 0);
 });
 
 test('release channel comes from plugin config and defaults to stable', () => {

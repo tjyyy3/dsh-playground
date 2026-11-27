@@ -58,10 +58,13 @@ const plugin = {
       throw new Error(queryFailure(result.error));
     };
     const query = (input, signal) => requestHost('query', input, signal);
-    const storeToken = async (name, value) => {
+    const tokenInput = (value) => {
       const token = typeof value === 'string' ? value.trim() : '';
       if (!token) throw new Error(msg('请先粘贴 API 令牌。', 'Paste an API token first.'));
       if (/\s/.test(token)) throw new Error(msg('令牌中不能有空格或换行，请从网站重新复制。', 'Copy the token again without spaces or line breaks.'));
+      return token;
+    };
+    const storeToken = async (name, token) => {
       try { await ctx.remote.credentials.set(name, token); }
       catch { throw new Error(msg('无法把令牌保存到 DSH 凭据存储，请重试。', 'Could not save the token in DSH. Please try again.')); }
     };
@@ -129,24 +132,18 @@ const plugin = {
       },
       // The API token goes only to the DSH credential store, never into an RPC, a command or a conversation.
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
-      saveToken: (value) => storeToken('PLAYGROUND_TOKEN', value),
+      saveToken: async (value) => storeToken('PLAYGROUND_TOKEN', tokenInput(value)),
       previewToken: async (value) => {
+        const token = tokenInput(value);
         const ticket = await requestHost('startAccountSwitch', {});
-        if (!ticket?.ok || !/^PLAYGROUND_SWITCH_[A-F0-9]{8}_[A-F0-9]{32}$/.test(ticket.credential)) {
+        if (!ticket?.ok || !/^PLAYGROUND_SWITCH_[A-F0-9]{8}_[A-F0-9]{32}$/.test(ticket.credential)
+          || !/^[a-f0-9-]{36}$/.test(ticket.proof)) {
           throw new Error(msg('DSH 暂时无法验证新账号。请重新检测后重试。', 'DSH could not start account verification. Select Check again and retry.'));
         }
-        let result;
-        try {
-          await storeToken(ticket.credential, value);
-          result = await requestHost('verifyAccount', { id: ticket.id });
-        } finally {
-          // The write may finish between Host instances or after the verification ticket is gone.
-          if (!result || ['unavailable', 'cleanup_failed'].includes(result.reason)) {
-            try { await ctx.remote.credentials.unset(ticket.credential); }
-            catch {
-              throw new Error(msg(`DSH 未能清除临时凭据 ${ticket.credential}。请在 DSH 凭据中移除该项后重试。`, `DSH could not clear the temporary credential ${ticket.credential}. Remove it in DSH credentials and retry.`));
-            }
-          }
+        await storeToken(ticket.credential, `${ticket.proof}:${token}`);
+        const result = await requestHost('verifyAccount', { id: ticket.id });
+        if (result?.reason === 'cleanup_failed') {
+          throw new Error(msg('DSH 未能清除临时凭据。请重启 DSH 完成清理后重试。', 'DSH could not clear the temporary credential. Restart DSH to finish cleanup and retry.'));
         }
         return result;
       },

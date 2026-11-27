@@ -4195,7 +4195,7 @@ async function tokenPanel(t, auth, { credentials, call, language } = {}) {
       if (call) return call(...args);
       if (args[1] === 'playgroundQueries/startAccountSwitch') {
         const id = crypto.randomUUID();
-        return { ok: true, value: { ok: true, id, credential: 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase() } };
+        return { ok: true, value: { ok: true, id, proof: crypto.randomUUID(), credential: 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase() } };
       }
       return { ok: true, value: await value };
     } } },
@@ -4337,14 +4337,14 @@ test('a new Host clears a candidate committed after the old Host and browser clo
   void submitTokenForm(panel);
   await writeEntered.promise;
   const candidateRecord = 'playground-competition/' + ticket.credential.toLowerCase().replaceAll('_', '-');
-  assert.deepEqual(records.get(candidateRecord), { kind: 'grant', payload: null });
+  assert.deepEqual(records.get(candidateRecord), { kind: 'grant', payload: { proof: ticket.proof } });
 
   panel.f.unmount(panel.element.type);
   before.dispose();
   assert.equal(handlers.size, 0);
   releaseWrite.resolve();
   await writeCommitted.promise;
-  assert.equal(saved.get(ticket.credential), 'synthetic-candidate');
+  assert.equal(saved.get(ticket.credential), `${ticket.proof}:synthetic-candidate`);
 
   const after = mountAccountHost(makeStore(), handlers, settings);
   t.after(after.dispose);
@@ -4354,7 +4354,7 @@ test('a new Host clears a candidate committed after the old Host and browser clo
   assert.equal(records.size, 1);
   assert.deepEqual(await after.service.verifyAccount({ id: ticket.id }), { authenticated: false, reason: 'unavailable' });
   assert.equal(fetch.mock.callCount(), 1);
-  assert.deepEqual(read, ['PLAYGROUND_TOKEN']);
+  assert.deepEqual(read, ['PLAYGROUND_TOKEN', ticket.credential]);
 });
 
 test('a rejected, unreachable or unidentifiable candidate preserves the active token, and a preview can be cancelled', async (t) => {
@@ -4408,22 +4408,22 @@ test('a failed recheck of an existing account still requires preview and confirm
   assert.equal(unknown.button('保存令牌'), undefined);
 });
 
-test('the browser removes a candidate credential if verification is unavailable after its write', async (t) => {
-  const id = crypto.randomUUID();
+test('unavailable browser verification leaves candidate cleanup with the Host', async (t) => {
+  const id = crypto.randomUUID(), proof = crypto.randomUUID();
   const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
   const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
   const panel = await tokenPanel(t, undefined, {
     credentials: { set: (name, value) => saved.set(name, value), unset: (name) => saved.delete(name) },
     call: async (_route, method) => {
-      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential } };
-      if (method.endsWith('/verifyAccount')) assert.equal(saved.get(credential), 'synthetic-candidate');
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential, proof } };
+      if (method.endsWith('/verifyAccount')) assert.equal(saved.get(credential), `${proof}:synthetic-candidate`);
       return { ok: true, value: { authenticated: false, reason: 'unavailable' } };
     },
   });
   panel.tokenInput().props.onChange({ target: { value: 'synthetic-candidate' } });
   panel.rerender();
   await submitTokenForm(panel);
-  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current'], [credential, `${proof}:synthetic-candidate`]]);
   assert.match(text(panel.rerender()), /暂时无法核实新令牌的账号/);
   assert.equal(panel.button('使用此账号'), undefined);
 });
@@ -4490,11 +4490,14 @@ test('#12: an empty or malformed token is rejected in the Client and never store
   panel.tokenForm().props.onSubmit({ preventDefault() {} });
   await settle();
   assert.match(text(panel.rerender()), /请先粘贴 API 令牌/);
-  const { saveToken } = panel.f.registrations.get('playground.library').definition.inject();
+  const { saveToken, previewToken } = panel.f.registrations.get('playground.library').definition.inject();
+  const before = panel.calls.length;
   for (const [value, expected] of [['', /请先粘贴 API 令牌/], [' \n ', /请先粘贴 API 令牌/], [undefined, /请先粘贴 API 令牌/], ['asp_one two', /不能有空格或换行/]]) {
-    await assert.rejects(saveToken(value), (error) => expected.test(error.message) && !error.message.includes('asp_'), String(value));
+    const matches = (error) => expected.test(error.message) && !error.message.includes('asp_');
+    await assert.rejects(saveToken(value), matches, String(value));
+    await assert.rejects(previewToken(value), matches, String(value));
   }
-  assert.deepEqual(panel.calls.filter(([kind]) => kind === 'set'), []);
+  assert.deepEqual(panel.calls.slice(before), [], 'validation precedes both writes and reservations');
 });
 
 test('#12: a credential store failure is reported without the token', async (t) => {
@@ -4638,14 +4641,14 @@ function deferred() {
 }
 
 test('email sign-in discards a delayed candidate identity and leaves the CLI account active', async (t) => {
-  const id = crypto.randomUUID();
+  const id = crypto.randomUUID(), proof = crypto.randomUUID();
   const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
   const pending = deferred();
   const verifying = deferred();
   let auth = { authenticated: false, reason: 'network' };
   const panel = await tokenPanel(t, undefined, {
     call: async (_route, method) => {
-      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential } };
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential, proof } };
       if (method.endsWith('/verifyAccount')) {
         verifying.resolve();
         return pending.promise;
