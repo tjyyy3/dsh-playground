@@ -49,7 +49,7 @@ async function fixture(cli, options = {}) {
         return { sessionId: 'new-task' };
       },
       async rename(request) { calls.push(['rename', request]); },
-      async prompt(request) { calls.push(['prompt', request]); },
+      async prompt(request) { calls.push(['prompt', request]); return { accepted: true }; },
     },
   };
   let workflow;
@@ -94,6 +94,58 @@ test('creating a task uses a new native session and preserves the exploration se
   assert.equal(f.calls.some(([kind]) => kind === 'create' || kind === 'upload'), false);
 });
 
+test('a task start reports its session when DSH declines or cannot confirm the opening prompt', async () => {
+  for (const admission of [{ accepted: false }, undefined, new Error('lost admission reply')]) {
+    const f = await fixture();
+    f.ctx.sessionController.prompt = async (request) => {
+      f.calls.push(['prompt', request]);
+      if (admission instanceof Error) throw admission;
+      return admission;
+    };
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+    assert.equal(result.ok, false);
+    assert.equal(result.sessionId, 'new-task');
+    assert.match(result.error.message, /new-task/);
+    assert.deepEqual(f.calls.map(([kind]) => kind), ['new', 'rename', 'prompt']);
+    assert.equal(f.states.get('new-task').task.challengeId, 'challenge-a');
+  }
+});
+
+test('a failed task context returns the created session and can be repaired by binding there', async () => {
+  for (const failure of [{ result: { kind: 'error' } }, new Error('context write failed')]) {
+    const f = await fixture();
+    f.ctx.commands.execute = async () => {
+      if (failure instanceof Error) throw failure;
+      return failure;
+    };
+    const result = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+    assert.equal(result.ok, false);
+    assert.equal(result.sessionId, 'new-task');
+    assert.match(result.error.message, /new-task/);
+    assert.match(result.error.message, /playground_bind_task/);
+    assert.deepEqual(f.calls.map(([kind]) => kind), ['new']);
+    const agent = f.ctx.agents.get(result.sessionId);
+    const bound = await f.workflow.bind({ challenge_id: 'challenge-a' }, { ...f.exec, agent });
+    f.record(bound, agent);
+    assert.equal(f.states.get(result.sessionId).task.challengeId, 'challenge-a');
+  }
+});
+
+test('task starts retain the session id after a workspace attachment or agent load failure', async () => {
+  const f = await fixture();
+  f.ctx.agents.get = () => { throw new Error('agent unavailable'); };
+  const unloaded = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+  assert.equal(unloaded.error.code, 'task_context_failed');
+  assert.equal(unloaded.sessionId, 'new-task');
+  f.ctx.sessionController.create = async () => { throw Object.assign(new Error('attachment failed'),
+    { code: 'session/workspace-attach-failed', details: { sessionId: 'detached-task' } }); };
+  const detached = await f.workflow.start({ challenge_id: 'challenge-a', cwd: f.cwd }, f.exec);
+  assert.equal(detached.error.code, 'task_attach_failed');
+  assert.equal(detached.sessionId, 'detached-task');
+  assert.match(detached.error.message, /detached-task/);
+  assert.deepEqual(f.calls.map(([kind]) => kind), ['new']);
+});
+
 test('the controller rejects standalone task tool calls while a confirmed workbench start still creates a task', async () => {
   const controller = { owns: (agent) => agent.id === 'source' };
   const f = await fixture(undefined, { isController: controller.owns });
@@ -113,6 +165,21 @@ test('the controller rejects standalone task tool calls while a confirmed workbe
   assert.equal(confirmed.kind, 'success');
   assert.equal(JSON.parse(confirmed.text).sessionId, 'new-task');
   assert.deepEqual(f.calls[0], ['new', { workspaceId: 'workspace' }]);
+});
+
+test('the task tool reads the explicit result id and keeps the latest receipt when it belongs to another challenge', async () => {
+  const f = await materialFixture();
+  const tools = [];
+  registerTaskTools({ tools: { register: (tool) => tools.push(tool) } }, f.workflow);
+  const task = tools.find((tool) => tool.name === 'playground_task');
+  f.states.set('source', { ...f.states.get('source'), receipt: { attemptId: 7, challengeId: 'challenge-a' } });
+  const reads = [];
+  f.client.getAttempt = async (id) => { reads.push(id); return { id, challengeId: 'challenge-b', status: 'final' }; };
+  const result = await task.execute({ action: 'results', attempt_id: 8 }, f.exec);
+  assert.deepEqual(reads, [8]);
+  assert.equal(result.error.code, 'challenge_mismatch');
+  f.record(result);
+  assert.equal(f.states.get('source').receipt.attemptId, 7);
 });
 
 // A long synthetic statement and resource list must never reach the first prompt.

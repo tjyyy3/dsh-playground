@@ -686,6 +686,51 @@ test('a created task closes the dialog even when opening the new conversation fa
   assert.equal(warn.mock.callCount(), 1);
 });
 
+test('a partial task start retries opening the created conversation without creating another', async (t) => {
+  const instruction = '请打开已创建的对话 partial-task，并用 playground_bind_task 恢复。';
+  const starts = [], opened = [];
+  const { registrations, find, render } = await clientFixture(t, {
+    remote: { commands: { execute: async (sessionId, command) => {
+      assert.match(command, /^\/playground /);
+      starts.push([sessionId, JSON.parse(command.slice('/playground '.length))]);
+      const text = JSON.stringify({ ok: false, sessionId: 'partial-task', error: { code: 'task_context_failed', message: instruction } });
+      return { ok: true, value: { result: { kind: 'error', text } } };
+    } } },
+    uiWorkspace: { openSession: async (id) => {
+      opened.push(id);
+      if (opened.length === 1) throw Error('navigation failed');
+    } },
+  });
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  let items = [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }];
+  actions.requestTask({ id: 'challenge', title: 'Challenge', mode: 'participate', sessionId: 'source' });
+  const props = { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'ready', items }) };
+  const dialog = render(overlay.Component, props);
+  let tree = render(dialog.type, dialog.props);
+  find(tree, (node) => node.type === 'select').props.onChange({ target: { value: 'b' } });
+  tree = render(dialog.type, dialog.props);
+  await find(tree, (node) => node.type === 'button' && node.props.children.includes('创建参赛任务')).props.onClick();
+  assert.deepEqual(starts, [['source', { action: 'start', challenge_id: 'challenge', mode: 'participate', workspace_id: 'b' }]]);
+  assert.deepEqual(opened, []);
+
+  items = [];
+  tree = render(dialog.type, dialog.props);
+  const recoveryButton = () => find(tree, (node) => node.type === 'button' && node.props.children.includes('打开任务对话'));
+  assert.equal(text(find(tree, (node) => node.props?.role === 'alert')), instruction);
+  assert.ok(recoveryButton(), 'the primary action offers to open the existing conversation');
+  assert.equal(recoveryButton().props.disabled, false);
+  await recoveryButton().props.onClick();
+  tree = render(dialog.type, dialog.props);
+  assert.match(text(find(tree, (node) => node.props?.role === 'alert')), /partial-task/);
+  assert.match(text(tree), /无法打开任务对话，请重试。/);
+  await recoveryButton().props.onClick();
+  assert.deepEqual(opened, ['partial-task', 'partial-task']);
+  assert.equal(starts.length, 1);
+  assert.equal(render(overlay.Component, props), null);
+});
+
 test('the English controller dialog explains conflicting records and identifies both chats', async (t) => {
   const f = await clientFixture(t, {}, { localStorage: { getItem: () => 'en' } });
   const overlay = f.registrations.get('playground.task-start');
@@ -1242,7 +1287,8 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
   const control = { hold: false };
   const respond = (entry) => {
     const reply = platform.get(entry.id);
-    if (reply instanceof Error) entry.reject(reply); else entry.resolve({ ok: true, value: reply });
+    if (reply instanceof Error) entry.reject(reply);
+    else entry.resolve({ ok: true, value: reply && { id: entry.id, challengeId: 'fixture', ...reply } });
   };
   const f = await localizedFixture(t, {
     connection: { rpc: { call: (route, endpoint, payload, signal) => new Promise((resolve, reject) => {
@@ -1296,6 +1342,420 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
 
 const receiptOf = (attemptId, attempt = queuedAttempt) => ({ attemptId, ok: true, ...attempt });
 
+function replayResults(session, fields) {
+  const state = session.projectionValues.playgroundTask;
+  const receipt = { ...state.receipt, ...fields };
+  const next = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'results', receipt } } } });
+  assert.equal(next.receipt, receipt);
+  session.projectionValues.playgroundTask = next;
+}
+
+function openRefreshHistory(harness, sessionId, items) {
+  const { f, view } = harness;
+  const row = f.find(view.tree, (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === sessionId);
+  f.find(f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  harness.flush();
+  const query = async () => ({ items });
+  return () => {
+    const drawer = f.find(view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
+    return f.find(f.render(drawer.type, { ...drawer.props, query }), isHistory);
+  };
+}
+
+test('queued Agent-reported attempts keep their report and poll until the platform scores them', async (t) => {
+  const platform = new Map([[7, queuedAttempt], [8, queuedAttempt]]);
+  const h = await refreshHarness(t, [['a', receiptOf(7, { ...queuedAttempt, submissionState: 'created' })],
+    ['b', receiptOf(8, { ...queuedAttempt, submissionState: 'uploaded' })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.badge), ['已创建，上传未确认', 'Agent 报告已上传']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 8]);
+  platform.set(7, finalAttempt(70)); platform.set(8, finalAttempt(80));
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['70 分', '80 分']);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 4);
+});
+
+test('workbench refresh accepts stronger Worker evidence at the same attempt revision', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const workerReceivedAt = '2026-10-02T12:01:00Z';
+  const queued = { ...queuedAttempt, updatedAt, scoringQueue: { stage: 'awaiting_receipt' } };
+  const platform = new Map([[7, queued]]);
+  const h = await refreshHarness(t, [['a', receiptOf(7, { ...queued, submissionState: 'created' })],
+    ['b', receiptOf(7, { ...queued, submissionState: 'uploaded' })]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  const refresh = async (attempt) => {
+    platform.set(7, { ...attempt, updatedAt });
+    await h.button().props.onClick();
+    await h.settled();
+  };
+
+  h.flush();
+  await h.settled();
+  assert.deepEqual(shown(), [['已创建，上传未确认', '—'], ['Agent 报告已上传', '—']]);
+
+  await refresh({ ...queuedAttempt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  assert.deepEqual(shown(), [['排队中', '—'], ['排队中', '—']]);
+  await refresh({ ...queuedAttempt, scoringState: { state: 'queued', provisionalScore: 41 } });
+  assert.deepEqual(shown(), [['排队中', '参考 41'], ['排队中', '参考 41']]);
+  await refresh({ ...queuedAttempt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  assert.deepEqual(shown(), [['排队中', '参考 41'], ['排队中', '参考 41']]);
+  const evaluating = { ...evaluatingAttempt, scoringQueue: { stage: 'received', workerReceivedAt } };
+  await refresh(evaluating);
+  assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
+  await refresh(queued);
+  assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
+
+  const provisional = { status: 'scoring', score: 0,
+    scoringState: { state: 'provisional', scoreIsFinal: false, provisionalScore: 63, workerStatus: 'harbor_scored' } };
+  await refresh(provisional);
+  assert.deepEqual(shown(), [['暂存分', '参考 63'], ['暂存分', '参考 63']]);
+  await refresh(evaluating);
+  assert.deepEqual(shown(), [['暂存分', '参考 63'], ['暂存分', '参考 63']]);
+  await refresh({ ...provisional, scoringState: { ...provisional.scoringState, provisionalScore: 0 } });
+  assert.deepEqual(shown(), [['暂存分', '参考 0'], ['暂存分', '参考 0']]);
+  await refresh({ status: 'scoring', score: 0, scoringQueue: { stage: 'received', workerReceivedAt },
+    scoringState: { state: 'evaluating', scoreIsFinal: false, workerStatus: 'trace_scoring' } });
+  assert.deepEqual(shown(), [['评测中', '—'], ['评测中', '—']]);
+  await refresh(provisional);
+  assert.deepEqual(shown(), [['评测中', '—'], ['评测中', '—']]);
+
+  platform.set(7, { ...finalAttempt(80), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
+  const before = h.calls.length;
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, before);
+
+  await refresh(evaluating);
+  await refresh(finalAttempt(60));
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
+});
+
+test('opening the workbench retains evaluating receipts against an older queue response', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const platform = new Map([[7, { ...queuedAttempt, updatedAt }]]);
+  const h = await refreshHarness(t, [['task', receiptOf(7, { ...evaluatingAttempt, updatedAt })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+});
+
+test('a later Worker job for the same submission reopens its final score and resumes polling', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const job = (received) => ({ status: 'submitted', updatedAt, scoringState: { state: 'queued', scoreIsFinal: false },
+    scoringQueue: { stage: 'queued', submittedAt: updatedAt, workerReceivedAt: received } });
+  const first = job('2026-10-02T12:01:00Z');
+  const second = job('2026-10-02T13:02:00Z');
+  const platform = new Map([[7, first]]);
+  const h = await refreshHarness(t, [['task', receiptOf(7, first)]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.flush();
+  await h.settled();
+  platform.set(7, { ...finalAttempt(80), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分']]);
+
+  platform.set(7, second);
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...first, ...evaluatingAttempt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...finalAttempt(52), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+});
+
+test('an Agent result from the prior Worker job leaves the re-upload queued and polling', async (t) => {
+  const firstAt = '2026-10-02T12:00:00Z';
+  const secondAt = '2026-10-02T13:00:00Z';
+  const firstWorker = '2026-10-02T12:01:00Z';
+  const secondWorker = '2026-10-02T13:02:00Z';
+  const first = { ...queuedAttempt, updatedAt: firstAt, scoringQueue: { stage: 'queued', workerReceivedAt: firstWorker } };
+  const second = { ...queuedAttempt, updatedAt: secondAt, scoringQueue: { stage: 'queued', workerReceivedAt: secondWorker } };
+  const finalizedFirst = { ...finalAttempt(81), updatedAt: firstAt };
+  const platform = new Map([[7, second]]);
+  const receipt = receiptOf(7, { ...first, trackedAt: firstAt, submissionState: 'running', agentReport: { state: 'uploaded', message: 'Uploaded' } });
+  const h = await refreshHarness(t, [['task', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+
+  replayResults(h.sessions[0], { ...finalizedFirst, scoringQueue: undefined, lastWorkerReceivedAt: firstWorker, submissionState: 'final' });
+  h.flush();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...finalizedFirst }]);
+  assert.match(historyRows(await h.f.mount(history()))[0], /评测中 · — 排队中/);
+
+  platform.set(7, finalizedFirst);
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...finalAttempt(52), updatedAt: secondAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.equal(h.calls.length, 3);
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+  const scored = history();
+  assert.match(historyRows(h.f.render(scored.type, scored.props))[0], /已出最终分 · 52 分/);
+});
+
+test('an equivalent Agent result preserves the final score in the loaded submission history', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const workerReceivedAt = '2026-10-02T12:01:00Z';
+  const queued = { ...queuedAttempt, updatedAt, scoringQueue: { stage: 'queued', workerReceivedAt } };
+  const final = { ...finalAttempt(81), updatedAt };
+  const receipt = receiptOf(7, { ...queued, trackedAt: updatedAt, submissionState: 'running', agentReport: { state: 'uploaded', message: 'Uploaded' } });
+  const h = await refreshHarness(t, [['task', receipt]], new Map([[7, final]]));
+  h.flush();
+  await h.settled();
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...queued }, { id: 8, ...queued }]);
+  const before = history();
+  assert.match(historyRows(await h.f.mount(before))[1], /提交 #7 .* · 已出最终分 · 81 分/);
+  const effects = h.f.effects.splice(0);
+
+  replayResults(h.sessions[0], { ...final, scoringQueue: undefined, lastWorkerReceivedAt: workerReceivedAt, submissionState: 'final' });
+  h.flush();
+  const after = history();
+  assert.equal(after.props.key, before.props.key);
+  const rendered = rerender(h.f, after, effects);
+  assert.equal(rendered.ran, 0);
+  assert.match(historyRows(rendered.tree)[1], /提交 #7 .* · 已出最终分 · 81 分/);
+  assert.match(historyRows(rendered.tree)[0], /提交 #8 .* · 评测中 · — 排队中/);
+});
+
+test('replaying a final Agent receipt without Worker timestamps preserves later jobs and their scores', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const job = (workerReceivedAt) => ({ ...queuedAttempt, updatedAt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  const first = job('2026-10-02T12:01:00Z');
+  const second = job('2026-10-02T13:02:00Z');
+  const final = { ...finalAttempt(81), updatedAt };
+  const receipt = receiptOf(7, { ...queuedAttempt, updatedAt, trackedAt: updatedAt, submissionState: 'uploaded' });
+  const platform = new Map([[7, first]]);
+  const h = await refreshHarness(t, [['task', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  const replay = (fields) => {
+    replayResults(h.sessions[0], { ...final, submissionState: 'final', ...fields });
+    h.flush();
+  };
+  h.flush();
+  await h.settled();
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...first }]);
+  await h.f.mount(history());
+  const historyRow = () => {
+    const element = history();
+    return historyRows(h.f.render(element.type, element.props))[0];
+  };
+  platform.set(7, final);
+  h.tick(twoMinutes);
+  await h.settled();
+  platform.set(7, second);
+  h.control.hold = true;
+  const refresh = h.button().props.onClick();
+  replay();
+  assert.deepEqual(shown(), [['评分完成', '81 分']]);
+  assert.match(historyRow(), /已出最终分 · 81 分/);
+
+  h.control.hold = false;
+  h.release();
+  await refresh;
+  await h.settled();
+  replay({ updatedAt: '2026-10-02T20:00:00+08:00', scoringState: { displayScore: 81, scoreIsFinal: true, state: 'final' } });
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  assert.match(historyRow(), /评测中 · — 排队中/);
+
+  platform.set(7, { ...finalAttempt(52), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  replay();
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+  assert.match(historyRow(), /已出最终分 · 52 分/);
+  assert.equal(h.calls.length, 4);
+});
+
+test('an Agent final score can settle a provisional job before the workbench sees its re-upload', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const first = { ...queuedAttempt, updatedAt, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-10-02T12:01:00Z' } };
+  const second = { ...first, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-10-02T13:02:00Z' } };
+  const platform = new Map([[7, first]]);
+  const receipt = receiptOf(7, { ...queuedAttempt, updatedAt, trackedAt: updatedAt, submissionState: 'uploaded' });
+  const h = await refreshHarness(t, [['task', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.flush();
+  await h.settled();
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...first }, { id: 6, ...finalAttempt(67) }]);
+  const initialHistory = history();
+  await h.f.mount(initialHistory);
+  const renderedHistory = () => {
+    const element = history();
+    assert.equal(element.props.key, initialHistory.props.key);
+    return historyRows(h.f.render(element.type, element.props));
+  };
+
+  platform.set(7, { status: 'scoring', score: 0, updatedAt,
+    scoringState: { state: 'provisional', scoreIsFinal: false, provisionalScore: 63 } });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['暂存分', '参考 63']]);
+
+  replayResults(h.sessions[0], { ...finalAttempt(81), updatedAt, submissionState: 'final' });
+  h.flush();
+  assert.deepEqual(shown(), [['评分完成', '81 分']]);
+  assert.match(renderedHistory()[0], /提交 #7 .* · 已出最终分 · 81 分/);
+
+  platform.set(7, second);
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  const queuedHistory = renderedHistory();
+  assert.match(queuedHistory[0], /提交 #7 .* · 评测中 · — 排队中/);
+  assert.match(queuedHistory[1], /提交 #6 .* · 已出最终分 · 67 分/);
+
+  platform.set(7, { ...finalAttempt(52), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+  assert.match(renderedHistory()[0], /提交 #7 .* · 已出最终分 · 52 分/);
+  assert.equal(h.calls.length, 4);
+});
+
+test('a shared lookup begun before a reported re-upload cannot settle the new receipt', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const queued = { ...queuedAttempt, updatedAt, submissionState: 'uploaded' };
+  const receipt = receiptOf(7, { ...queued, trackedAt: '2026-10-02T12:01:00Z' });
+  const platform = new Map([[7, { ...finalAttempt(80), updatedAt }]]);
+  const h = await refreshHarness(t, [['original', receipt], ['retry', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.control.hold = true;
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  h.sessions[1].projectionValues.playgroundTask.receipt = { ...receipt, trackedAt: '2026-10-02T14:00:00Z' };
+  h.flush();
+  h.control.hold = false;
+  h.release();
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['Agent 报告已上传', '—']]);
+
+  const history = openRefreshHistory(h, 'retry', [{ id: 7, ...queuedAttempt, updatedAt }]);
+  const historyRow = async () => {
+    return historyRows(await h.f.mount(history()))[0];
+  };
+  assert.match(await historyRow(), /评测中 · — 排队中/);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评测中', '参考 41']]);
+  platform.set(7, { ...finalAttempt(55), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '55 分']]);
+  assert.match(await historyRow(), /已出最终分 · 55 分/);
+});
+
+test('workbench refresh isolates identical attempt numbers across platforms and challenges', async (t) => {
+  const original = 'https://original.example/api';
+  const active = 'https://active.example/api';
+  const platform = new Map([[7, { id: 7, baseUrl: active, challengeId: 'fixture', ...finalAttempt(80) }]]);
+  const h = await refreshHarness(t, [['old', receiptOf(7)], ['other-challenge', receiptOf(7)], ['current', receiptOf(7)]], platform);
+  const [old, other, current] = h.sessions.map((session) => session.projectionValues.playgroundTask.task);
+  old.baseUrl = original;
+  other.baseUrl = active; other.challengeId = 'other';
+  current.baseUrl = active;
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.id, row.score]), [['old', '—'], ['other-challenge', '—'], ['current', '80 分']]);
+  assert.match(h.status(), /刷新失败/);
+});
+
+test('one workbench lookup refreshes both final and queued receipts for the same attempt', async (t) => {
+  const platform = new Map([[7, finalAttempt(80)]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, finalAttempt(70))], ['queued', receiptOf(7)]], platform);
+  const saved = JSON.stringify(h.sessions);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [7]);
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [
+    ['final', '评分完成', '80 分'], ['queued', '评分完成', '80 分'],
+  ]);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 1);
+  assert.equal(JSON.stringify(h.sessions), saved);
+});
+
+test('one workbench lookup preserves the newer final receipt while updating a queued copy', async (t) => {
+  const older = '2026-10-02T12:00:00Z';
+  const newer = '2026-10-02T14:00:00Z';
+  const platform = new Map([[7, { ...finalAttempt(70), updatedAt: older }]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, { ...finalAttempt(90), updatedAt: newer })],
+    ['queued', receiptOf(7, { ...queuedAttempt, updatedAt: older })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [7]);
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [
+    ['final', '评分完成', '90 分'], ['queued', '评分完成', '70 分'],
+  ]);
+
+  platform.set(7, { ...finalAttempt(70), updatedAt: '2026-10-02T22:00:00+08:00' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-02T22:00:00+08:00' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-03T14:00:00Z' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7]);
+});
+
+test('workbench refresh keeps each accepted attempt revision through stale shared responses', async (t) => {
+  const at = (hour) => `2026-10-02T${hour}:00:00Z`;
+  const platform = new Map([[7, { ...finalAttempt(90), updatedAt: at('12') }]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, { ...finalAttempt(90), updatedAt: at('08') })],
+    ['other', receiptOf(7, { ...queuedAttempt, updatedAt: at('08') })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '90 分']);
+
+  h.sessions[1].projectionValues.playgroundTask.receipt = receiptOf(7, { ...queuedAttempt, updatedAt: at('08'), trackedAt: at('13') });
+  h.flush();
+  platform.set(7, { ...queuedAttempt, updatedAt: at('09') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '—']);
+
+  platform.set(7, { ...finalAttempt(70), updatedAt: at('12') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: at('13') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+
+  platform.set(7, { ...queuedAttempt, updatedAt: at('13') });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7, 7]);
+});
+
 test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {
   const platform = new Map([[61, queuedAttempt], [63, evaluatingAttempt]]);
   const h = await refreshHarness(t, [
@@ -1307,7 +1767,7 @@ test('the workbench refreshes unscored submissions now and every two minutes, an
   // The first round runs when the workbench opens; each submission is requested once, and only unscored ones.
   assert.deepEqual(h.calls.map((call) => call.id), [61, 63]);
   assert.ok(h.calls.every((call) => call.route === '/api' && call.endpoint === 'playgroundQueries/query'
-    && JSON.stringify(call.payload) === JSON.stringify({ args: { input: { action: 'attempt', attemptId: call.id } } })));
+    && JSON.stringify(call.payload) === JSON.stringify({ args: { input: { action: 'attempt', attemptId: call.id, challengeId: 'fixture' } } })));
   await h.settled();
   assert.equal(h.status(), '状态更新于 09:05');
   h.tick(twoMinutes);
@@ -1532,16 +1992,18 @@ test('failed and rejected receipts stay failed or rejected against a lookup that
   assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['失败', '—'], ['未通过', '—']]);
 });
 
-test('a stored result is ignored once its receipt has changed, even when the result is not final', async (t) => {
+test('a confirmed re-upload ignores the previous receipt cache even with the same tracking stamp', async (t) => {
   const platform = new Map([[61, { status: 'failed', scoringState: { state: 'failed', scoreIsFinal: false } }]]);
-  const h = await refreshHarness(t, [['a', receiptOf(61)]], platform);
+  const trackedAt = '2026-10-02T12:00:00Z';
+  const receipt = receiptOf(61, { ...queuedAttempt, trackedAt, confirmedAt: trackedAt });
+  const h = await refreshHarness(t, [['a', receipt]], platform);
   h.flush();
   await h.settled();
   assert.deepEqual(h.rows().map((row) => row.badge), ['失败']);
-  // The same submission id is uploaded again: the receipt is submitted, and the old failure no longer applies.
-  h.sessions[0].projectionValues.playgroundTask.receipt = { attemptId: 61, ok: true, status: 'submitted' };
+  const session = h.sessions[0];
+  session.projectionValues.playgroundTask = withReceipt(session.projectionValues.playgroundTask, { ...receipt, confirmedAt: '2026-10-02T13:00:00Z' });
   h.flush();
-  assert.deepEqual(h.rows().map((row) => row.badge), ['已提交']);
+  assert.deepEqual(h.rows().map((row) => row.badge), ['排队中']);
   // It is unscored again, so it is read again on the next round.
   platform.set(61, finalAttempt(80));
   h.tick(twoMinutes);
@@ -1704,7 +2166,7 @@ const historyTask = (extra = {}) => ({ task: { challengeId: 'fixture', title: 'F
 // A receipt shaped like confirm()'s CLI-path output, with the confirmedAt stamp receiptOf writes
 // (test/workflow.test.mjs checks that confirm writes it). withReceipt replays it as the
 // /playground-confirm command/done text, the way the projection receives a confirmed receipt.
-const confirmedReceipt = (attemptId, confirmedAt, extra = {}) => ({ ok: true, baseUrl: 'http://127.0.0.1:15000/api', attemptId,
+const confirmedReceipt = (attemptId, confirmedAt, extra = {}) => ({ ok: true, baseUrl: 'https://example.test/api', attemptId,
   status: 'submitted', bundleStatus: 'ready', traceCount: 1, challengeTitle: 'Fixture',
   args: { challenge_id: 'fixture', bundle_path: 'bundle.zip', trace_path: 'trace.json', attempt_id: attemptId }, confirmedAt, ...extra });
 const withReceipt = (state, receipt) => workflowProjection.apply(state,
@@ -1736,6 +2198,14 @@ test('the task drawer lists every account submission for the challenge and marks
   assert.equal(rows.filter((row) => row.includes('未关联到对话')).length, 2);
   assert.equal(findButton(f.panel, '加载更多'), undefined);
   assert.equal(liveStatus(f.panel), '已加载 3 条提交');
+});
+
+test('the task drawer reports a platform change and skips the other platform history', async (t) => {
+  const state = historyTask({ receipt: { attemptId: 7, baseUrl: 'https://original.example/api' } });
+  const f = await historyFixture(t, () => attemptsPage([{ id: 7, challenge_id: 'fixture' }]), state);
+  assert.equal(f.requests.length, 0);
+  assert.deepEqual(historyRows(f.panel), []);
+  assert.match(text(f.panel), /平台地址与当前平台不一致/);
 });
 
 // #21: a snake_case row is final only for scoring_state final or late_scored, so a queued 0 is not a score.
@@ -1771,7 +2241,7 @@ test('history rows take a settled result from the workbench refresh, but never a
   ]), historyTask());
   assert.equal(f.requests.length, 1);
   const failed = { status: 'failed', score: null, scoringState: { state: 'failed', scoreIsFinal: false }, updatedAt: '2026-10-05T09:00:00Z' };
-  const attempts = {
+  const entries = {
     301: { attempt: { status: 'scored', score: 90, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } } },
     302: { attempt: { status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } } },
     303: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } },
@@ -1779,6 +2249,7 @@ test('history rows take a settled result from the workbench refresh, but never a
     305: { attempt: failed },
     306: { attempt: failed },
   };
+  const attempts = Object.fromEntries(Object.entries(entries).map(([id, entry]) => [JSON.stringify([null, 'fixture', Number(id)]), entry]));
   const { tree, ran } = rerender(f, { type: f.history.type, props: { ...f.history.props, attempts } }, f.historyEffects);
   const rows = historyRows(tree);
   const tones = findAll(tree, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
@@ -1936,14 +2407,13 @@ test('a submission attributed in the same drawer reloads the first page of the h
   let items = [{ id: 102, challenge_id: 'fixture', scoring_state: 'final', score: 80, created_at: '2026-10-02T08:00:00Z' }];
   const before = withReceipt(historyTask({ attemptIds: [] }), confirmedReceipt(102, '2026-10-02T08:00:00.000Z'));
   const f = await historyFixture(t, () => attemptsPage(items), before);
-  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
   // An unchanged projection keeps the element key, so a re-render does not refetch.
-  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
+  assert.equal(f.find(f.render(f.drawer.type, f.drawer.props), isHistory).props.key, f.history.props.key);
   // Confirming in the drawer's task card refreshes the projection with the new attributed attempt.
   items = [{ id: 104, challenge_id: 'fixture', status: 'submitted', scoring_state: 'queued', score: null, created_at: '2026-10-03T08:00:00Z' }, ...items];
   const after = withReceipt(before, confirmedReceipt(104, '2026-10-03T08:00:00.000Z'));
   const next = f.find(f.render(f.drawer.type, { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } }), isHistory);
-  assert.equal(next.props.key, 's:fixture:104:2026-10-03T08:00:00.000Z');
+  assert.notEqual(next.props.key, f.history.props.key);
   assert.deepEqual(next.props.attemptIds, [102, 104]);
   // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
   const panel = await f.mount(next);
@@ -1961,10 +2431,9 @@ test('a re-upload under the same id reloads the history once, and a store publis
     { ok: false, bundleStatus: 'failed', violations: [{ message: 'bad bundle' }], error: { code: 'bundle_invalid', message: 'The platform rejected the bundle; see violations.' } }));
   assert.deepEqual(before.attemptIds, [102]);
   const f = await historyFixture(t, () => attemptsPage([row]), before);
-  assert.equal(f.history.props.key, 's:fixture:102:2026-10-02T08:00:00.000Z');
   assert.equal(f.requests.length, 1);
   // A store publish re-renders the drawer with new refresh results but the same projection.
-  const attempts = { 102: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } } };
+  const attempts = { [JSON.stringify([before.receipt.baseUrl, 'fixture', 102])]: { attempt: { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } } } };
   const published = f.find(f.render(f.drawer.type, { ...f.drawer.props, attempts }), isHistory);
   assert.equal(published.props.key, f.history.props.key);
   assert.equal(rerender(f, published, f.historyEffects).ran, 0);
@@ -1979,7 +2448,7 @@ test('a re-upload under the same id reloads the history once, and a store publis
   assert.deepEqual(after.attemptIds, [102]);
   const drawerProps = { ...f.drawer.props, projection: { state: 'ready', values: { playgroundTask: after } } };
   const next = f.find(f.render(f.drawer.type, drawerProps), isHistory);
-  assert.equal(next.props.key, 's:fixture:102:2026-10-05T08:00:00.000Z');
+  assert.notEqual(next.props.key, f.history.props.key);
   assert.deepEqual(next.props.attemptIds, [102]);
   // React remounts an element whose key changed; mount() reproduces that with fresh state and effects.
   await f.mount(next);

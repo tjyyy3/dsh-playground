@@ -316,6 +316,7 @@ var locales = {
       scored: "已评分",
       queued: "排队中",
       evaluating: "评测中",
+      provisional: "暂存分",
       final: "评分完成",
       failed: "失败",
       ready: "已接收",
@@ -412,6 +413,7 @@ var locales = {
       scored: "Scored",
       queued: "Queued",
       evaluating: "Evaluating",
+      provisional: "Provisional",
       final: "Final",
       failed: "Failed",
       ready: "Accepted",
@@ -2792,7 +2794,47 @@ __name(ControllerPanel, "ControllerPanel");
 // src/client/workbench.js
 var React15 = __toESM(require("react"), 1);
 
-// src/client/tasks/attempts.js
+// lib/task/evidence.js
+var NO_OFFSET_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+function parsePlatformTime(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return Number.NaN;
+  const text = value.trim();
+  return Date.parse(NO_OFFSET_TIME.test(text) ? `${text.replace(" ", "T")}Z` : text);
+}
+__name(parsePlatformTime, "parsePlatformTime");
+function compareAttemptUpdates(previous, next) {
+  const before = parsePlatformTime(previous);
+  const after = parsePlatformTime(next);
+  return Number.isFinite(before) && Number.isFinite(after) ? Math.sign(after - before) : void 0;
+}
+__name(compareAttemptUpdates, "compareAttemptUpdates");
+var observedWorker = /* @__PURE__ */ __name((attempt) => attempt.scoringQueue?.workerReceivedAt ?? attempt.lastWorkerReceivedAt, "observedWorker");
+function compareAttemptRevisions(previous, next) {
+  const row = compareAttemptUpdates(previous.updatedAt, next.updatedAt);
+  if (row) return row;
+  const job = compareAttemptUpdates(observedWorker(previous), observedWorker(next));
+  if (job) return job;
+  if (row === void 0 && Number.isFinite(parsePlatformTime(previous.updatedAt))) return -1;
+  return row ?? job;
+}
+__name(compareAttemptRevisions, "compareAttemptRevisions");
+var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
+function refreshedAttemptFields(previous, incoming, order) {
+  const attempt = {};
+  for (const field of ATTEMPT_STATE_FIELDS) {
+    attempt[field] = incoming[field] ?? (order === 1 ? void 0 : previous[field]);
+  }
+  if (!incoming.scoringQueue && (incoming.scoringState?.scoreIsFinal || incoming.scoringState?.state === "provisional")) {
+    attempt.scoringQueue = void 0;
+  }
+  attempt.updatedAt = Number.isFinite(parsePlatformTime(incoming.updatedAt)) ? incoming.updatedAt : previous.updatedAt;
+  const lastWorkerReceivedAt = observedWorker(incoming) ?? observedWorker(previous);
+  if (lastWorkerReceivedAt) attempt.lastWorkerReceivedAt = lastWorkerReceivedAt;
+  return attempt;
+}
+__name(refreshedAttemptFields, "refreshedAttemptFields");
 function attemptScore(item) {
   const raw = item?.scoringState;
   const scoring = typeof raw === "string" ? { state: raw } : raw || {};
@@ -2800,15 +2842,46 @@ function attemptScore(item) {
   const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
   const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : void 0;
   const reference = scoreIsFinal || failed ? void 0 : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
-  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && reference !== 0 ? reference : void 0 };
+  const explicitZero = scoring.state === "provisional" && scoring.provisionalScore === 0;
+  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && (reference !== 0 || explicitZero) ? reference : void 0 };
 }
 __name(attemptScore, "attemptScore");
-var stageTones = { final: "success", finalLate: "success", failed: "error", evaluating: "warning", incomplete: "error" };
+var RECEIVED_STATES = /* @__PURE__ */ new Set(["evaluating", "scoring", "provisional", "final", "late_scored"]);
 function platformReceivedBundle(attempt) {
   const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
-  return ["evaluating", "scoring", "final", "late_scored"].includes(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
+  return RECEIVED_STATES.has(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
 }
 __name(platformReceivedBundle, "platformReceivedBundle");
+function workerPhase(attempt, scoring) {
+  if (scoring.state === "provisional") return 3;
+  if (scoring.workerStatus === "trace_scoring") return 4;
+  if (["evaluating", "scoring"].includes(scoring.state)) return 2;
+  return platformReceivedBundle(attempt) ? 1 : 0;
+}
+__name(workerPhase, "workerPhase");
+function keepsWorkerProgress(previous, next) {
+  const before = attemptScore(previous);
+  const after = attemptScore(next);
+  const phase = workerPhase(next, after.scoring) - workerPhase(previous, before.scoring);
+  return phase > 0 || phase === 0 && (before.referenceScore === void 0 || after.referenceScore !== void 0);
+}
+__name(keepsWorkerProgress, "keepsWorkerProgress");
+var workChallengeId = /* @__PURE__ */ __name((item) => {
+  const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
+  return id === void 0 || id === null ? void 0 : String(id);
+}, "workChallengeId");
+function taskAttemptScope(state) {
+  const { task, receipt } = state || {};
+  const taskId = workChallengeId(task);
+  const receiptId = workChallengeId(receipt);
+  if (task?.baseUrl && receipt?.baseUrl && task.baseUrl !== receipt.baseUrl) return { conflict: "platform_changed" };
+  if (taskId && receiptId && taskId !== receiptId) return { conflict: "challenge_mismatch" };
+  return { baseUrl: task?.baseUrl || receipt?.baseUrl, challengeId: taskId || receiptId };
+}
+__name(taskAttemptScope, "taskAttemptScope");
+
+// src/client/tasks/attempts.js
+var stageTones = { final: "success", finalLate: "success", failed: "error", evaluating: "warning", incomplete: "error" };
 var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
 function taskBundleMissingIds(state) {
   const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
@@ -2868,7 +2941,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
   const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt) && (bundleMissing || receiptBundleMissing(receipt));
   const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt) ? { created: ["已创建，上传未确认", "Created; upload unconfirmed"], uploaded: ["Agent 报告已上传", "Agent reports uploaded"], unknown: ["结果未知，先核对已有提交", "Outcome unknown; reconcile existing attempts"] }[receipt?.submissionState] : void 0;
-  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
+  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "provisional", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
   const stage = running ? "running" : receiptStage;
   const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
   const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
@@ -2899,7 +2972,11 @@ __name(scoreLabel, "scoreLabel");
 var attemptRefreshMs = 12e4;
 var unarchiveFocusMs = 2e3;
 var noArchiveError = Object.freeze({ id: "", message: "" });
-var receiptSettled = /* @__PURE__ */ __name((receipt) => receipt?.bundleNotReceived === true || ["final", "finalLate", "failed"].includes(receiptProgress(receipt, zhText).stage), "receiptSettled");
+function receiptSettled(receipt) {
+  const { failed, scoreIsFinal } = attemptScore(receipt);
+  return receipt?.bundleNotReceived === true || failed || scoreIsFinal;
+}
+__name(receiptSettled, "receiptSettled");
 var receiptAttemptId = /* @__PURE__ */ __name((receipt) => {
   const id = Number(receipt?.attemptId);
   return Number.isSafeInteger(id) && id > 0 ? id : void 0;
@@ -2908,55 +2985,93 @@ var refreshConcurrency = 4;
 var visibleRefreshGapMs = 3e4;
 function receiptPending(receipt) {
   if (receiptAttemptId(receipt) === void 0 || receipt.bundleStatus === "incomplete") return false;
-  const { stage } = receiptProgress(receipt, zhText);
+  const { stage } = receiptProgress({ ...receipt, submissionState: void 0 }, zhText);
   if (stage === "evaluating") return true;
   if (stage === "incomplete" && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
   const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes("awaiting_review");
   return stage === "submitted" && ([void 0, "submitted"].includes(receipt.status) || awaitingReview);
 }
 __name(receiptPending, "receiptPending");
-var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
-var receiptKey = /* @__PURE__ */ __name((receipt) => receipt ? JSON.stringify([
-  receipt.attemptId,
-  receipt.updatedAt,
-  receipt.ok,
-  receipt.status,
-  receipt.bundleStatus,
-  receipt.score,
-  receipt.scoringState
-]) : void 0, "receiptKey");
-function withLatestAttempt(receipt, entry) {
-  if (!receipt || !entry?.attempt || entry.receiptKey !== receiptKey(receipt)) return receipt;
-  const merged = { ...receipt };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-  return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
+var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
+var receiptKey = /* @__PURE__ */ __name((sessionId, receipt) => JSON.stringify([
+  sessionId,
+  receipt.trackedAt,
+  receipt.confirmedAt,
+  receipt.agentReport?.state,
+  receipt.agentReport?.message
+]), "receiptKey");
+function withLatestAttempt(state, attempts, sessionId) {
+  const receipt = state?.receipt;
+  if (!receipt) return receipt;
+  const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
+  const stored = entry?.overlays?.get(receiptKey(sessionId, receipt));
+  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored) } : receipt;
 }
 __name(withLatestAttempt, "withLatestAttempt");
-function withSettledAttempt(item, entry, { closed = false } = {}) {
-  const row = (closed || entry?.attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!entry?.attempt || receiptSettled(row)) return row;
-  if (Date.parse(row.updatedAt) > Date.parse(entry.attempt.updatedAt)) return row;
+function overlayForReceipt(receipt, stored) {
+  const { scoring, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
+  const receiptEvidence = JSON.stringify([
+    parsePlatformTime(receipt.updatedAt),
+    receipt.status,
+    receipt.bundleStatus,
+    receipt.bundleNotReceived === true,
+    platformReceivedBundle(receipt),
+    scoring.state,
+    scoring.workerStatus,
+    scoreIsFinal,
+    finalScore,
+    referenceScore
+  ]);
+  const receiptWorker = parsePlatformTime(receipt.scoringQueue?.workerReceivedAt ?? receipt.lastWorkerReceivedAt);
+  if (stored?.receiptEvidence === receiptEvidence && (!Number.isFinite(receiptWorker) || receiptWorker === stored.receiptWorker)) return stored;
+  const attempt = stored ? observeAttempt(stored, receipt) ?? stored : refreshedAttemptFields({}, receipt, 1);
+  return { ...attempt, receiptEvidence, receiptWorker };
+}
+__name(overlayForReceipt, "overlayForReceipt");
+function observeAttempt(previous, incoming) {
+  if (!incoming) return void 0;
+  const order = compareAttemptRevisions(previous, incoming);
+  if (order === -1) return void 0;
+  const attempt = refreshedAttemptFields(previous, incoming, order);
+  if (order !== 1) {
+    const settled = receiptSettled(attempt);
+    if (receiptSettled(previous) && (!settled || order === 0)) return void 0;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return void 0;
+  }
+  return attempt;
+}
+__name(observeAttempt, "observeAttempt");
+function withHistoryAttempt(item, attempt, { latest, closed }) {
+  const order = attempt && (latest ? compareAttemptRevisions(item, attempt) : compareAttemptUpdates(item.updatedAt, attempt.updatedAt));
+  if (latest && order === 1) return { ...item, ...refreshedAttemptFields(item, attempt, order) };
+  const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
+  if (!attempt || receiptSettled(row) || order === -1) return row;
   const merged = { ...row };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
   return receiptSettled(merged) ? merged : row;
 }
-__name(withSettledAttempt, "withSettledAttempt");
+__name(withHistoryAttempt, "withHistoryAttempt");
 var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
-async function refreshAttempts(store, ids) {
-  const wanted = [...new Set(ids)];
-  if (!wanted.length || store.controller || store.disposed) return;
+async function refreshAttempts(store, keys) {
+  if (!keys.length || store.controller || store.disposed) return;
+  const wanted = keys.map((key2) => {
+    const { scope, attemptId, snapshots } = store.receipts.get(key2);
+    return { key: key2, input: { action: "attempt", attemptId, ...scope }, snapshots };
+  });
   const controller = new AbortController();
   store.controller = controller;
   store.startedAt = Date.now();
-  const keys = wanted.map((id) => receiptKey(store.receipts.get(id)));
   store.publish();
-  const outcomes = [];
+  const fresh = [];
   let next = 0;
   const worker = /* @__PURE__ */ __name(async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const index = next++;
+      const { key: key2, input, snapshots } = wanted[next++];
       try {
-        outcomes[index] = { value: await store.query({ action: "attempt", attemptId: wanted[index] }, controller.signal) };
+        const attempt = await store.query(input, controller.signal);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
+          fresh.push({ key: key2, snapshots, attempt });
+        }
       } catch {
       }
     }
@@ -2964,9 +3079,18 @@ async function refreshAttempts(store, ids) {
   await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
   if (store.controller !== controller) return;
   store.controller = null;
-  const usable = /* @__PURE__ */ __name((outcome) => outcome && outcome.value && typeof outcome.value === "object", "usable");
-  const fresh = wanted.flatMap((id, index) => usable(outcomes[index]) ? [[id, { attempt: outcomes[index].value, receiptKey: keys[index] }]] : []);
-  store.attempts = { ...store.attempts, ...Object.fromEntries(fresh) };
+  const updates = fresh.map(({ key: key2, snapshots, attempt }) => {
+    const previous = store.attempts[key2];
+    const current = store.receipts.get(key2)?.snapshots;
+    const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+      const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
+      const latest = current?.get(receiptId);
+      const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
+      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
+    }));
+    return [key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
+  });
+  store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
   store.failed = fresh.length < wanted.length;
   if (!store.failed) {
     store.refreshedAt = Date.now();
@@ -3766,6 +3890,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   const [busy, setBusy] = React11.useState(false);
   const [adding, setAdding] = React11.useState(false);
   const [error, setError] = React11.useState("");
+  const [recovery, setRecovery] = React11.useState(null);
   const [inspection, setInspection] = React11.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
@@ -3782,16 +3907,29 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   }, [inspectId, inspectController]);
   const archived = snapshot2?.archived;
   const needsInitialization = snapshot2?.kind === "absent" || snapshot2?.kind === "incomplete";
-  const actionLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
+  const createLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
+  const actionLabel = recovery ? msg("打开任务对话", "Open task chat") : createLabel;
   const title = controller ? msg("打开工作区主控", "Open workspace controller") : actionLabel;
   const controllerError = snapshot2?.kind === "blocked" ? blockedReason(snapshot2) : archived ? msg("主控对话已归档。请先在 DSH 中取消归档。", "The controller chat is archived. Unarchive it in DSH first.") : "";
   const listError = workspaces.state === "error" ? msg(`无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ""}。请重启 DSH 后重试。`, `Could not load DSH workspaces${workspaces.error?.message ? `: ${workspaces.error.message}` : ""}. Restart DSH and try again.`) : "";
   const loading = workspaces.phase !== "ready" && !listError;
   const hint = listError || (loading ? msg("正在读取 DSH 工作区列表…", "Loading DSH workspaces…") : workspaces.items.length ? msg("选择已有工作区，或添加一个专用目录。", "Select an existing workspace or add a dedicated folder.") : msg("还没有工作区，请先添加。", "Add a workspace to get started."));
+  const actionError = recovery ? [recovery.message, error].filter(Boolean).join(" ") : error || controllerError;
+  const unavailable = busy || adding || !recovery && (!workspace || workspaces.phase !== "ready" || controller && (!snapshot2 || Boolean(controllerError)));
   const confirm = /* @__PURE__ */ __name(async () => {
-    if (!workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || controllerError)) return;
+    if (unavailable) return;
     setBusy(true);
     setError("");
+    if (recovery) {
+      try {
+        await openTask(recovery.sessionId);
+        closeTaskStart();
+      } catch {
+        setError(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
+        setBusy(false);
+      }
+      return;
+    }
     if (controller) {
       try {
         const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
@@ -3815,7 +3953,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     try {
       const result = await run(request.sessionId, { action: "start", challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
       if (result.ok && result.sessionId) created = result.sessionId;
-      else setError(result.error?.message || msg("任务创建失败", "Could not create the task"));
+      else {
+        const message = result.error?.message || msg("任务创建失败", "Could not create the task");
+        if (typeof result.sessionId === "string" && result.sessionId) setRecovery({ sessionId: result.sessionId, message });
+        else setError(message);
+      }
     } catch (failure) {
       setError(failure.message);
     }
@@ -3843,10 +3985,10 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       "header",
       { className: "pg-task-header" },
       h("h2", null, title),
-      h("p", { className: "pg-task-subtitle" }, controller ? msg("选择要协调工作的 DSH 工作区。", "Select the DSH workspace for the controller.") : msg("选择任务文件的存放工作区", "Choose a workspace for the task files")),
+      recovery ? null : h("p", { className: "pg-task-subtitle" }, controller ? msg("选择要协调工作的 DSH 工作区。", "Select the DSH workspace for the controller.") : msg("选择任务文件的存放工作区", "Choose a workspace for the task files")),
       h(
         "button",
-        { type: "button", className: "pg-task-close", "aria-label": controller ? msg("关闭工作区主控", "Close workspace controller") : msg("取消创建任务", "Cancel task creation"), disabled: busy || adding, onClick: closeTaskStart },
+        { type: "button", className: "pg-task-close", "aria-label": controller ? msg("关闭工作区主控", "Close workspace controller") : recovery ? msg("关闭", "Close") : msg("取消创建任务", "Cancel task creation"), disabled: busy || adding, onClick: closeTaskStart },
         h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
       )
     ),
@@ -3864,7 +4006,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
         ),
         h("p", { className: "pg-task-id" }, request.id)
       ),
-      h(
+      recovery ? h("p", { className: "pg-task-error", role: "alert" }, actionError) : h(
         "div",
         { className: "pg-task-field" },
         h("label", { htmlFor: "pg-task-workspace" }, msg("目标工作区", "Workspace")),
@@ -3877,8 +4019,8 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
             {
               id: "pg-task-workspace",
               className: "pg-task-select",
-              "aria-invalid": Boolean(error || controllerError),
-              "aria-describedby": `${workspace ? "pg-task-path" : "pg-task-hint"}${error || controllerError ? " pg-task-error" : ""}`,
+              "aria-invalid": Boolean(actionError),
+              "aria-describedby": `${workspace ? "pg-task-path" : "pg-task-hint"}${actionError ? " pg-task-error" : ""}`,
               "data-empty": !workspace,
               "data-modal-autofocus": true,
               value: workspace ? selectedId : "",
@@ -3896,7 +4038,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
         ),
         workspace ? h("p", { id: "pg-task-path", className: "pg-task-path" }, workspace.path) : h("p", { id: "pg-task-hint", className: listError ? "pg-task-error" : "pg-task-hint", role: listError ? "alert" : loading ? "status" : void 0 }, hint),
         checking ? h("p", { className: "pg-task-hint", role: "status" }, msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…")) : null,
-        error || controllerError ? h("p", { id: "pg-task-error", className: "pg-task-error", role: "alert" }, error || controllerError) : null,
+        actionError ? h("p", { id: "pg-task-error", className: "pg-task-error", role: "alert" }, actionError) : null,
         needsInitialization ? h("p", { className: "pg-task-hint" }, msg("初始化会请当前 DSH 模型确认主控角色。", "Initialization asks the current DSH model to confirm its controller role.")) : null,
         snapshot2?.codex ? h("p", { className: "pg-task-hint" }, snapshot2.codex === "registered" ? msg("已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体。", "Codex subagents are available. The controller can use DSH subagents if Codex becomes unavailable.") : msg("未启用 Codex 时，主控可将工作交给 DSH 子智能体，在独立对话中执行。", "When Codex is disabled, the controller can delegate work to DSH subagents in separate chats.")) : null,
         h("button", { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: /* @__PURE__ */ __name(async () => {
@@ -3916,7 +4058,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     h(
       "footer",
       { className: "pg-task-footer" },
-      h("p", null, controller ? msg("主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。", "The controller assigns tasks and collects results. Submit challenges from their separate participation chats.") : msg("将在所选目录创建独立对话并读写任务文件。", "A separate chat will use the selected directory to read and write task files.")),
+      recovery ? null : h("p", null, controller ? msg("主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。", "The controller assigns tasks and collects results. Submit challenges from their separate participation chats.") : msg("将在所选目录创建独立对话并读写任务文件。", "A separate chat will use the selected directory to read and write task files.")),
       h(
         "div",
         { className: "pg-task-actions" },
@@ -3927,11 +4069,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
             type: "button",
             className: "pg-task-button pg-task-create",
             "data-busy": busy,
-            disabled: !workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || Boolean(controllerError)),
+            disabled: unavailable,
             onClick: confirm
           },
           busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? controller ? msg("正在打开…", "Opening…") : msg("正在创建…", "Creating…") : actionLabel
+          busy ? controller || recovery ? msg("正在打开…", "Opening…") : msg("正在创建…", "Creating…") : actionLabel
         )
       )
     )
@@ -4262,7 +4404,7 @@ function SelectedTask({ session, projection, attempts, useSessionAccess, refresh
   }
   if (projection?.state !== "ready") return h("p", { className: "pg-note", role: "status" }, msg("正在读取任务状态…", "Loading task status…"));
   const task = projection.values.playgroundTask;
-  const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
+  const receipt = withLatestAttempt(task, attempts, session.id);
   return h(TaskWorkflow, {
     ...props,
     sessionId: session.id,
@@ -4278,7 +4420,7 @@ __name(SelectedTask, "SelectedTask");
 function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
   const state = session.projectionValues?.playgroundTask || {};
   const task = state.task;
-  const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
+  const receipt = withLatestAttempt(state, attempts, session.id);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
   const title = task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const challengeId = task?.challengeId || msg("赛题待读取", "Challenge pending");
@@ -4314,7 +4456,7 @@ function taskAttemptIds(state) {
   return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 }
 __name(taskAttemptIds, "taskAttemptIds");
-function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React14.useState({ items: [], nextCursor: null, loaded: false });
   const [overview, setOverview] = React14.useState({ counts: void 0, partial: "" });
   const [busy, setBusy] = React14.useState(false);
@@ -4335,7 +4477,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
     setBusy(true);
     setStatus(["正在读取提交历史…", "Loading submission history…"]);
     try {
-      const result = await query({ action: "my_attempts", challengeId, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
+      const result = await query({ action: "my_attempts", challengeId, ...baseUrl ? { baseUrl } : {}, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
       if (latest.controller !== controller) return;
       if (result?.ok === false) {
         if (result.error?.code === "authentication_required") {
@@ -4390,6 +4532,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
   const items = [...history.items].sort((a, b) => time(b.createdAt) - time(a.createdAt) || (Number(b.id) || 0) - (Number(a.id) || 0));
   const linked = new Set(attemptIds);
   const missing = new Set(bundleMissingIds);
+  const latestId = receiptAttemptId(receipt);
   return h(
     "section",
     { className: "pg-guide pg-history", "aria-label": msg("提交历史", "Submission history"), "aria-busy": busy },
@@ -4419,9 +4562,12 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
         node.focus?.();
       }
     }, "ref") }, items.map((item) => {
-      const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)], { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
+      const id = Number(item.id);
+      const latest2 = id === latestId;
+      const attempt = latest2 ? receipt : attempts?.[attemptKey({ baseUrl, challengeId }, id)]?.attempt;
+      const progress = receiptProgress(withHistoryAttempt(item, attempt, { latest: latest2, closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString(msg("zh-CN", "en-US"), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("提交时间未知", "Submission time unknown");
-      const own = linked.has(Number(item.id));
+      const own = linked.has(id);
       return h(
         "li",
         { key: item.id, className: "pg-row" },
@@ -4510,13 +4656,14 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const state = session?.projectionValues?.playgroundTask || {};
   const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const current = projection?.state === "ready" && projection.values?.playgroundTask || state;
-  const historyChallenge = current.task?.challengeId || state.task?.challengeId;
+  const scope = taskAttemptScope({ task: current.task || state.task, receipt: current.receipt });
+  const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
   const attemptIds = taskAttemptIds(current);
-  const latestReceipt = withLatestAttempt(current.receipt, props.attempts?.[receiptAttemptId(current.receipt)]);
+  const latestReceipt = withLatestAttempt(current, props.attempts, session.id);
   const closedIds = [.../* @__PURE__ */ new Set([
     ...Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : [],
     ...latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : [],
-    ...attemptIds.filter((id) => props.attempts?.[id]?.attempt?.bundleNotReceived === true)
+    ...attemptIds.filter((id) => id !== receiptAttemptId(current.receipt) && props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true)
   ])].filter((id) => Number.isSafeInteger(id) && id > 0);
   const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
   const archived = Boolean(archive?.archived);
@@ -4557,7 +4704,19 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
       // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-      historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ""}:${current.receipt?.confirmedAt ?? current.receipt?.trackedAt ?? ""}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null
+      historyChallenge && query ? h(AttemptHistory, {
+        key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
+        baseUrl: scope.baseUrl,
+        challengeId: historyChallenge,
+        receipt: latestReceipt,
+        attemptIds,
+        bundleMissingIds: taskBundleMissingIds(current),
+        closedIds,
+        limits: submissionLimitsOf(current, historyChallenge),
+        attempts: props.attempts,
+        query,
+        t: props.t
+      }) : null
     )
   );
 }
@@ -4600,35 +4759,37 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       startedAt: void 0,
       version: 0,
       query: null,
-      pendingIds: [],
-      taskIds: [],
+      pendingKeys: [],
+      taskKeys: [],
       receipts: /* @__PURE__ */ new Map()
     };
     holder.publish = () => setVersion(++holder.version);
     return holder;
   });
-  const receiptsById = /* @__PURE__ */ new Map();
+  const receipts = /* @__PURE__ */ new Map();
+  const pendingKeys = /* @__PURE__ */ new Set();
   for (const item of taskSessions) {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    const id = receiptAttemptId(receipt);
-    if (id !== void 0 && !receiptsById.has(id)) receiptsById.set(id, receipt);
+    const state = item.projectionValues?.playgroundTask;
+    const receipt = state?.receipt;
+    const scope = taskAttemptScope(state);
+    const attemptId = receiptAttemptId(receipt);
+    const key2 = attemptKey(scope, attemptId);
+    if (!key2) continue;
+    if (!receipts.has(key2)) receipts.set(key2, { scope, attemptId, snapshots: /* @__PURE__ */ new Map() });
+    receipts.get(key2).snapshots.set(receiptKey(item.id, receipt), receipt);
+    if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
-  const taskIds = [...receiptsById.keys()];
-  const pendingIds = taskIds.filter((id) => taskSessions.some((item) => {
-    const receipt = item.projectionValues?.playgroundTask?.receipt;
-    return receiptAttemptId(receipt) === id && receiptPending(withLatestAttempt(receipt, store.attempts[id]));
-  }));
-  const anyPending = pendingIds.length > 0;
+  const anyPending = pendingKeys.size > 0;
   React15.useEffect(() => {
     store.query = query;
-    store.taskIds = taskIds;
-    store.pendingIds = pendingIds;
-    store.receipts = receiptsById;
+    store.taskKeys = [...receipts.keys()];
+    store.pendingKeys = [...pendingKeys];
+    store.receipts = receipts;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
   React15.useEffect(() => {
     store.disposed = !active;
-    if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingIds);
+    if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingKeys);
     return () => {
       store.disposed = true;
       store.controller?.abort();
@@ -4638,7 +4799,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   React15.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
-      if (pageVisible()) refreshAttempts(store, store.pendingIds);
+      if (pageVisible()) refreshAttempts(store, store.pendingKeys);
     }, "tick");
     const onVisibility = /* @__PURE__ */ __name(() => {
       if (store.startedAt === void 0 || Date.now() - store.startedAt >= visibleRefreshGapMs) tick();
@@ -4755,8 +4916,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
               taskSessions.length ? h("button", {
                 type: "button",
                 className: "pg-button pg-refresh",
-                disabled: refreshing || !taskIds.length,
-                onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskIds), "onClick")
+                disabled: refreshing || !receipts.size,
+                onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskKeys), "onClick")
               }, refreshing ? msg("正在刷新…", "Refreshing…") : msg("刷新", "Refresh")) : null
             )
           ),

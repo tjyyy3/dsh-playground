@@ -542,9 +542,9 @@ test('timeout covers reading the release body and caller cancellation propagates
 test('importing the release module never reads the package version or fails on an unreadable manifest', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'pg-release-import-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await mkdir(join(directory, 'lib'));
+  await mkdir(join(directory, 'lib', 'task'), { recursive: true });
   await writeFile(join(directory, 'package.json'), '{"type":"module","version":"broken"}');
-  for (const file of ['releases.js', 'api.js']) await copyFile(new URL(`../lib/${file}`, import.meta.url), join(directory, 'lib', file));
+  for (const file of ['releases.js', 'api.js', 'task/evidence.js']) await copyFile(new URL(`../lib/${file}`, import.meta.url), join(directory, 'lib', file));
   const imported = await import(pathToFileURL(join(directory, 'lib/releases.js')).href);
   await writeFile(join(directory, 'package.json'), '{"type":"module","version":"1.0.0"}');
   assert.equal((await imported.queryReleases({ check: false })).currentVersion, '1.0.0');

@@ -1,7 +1,7 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
 import { h } from '../shared/react.js';
-import { receiptAttemptId, receiptProgress, submissionCountsLine, withLatestAttempt } from './attempts.js';
+import { receiptProgress, submissionCountsLine, withLatestAttempt } from './attempts.js';
 import { css } from '../shared/styles.js';
 import { PlaygroundToolCard } from '../cards/tool.js';
 
@@ -135,7 +135,7 @@ function SelectedTask({ session, projection, attempts, useSessionAccess, refresh
   }
   if (projection?.state !== 'ready') return h('p', { className: 'pg-note', role: 'status' }, msg('正在读取任务状态…', 'Loading task status…'));
   const task = projection.values.playgroundTask;
-  const receipt = withLatestAttempt(task?.receipt, attempts?.[receiptAttemptId(task?.receipt)]);
+  const receipt = withLatestAttempt(task, attempts, session.id);
   return h(TaskWorkflow, { ...props, sessionId: session.id, state: receipt === task?.receipt ? task : { ...task, receipt },
     cwd: projection.values.workingDirectory || session.cwd, running: session.running, allowed });
 }

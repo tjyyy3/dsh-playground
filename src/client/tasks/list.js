@@ -1,6 +1,6 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
-import { receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskBundleMissingIds, withLatestAttempt, withSettledAttempt } from './attempts.js';
+import { attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withHistoryAttempt, withLatestAttempt } from './attempts.js';
 import { zhText } from '../shared/locale.js';
 import { h } from '../shared/react.js';
 import { safeMessage } from '../shared/errors.js';
@@ -13,7 +13,7 @@ import { SelectedTask } from './workflow.js';
 function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
   const state = session.projectionValues?.playgroundTask || {};
   const task = state.task;
-  const receipt = withLatestAttempt(state.receipt, attempts?.[receiptAttemptId(state.receipt)]);
+  const receipt = withLatestAttempt(state, attempts, session.id);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
   const title = task?.title || session.displayTitle?.replace(/^Playground · /, '') || msg('Playground 任务', 'Playground task');
   const challengeId = task?.challengeId || msg('赛题待读取', 'Challenge pending');
@@ -43,7 +43,7 @@ function taskAttemptIds(state) {
 // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
 // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
 // `closedIds` are the task's submissions its receipts or the store show closed as "bundle missing".
-function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
   // The first page's counts and partial reason (lib/workflow.js myAttempts).
   const [overview, setOverview] = React.useState({ counts: undefined, partial: '' });
@@ -63,7 +63,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
     latest.controller = controller;
     setBusy(true); setStatus(['正在读取提交历史…', 'Loading submission history…']);
     try {
-      const result = await query({ action: 'my_attempts', challengeId, limit: 50, ...(cursor ? { cursor } : {}) }, controller.signal);
+      const result = await query({ action: 'my_attempts', challengeId, ...(baseUrl ? { baseUrl } : {}), limit: 50, ...(cursor ? { cursor } : {}) }, controller.signal);
       if (latest.controller !== controller) return;
       if (result?.ok === false) {
         if (result.error?.code === 'authentication_required') {
@@ -109,6 +109,7 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
   const items = [...history.items].sort((a, b) => (time(b.createdAt) - time(a.createdAt)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
   const linked = new Set(attemptIds);
   const missing = new Set(bundleMissingIds);
+  const latestId = receiptAttemptId(receipt);
   return h('section', { className: 'pg-guide pg-history', 'aria-label': msg('提交历史', 'Submission history'), 'aria-busy': busy },
     h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status && msg(...status)),
     h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, msg('提交历史', 'Submission history')),
@@ -127,10 +128,13 @@ function AttemptHistory({ challengeId, attemptIds, bundleMissingIds = [], closed
     } }, items.map((item) => {
       // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
       // the conversation, not this attempt, so it is not passed.
-      const progress = receiptProgress(withSettledAttempt(item, attempts?.[Number(item.id)], { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
+      const id = Number(item.id);
+      const latest = id === latestId;
+      const attempt = latest ? receipt : attempts?.[attemptKey({ baseUrl, challengeId }, id)]?.attempt;
+      const progress = receiptProgress(withHistoryAttempt(item, attempt, { latest, closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt))
         ? new Date(item.createdAt).toLocaleString(msg('zh-CN', 'en-US'), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : msg('提交时间未知', 'Submission time unknown');
-      const own = linked.has(Number(item.id));
+      const own = linked.has(id);
       return h('li', { key: item.id, className: 'pg-row' },
         h('div', { className: 'pg-row-main' }, msg(`提交 #${item.id ?? '—'}`, `Submission #${item.id ?? '—'}`),
           h('div', { className: 'pg-row-sub' }, created, ' · ', progress.stageText, ' · ', progress.scoreText)),
@@ -186,17 +190,18 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const title = state.task?.title || session.displayTitle?.replace(/^Playground · /, '') || msg('Playground 任务', 'Playground task');
   // Prefer the freshly refreshed projection for attribution; the catalog value may lag behind.
   const current = (projection?.state === 'ready' && projection.values?.playgroundTask) || state;
-  const historyChallenge = current.task?.challengeId || state.task?.challengeId;
+  const scope = taskAttemptScope({ task: current.task || state.task, receipt: current.receipt });
+  const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
   const attemptIds = taskAttemptIds(current);
   // The task's receipt with its refreshed platform state, as the task row and the drawer summary show it.
-  const latestReceipt = withLatestAttempt(current.receipt, props.attempts?.[receiptAttemptId(current.receipt)]);
+  const latestReceipt = withLatestAttempt(current, props.attempts, session.id);
   // Every submission of the task shown closed as "bundle missing": by a receipt the task recorded
   // (bundleClosedIds, kept after newer receipts), by its latest receipt with the refreshed state laid
   // over it, or by a refreshed entry in the workbench store.
   const closedIds = [...new Set([
     ...(Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : []),
     ...(latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : []),
-    ...attemptIds.filter((id) => props.attempts?.[id]?.attempt?.bundleNotReceived === true),
+    ...attemptIds.filter((id) => id !== receiptAttemptId(current.receipt) && props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true),
   ])].filter((id) => Number.isSafeInteger(id) && id > 0);
   const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
   const archived = Boolean(archive?.archived);
@@ -221,7 +226,11 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       // The newest attributed id and the receipt's confirmation stamp are part of the key: a submission
       // confirmed in this drawer, including a re-upload under the same id, remounts the list and reloads
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
-      historyChallenge && query ? h(AttemptHistory, { key: `${session.id}:${historyChallenge}:${attemptIds.at(-1) ?? ''}:${current.receipt?.confirmedAt ?? current.receipt?.trackedAt ?? ''}`, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds, limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t }) : null));
+      historyChallenge && query ? h(AttemptHistory, {
+        key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
+        baseUrl: scope.baseUrl, challengeId: historyChallenge, receipt: latestReceipt, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds,
+        limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t,
+      }) : null));
 }
 
 export { ArchivedTaskRow, TaskDetailDrawer, TaskSummaryRow };

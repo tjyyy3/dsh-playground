@@ -12,6 +12,8 @@ test('Client builds reproduce the committed entry and freshness checks never ove
   const fixture = await mkdtemp(join(root, '_scratch', 'client-build-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   await cp(join(root, 'src'), join(fixture, 'src'), { recursive: true });
+  await mkdir(join(fixture, 'lib/task'), { recursive: true });
+  await cp(join(root, 'lib/task/evidence.js'), join(fixture, 'lib/task/evidence.js'));
   await mkdir(join(fixture, 'scripts'));
   await cp(join(root, 'scripts/build-client.mjs'), join(fixture, 'scripts/build-client.mjs'));
   await writeFile(join(fixture, 'package.json'), '{"type":"module"}\n');
@@ -29,7 +31,7 @@ test('Client builds reproduce the committed entry and freshness checks never ove
   build();
   assert.equal(await readFile(join(fixture, 'client.js'), 'utf8'), generated);
   assert.equal(await readFile(join(fixture, 'index.js'), 'utf8'), 'Host sentinel\n');
-  assert.deepEqual((await readdir(fixture)).sort(), ['client.js', 'index.js', 'package.json', 'scripts', 'src']);
+  assert.deepEqual((await readdir(fixture)).sort(), ['client.js', 'index.js', 'lib', 'package.json', 'scripts', 'src']);
   assert.equal(generated.includes(root), false);
   assert.equal(generated.includes(fixture), false);
   assert.equal(run('--check').status, 0);
