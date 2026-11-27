@@ -705,17 +705,40 @@ variables and the CLI credentials file are never modified. The card says what
 clearing leads to. If DSH's own environment has a `PLAYGROUND_TOKEN` variable
 (the Host reports only that it is present), DSH answers with it once nothing
 is saved, so the plugin uses that variable, ahead of the CLI file. Otherwise,
-if the CLI credentials file holds a token (presence only), the plugin uses the
-file's token, and the card names the file with `~` for the home directory.
-The note does not cover a `PLAYGROUND_TOKEN` in a `.env` file that DSH reads:
-after clearing, DSH answers with that value and the card shows it as
-**DSH 凭据（来源未确认）**.
-**更换令牌** replaces a saved token.
+the card names the CLI credentials file when it contains a token, with `~` for
+the home directory. DSH can still supply a `PLAYGROUND_TOKEN` from a `.env`
+file ahead of the CLI file. After clearing, the card shows the verified account
+and its effective source.
 
-A `token` in the plugin config wins over every other source, so a token saved
-in the workbench would never be used. With that source the card offers no
-token form and no **更换令牌**; it says to change or remove the token in the
-plugin config instead.
+To switch accounts, select **切换账号** (**Switch account**), paste the target
+account's token, and select **验证新账号** (**Verify new account**). The Host
+reserves a one-time reference. The browser writes the token through DSH's
+credential channel. When DSH commits the write, the Host reads and removes
+the saved candidate before requesting `/api/auth/me`. The browser can collect
+the identity result once. Closing the browser after writing the token does
+not interrupt Host cleanup. The active token still works while you review
+the account name and ID. A failed recheck or a rejected existing credential
+also uses this verification flow. Direct token sign-in requires a check
+that reports no credential.
+
+Select **使用此账号** (**Use this account**) to save the token in DSH. The
+workbench checks the effective credential source and account again. A matching
+account ID confirms the identity. When an ID is missing, the workbench can
+compare account email addresses. A display name alone cannot confirm a switch.
+Another token for the same account produces a token-update message.
+
+If another source supplies the active token, the card identifies it. If the
+check fails after saving, select **重新检测** (**Check again**). To restore the
+previous account, save its token again. A configured plugin token takes
+priority over all other sources. Change or remove it in the plugin configuration
+to enable switching in the workbench.
+
+Switching changes the credential used for future workbench operations. Existing
+tasks and submission receipts keep their account associations. The workbench
+leaves the CLI credentials file, the DSH environment and the plugin configuration
+in the operator's control. Clearing a saved DSH token removes its local copy.
+Website sign-out clears the browser session and expires the Bohrium cookie.
+API token revocation is a separate action on the website.
 
 The platform answers `401` for a token that is invalid, expired or revoked,
 and cannot tell these apart. A refused token is kept. The card shows
@@ -746,9 +769,9 @@ reads, unless a higher source in the order above (the plugin config, a token
 saved in DSH, or a `PLAYGROUND_TOKEN` variable in DSH's environment) still
 holds one. In that case the card says that the CLI login succeeded but the
 other token is still in use, and offers **清除令牌** when that token is saved
-in DSH. While a valid token is saved in DSH, the card shows the logged-in
-identity and no email form: to switch to an email login, click **清除令牌**
-first. The CLI executable is
+in DSH. For a signed-in account, **切换账号** can verify the target account's
+API token before you replace the current token. Email sign-in writes the
+selected CLI credentials file for other tools using that file. The CLI executable is
 `playground` by default and can be changed with the bundle config `cliPath` or
 the `PLAYGROUND_CLI` environment variable. Prefer an absolute `cliPath`; on
 every platform, a relative path containing a slash is resolved against the

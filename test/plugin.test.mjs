@@ -10,6 +10,7 @@ import { PlaygroundApiError } from '../lib/api.js';
 import { workflowProjection } from '../lib/workflow.js';
 import { createMaterialAccess } from '../lib/material-access.js';
 import { controllerProjection } from '../lib/controller.js';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 function mount(config = {}) {
   const registered = [];
@@ -52,6 +53,122 @@ test('read-only tools register before injected task services become available', 
     'playground_open_controller', 'playground_set_controller', 'playground_controller_tasks',
     'playground_controller_codex_chats', 'playground_controller_link_task', 'playground_start_task', 'playground_bind_task', 'playground_task',
   ]);
+});
+
+test('Host reload settles pending verification and removes candidate writes from the disposed instance', async (t) => {
+  const handlers = new Set(), saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const records = new Map();
+  const cleanupEntered = Promise.withResolvers();
+  const releaseCleanup = Promise.withResolvers();
+  const releaseWrite = Promise.withResolvers();
+  const fetch = t.mock.method(globalThis, 'fetch', async () => assert.fail('a disposed verification reached the platform'));
+  let cleanupHeldFor;
+  const publish = (name) => Promise.all([...handlers].map((handler) => handler(name)));
+  const credentials = {
+    ...credentialRecords(records),
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
+    async set(name, value) {
+      saved.set(name, value);
+      await publish(name);
+    },
+    async unset(name) {
+      if (name === cleanupHeldFor) {
+        cleanupEntered.resolve();
+        await releaseCleanup.promise;
+      }
+      if (saved.delete(name)) await publish(name);
+    },
+  };
+  const before = mountAccountHost(credentials, handlers);
+  const cleaning = await before.service.startAccountSwitch();
+  cleanupHeldFor = cleaning.credential;
+  let answer;
+  const verify = before.service.verifyAccount({ id: cleaning.id }).then((value) => { answer = value; });
+  const cleaningWrite = credentials.set(cleaning.credential, `${cleaning.proof}:synthetic-cleaning`);
+  await cleanupEntered.promise;
+  const queued = await before.service.startAccountSwitch();
+  const queuedWrite = releaseWrite.promise.then(() => credentials.set(queued.credential, `${queued.proof}:synthetic-queued`));
+
+  before.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(answer, { authenticated: false, reason: 'unavailable' }, 'disposal releases the browser before the credential lock opens');
+  assert.deepEqual(await before.service.startAccountSwitch(), { ok: false });
+  const after = mountAccountHost(credentials, handlers);
+  t.after(after.dispose);
+  releaseCleanup.resolve();
+  releaseWrite.resolve();
+  await Promise.all([verify, cleaningWrite, queuedWrite]);
+  assert.deepEqual(await after.service.verifyAccount({ id: queued.id }), { authenticated: false, reason: 'unavailable' });
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  assert.equal(records.size, 0);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('Host only cleans files bound to its own account switch recovery record', async (t) => {
+  const handlers = new Set(), saved = new Map(), records = new Map(), removed = [];
+  const publish = (name) => Promise.all([...handlers].map((handler) => handler(name)));
+  const credentials = {
+    ...credentialRecords(records),
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    async set(name, value) { saved.set(name, value); await publish(name); },
+    async unset(name) { removed.push(name); saved.delete(name); },
+  };
+  const host = mountAccountHost(credentials, handlers);
+  t.after(host.dispose);
+  const outside = 'PLAYGROUND_SWITCH_' + 'F'.repeat(8) + '_' + 'A'.repeat(32);
+  records.set('other-plugin/' + outside.toLowerCase().replaceAll('_', '-'), { kind: 'grant', payload: null });
+  await credentials.set(outside, 'synthetic-outside');
+  const ticket = await host.service.startAccountSwitch();
+  await credentials.set(ticket.credential, 'synthetic-unrelated');
+  assert.deepEqual([...saved], [[outside, 'synthetic-outside'], [ticket.credential, 'synthetic-unrelated']]);
+  assert.deepEqual(removed, []);
+});
+
+test('Host retries recovery record deletion after a successful unset', async (t) => {
+  const handlers = new Set(), saved = new Map(), records = new Map(), removed = [];
+  const recordStore = credentialRecords(records);
+  const deleteFailed = Promise.withResolvers();
+  const deleted = Promise.withResolvers();
+  let failDelete = true;
+  const credentials = {
+    ...recordStore,
+    describe: (name) => saved.has(name) ? { source: 'file' } : { configured: false },
+    resolve: (name) => saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined,
+    set(name, value) { saved.set(name, value); },
+    async unset(name) { removed.push(name); saved.delete(name); },
+    async deleteRecord(key) {
+      if (failDelete) {
+        deleteFailed.resolve();
+        throw Error('synthetic record write failure');
+      }
+      await recordStore.deleteRecord(key);
+      if (!records.size) deleted.resolve();
+    },
+  };
+  const original = mountAccountHost(credentials, handlers);
+  const tickets = await Promise.all([original.service.startAccountSwitch(), original.service.startAccountSwitch()]);
+  original.dispose();
+  for (const ticket of tickets) saved.set(ticket.credential, `${ticket.proof}:synthetic-candidate`);
+
+  const first = mountAccountHost(credentials, handlers);
+  await deleteFailed.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  first.dispose();
+  assert.equal(saved.size, 0);
+  assert.equal(records.size, 2);
+  assert.ok([...records.values()].every((record) => record.payload.observed));
+
+  const foreign = tickets[0].credential;
+  saved.set(foreign, 'synthetic-unrelated');
+  failDelete = false;
+  const retry = mountAccountHost(credentials, handlers);
+  t.after(retry.dispose);
+  await deleted.promise;
+  assert.deepEqual([...saved], [[foreign, 'synthetic-unrelated']]);
+  assert.deepEqual(removed.sort(), tickets.map((ticket) => ticket.credential).sort());
+  assert.equal(records.size, 0);
 });
 
 test('release channel comes from plugin config and defaults to stable', () => {
@@ -796,7 +913,7 @@ test('status reports counts and policy for the same current account after switch
   const row = { attemptId: 11, authorId: 5, challengeId: 'challenge-a', time, countsTowardQuota: true };
   await withSyntheticPlatform(async () => {
     const stored = { total: 1, lifetime: 1, counted: 1, scope: 'current_account' };
-    const state = pendingState({ submissionCounts: stored });
+    const state = pendingState({ submissionCounts: stored, attemptIds: [7] });
     state.prepared.submissionCounts = stored;
     const { tools, exec } = mountWorkflowScope(state, { config: SYNTHETIC_CONFIG });
     const status = () => tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
@@ -808,6 +925,10 @@ test('status reports counts and policy for the same current account after switch
     assert.equal(after.submissionCounts.total, 0);
     assert.equal(after.submissionCounts.lifetime, 0);
     assert.match(after.submitPolicy.announcement, /今天已提交 0 次/);
+    assert.equal(before.receipt.attemptId, 7);
+    assert.deepEqual(after.receipt, before.receipt);
+    assert.deepEqual(after.attemptIds, [7]);
+    assert.deepEqual(after.task, before.task);
     assert.equal(reads, 2);
   }, { userId: () => user, submissions: () => { reads++; return [row]; } });
 });

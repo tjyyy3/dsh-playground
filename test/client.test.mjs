@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -7,10 +7,12 @@ import { createPlaygroundClient } from '../lib/api.js';
 import { readCompetitionNotices } from '../lib/competition-notices.js';
 import { createControllerHandoff } from '../lib/controller/handoff.js';
 import { controllerKey } from '../lib/controller/projection.js';
+import { createTokenResolver, normalizeSettings } from '../lib/host/settings.js';
 import { publicChallengeUrl } from '../lib/links.js';
 import { createReleaseQuery } from '../lib/releases.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow, workflowProjection } from '../lib/workflow.js';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 let fixtureId = 0;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -1062,15 +1064,20 @@ function taskViews(f, playgroundTask, t, { running = false } = {}) {
 }
 
 // Routes the Client's session-free query through the real query contract and workflow onto a fake Playground client.
-function historyRpc(client, calls) {
+function historyRpc(client, calls, options = {}) {
   const services = new Map();
+  const peer = {};
   let contribution;
-  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } } },
-    createWorkflow({ ctx: {}, client }));
-  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  registerWorkbenchQueries({ provide: (key, value) => services.set(key, value), typert: { register: (value) => { contribution = value; } },
+    get: () => ({ browserPeer: peer }), invocation: { peer } },
+    createWorkflow({ ctx: {}, client, ...options }));
   return async (route, endpoint, payload, signal) => {
     calls.push([route, endpoint, payload]);
-    try { return { ok: true, value: await services.get('playgroundQueries').query(schema.parse(payload.args.input), signal) }; }
+    try {
+      const method = endpoint.split('/')[1];
+      const schema = contribution.invocations.find((item) => item.method === method).parameters[0].codec.create();
+      return { ok: true, value: await services.get('playgroundQueries')[method](schema.parse(payload.args.input), signal) };
+    }
     catch (error) { return { ok: false, error: { code: 'gateway/internal', message: error.message } }; }
   };
 }
@@ -4175,7 +4182,7 @@ test('#25: an ordinary conversation bound with playground_bind_task appears in t
 });
 
 // #12: the API token login. `auth` is what the Host's auth query answers; every RPC and credential call is recorded.
-async function tokenPanel(t, auth) {
+async function tokenPanel(t, auth, { credentials, call, language } = {}) {
   const calls = [];
   const opened = [];
   let value = auth;
@@ -4183,12 +4190,20 @@ async function tokenPanel(t, auth) {
     remote: {
       commands: { execute: () => assert.fail('a token action reached command history') },
       credentials: {
-        set: async (name, secret) => { calls.push(['set', name, secret]); },
-        unset: async (name) => { calls.push(['unset', name]); },
+        set: async (name, secret) => { calls.push(['set', name, secret]); await credentials?.set(name, secret); },
+        unset: async (name) => { calls.push(['unset', name]); await credentials?.unset(name); },
       },
     },
-    connection: { rpc: { call: async (...args) => { calls.push(['rpc', ...args.slice(0, 3)]); return { ok: true, value }; } } },
-  });
+    connection: { rpc: { call: async (...args) => {
+      calls.push(['rpc', ...args.slice(0, 3)]);
+      if (call) return call(...args);
+      if (args[1] === 'playgroundQueries/startAccountSwitch') {
+        const id = crypto.randomUUID();
+        return { ok: true, value: { ok: true, id, proof: crypto.randomUUID(), credential: 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase() } };
+      }
+      return { ok: true, value: await value };
+    } } },
+  }, { localStorage: { getItem: (key) => key === 'dsh-playground.ui-language' ? language ?? null : null } });
   globalThis.window.open = (...args) => { opened.push(args); };
   const element = f.workbench(undefined).auth;
   const view = { calls, opened, f, element, setAuth: (next) => { value = next; },
@@ -4196,12 +4211,254 @@ async function tokenPanel(t, auth) {
     rerender: () => { view.tree = f.render(element.type, element.props); return view.tree; },
     text: () => text(view.tree),
     button: (label) => f.find(view.tree, (node) => node.type === 'button' && text(node).trim() === label),
-    tokenForm: () => f.find(view.tree, (node) => node.type === 'form' && node.props['aria-label'] === 'API 令牌登录'),
+    tokenForm: () => f.find(view.tree, (node) => node.type === 'form' && ['API 令牌登录', 'Sign in with an API token', '切换账号', 'Switch account'].includes(node.props['aria-label'])),
     tokenInput: () => f.find(view.tokenForm(), (node) => node.type === 'input'),
   };
   return view;
 }
 const rpcCalls = (calls) => calls.filter(([kind]) => kind === 'rpc');
+
+function enterSwitchToken(panel, value, label = '切换账号') {
+  panel.button(label).props.onClick();
+  panel.rerender();
+  panel.tokenInput().props.onChange({ target: { value } });
+  panel.rerender();
+}
+const submitTokenForm = (panel) => panel.tokenForm().props.onSubmit({ preventDefault() {} });
+
+test('switch account previews a different account, then verifies the active DSH token without changing the shared CLI login', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'playground-account-switch-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, 'credentials.env');
+  const shared = 'PLAYGROUND_TOKEN=synthetic-cli\n';
+  await writeFile(file, shared);
+  const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-old']]);
+  const events = new Map();
+  const credentials = {
+    ...credentialRecords(),
+    set(key, value) { saved.set(key, value); events.get('credentials/reference-updated')?.(key); },
+    unset(key) { if (saved.delete(key)) events.get('credentials/reference-updated')?.(key); },
+    resolve: (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : undefined,
+    describe: (key) => saved.has(key) ? { source: 'file' } : undefined,
+  };
+  const ctx = { get: () => credentials, on: (event, handler) => events.set(event, handler), effect: (register) => t.after(register()) };
+  const resolver = createTokenResolver(normalizeSettings({ credentialsPath: file }), ctx);
+  const entered = deferred(), verified = deferred();
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test', resolveToken: resolver,
+    fetchImpl: async (url, init) => {
+      assert.equal(url.pathname, '/api/auth/me');
+      assert.equal(init.method, 'GET');
+      const credential = init.headers.authorization;
+      if (credential === 'Bearer synthetic-new') {
+        if (saved.get('PLAYGROUND_TOKEN') === 'synthetic-new') { entered.resolve(); await verified.promise; }
+        return Response.json({ user: { profile: { id: 'agent-2', name: 'Alex', user_type: 'agent' } } });
+      }
+      assert.ok(['Bearer synthetic-old', 'Bearer synthetic-cli'].includes(credential));
+      return Response.json({ id: credential === 'Bearer synthetic-old' ? 'human-1' : 'cli-3', name: 'Alex' });
+    } });
+  const requests = [];
+  const call = historyRpc(client, requests, { ctx, tokenStatus: resolver.inspect });
+  let read;
+  const panel = await tokenPanel(t, undefined, { credentials, language: 'en', call: (...args) => read = call(...args) });
+  await read; await settle(); panel.rerender();
+  assert.match(panel.text(), /Account ID: human-1/);
+  enterSwitchToken(panel, 'synthetic-new', 'Switch account');
+  await submitTokenForm(panel); panel.rerender();
+  assert.match(panel.text(), /This token belongs to Alex \(#agent-2\)/);
+  assert.match(panel.text(), /Account ID: human-1/);
+  assert.equal(saved.get('PLAYGROUND_TOKEN'), 'synthetic-old');
+  assert.equal(saved.size, 1, 'the temporary credential is gone after preview');
+  const applying = submitTokenForm(panel);
+  await entered.promise;
+  assert.doesNotMatch(text(panel.rerender()), /Switched to/);
+  verified.resolve();
+  await applying;
+  assert.match(text(panel.rerender()), /Switched to Alex \(#agent-2\)/);
+  assert.match(panel.text(), /Current identity: Agent account/);
+  assert.equal(saved.get('PLAYGROUND_TOKEN'), 'synthetic-new');
+  await panel.button('Clear token').props.onClick();
+  assert.match(text(panel.rerender()), /Account ID: cli-3/);
+  assert.equal(await readFile(file, 'utf8'), shared);
+  assert.deepEqual([...saved], []);
+  for (const [route, method, payload] of requests) {
+    assert.equal(route, '/api');
+    assert.ok(['playgroundQueries/startAccountSwitch', 'playgroundQueries/verifyAccount', 'playgroundQueries/query'].includes(method));
+    if (method === 'playgroundQueries/query') assert.equal(payload.args.input.action, 'auth');
+    assert.doesNotMatch(JSON.stringify(payload), /synthetic-(old|new|cli)/);
+  }
+});
+
+test('a new Host clears a candidate committed after the old Host and browser closed without recovering its ticket', async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), 'playground-account-recovery-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const settings = { credentialsPath: join(folder, 'credentials.env'), cliPath: join(folder, 'unavailable-cli') };
+  const unrelated = 'PLAYGROUND_SWITCH_' + 'D'.repeat(8) + '_' + 'A'.repeat(32);
+  const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current'], [unrelated, 'synthetic-unrelated']]);
+  const records = new Map([['other-plugin/' + unrelated.toLowerCase().replaceAll('_', '-'), { kind: 'grant', payload: null }]]);
+  const writeEntered = deferred(), releaseWrite = deferred(), writeCommitted = deferred();
+  const handlers = new Set();
+  const read = [];
+  const makeStore = () => ({
+    ...credentialRecords(records),
+    set(name, value) {
+      saved.set(name, value);
+      for (const handle of handlers) handle(name);
+    },
+    unset(name) {
+      if (saved.delete(name)) for (const handle of handlers) handle(name);
+    },
+    resolve(name) {
+      read.push(name);
+      return saved.has(name) ? { source: 'file', value: saved.get(name) } : undefined;
+    },
+    describe: (name) => saved.has(name) ? { source: 'file' } : undefined,
+  });
+  const fetch = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.equal(init.headers.authorization, 'Bearer synthetic-current');
+    return Response.json({ id: 'current', name: 'Current account' });
+  });
+  const credentials = makeStore();
+  const before = mountAccountHost(credentials, handlers, settings);
+  let ticket, lastCall;
+  const panel = await tokenPanel(t, undefined, { credentials: {
+    async set(name, value) {
+      writeEntered.resolve();
+      await releaseWrite.promise;
+      credentials.set(name, value);
+      writeCommitted.resolve();
+      // The credential operation still commits after the browser loses its connection.
+      return new Promise(() => {});
+    },
+    unset() { assert.fail('the browser closed before it could clean up'); },
+  }, call: async (_route, endpoint, payload) => {
+    lastCall = before.service[endpoint.split('/')[1]](payload.args.input);
+    const value = await lastCall;
+    if (endpoint.endsWith('/startAccountSwitch')) ticket = value;
+    return { ok: true, value };
+  } });
+  await lastCall; await settle(); panel.rerender();
+  enterSwitchToken(panel, 'synthetic-candidate');
+  void submitTokenForm(panel);
+  await writeEntered.promise;
+  const candidateRecord = 'playground-competition/' + ticket.credential.toLowerCase().replaceAll('_', '-');
+  assert.deepEqual(records.get(candidateRecord), { kind: 'grant', payload: { proof: ticket.proof } });
+
+  panel.f.unmount(panel.element.type);
+  before.dispose();
+  assert.equal(handlers.size, 0);
+  releaseWrite.resolve();
+  await writeCommitted.promise;
+  assert.equal(saved.get(ticket.credential), `${ticket.proof}:synthetic-candidate`);
+
+  const after = mountAccountHost(makeStore(), handlers, settings);
+  t.after(after.dispose);
+  await settle();
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current'], [unrelated, 'synthetic-unrelated']]);
+  assert.equal(records.has(candidateRecord), false);
+  assert.equal(records.size, 1);
+  assert.deepEqual(await after.service.verifyAccount({ id: ticket.id }), { authenticated: false, reason: 'unavailable' });
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.deepEqual(read, ['PLAYGROUND_TOKEN', ticket.credential]);
+});
+
+test('a rejected, unreachable or unidentifiable candidate preserves the active token, and a preview can be cancelled', async (t) => {
+  const current = { authenticated: true, tokenSource: 'dsh', user: { id: 1, name: 'Alex' } };
+  const panel = await tokenPanel(t, current);
+  enterSwitchToken(panel, 'synthetic-candidate');
+  for (const answer of [{ authenticated: false, reason: 'rejected' }, { authenticated: false, reason: 'network' },
+    { authenticated: true, user: { name: 'Alex' } }]) {
+    panel.setAuth(answer);
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), /当前 DSH 令牌未被替换/);
+    assert.match(panel.text(), /账号 ID：1/);
+    assert.equal(panel.button('使用此账号'), undefined);
+  }
+  panel.setAuth({ authenticated: true, user: { id: 2, name: 'Alex' } });
+  await submitTokenForm(panel); panel.rerender();
+  assert.ok(panel.button('使用此账号'));
+  panel.tokenInput().props.onChange({ target: { value: 'different-input' } });
+  panel.rerender();
+  assert.ok(panel.button('验证新账号'), 'editing the token discards its verified preview');
+  panel.button('取消').props.onClick();
+  assert.ok(text(panel.rerender()).includes('切换账号'));
+  assert.equal(panel.tokenForm(), undefined);
+  assert.equal(panel.calls.some(([kind, key]) => ['set', 'unset'].includes(kind) && key === 'PLAYGROUND_TOKEN'), false);
+  assert.doesNotMatch(JSON.stringify(rpcCalls(panel.calls)), /synthetic-candidate|different-input/);
+});
+
+test('a failed recheck of an existing account still requires preview and confirmation before replacement', async (t) => {
+  const prior = { authenticated: true, tokenSource: 'dsh', user: { id: 1, name: 'Ada' } };
+  const target = { authenticated: true, tokenSource: 'dsh', user: { id: 2, name: 'New user' } };
+  for (const failed of [{ authenticated: false, reason: 'network' }, { authenticated: false, reason: 'rejected', tokenSource: 'dsh' }]) {
+    const panel = await tokenPanel(t, prior);
+    panel.setAuth(failed);
+    await panel.button('重新检测').props.onClick();
+    panel.rerender();
+    assert.match(panel.text(), /上次核实的账号为 Ada \(#1\)/);
+    assert.equal(panel.button('保存令牌'), undefined);
+    panel.tokenInput().props.onChange({ target: { value: 'synthetic-replacement' } });
+    panel.rerender();
+    panel.setAuth(target);
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), /新令牌属于 New user \(#2\)/);
+    assert.equal(panel.calls.some(([kind, key]) => kind === 'set' && key === 'PLAYGROUND_TOKEN'), false);
+    assert.ok(panel.button('使用此账号'));
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), /已切换到 New user \(#2\)/);
+    assert.equal(panel.calls.filter(([kind, key]) => kind === 'set' && key === 'PLAYGROUND_TOKEN').length, 1);
+  }
+  const unknown = await tokenPanel(t, { authenticated: false, reason: 'network' });
+  assert.ok(unknown.button('验证新账号'));
+  assert.equal(unknown.button('保存令牌'), undefined);
+});
+
+test('unavailable browser verification leaves candidate cleanup with the Host', async (t) => {
+  const id = crypto.randomUUID(), proof = crypto.randomUUID();
+  const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
+  const saved = new Map([['PLAYGROUND_TOKEN', 'synthetic-current']]);
+  const panel = await tokenPanel(t, undefined, {
+    credentials: { set: (name, value) => saved.set(name, value), unset: (name) => saved.delete(name) },
+    call: async (_route, method) => {
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential, proof } };
+      if (method.endsWith('/verifyAccount')) assert.equal(saved.get(credential), `${proof}:synthetic-candidate`);
+      return { ok: true, value: { authenticated: false, reason: 'unavailable' } };
+    },
+  });
+  panel.tokenInput().props.onChange({ target: { value: 'synthetic-candidate' } });
+  panel.rerender();
+  await submitTokenForm(panel);
+  assert.deepEqual([...saved], [['PLAYGROUND_TOKEN', 'synthetic-current'], [credential, `${proof}:synthetic-candidate`]]);
+  assert.match(text(panel.rerender()), /暂时无法核实新令牌的账号/);
+  assert.equal(panel.button('使用此账号'), undefined);
+});
+
+test('the switch result distinguishes the same account, an overriding source, a different ID and an unverified save', async (t) => {
+  const prior = { id: 5, name: 'Alex', email: 'a@example.test' };
+  const next = { id: 'new', name: 'Alex', email: 'a@example.test' };
+  const signedIn = (user, tokenSource = 'dsh') => ({ authenticated: true, user, tokenSource });
+  for (const [candidate, active, expected] of [
+    [{ ...prior, id: '5' }, signedIn(prior), /已更新令牌，当前账号仍为 Alex \(#5\)/],
+    [next, signedIn(prior, 'config'), /令牌来自插件配置.*更新或移除令牌/],
+    [next, signedIn(prior, 'env'), /令牌来自环境变量.*PLAYGROUND_TOKEN/],
+    [next, signedIn(prior), /实际使用 Alex \(#5\).*重新保存原账号的令牌/],
+    [next, { authenticated: false, reason: 'network', tokenSource: 'dsh' }, /已把 Alex \(#new\) 的令牌保存到 DSH。尚未核实工作台的当前账号/],
+  ]) {
+    const panel = await tokenPanel(t, signedIn(prior));
+    enterSwitchToken(panel, 'synthetic-candidate');
+    panel.setAuth(signedIn(candidate));
+    await submitTokenForm(panel); panel.rerender();
+    panel.setAuth(active);
+    await submitTokenForm(panel); panel.rerender();
+    assert.match(panel.text(), expected);
+    assert.doesNotMatch(panel.text(), /已切换到/);
+    if (active.reason === 'network') {
+      panel.setAuth(signedIn(next));
+      await panel.button('重新检测').props.onClick();
+      assert.match(text(panel.rerender()), /已切换到 Alex \(#new\)/);
+      assert.equal(panel.calls.filter(([kind, key]) => kind === 'set' && key === 'PLAYGROUND_TOKEN').length, 1);
+    }
+  }
+});
 
 test('#12: saving an API token stores it only in the DSH credential store, then checks the login again', async (t) => {
   const panel = await tokenPanel(t, { authenticated: false, baseUrl: 'https://play.bohrium.com/api', reason: 'no_token', tokenSource: 'none' });
@@ -4237,11 +4494,14 @@ test('#12: an empty or malformed token is rejected in the Client and never store
   panel.tokenForm().props.onSubmit({ preventDefault() {} });
   await settle();
   assert.match(text(panel.rerender()), /请先粘贴 API 令牌/);
-  const { saveToken } = panel.f.registrations.get('playground.library').definition.inject();
+  const { saveToken, previewToken } = panel.f.registrations.get('playground.library').definition.inject();
+  const before = panel.calls.length;
   for (const [value, expected] of [['', /请先粘贴 API 令牌/], [' \n ', /请先粘贴 API 令牌/], [undefined, /请先粘贴 API 令牌/], ['asp_one two', /不能有空格或换行/]]) {
-    await assert.rejects(saveToken(value), (error) => expected.test(error.message) && !error.message.includes('asp_'), String(value));
+    const matches = (error) => expected.test(error.message) && !error.message.includes('asp_');
+    await assert.rejects(saveToken(value), matches, String(value));
+    await assert.rejects(previewToken(value), matches, String(value));
   }
-  assert.deepEqual(panel.calls.filter(([kind]) => kind === 'set'), []);
+  assert.deepEqual(panel.calls.slice(before), [], 'validation precedes both writes and reservations');
 });
 
 test('#12: a credential store failure is reported without the token', async (t) => {
@@ -4255,7 +4515,7 @@ test('#12: a credential store failure is reported without the token', async (t) 
 test('#12: 清除令牌 only unsets PLAYGROUND_TOKEN in DSH and warns that the CLI file token stays in use', async (t) => {
   const panel = await tokenPanel(t, { authenticated: true, baseUrl: 'https://play.bohrium.com/api', user: { name: 'Ada' },
     tokenSource: 'dsh', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' });
-  assert.match(panel.text(), /CLI 凭据文件 ~\/\.config\/playground\/credentials\.env 中也有令牌。清除 DSH 中的令牌后，插件仍会使用该文件中的令牌/);
+  assert.match(panel.text(), /CLI 凭据文件 ~\/\.config\/playground\/credentials\.env 中也有令牌。清除 DSH 中的令牌后，若 DSH 没有提供其他凭据，工作台将使用该文件/);
   const before = rpcCalls(panel.calls).length;
   panel.setAuth({ authenticated: true, baseUrl: 'https://play.bohrium.com/api', user: { name: 'Ada' }, tokenSource: 'cli_file', cliFileToken: true, cliFilePath: '~/.config/playground/credentials.env' });
   await panel.button('清除令牌').props.onClick();
@@ -4384,6 +4644,42 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('email sign-in discards a delayed candidate identity and leaves the CLI account active', async (t) => {
+  const id = crypto.randomUUID(), proof = crypto.randomUUID();
+  const credential = 'PLAYGROUND_SWITCH_' + '1'.repeat(8) + '_' + id.replaceAll('-', '').toUpperCase();
+  const pending = deferred();
+  const verifying = deferred();
+  let auth = { authenticated: false, reason: 'network' };
+  const panel = await tokenPanel(t, undefined, {
+    call: async (_route, method) => {
+      if (method.endsWith('/startAccountSwitch')) return { ok: true, value: { ok: true, id, credential, proof } };
+      if (method.endsWith('/verifyAccount')) {
+        verifying.resolve();
+        return pending.promise;
+      }
+      if (method.endsWith('/login')) {
+        auth = { authenticated: true, tokenSource: 'cli_file', user: { id: 'cli', name: 'CLI account' } };
+        return { ok: true, value: { ok: true } };
+      }
+      return { ok: true, value: auth };
+    },
+  });
+  panel.tokenInput().props.onChange({ target: { value: 'synthetic-candidate' } });
+  panel.rerender();
+  const verification = submitTokenForm(panel);
+  await verifying.promise;
+  assert.match(text(panel.rerender()), /正在验证/);
+  await emailLogin(panel);
+  assert.match(panel.text(), /账号 ID：cli/);
+  assert.equal(panel.button('切换账号').props.disabled, false);
+  pending.resolve({ ok: true, value: { authenticated: true, user: { id: 'candidate', name: 'Candidate' } } });
+  await verification;
+  assert.match(text(panel.rerender()), /账号 ID：cli/);
+  assert.equal(panel.button('使用此账号'), undefined);
+  assert.equal(panel.tokenForm(), undefined);
+  assert.equal(panel.calls.some(([kind, name]) => kind === 'set' && name === 'PLAYGROUND_TOKEN'), false);
+});
+
 test('#12: an email login while a DSH token is in use says, outside the collapsed section, that the stored token still wins', async (t) => {
   const refused = { authenticated: false, baseUrl: BASE, reason: 'rejected', tokenSource: 'dsh', ...FILE_FACTS };
   const panel = await tokenPanel(t, refused);
@@ -4392,7 +4688,7 @@ test('#12: an email login while a DSH token is in use says, outside the collapse
   assert.ok(panel.calls.some(([kind, , method]) => kind === 'rpc' && method === 'playgroundQueries/login'), 'the CLI login ran');
   const note = loginNote(panel);
   assert.ok(note, 'the result is shown');
-  assert.match(text(note), /CLI 登录成功，但插件仍在使用DSH 凭据中保存的令牌，它优先于 CLI 凭据文件。点击“清除令牌”后，插件改用刚登录的账号/);
+  assert.match(text(note), /CLI 登录成功，但插件仍在使用DSH 凭据中保存的令牌，它优先于 CLI 凭据文件。点击“清除令牌”后，请核对工作台重新检测到的账号/);
   assert.equal(panel.f.find(otherLogin(panel), (node) => node === note), undefined, 'not inside 其他登录方式');
   assert.ok(panel.f.find(statusLine(panel), (node) => node === note), 'part of the announced status line');
   assert.ok(panel.button('清除令牌'));
@@ -4427,7 +4723,7 @@ test('#12: an email login while a DSH token is in use says, outside the collapse
 test('#12: under a plugin-config token the card offers no token form and says the config must be changed', async (t) => {
   const panel = await tokenPanel(t, { authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource: 'config' });
   assert.equal(panel.tokenForm(), undefined);
-  assert.equal(panel.f.find(panel.tree, (node) => node.type === 'summary' && text(node).trim() === '更换令牌'), undefined);
+  assert.equal(panel.button('切换账号').props.disabled, true);
   assert.match(panel.text(), /令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌/);
   assert.equal(panel.button('清除令牌'), undefined);
   // A refused config token is explained, but there is still no form for a token that would be ignored.
@@ -4441,6 +4737,8 @@ test('#12: under a plugin-config token the card offers no token form and says th
   for (const tokenSource of ['dsh', 'dsh_other', 'cli_file', 'env']) {
     panel.setAuth({ authenticated: true, baseUrl: BASE, user: { name: 'Ada' }, tokenSource });
     panel.tree = await panel.f.mount(panel.element);
+    panel.button('切换账号').props.onClick();
+    panel.rerender();
     assert.ok(panel.tokenForm(), tokenSource);
   }
 });
