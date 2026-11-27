@@ -58,6 +58,13 @@ const plugin = {
       throw new Error(queryFailure(result.error));
     };
     const query = (input, signal) => requestHost('query', input, signal);
+    const storeToken = async (name, value) => {
+      const token = typeof value === 'string' ? value.trim() : '';
+      if (!token) throw new Error(msg('请先粘贴 API 令牌。', 'Paste an API token first.'));
+      if (/\s/.test(token)) throw new Error(msg('令牌中不能有空格或换行，请从网站重新复制。', 'Copy the token again without spaces or line breaks.'));
+      try { await ctx.remote.credentials.set(name, token); }
+      catch { throw new Error(msg('无法把令牌保存到 DSH 凭据存储，请重试。', 'Could not save the token in DSH. Please try again.')); }
+    };
     const releaseChecks = createReleaseChecks(query, () => globalThis.window?.localStorage);
     ctx.effect(() => () => releaseChecks.cancel());
     const actions = {
@@ -122,12 +129,17 @@ const plugin = {
       },
       // The API token goes only to the DSH credential store, never into an RPC, a command or a conversation.
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
-      saveToken: async (value) => {
-        const token = typeof value === 'string' ? value.trim() : '';
-        if (!token) throw new Error(msg('请先粘贴 API 令牌。', 'Paste an API token first.'));
-        if (/\s/.test(token)) throw new Error(msg('令牌中不能有空格或换行，请从网站重新复制。', 'Copy the token again without spaces or line breaks.'));
-        try { await ctx.remote.credentials.set('PLAYGROUND_TOKEN', token); }
-        catch { throw new Error(msg('无法把令牌保存到 DSH 凭据存储，请重试。', 'Could not save the token in DSH. Please try again.')); }
+      saveToken: (value) => storeToken('PLAYGROUND_TOKEN', value),
+      previewToken: async (value) => {
+        const candidateId = crypto.randomUUID();
+        const key = 'PLAYGROUND_SWITCH_' + candidateId.replaceAll('-', '').toUpperCase();
+        try {
+          await storeToken(key, value);
+          return await query({ action: 'auth', candidateId });
+        } finally {
+          try { await ctx.remote.credentials.unset(key); }
+          catch { throw new Error(msg(`请在 DSH 凭据中清除临时凭据 ${key}，然后重试。`, `Remove the temporary credential ${key} from DSH credentials, then try again.`)); }
+        }
       },
       // Clears only the DSH copy; the CLI credentials file is never modified.
       clearToken: async () => {

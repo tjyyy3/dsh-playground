@@ -603,18 +603,48 @@ __name(tokenProblem, "tokenProblem");
 function clearNote(state) {
   if (state.tokenSource !== "dsh") return "";
   if (state.envToken) return msg(`DSH 的环境中还有 PLAYGROUND_TOKEN 变量。清除 DSH 中保存的令牌后，插件会改用该变量中的令牌（它优先于 CLI 凭据文件）；插件不会修改环境变量${state.cliFileToken ? "或 CLI 凭据文件" : ""}。`, `The DSH environment also contains PLAYGROUND_TOKEN. Clearing the saved token switches to the environment token, which overrides the CLI credentials file. The environment variable${state.cliFileToken ? " and CLI credentials file remain unchanged" : " remains unchanged"}.`);
-  if (state.cliFileToken) return msg(`CLI 凭据文件 ${state.cliFilePath || ""} 中也有令牌。清除 DSH 中的令牌后，插件仍会使用该文件中的令牌；插件不会修改这个文件。`, `The CLI credentials file ${state.cliFilePath || ""} also contains a token. After you clear the saved DSH token, the plugin uses the token in that file without modifying it.`);
-  return "";
+  if (state.cliFileToken) return msg(`CLI 凭据文件 ${state.cliFilePath || ""} 中也有令牌。清除 DSH 中的令牌后，若 DSH 没有提供其他凭据，工作台将使用该文件。请核对重新检测到的账号。`, `The CLI credentials file ${state.cliFilePath || ""} also contains a token. After the saved DSH token is cleared, the workbench uses that file if DSH supplies no other credential. Check the account shown after the refresh.`);
+  return msg("清除令牌只移除 DSH 保存的副本。网站会话和 API 令牌仍由 Playground 管理。", "Clear token removes the copy saved in DSH. Playground manages the website session and the API token.");
 }
 __name(clearNote, "clearNote");
 function loginOverridden(state) {
   const what = ABOVE_CLI_FILE()[state.tokenSource];
   if (!what) return "";
-  const next = state.tokenSource === "dsh" ? state.envToken ? msg("清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。", "Clearing the token will switch to PLAYGROUND_TOKEN in the DSH environment. To use the account you just signed in to, remove that variable and restart DSH.") : msg("点击“清除令牌”后，插件改用刚登录的账号。", "Select Clear token to use the account you just signed in to.") : state.tokenSource === "config" ? msg("如需改用刚登录的账号，请删除插件配置中的令牌。", "Remove the token from the plugin configuration to use the account you just signed in to.") : state.tokenSource === "env" ? msg("如需改用刚登录的账号，请移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH。", "Remove PLAYGROUND_TOKEN from the DSH environment and restart DSH to use the account you just signed in to.") : msg("如需改用刚登录的账号，请移除 DSH 凭据中的 PLAYGROUND_TOKEN，以及 DSH 环境中的同名变量，然后重启 DSH。", "Remove PLAYGROUND_TOKEN from both DSH credentials and the DSH environment, then restart DSH to use the account you just signed in to.");
+  const next = state.tokenSource === "dsh" ? state.envToken ? msg("清除令牌后，插件会改用 DSH 环境变量 PLAYGROUND_TOKEN 中的令牌，它可能不是刚登录的账号；如需改用该账号，还需移除这个环境变量并重启 DSH。", "Clearing the token will switch to PLAYGROUND_TOKEN in the DSH environment. To use the account you just signed in to, remove that variable and restart DSH.") : msg("点击“清除令牌”后，请核对工作台重新检测到的账号。", "Select Clear token, then check which account the workbench verifies.") : state.tokenSource === "config" ? msg("如需改用刚登录的账号，请删除插件配置中的令牌。", "Remove the token from the plugin configuration to use the account you just signed in to.") : state.tokenSource === "env" ? msg("如需改用刚登录的账号，请移除 DSH 环境中的 PLAYGROUND_TOKEN 变量后重启 DSH。", "Remove PLAYGROUND_TOKEN from the DSH environment and restart DSH to use the account you just signed in to.") : msg("如需改用刚登录的账号，请移除 DSH 凭据中的 PLAYGROUND_TOKEN，以及 DSH 环境中的同名变量，然后重启 DSH。", "Remove PLAYGROUND_TOKEN from both DSH credentials and the DSH environment, then restart DSH to use the account you just signed in to.");
   return msg(`CLI 登录成功，但插件仍在使用${what}，它优先于 CLI 凭据文件。${next}`, `CLI sign-in succeeded. The plugin still uses ${what}, which takes priority over the CLI credentials file. ${next}`);
 }
 __name(loginOverridden, "loginOverridden");
-function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }) {
+function sameAccount(left, right) {
+  if (left?.id != null && right?.id != null) return String(left.id) === String(right.id);
+  if (left?.email && right?.email) return left.email.toLowerCase() === right.email.toLowerCase();
+  return void 0;
+}
+__name(sameAccount, "sameAccount");
+function accountLabel(user) {
+  const name = user.name || user.email || msg("账号", "Account");
+  return user.id == null ? user.email || name : `${name} (#${user.id})`;
+}
+__name(accountLabel, "accountLabel");
+function savedSwitchNote(attempt, current) {
+  const target = accountLabel(attempt.expected);
+  const saved = msg(`已把 ${target} 的令牌保存到 DSH。`, `DSH saved the token for ${target}. `);
+  const source = TOKEN_SOURCES()[current.tokenSource];
+  if (source && current.tokenSource !== "dsh") {
+    const next = current.tokenSource === "config" ? msg("请在插件配置中更新或移除令牌，然后重新检测。", "Update or remove the configured token, then select Check again.") : current.tokenSource === "env" ? msg("请检查 DSH 凭据和 DSH 环境中的 PLAYGROUND_TOKEN，调整后重启 DSH 并重新检测。", "Check DSH credentials and PLAYGROUND_TOKEN in the DSH environment. After changing the environment, restart DSH and check again.") : msg("请检查 DSH 中保存的 PLAYGROUND_TOKEN，然后重新检测。", "Check PLAYGROUND_TOKEN in DSH credentials, then select Check again.");
+    return saved + msg(`工作台目前使用的令牌来自${source}。`, `The workbench currently uses a token from ${source}. `) + next;
+  }
+  const actual = current.authenticated ? current.user : void 0;
+  const matches = sameAccount(attempt.expected, actual);
+  if (current.tokenSource !== "dsh" || matches !== true) {
+    return saved + (matches === false ? msg(`工作台实际使用 ${accountLabel(actual)}。`, `The workbench is using ${accountLabel(actual)}. `) : msg("尚未核实工作台的当前账号。", "The active workbench account is still unverified. ")) + msg("请重新检测。要恢复原账号，请重新保存原账号的令牌。", "Select Check again. To restore the previous account, save its token again.");
+  }
+  const same = sameAccount(attempt.previous, actual);
+  if (same === true) return msg(`已更新令牌，当前账号仍为 ${target}。`, `Token updated. The current account is still ${target}.`);
+  if (same === false) return msg(`已切换到 ${target}。`, `Switched to ${target}.`);
+  return msg(`已验证当前账号 ${target}。`, `Verified the current account as ${target}.`);
+}
+__name(savedSwitchNote, "savedSwitchNote");
+function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, onStatusChange }) {
   const [state, setState] = React2.useState(null);
   const [checking, setChecking] = React2.useState(true);
   const [latest] = React2.useState(() => ({ seq: 0, status: null, refocus: false }));
@@ -626,6 +656,9 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
   const [token, setToken] = React2.useState("");
   const [tokenBusy, setTokenBusy] = React2.useState(false);
   const [tokenError, setTokenError] = React2.useState("");
+  const [accountSwitch, setAccountSwitch] = React2.useState(null);
+  const editing = accountSwitch?.phase === "editing" || accountSwitch?.phase === "preview";
+  const preview = accountSwitch?.phase === "preview" ? accountSwitch.expected : null;
   const check = /* @__PURE__ */ __name(async () => {
     const seq = ++latest.seq;
     setChecking(true);
@@ -653,6 +686,7 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
     setLoginBusy(true);
     setLoginError("");
     setLoginDone(false);
+    setAccountSwitch(null);
     try {
       await login(email, password);
       setPassword("");
@@ -674,7 +708,17 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
     setTokenError("");
     setLoginDone(false);
     try {
+      if (accountSwitch?.phase === "editing") {
+        const identity = await previewToken(token);
+        if (!identity?.authenticated || identity.user?.id == null && !identity.user?.email) {
+          setTokenError(["rejected", "forbidden"].includes(identity?.reason) ? msg("Playground 拒绝了新令牌。请核对令牌后重试。当前 DSH 令牌未被替换。", "Playground rejected the new token. Check the token and try again. The current DSH token was kept.") : msg("暂时无法核实新令牌的账号。请稍后重试。当前 DSH 令牌未被替换。", "Could not verify the account for the new token. Try again later. The current DSH token was kept."));
+          return;
+        }
+        setAccountSwitch({ ...accountSwitch, phase: "preview", expected: identity.user });
+        return;
+      }
       await saveToken(token);
+      setAccountSwitch(preview ? { ...accountSwitch, phase: "saved" } : null);
       setToken("");
       latest.refocus = true;
       await check();
@@ -688,6 +732,8 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
     setTokenBusy(true);
     setTokenError("");
     setLoginDone(false);
+    setAccountSwitch(null);
+    setToken("");
     try {
       await clearToken();
       latest.refocus = true;
@@ -713,23 +759,47 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
   const failedCheck = current.reason === "network" || current.reason === "unavailable";
   const note = clearNote(current);
   const overridden = loginDone && !loading ? loginOverridden(current) : "";
+  const switchNote = accountSwitch?.phase !== "saved" ? "" : tokenBusy || checking ? msg(`正在核实工作台是否已使用 ${accountLabel(accountSwitch.expected)}…`, `Checking whether the workbench is using ${accountLabel(accountSwitch.expected)}…`) : savedSwitchNote(accountSwitch, current);
   const badge = /* @__PURE__ */ __name((tone, label2) => h("span", { className: "pg-badge", "data-tone": tone }, label2), "badge");
   const sourceTail = sourceLabel ? msg(` 令牌来源：${sourceLabel}`, ` Token source: ${sourceLabel}`) : "";
   const summary = loading ? msg("正在检查当前 DSH 是否已配置 Playground 凭据…", "Checking DSH for Playground credentials…") : current.authenticated ? h(React2.Fragment, null, badge("success", msg("已登录", "Signed in")), " ", user.name || user.email || msg("Playground 用户", "Playground user")) : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", msg("检测失败", "Check failed")), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? msg("检测失败", "Check failed") : msg("未登录", "Signed out")), msg(" 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。", " You can browse public challenges. Sign in to view your submissions and upload evaluation packages."));
   const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: removeToken }, msg("清除令牌", "Clear token")) : null;
   const tokenForm = h(
     "form",
-    { className: "pg-form pg-auth-token", "aria-label": msg("API 令牌登录", "Sign in with an API token"), onSubmit: /* @__PURE__ */ __name((event) => {
+    { className: "pg-form pg-auth-token", "aria-label": editing ? msg("切换账号", "Switch account") : msg("API 令牌登录", "Sign in with an API token"), onSubmit: /* @__PURE__ */ __name((event) => {
       event.preventDefault();
-      if (!tokenBusy) submitToken();
+      if (!tokenBusy) return submitToken();
     }, "onSubmit") },
-    h("p", { className: "pg-note" }, msg(`在${TOKEN_PAGE()}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`, `Sign in to ${TOKEN_PAGE()} and generate a personal or agent account token. Paste it here to save it in DSH credentials and check sign-in automatically. The token stays out of chats, commands and logs.`)),
+    h("p", { className: "pg-note" }, editing ? msg("粘贴目标账号的 API 令牌。核实账号后，再决定是否替换 DSH 保存的令牌。已有任务和提交记录保留原归属。", "Paste the API token for the account you want to use. Check the account before replacing the token saved in DSH. Existing tasks and submissions keep their original owners.") : msg(`在${TOKEN_PAGE()}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`, `Sign in to ${TOKEN_PAGE()} and generate a personal or agent account token. Paste it here to save it in DSH credentials and check sign-in automatically. The token stays out of chats, commands and logs.`)),
     pageUrl ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(() => {
       window.open(pageUrl, "_blank", "noopener,noreferrer");
     }, "onClick") }, msg("去网站生成令牌", "Generate token on website"))) : null,
-    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, onChange: /* @__PURE__ */ __name((event) => setToken(event.target.value), "onChange") })),
+    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled: tokenBusy, onChange: /* @__PURE__ */ __name((event) => {
+      setToken(event.target.value);
+      setTokenError("");
+      if (preview) setAccountSwitch({ phase: "editing", previous: accountSwitch.previous });
+    }, "onChange") })),
+    preview ? h(
+      "p",
+      { className: "pg-note" },
+      msg(`新令牌属于 ${accountLabel(preview)}。`, `This token belongs to ${accountLabel(preview)}.`),
+      sameAccount(accountSwitch.previous, preview) === true ? msg(" 这是当前账号。", " This is your current account.") : null
+    ) : null,
     // Enabled while the field is empty, so a click explains what is missing instead of doing nothing.
-    h("div", { className: "pg-actions" }, h("button", { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy }, tokenBusy ? msg("正在保存…", "Saving…") : msg("保存令牌", "Save token"))),
+    h(
+      "div",
+      { className: "pg-actions" },
+      h(
+        "button",
+        { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy },
+        editing && !preview ? tokenBusy ? msg("正在验证…", "Verifying…") : msg("验证新账号", "Verify new account") : tokenBusy ? msg("正在保存…", "Saving…") : preview ? msg("使用此账号", "Use this account") : msg("保存令牌", "Save token")
+      ),
+      editing ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: /* @__PURE__ */ __name(() => {
+        setAccountSwitch(null);
+        setToken("");
+        setTokenError("");
+      }, "onClick") }, msg("取消", "Cancel")) : null
+    ),
     tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError === "请先粘贴 API 令牌。" ? msg(tokenError, "Paste your API token first.") : tokenError) : null
   );
   const configNote = fromConfig ? h("p", { className: "pg-note pg-auth-config" }, msg("令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌。", "The configured plugin token takes priority over tokens saved in the workbench. Edit or remove it in the plugin configuration to change tokens.")) : null;
@@ -750,21 +820,29 @@ function AuthStatusPanel({ query, login, saveToken, clearToken, onStatusChange }
       }, "ref") },
       h("p", { className: "pg-note" }, summary),
       !loading && checking ? h("p", { className: "pg-note" }, msg("正在重新检测登录状态…", "Checking sign-in status again…")) : null,
-      overridden ? h("p", { className: "pg-note pg-auth-login-note" }, badge("warning", msg("仍在使用原令牌", "Still using the previous token")), " ", overridden) : null
+      overridden ? h("p", { className: "pg-note pg-auth-login-note" }, badge("warning", msg("仍在使用原令牌", "Still using the previous token")), " ", overridden) : null,
+      switchNote ? h("p", { className: "pg-note pg-auth-switch-note" }, switchNote) : null
     ),
     !loading && current.cliUpdate?.warning ? h("p", { className: "pg-note pg-cli-update" }, badge("warning", msg("CLI 需更新", "CLI update needed")), " ", msg(current.cliUpdate.warning, `Playground CLI ${current.cliUpdate.current} is outdated. Version ${current.cliUpdate.latest} is available. This may affect scoring. Update using the official script at https://play.bohrium.com/install.sh. On Windows, download the .tgz linked in the script, verify its SHA-256, then run npm install -g <file>.`)) : null,
     loading ? null : current.authenticated ? h(
       React2.Fragment,
       null,
-      h("p", { className: "pg-note pg-auth-identity" }, msg(`身份：${agent ? "Agent 账号" : "本人"}。提交会记在这个身份名下。`, `Identity: ${agent ? "Agent account" : "Personal account"}. Submissions are attributed to this identity.`)),
+      h("p", { className: "pg-note pg-auth-identity" }, msg(`当前身份：${agent ? "Agent 账号" : "本人"}。提交会记在这个身份名下。`, `Current identity: ${agent ? "Agent account" : "Personal account"}. Submissions are attributed to this identity.`)),
+      user.id != null ? h("p", { className: "pg-note" }, msg(`账号 ID：${user.id}`, `Account ID: ${user.id}`)) : null,
       agent && operator ? h("p", { className: "pg-note" }, msg(`操作人：${operator}${operatorState}`, `Operator: ${operator}${operatorState}`)) : null,
       agent && user.agentFramework ? h("p", { className: "pg-note" }, msg(`Agent 框架：${user.agentFramework}`, `Agent framework: ${user.agentFramework}`)) : null,
       user.email ? h("p", { className: "pg-note" }, user.email) : null,
       sourceLabel ? h("p", { className: "pg-note" }, msg(`令牌来源：${sourceLabel}`, `Token source: ${sourceLabel}`)) : null,
-      note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
-      current.baseUrl ? h("p", { className: "pg-note pg-path" }, `API：${current.baseUrl}`) : null,
-      clearButton ? h("div", { className: "pg-actions" }, clearButton) : null,
-      fromConfig ? configNote : h("details", { className: "pg-auth-other" }, h("summary", null, msg("更换令牌", "Change token")), tokenForm)
+      !editing && note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
+      current.baseUrl ? h("p", { className: "pg-note pg-path" }, msg(`API：${current.baseUrl}`, `API: ${current.baseUrl}`)) : null,
+      !editing ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button pg-primary", disabled: fromConfig || tokenBusy, onClick: /* @__PURE__ */ __name(() => {
+        setAccountSwitch({ phase: "editing", previous: user });
+        setToken("");
+        setTokenError("");
+        setLoginDone(false);
+      }, "onClick") }, msg("切换账号", "Switch account")), clearButton) : null,
+      !editing && tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError) : null,
+      fromConfig ? configNote : editing ? h(React2.Fragment, null, h("h3", null, msg("切换账号", "Switch account")), tokenForm) : null
     ) : h(
       React2.Fragment,
       null,
@@ -4306,7 +4384,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
 __name(TaskDetailDrawer, "TaskDetailDrawer");
 
 // src/client/workbench.js
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
@@ -4463,7 +4541,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => requestTask({ kind: "controller" }), "onClick") }, msg("打开工作区主控", "Open workspace controller")),
         h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openable ? openTask(openable.id) : openChat(), "onClick") }, openable ? msg("返回所选任务对话", "Return to selected task chat") : msg("打开 DSH 对话", "Open DSH chat"))
       ),
-      libraryOnly ? null : h(AuthStatusPanel, { query, login, saveToken, clearToken }),
+      libraryOnly ? null : h(AuthStatusPanel, { query, login, previewToken, saveToken, clearToken }),
       h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, announcement),
       section ? null : h(
         "div",
@@ -4734,6 +4812,16 @@ var plugin = {
       throw new Error(queryFailure(result.error));
     }, "requestHost");
     const query = /* @__PURE__ */ __name((input, signal) => requestHost("query", input, signal), "query");
+    const storeToken = /* @__PURE__ */ __name(async (name, value) => {
+      const token = typeof value === "string" ? value.trim() : "";
+      if (!token) throw new Error(msg("请先粘贴 API 令牌。", "Paste an API token first."));
+      if (/\s/.test(token)) throw new Error(msg("令牌中不能有空格或换行，请从网站重新复制。", "Copy the token again without spaces or line breaks."));
+      try {
+        await ctx.remote.credentials.set(name, token);
+      } catch {
+        throw new Error(msg("无法把令牌保存到 DSH 凭据存储，请重试。", "Could not save the token in DSH. Please try again."));
+      }
+    }, "storeToken");
     const releaseChecks = createReleaseChecks(query, () => globalThis.window?.localStorage);
     ctx.effect(() => () => releaseChecks.cancel());
     const actions = {
@@ -4801,16 +4889,21 @@ var plugin = {
       }, "login"),
       // The API token goes only to the DSH credential store, never into an RPC, a command or a conversation.
       // The Host reads it from there per operation, for its own requests and for the CLI it starts.
-      saveToken: /* @__PURE__ */ __name(async (value) => {
-        const token = typeof value === "string" ? value.trim() : "";
-        if (!token) throw new Error(msg("请先粘贴 API 令牌。", "Paste an API token first."));
-        if (/\s/.test(token)) throw new Error(msg("令牌中不能有空格或换行，请从网站重新复制。", "Copy the token again without spaces or line breaks."));
+      saveToken: /* @__PURE__ */ __name((value) => storeToken("PLAYGROUND_TOKEN", value), "saveToken"),
+      previewToken: /* @__PURE__ */ __name(async (value) => {
+        const candidateId = crypto.randomUUID();
+        const key2 = "PLAYGROUND_SWITCH_" + candidateId.replaceAll("-", "").toUpperCase();
         try {
-          await ctx.remote.credentials.set("PLAYGROUND_TOKEN", token);
-        } catch {
-          throw new Error(msg("无法把令牌保存到 DSH 凭据存储，请重试。", "Could not save the token in DSH. Please try again."));
+          await storeToken(key2, value);
+          return await query({ action: "auth", candidateId });
+        } finally {
+          try {
+            await ctx.remote.credentials.unset(key2);
+          } catch {
+            throw new Error(msg(`请在 DSH 凭据中清除临时凭据 ${key2}，然后重试。`, `Remove the temporary credential ${key2} from DSH credentials, then try again.`));
+          }
         }
-      }, "saveToken"),
+      }, "previewToken"),
       // Clears only the DSH copy; the CLI credentials file is never modified.
       clearToken: /* @__PURE__ */ __name(async () => {
         try {

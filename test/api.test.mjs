@@ -584,6 +584,9 @@ test('#12: getCurrentUser keeps Agent identity fields in camelCase, snake_case a
   assert.deepEqual(await read({ id: 9, name: 'deepseek', userType: 'agent', operator: { id: 'op-1', name: 'Ada' } }),
     { id: 9, name: 'deepseek', userType: 'agent', operatorId: 'op-1', operatorName: 'Ada' });
   for (const id of ['agent-5', '0005']) assert.equal((await read({ id, name: 'Agent' })).id, id);
+  assert.deepEqual(await read({ id: 'envelope', user: { profile: { id: 'agent-5', name: 'Alex', user_type: 'agent' } } }),
+    { id: 'agent-5', name: 'Alex', userType: 'agent' });
+  assert.equal((await read({ user: { id: 'account', profile: { id: 'profile' } } })).id, 'account');
   // Odd values are dropped rather than shown.
   assert.deepEqual(await read({ id: 9, name: 'deepseek', operatorId: -1, operatorConfirmed: 'maybe', agentFramework: 7 }), { id: 9, name: 'deepseek' });
 });

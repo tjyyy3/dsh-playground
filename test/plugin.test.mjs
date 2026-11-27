@@ -796,7 +796,7 @@ test('status reports counts and policy for the same current account after switch
   const row = { attemptId: 11, authorId: 5, challengeId: 'challenge-a', time, countsTowardQuota: true };
   await withSyntheticPlatform(async () => {
     const stored = { total: 1, lifetime: 1, counted: 1, scope: 'current_account' };
-    const state = pendingState({ submissionCounts: stored });
+    const state = pendingState({ submissionCounts: stored, attemptIds: [7] });
     state.prepared.submissionCounts = stored;
     const { tools, exec } = mountWorkflowScope(state, { config: SYNTHETIC_CONFIG });
     const status = () => tools.find((item) => item.name === 'playground_task').execute({ action: 'status' }, exec);
@@ -808,6 +808,10 @@ test('status reports counts and policy for the same current account after switch
     assert.equal(after.submissionCounts.total, 0);
     assert.equal(after.submissionCounts.lifetime, 0);
     assert.match(after.submitPolicy.announcement, /今天已提交 0 次/);
+    assert.equal(before.receipt.attemptId, 7);
+    assert.deepEqual(after.receipt, before.receipt);
+    assert.deepEqual(after.attemptIds, [7]);
+    assert.deepEqual(after.task, before.task);
     assert.equal(reads, 2);
   }, { userId: () => user, submissions: () => { reads++; return [row]; } });
 });
