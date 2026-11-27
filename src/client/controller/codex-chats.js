@@ -16,7 +16,29 @@ const label = (source) => `${source.title} · ${source.threadId}`;
 const verdict = (source) => source.text || (source.result === 'empty' ? msg('最近一轮暂无最终回复。', 'The latest turn has no final reply yet.') :
   source.result === 'unknown' ? msg('最近一轮结果未知。', 'The outcome of the latest turn is unknown.') : '');
 
-export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+export function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
+  const [detection, setDetection] = React.useState(null);
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    const abort = new AbortController();
+    async function detect() {
+      try {
+        const result = await query({ action: 'detect', workspaceId, sessionId }, abort.signal);
+        if (!abort.signal.aborted) setDetection({ query, refresh, available: result?.kind === 'available' });
+      } catch {
+        if (!abort.signal.aborted) setDetection(null);
+      }
+    }
+    void detect();
+    return () => abort.abort();
+  }, [workspaceId, sessionId, query, refresh]);
+  if (!detection?.available || detection.query !== query || detection.refresh !== refresh) return null;
+  return h('details', { className: 'pg-controller-external-chats', open, onToggle: (event) => setOpen(event.currentTarget.open) },
+    h('summary', null, msg('外部 Codex 对话', 'External Codex chats')),
+    open ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false }) : null);
+}
+
+export function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true }) {
   const [data, setData] = React.useState(initial || null);
   const [selected, select] = React.useState(null);
   const [target, setTarget] = React.useState('');
@@ -30,7 +52,7 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
     control.active = true;
     if (!initial) read('list');
     return () => { control.active = false; control.read?.abort(); };
-  }, [refresh, query]);
+  }, [query]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -76,7 +98,7 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
   }
   const rows = data?.rows || [];
   return h('section', { className: 'pg-codex-chats', 'aria-label': msg('工作区 Codex 对话', 'Workspace Codex chats') },
-    h('h3', null, msg('工作区 Codex 对话', 'Workspace Codex chats')),
+    showHeading ? h('h3', null, msg('工作区 Codex 对话', 'Workspace Codex chats')) : null,
     !data ? h('p', { role: 'status' }, msg('正在查找本工作区对话…', 'Finding chats in this workspace…')) :
       data.kind === 'unavailable' ? h('p', { role: 'status' }, reasons()[data.code] || msg('无法读取本机 Codex 对话。', 'Could not read local Codex chats.')) :
       rows.length === 0 ? h('p', null, msg('本工作区暂无可见的 Codex 对话。', 'No Codex chats are visible in this workspace.')) : null,

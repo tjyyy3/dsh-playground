@@ -1345,7 +1345,33 @@ var reasons = /* @__PURE__ */ __name(() => ({
 }), "reasons");
 var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
 var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
-function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
+  const [detection, setDetection] = React4.useState(null);
+  const [open, setOpen] = React4.useState(false);
+  React4.useEffect(() => {
+    const abort = new AbortController();
+    async function detect() {
+      try {
+        const result = await query({ action: "detect", workspaceId, sessionId }, abort.signal);
+        if (!abort.signal.aborted) setDetection({ query, refresh, available: result?.kind === "available" });
+      } catch {
+        if (!abort.signal.aborted) setDetection(null);
+      }
+    }
+    __name(detect, "detect");
+    void detect();
+    return () => abort.abort();
+  }, [workspaceId, sessionId, query, refresh]);
+  if (!detection?.available || detection.query !== query || detection.refresh !== refresh) return null;
+  return h(
+    "details",
+    { className: "pg-controller-external-chats", open, onToggle: /* @__PURE__ */ __name((event) => setOpen(event.currentTarget.open), "onToggle") },
+    h("summary", null, msg("外部 Codex 对话", "External Codex chats")),
+    open ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false }) : null
+  );
+}
+__name(ExternalCodexChats, "ExternalCodexChats");
+function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true }) {
   const [data, setData] = React4.useState(initial || null);
   const [selected, select] = React4.useState(null);
   const [target, setTarget] = React4.useState("");
@@ -1362,7 +1388,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
       control.active = false;
       control.read?.abort();
     };
-  }, [refresh, query]);
+  }, [query]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -1428,7 +1454,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
   return h(
     "section",
     { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
-    h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")),
+    showHeading ? h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")) : null,
     !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
     rows.map((source) => h(
       "div",
@@ -2099,6 +2125,8 @@ var controllerPanelCss = `
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
   .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
   .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
+  .pg-controller-external-chats { margin-top:16px; }
+  .pg-controller-external-chats > summary { cursor:pointer; }
   .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
@@ -2706,7 +2734,6 @@ function ControllerPanel(props) {
           h(
             "div",
             { className: "pg-controller-task-content" },
-            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
             !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
               "div",
               { className: "pg-controller-detail" },
@@ -2769,7 +2796,14 @@ function ControllerPanel(props) {
                 group.rows.map(listRow)
               )),
               tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, msg(`后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === "maintenance").length})`)), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
-            )
+            ),
+            expectedId && props.codexChats ? h(ExternalCodexChats, {
+              key: `${workspaceId}:${expectedId}`,
+              workspaceId,
+              sessionId: expectedId,
+              query: props.codexChats,
+              refresh: taskRetry
+            }) : null
           )
         )
       ) : null

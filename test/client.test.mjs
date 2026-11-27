@@ -7528,6 +7528,101 @@ test('workspace selection hides old controller tasks immediately and ignores a l
 });
 
 
+async function codexSidebarFixture(t, codexChats) {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const rows = [
+    { childId: 'linked', label: 'Linked task', state: 'settled',
+      challenge: { id: 'challenge', title: 'Linked challenge', baseUrl: 'https://example.test/api' } },
+    { childId: 'legacy', label: 'Legacy task', state: 'settled' },
+    { childId: 'maintenance', label: 'Maintenance task', category: 'maintenance', state: 'settled' },
+  ];
+  const props = { controllerSelection: { workspaceId: 'ws', showTasks: true }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'ws', title: 'Fixture workspace' }] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null, openControllerChat: async () => {},
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    controllerTasks: async () => ({ kind: 'ready', rows }), codexChats };
+  const cleanups = [];
+  t.after(() => cleanups.reverse().forEach((cleanup) => cleanup?.()));
+  const runEffects = (predicate = () => true) => {
+    for (const effect of f.effects.splice(0).filter(predicate)) cleanups.push(effect());
+  };
+  const render = () => {
+    f.effects.length = 0;
+    return f.render(Main, props);
+  };
+  render(); runEffects(); await settle();
+  render(); runEffects((effect) => effect.deps?.[2] === props.controllerTasks); await settle();
+  const sidebar = () => f.find(render(), (node) => node.type === 'aside' && node.props.id === 'pg-controller-tasks');
+  const external = (tree = sidebar()) => f.find(tree, (node) => node.type?.name === 'ExternalCodexChats');
+  const renderExternal = (element = external()) => {
+    f.effects.length = 0;
+    return f.render(element.type, element.props);
+  };
+  const refresh = () => buttonLabeled(f, sidebar(), '刷新任务').props.onClick();
+  return { f, sidebar, external, renderExternal, refresh, runEffects };
+}
+
+test('task sidebar hides external chats during detection and when detection is unavailable or fails', async (t) => {
+  const calls = [];
+  const pending = Promise.withResolvers();
+  const { f, sidebar, renderExternal, refresh, runEffects } = await codexSidebarFixture(t, (input) => {
+    calls.push(input);
+    return calls.length === 1 ? pending.promise : Promise.reject(Error('Host unavailable'));
+  });
+  assert.equal(f.find(sidebar(), (node) => node.type?.name === 'CodexChats'), undefined);
+  assert.doesNotMatch(text(sidebar()), /codex/i);
+  assert.equal(renderExternal(), null);
+  runEffects();
+  assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'controller', action: 'detect' }]);
+  assert.equal(renderExternal(), null);
+  pending.resolve({ kind: 'unavailable', code: 'codex_unavailable' });
+  await settle();
+  assert.equal(renderExternal(), null);
+  refresh();
+  assert.equal(renderExternal(), null);
+  runEffects();
+  await settle();
+  assert.equal(renderExternal(), null);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((input) => input.action === 'detect'));
+});
+
+test('external chats follow all task groups and only list when expanded', async (t) => {
+  const calls = [];
+  const { f, sidebar, external, renderExternal, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
+    calls.push(action);
+    return action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] };
+  });
+  const tree = sidebar();
+  const content = f.find(tree, (node) => node.props?.className === 'pg-controller-task-content');
+  const entry = external(tree);
+  assert.ok(entry);
+  assert.equal(content.props.children.at(-1), entry);
+  assert.match(text(content), /Linked challenge.*未关联赛题.*后台维护/);
+  renderExternal(entry); runEffects(); await settle();
+  const collapsed = renderExternal();
+  assert.equal(collapsed.type, 'details');
+  assert.equal(collapsed.props.open, false);
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')), '外部 Codex 对话');
+  const list = (tree) => f.find(tree, (node) => node.type?.name === 'CodexChats');
+  assert.equal(list(collapsed), undefined);
+  assert.deepEqual(calls, ['detect']);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+
+  const expanded = renderExternal();
+  assert.equal(expanded.props.open, true);
+  assert.match(text(await f.mount(list(expanded))), /本工作区暂无可见的 Codex 对话/);
+  assert.deepEqual(calls, ['detect', 'list']);
+  refresh();
+  assert.equal(renderExternal(), null);
+  runEffects(); await settle();
+  const refreshed = renderExternal();
+  assert.equal(refreshed.props.open, true);
+  await f.mount(list(refreshed));
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list']);
+});
+
 test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
   const f = await clientFixture(t);
   const Tool = f.registrations.get('playground_controller_codex_chats').Component;
