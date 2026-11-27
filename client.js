@@ -3005,7 +3005,7 @@ function withLatestAttempt(state, attempts, sessionId) {
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
   const stored = entry?.overlays?.get(receiptKey(sessionId, receipt));
-  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored).attempt } : receipt;
+  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored) } : receipt;
 }
 __name(withLatestAttempt, "withLatestAttempt");
 function overlayForReceipt(receipt, stored) {
@@ -3024,8 +3024,8 @@ function overlayForReceipt(receipt, stored) {
   ]);
   const receiptWorker = parsePlatformTime(receipt.scoringQueue?.workerReceivedAt ?? receipt.lastWorkerReceivedAt);
   if (stored?.receiptEvidence === receiptEvidence && (!Number.isFinite(receiptWorker) || receiptWorker === stored.receiptWorker)) return stored;
-  const attempt = stored ? observeAttempt(stored.attempt, receipt) ?? stored.attempt : refreshedAttemptFields({}, receipt, 1);
-  return { receiptEvidence, receiptWorker, attempt };
+  const attempt = stored ? observeAttempt(stored, receipt) ?? stored : refreshedAttemptFields({}, receipt, 1);
+  return { ...attempt, receiptEvidence, receiptWorker };
 }
 __name(overlayForReceipt, "overlayForReceipt");
 function observeAttempt(previous, incoming) {
@@ -3086,7 +3086,7 @@ async function refreshAttempts(store, keys) {
       const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
       const latest = current?.get(receiptId);
       const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
-      return [receiptId, { ...overlay, attempt: observeAttempt(overlay.attempt, attempt) ?? overlay.attempt }];
+      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
     }));
     return [key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
   });

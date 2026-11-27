@@ -173,7 +173,7 @@ function withLatestAttempt(state, attempts, sessionId) {
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
   const stored = entry?.overlays?.get(receiptKey(sessionId, receipt));
-  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored).attempt } : receipt;
+  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored) } : receipt;
 }
 
 // Remember which projected evidence the platform observation already incorporated. A replayed
@@ -184,8 +184,8 @@ function overlayForReceipt(receipt, stored) {
     platformReceivedBundle(receipt), scoring.state, scoring.workerStatus, scoreIsFinal, finalScore, referenceScore]);
   const receiptWorker = parsePlatformTime(receipt.scoringQueue?.workerReceivedAt ?? receipt.lastWorkerReceivedAt);
   if (stored?.receiptEvidence === receiptEvidence && (!Number.isFinite(receiptWorker) || receiptWorker === stored.receiptWorker)) return stored;
-  const attempt = stored ? observeAttempt(stored.attempt, receipt) ?? stored.attempt : refreshedAttemptFields({}, receipt, 1);
-  return { receiptEvidence, receiptWorker, attempt };
+  const attempt = stored ? observeAttempt(stored, receipt) ?? stored : refreshedAttemptFields({}, receipt, 1);
+  return { ...attempt, receiptEvidence, receiptWorker };
 }
 
 function observeAttempt(previous, incoming) {
@@ -255,7 +255,7 @@ async function refreshAttempts(store, keys) {
       // can share the response that was requested for the original receipt.
       const latest = current?.get(receiptId);
       const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
-      return [receiptId, { ...overlay, attempt: observeAttempt(overlay.attempt, attempt) ?? overlay.attempt }];
+      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
     }));
     return [key, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
   });
