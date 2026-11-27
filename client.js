@@ -2756,51 +2756,44 @@ function receiptPending(receipt) {
 }
 __name(receiptPending, "receiptPending");
 var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
-var receiptKey = /* @__PURE__ */ __name((receipt) => JSON.stringify([
-  receipt.attemptId,
-  receipt.updatedAt,
+var receiptKey = /* @__PURE__ */ __name((sessionId, receipt) => JSON.stringify([
+  sessionId,
   receipt.trackedAt,
   receipt.confirmedAt,
-  receipt.ok,
-  receipt.submissionState,
-  receipt.agentReport,
-  receipt.lastWorkerReceivedAt,
-  ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])
+  receipt.agentReport?.state,
+  receipt.agentReport?.message
 ]), "receiptKey");
-function attemptForReceipt(entry, receipt) {
-  return receipt ? entry?.overlays?.get(receiptKey(receipt)) : entry?.attempt;
-}
-__name(attemptForReceipt, "attemptForReceipt");
-function withLatestAttempt(state, attempts) {
+function withLatestAttempt(state, attempts, sessionId) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  const overlay = attemptForReceipt(entry, receipt);
+  const overlay = observeAttempt(receipt, entry?.overlays?.get(receiptKey(sessionId, receipt)));
   return overlay ? { ...receipt, ...overlay } : receipt;
 }
 __name(withLatestAttempt, "withLatestAttempt");
-function observeAttempt(receipt, observation, incoming) {
-  const previous = observation ?? receipt;
+function observeAttempt(previous, incoming) {
+  if (!incoming) return void 0;
   const order = compareAttemptRevisions(previous, incoming);
-  if (order === -1) return observation;
+  if (order === -1) return void 0;
   const attempt = refreshedAttemptFields(previous, incoming, order);
   if (order !== 1) {
     const settled = receiptSettled(attempt);
-    if (receiptSettled(previous) && (!settled || order === 0)) return observation;
-    if (!settled && !keepsWorkerProgress(previous, attempt)) return observation;
+    if (receiptSettled(previous) && (!settled || order === 0)) return void 0;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return void 0;
   }
   return attempt;
 }
 __name(observeAttempt, "observeAttempt");
-function withSettledAttempt(item, attempt, { closed = false } = {}) {
+function withHistoryAttempt(item, attempt, { latest, closed }) {
+  const order = attempt && (latest ? compareAttemptRevisions(item, attempt) : compareAttemptUpdates(item.updatedAt, attempt.updatedAt));
+  if (latest && order === 1) return { ...item, ...refreshedAttemptFields(item, attempt, order) };
   const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!attempt || receiptSettled(row)) return row;
-  if (compareAttemptUpdates(row.updatedAt, attempt.updatedAt) === -1) return row;
+  if (!attempt || receiptSettled(row) || order === -1) return row;
   const merged = { ...row };
   for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
   return receiptSettled(merged) ? merged : row;
 }
-__name(withSettledAttempt, "withSettledAttempt");
+__name(withHistoryAttempt, "withHistoryAttempt");
 var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
@@ -2821,8 +2814,11 @@ async function refreshAttempts(store, keys) {
         const attempt = await store.query(input, controller.signal);
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
           const previous = store.attempts[key2];
-          const overlays = new Map([...snapshots].map(([snapshot2, receipt]) => [snapshot2, observeAttempt(receipt, previous?.overlays?.get(snapshot2), attempt)]));
-          fresh.push([key2, { attempt: observeAttempt({}, previous?.attempt, attempt), overlays }]);
+          const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+            const observation = observeAttempt(receipt, previous?.overlays.get(receiptId));
+            return [receiptId, observeAttempt(observation ?? receipt, attempt) ?? observation];
+          }));
+          fresh.push([key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }]);
         }
       } catch {
       }
@@ -4124,7 +4120,7 @@ function SelectedTask({ session, projection, attempts, useSessionAccess, refresh
   }
   if (projection?.state !== "ready") return h("p", { className: "pg-note", role: "status" }, msg("正在读取任务状态…", "Loading task status…"));
   const task = projection.values.playgroundTask;
-  const receipt = withLatestAttempt(task, attempts);
+  const receipt = withLatestAttempt(task, attempts, session.id);
   return h(TaskWorkflow, {
     ...props,
     sessionId: session.id,
@@ -4140,7 +4136,7 @@ __name(SelectedTask, "SelectedTask");
 function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
   const state = session.projectionValues?.playgroundTask || {};
   const task = state.task;
-  const receipt = withLatestAttempt(state, attempts);
+  const receipt = withLatestAttempt(state, attempts, session.id);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
   const title = task?.title || session.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task");
   const challengeId = task?.challengeId || msg("赛题待读取", "Challenge pending");
@@ -4283,8 +4279,9 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       }
     }, "ref") }, items.map((item) => {
       const id = Number(item.id);
-      const entry = attemptForReceipt(attempts?.[attemptKey({ baseUrl, challengeId }, id)], id === latestId ? receipt : void 0);
-      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
+      const latest2 = id === latestId;
+      const attempt = latest2 ? receipt : attempts?.[attemptKey({ baseUrl, challengeId }, id)]?.attempt;
+      const progress = receiptProgress(withHistoryAttempt(item, attempt, { latest: latest2, closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString(msg("zh-CN", "en-US"), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("提交时间未知", "Submission time unknown");
       const own = linked.has(id);
       return h(
@@ -4378,7 +4375,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const scope = taskAttemptScope({ task: current.task || state.task, receipt: current.receipt });
   const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
   const attemptIds = taskAttemptIds(current);
-  const latestReceipt = withLatestAttempt(current, props.attempts);
+  const latestReceipt = withLatestAttempt(current, props.attempts, session.id);
   const closedIds = [.../* @__PURE__ */ new Set([
     ...Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : [],
     ...latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : [],
@@ -4427,7 +4424,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
         key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
         baseUrl: scope.baseUrl,
         challengeId: historyChallenge,
-        receipt: current.receipt,
+        receipt: latestReceipt,
         attemptIds,
         bundleMissingIds: taskBundleMissingIds(current),
         closedIds,
@@ -4495,8 +4492,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const key2 = attemptKey(scope, attemptId);
     if (!key2) continue;
     if (!receipts.has(key2)) receipts.set(key2, { scope, attemptId, snapshots: /* @__PURE__ */ new Map() });
-    receipts.get(key2).snapshots.set(receiptKey(receipt), receipt);
-    if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key2);
+    receipts.get(key2).snapshots.set(receiptKey(item.id, receipt), receipt);
+    if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;
   React15.useEffect(() => {

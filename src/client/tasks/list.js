@@ -1,6 +1,6 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
-import { attemptForReceipt, attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withLatestAttempt, withSettledAttempt } from './attempts.js';
+import { attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withHistoryAttempt, withLatestAttempt } from './attempts.js';
 import { zhText } from '../shared/locale.js';
 import { h } from '../shared/react.js';
 import { safeMessage } from '../shared/errors.js';
@@ -13,7 +13,7 @@ import { SelectedTask } from './workflow.js';
 function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectRef }) {
   const state = session.projectionValues?.playgroundTask || {};
   const task = state.task;
-  const receipt = withLatestAttempt(state, attempts);
+  const receipt = withLatestAttempt(state, attempts, session.id);
   const progress = receiptProgress(receipt, zhText, { running: session.running });
   const title = task?.title || session.displayTitle?.replace(/^Playground · /, '') || msg('Playground 任务', 'Playground task');
   const challengeId = task?.challengeId || msg('赛题待读取', 'Challenge pending');
@@ -129,8 +129,9 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
       // the conversation, not this attempt, so it is not passed.
       const id = Number(item.id);
-      const entry = attemptForReceipt(attempts?.[attemptKey({ baseUrl, challengeId }, id)], id === latestId ? receipt : undefined);
-      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
+      const latest = id === latestId;
+      const attempt = latest ? receipt : attempts?.[attemptKey({ baseUrl, challengeId }, id)]?.attempt;
+      const progress = receiptProgress(withHistoryAttempt(item, attempt, { latest, closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt))
         ? new Date(item.createdAt).toLocaleString(msg('zh-CN', 'en-US'), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : msg('提交时间未知', 'Submission time unknown');
       const own = linked.has(id);
@@ -193,7 +194,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
   const attemptIds = taskAttemptIds(current);
   // The task's receipt with its refreshed platform state, as the task row and the drawer summary show it.
-  const latestReceipt = withLatestAttempt(current, props.attempts);
+  const latestReceipt = withLatestAttempt(current, props.attempts, session.id);
   // Every submission of the task shown closed as "bundle missing": by a receipt the task recorded
   // (bundleClosedIds, kept after newer receipts), by its latest receipt with the refreshed state laid
   // over it, or by a refreshed entry in the workbench store.
@@ -227,7 +228,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
       historyChallenge && query ? h(AttemptHistory, {
         key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
-        baseUrl: scope.baseUrl, challengeId: historyChallenge, receipt: current.receipt, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds,
+        baseUrl: scope.baseUrl, challengeId: historyChallenge, receipt: latestReceipt, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds,
         limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t,
       }) : null));
 }

@@ -56,8 +56,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const key = attemptKey(scope, attemptId);
     if (!key) continue;
     if (!receipts.has(key)) receipts.set(key, { scope, attemptId, snapshots: new Map() });
-    receipts.get(key).snapshots.set(receiptKey(receipt), receipt);
-    if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key);
+    receipts.get(key).snapshots.set(receiptKey(item.id, receipt), receipt);
+    if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key);
   }
   const anyPending = pendingKeys.size > 0;
   // The timers and listeners below read these at call time. Declared first, so they are current

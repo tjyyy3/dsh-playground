@@ -163,48 +163,43 @@ function receiptPending(receipt) {
 
 const attemptKey = (scope, id) => scope.conflict || id === undefined ? undefined : JSON.stringify([scope.baseUrl, scope.challengeId, id]);
 
-// Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
-// resubmission under the same id or by "查询结果", no longer matches the stored result.
-const receiptKey = (receipt) => JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.trackedAt, receipt.confirmedAt,
-  receipt.ok, receipt.submissionState, receipt.agentReport, receipt.lastWorkerReceivedAt, ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])]);
+// Scoped by attemptKey. Separate conversations can record the same attempt, and a new confirmation
+// or Agent report starts a new receipt. Platform updates revise the evidence for that receipt.
+const receiptKey = (sessionId, receipt) => JSON.stringify([sessionId, receipt.trackedAt, receipt.confirmedAt,
+  receipt.agentReport?.state, receipt.agentReport?.message]);
 
-function attemptForReceipt(entry, receipt) {
-  return receipt ? entry?.overlays?.get(receiptKey(receipt)) : entry?.attempt;
-}
-
-function withLatestAttempt(state, attempts) {
+function withLatestAttempt(state, attempts, sessionId) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  const overlay = attemptForReceipt(entry, receipt);
+  const overlay = observeAttempt(receipt, entry?.overlays?.get(receiptKey(sessionId, receipt)));
   return overlay ? { ...receipt, ...overlay } : receipt;
 }
 
-function observeAttempt(receipt, observation, incoming) {
-  const previous = observation ?? receipt;
+function observeAttempt(previous, incoming) {
+  if (!incoming) return undefined;
   const order = compareAttemptRevisions(previous, incoming);
-  if (order === -1) return observation;
+  if (order === -1) return undefined;
   const attempt = refreshedAttemptFields(previous, incoming, order);
   if (order !== 1) {
     const settled = receiptSettled(attempt);
-    if (receiptSettled(previous) && (!settled || order === 0)) return observation;
-    if (!settled && !keepsWorkerProgress(previous, attempt)) return observation;
+    if (receiptSettled(previous) && (!settled || order === 0)) return undefined;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return undefined;
   }
   return attempt;
 }
 
-// A submission-history row with the workbench refresh's result for the same id laid over it, but
-// only when that result settles a row that was still unsettled. The refresh and the history read
-// happen at different times, so the store never moves a row backwards or between unsettled states.
-// A row updated after the stored result (a re-upload under the same id) keeps its own state.
+// The current receipt can carry a newer revision than the history row, including a re-upload.
+// Without that receipt or a newer revision, only fill in missing settled results.
 // `/me/attempts` rows carry no closure marker, so the platform's "bundle missing" closure of the same id,
 // from the refreshed result or the task's merged receipt (`closed`), is laid over every row that shows no
 // received bundle or final score, settled ones included: the row then agrees with the task row.
-function withSettledAttempt(item, attempt, { closed = false } = {}) {
+function withHistoryAttempt(item, attempt, { latest, closed }) {
+  const order = attempt && (latest ? compareAttemptRevisions(item, attempt) : compareAttemptUpdates(item.updatedAt, attempt.updatedAt));
+  if (latest && order === 1) return { ...item, ...refreshedAttemptFields(item, attempt, order) };
   const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true
     && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!attempt || receiptSettled(row)) return row;
-  if (compareAttemptUpdates(row.updatedAt, attempt.updatedAt) === -1) return row;
+  if (!attempt || receiptSettled(row) || order === -1) return row;
   const merged = { ...row };
   for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
   return receiptSettled(merged) ? merged : row;
@@ -232,9 +227,11 @@ async function refreshAttempts(store, keys) {
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl)
           && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
           const previous = store.attempts[key];
-          const overlays = new Map([...snapshots].map(([snapshot, receipt]) =>
-            [snapshot, observeAttempt(receipt, previous?.overlays?.get(snapshot), attempt)]));
-          fresh.push([key, { attempt: observeAttempt({}, previous?.attempt, attempt), overlays }]);
+          const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+            const observation = observeAttempt(receipt, previous?.overlays.get(receiptId));
+            return [receiptId, observeAttempt(observation ?? receipt, attempt) ?? observation];
+          }));
+          fresh.push([key, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }]);
         }
       } catch { /* counted as failed */ }
     }
@@ -248,5 +245,5 @@ async function refreshAttempts(store, keys) {
   store.publish();
 }
 
-export { attemptForReceipt, attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
+export { attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withHistoryAttempt, withLatestAttempt };
 

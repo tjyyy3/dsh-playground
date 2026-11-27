@@ -1331,6 +1331,26 @@ async function refreshHarness(t, receipts, platform, { visibility = 'visible', a
 
 const receiptOf = (attemptId, attempt = queuedAttempt) => ({ attemptId, ok: true, ...attempt });
 
+function replayResults(session, fields) {
+  const state = session.projectionValues.playgroundTask;
+  const receipt = { ...state.receipt, ...fields };
+  const next = workflowProjection.apply(state, { type: 'tool/result', data: { meta: { playgroundWorkflow: { kind: 'results', receipt } } } });
+  assert.equal(next.receipt, receipt);
+  session.projectionValues.playgroundTask = next;
+}
+
+function openRefreshHistory(harness, sessionId, items) {
+  const { f, view } = harness;
+  const row = f.find(view.tree, (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === sessionId);
+  f.find(f.render(row.type, row.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  harness.flush();
+  const query = async () => ({ items });
+  return () => {
+    const drawer = f.find(view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
+    return f.find(f.render(drawer.type, { ...drawer.props, query }), isHistory);
+  };
+}
+
 test('queued Agent-reported attempts keep their report and poll until the platform scores them', async (t) => {
   const platform = new Map([[7, queuedAttempt], [8, queuedAttempt]]);
   const h = await refreshHarness(t, [['a', receiptOf(7, { ...queuedAttempt, submissionState: 'created' })],
@@ -1443,6 +1463,66 @@ test('a later Worker job for the same submission reopens its final score and res
   assert.deepEqual(shown(), [['评分完成', '52 分']]);
 });
 
+test('an Agent result from the prior Worker job leaves the re-upload queued and polling', async (t) => {
+  const firstAt = '2026-10-02T12:00:00Z';
+  const secondAt = '2026-10-02T13:00:00Z';
+  const firstWorker = '2026-10-02T12:01:00Z';
+  const secondWorker = '2026-10-02T13:02:00Z';
+  const first = { ...queuedAttempt, updatedAt: firstAt, scoringQueue: { stage: 'queued', workerReceivedAt: firstWorker } };
+  const second = { ...queuedAttempt, updatedAt: secondAt, scoringQueue: { stage: 'queued', workerReceivedAt: secondWorker } };
+  const finalizedFirst = { ...finalAttempt(81), updatedAt: firstAt };
+  const platform = new Map([[7, second]]);
+  const receipt = receiptOf(7, { ...first, trackedAt: firstAt, submissionState: 'running', agentReport: { state: 'uploaded', message: 'Uploaded' } });
+  const h = await refreshHarness(t, [['task', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+
+  replayResults(h.sessions[0], { ...finalizedFirst, scoringQueue: undefined, lastWorkerReceivedAt: firstWorker, submissionState: 'final' });
+  h.flush();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...finalizedFirst }]);
+  assert.match(historyRows(await h.f.mount(history()))[0], /评测中 · — 排队中/);
+
+  platform.set(7, finalizedFirst);
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...finalAttempt(52), updatedAt: secondAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.equal(h.calls.length, 3);
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+  const scored = history();
+  assert.match(historyRows(h.f.render(scored.type, scored.props))[0], /已出最终分 · 52 分/);
+});
+
+test('an equivalent Agent result preserves the final score in the loaded submission history', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const workerReceivedAt = '2026-10-02T12:01:00Z';
+  const queued = { ...queuedAttempt, updatedAt, scoringQueue: { stage: 'queued', workerReceivedAt } };
+  const final = { ...finalAttempt(81), updatedAt };
+  const receipt = receiptOf(7, { ...queued, trackedAt: updatedAt, submissionState: 'running', agentReport: { state: 'uploaded', message: 'Uploaded' } });
+  const h = await refreshHarness(t, [['task', receipt]], new Map([[7, final]]));
+  h.flush();
+  await h.settled();
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...queued }, { id: 8, ...queued }]);
+  const before = history();
+  assert.match(historyRows(await h.f.mount(before))[1], /提交 #7 .* · 已出最终分 · 81 分/);
+  const effects = h.f.effects.splice(0);
+
+  replayResults(h.sessions[0], { ...final, scoringQueue: undefined, lastWorkerReceivedAt: workerReceivedAt, submissionState: 'final' });
+  h.flush();
+  const after = history();
+  assert.equal(after.props.key, before.props.key);
+  const rendered = rerender(h.f, after, effects);
+  assert.equal(rendered.ran, 0);
+  assert.match(historyRows(rendered.tree)[1], /提交 #7 .* · 已出最终分 · 81 分/);
+  assert.match(historyRows(rendered.tree)[0], /提交 #8 .* · 评测中 · — 排队中/);
+});
+
 test('a shared lookup begun before a reported re-upload cannot settle the new receipt', async (t) => {
   const updatedAt = '2026-10-02T12:00:00Z';
   const queued = { ...queuedAttempt, updatedAt, submissionState: 'uploaded' };
@@ -1460,14 +1540,9 @@ test('a shared lookup begun before a reported re-upload cannot settle the new re
   await h.settled();
   assert.deepEqual(shown(), [['评分完成', '80 分'], ['Agent 报告已上传', '—']]);
 
-  const retry = findAll(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === 'retry')[0];
-  h.f.find(h.f.render(retry.type, retry.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
-  h.flush();
+  const history = openRefreshHistory(h, 'retry', [{ id: 7, ...queuedAttempt, updatedAt }]);
   const historyRow = async () => {
-    const drawer = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
-    const query = async () => ({ items: [{ id: 7, ...queuedAttempt, updatedAt }] });
-    const history = h.f.find(h.f.render(drawer.type, { ...drawer.props, query }), isHistory);
-    return historyRows(await h.f.mount(history))[0];
+    return historyRows(await h.f.mount(history()))[0];
   };
   assert.match(await historyRow(), /评测中 · — 排队中/);
 
@@ -1811,16 +1886,18 @@ test('failed and rejected receipts stay failed or rejected against a lookup that
   assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['失败', '—'], ['未通过', '—']]);
 });
 
-test('a stored result is ignored once its receipt has changed, even when the result is not final', async (t) => {
+test('a confirmed re-upload ignores the previous receipt cache even with the same tracking stamp', async (t) => {
   const platform = new Map([[61, { status: 'failed', scoringState: { state: 'failed', scoreIsFinal: false } }]]);
-  const h = await refreshHarness(t, [['a', receiptOf(61)]], platform);
+  const trackedAt = '2026-10-02T12:00:00Z';
+  const receipt = receiptOf(61, { ...queuedAttempt, trackedAt, confirmedAt: trackedAt });
+  const h = await refreshHarness(t, [['a', receipt]], platform);
   h.flush();
   await h.settled();
   assert.deepEqual(h.rows().map((row) => row.badge), ['失败']);
-  // The same submission id is uploaded again: the receipt is submitted, and the old failure no longer applies.
-  h.sessions[0].projectionValues.playgroundTask.receipt = { attemptId: 61, ok: true, status: 'submitted' };
+  const session = h.sessions[0];
+  session.projectionValues.playgroundTask = withReceipt(session.projectionValues.playgroundTask, { ...receipt, confirmedAt: '2026-10-02T13:00:00Z' });
   h.flush();
-  assert.deepEqual(h.rows().map((row) => row.badge), ['已提交']);
+  assert.deepEqual(h.rows().map((row) => row.badge), ['排队中']);
   // It is unscored again, so it is read again on the next round.
   platform.set(61, finalAttempt(80));
   h.tick(twoMinutes);
