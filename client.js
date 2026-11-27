@@ -316,6 +316,7 @@ var locales = {
       scored: "已评分",
       queued: "排队中",
       evaluating: "评测中",
+      provisional: "暂存分",
       final: "评分完成",
       failed: "失败",
       ready: "已接收",
@@ -412,6 +413,7 @@ var locales = {
       scored: "Scored",
       queued: "Queued",
       evaluating: "Evaluating",
+      provisional: "Provisional",
       final: "Final",
       failed: "Failed",
       ready: "Accepted",
@@ -2571,6 +2573,62 @@ function compareAttemptUpdates(previous, next) {
   return Number.isFinite(before) && Number.isFinite(after) ? Math.sign(after - before) : void 0;
 }
 __name(compareAttemptUpdates, "compareAttemptUpdates");
+var observedWorker = /* @__PURE__ */ __name((attempt) => attempt.scoringQueue?.workerReceivedAt ?? attempt.lastWorkerReceivedAt, "observedWorker");
+function compareAttemptRevisions(previous, next) {
+  const row = compareAttemptUpdates(previous.updatedAt, next.updatedAt);
+  if (row) return row;
+  const job = compareAttemptUpdates(observedWorker(previous), observedWorker(next));
+  if (job) return job;
+  if (row === void 0 && Number.isFinite(parsePlatformTime(previous.updatedAt))) return -1;
+  return row ?? job;
+}
+__name(compareAttemptRevisions, "compareAttemptRevisions");
+var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
+function refreshedAttemptFields(previous, incoming, order) {
+  const attempt = {};
+  for (const field of ATTEMPT_STATE_FIELDS) {
+    attempt[field] = incoming[field] ?? (order === 1 ? void 0 : previous[field]);
+  }
+  if (!incoming.scoringQueue && (incoming.scoringState?.scoreIsFinal || incoming.scoringState?.state === "provisional")) {
+    attempt.scoringQueue = void 0;
+  }
+  attempt.updatedAt = Number.isFinite(parsePlatformTime(incoming.updatedAt)) ? incoming.updatedAt : previous.updatedAt;
+  const lastWorkerReceivedAt = observedWorker(incoming) ?? observedWorker(previous);
+  if (lastWorkerReceivedAt) attempt.lastWorkerReceivedAt = lastWorkerReceivedAt;
+  return attempt;
+}
+__name(refreshedAttemptFields, "refreshedAttemptFields");
+function attemptScore(item) {
+  const raw = item?.scoringState;
+  const scoring = typeof raw === "string" ? { state: raw } : raw || {};
+  const failed = [scoring.state, item?.status].some((value) => ["failed", "rejected"].includes(value)) || item?.bundleStatus === "failed";
+  const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
+  const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : void 0;
+  const reference = scoreIsFinal || failed ? void 0 : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
+  const explicitZero = scoring.state === "provisional" && scoring.provisionalScore === 0;
+  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && (reference !== 0 || explicitZero) ? reference : void 0 };
+}
+__name(attemptScore, "attemptScore");
+var RECEIVED_STATES = /* @__PURE__ */ new Set(["evaluating", "scoring", "provisional", "final", "late_scored"]);
+function platformReceivedBundle(attempt) {
+  const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
+  return RECEIVED_STATES.has(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
+}
+__name(platformReceivedBundle, "platformReceivedBundle");
+function workerPhase(attempt, scoring) {
+  if (scoring.state === "provisional") return 3;
+  if (scoring.workerStatus === "trace_scoring") return 4;
+  if (["evaluating", "scoring"].includes(scoring.state)) return 2;
+  return platformReceivedBundle(attempt) ? 1 : 0;
+}
+__name(workerPhase, "workerPhase");
+function keepsWorkerProgress(previous, next) {
+  const before = attemptScore(previous);
+  const after = attemptScore(next);
+  const phase = workerPhase(next, after.scoring) - workerPhase(previous, before.scoring);
+  return phase > 0 || phase === 0 && (before.referenceScore === void 0 || after.referenceScore !== void 0);
+}
+__name(keepsWorkerProgress, "keepsWorkerProgress");
 var workChallengeId = /* @__PURE__ */ __name((item) => {
   const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
   return id === void 0 || id === null ? void 0 : String(id);
@@ -2586,22 +2644,7 @@ function taskAttemptScope(state) {
 __name(taskAttemptScope, "taskAttemptScope");
 
 // src/client/tasks/attempts.js
-function attemptScore(item) {
-  const raw = item?.scoringState;
-  const scoring = typeof raw === "string" ? { state: raw } : raw || {};
-  const failed = [scoring.state, item?.status].some((value) => ["failed", "rejected"].includes(value)) || item?.bundleStatus === "failed";
-  const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
-  const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : void 0;
-  const reference = scoreIsFinal || failed ? void 0 : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
-  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && reference !== 0 ? reference : void 0 };
-}
-__name(attemptScore, "attemptScore");
 var stageTones = { final: "success", finalLate: "success", failed: "error", evaluating: "warning", incomplete: "error" };
-function platformReceivedBundle(attempt) {
-  const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
-  return ["evaluating", "scoring", "final", "late_scored"].includes(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
-}
-__name(platformReceivedBundle, "platformReceivedBundle");
 var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
 function taskBundleMissingIds(state) {
   const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
@@ -2661,7 +2704,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
   const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt) && (bundleMissing || receiptBundleMissing(receipt));
   const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt) ? { created: ["已创建，上传未确认", "Created; upload unconfirmed"], uploaded: ["Agent 报告已上传", "Agent reports uploaded"], unknown: ["结果未知，先核对已有提交", "Outcome unknown; reconcile existing attempts"] }[receipt?.submissionState] : void 0;
-  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
+  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "provisional", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
   const stage = running ? "running" : receiptStage;
   const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
   const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
@@ -2692,7 +2735,11 @@ __name(scoreLabel, "scoreLabel");
 var attemptRefreshMs = 12e4;
 var unarchiveFocusMs = 2e3;
 var noArchiveError = Object.freeze({ id: "", message: "" });
-var receiptSettled = /* @__PURE__ */ __name((receipt) => receipt?.bundleNotReceived === true || ["final", "finalLate", "failed"].includes(receiptProgress(receipt, zhText).stage), "receiptSettled");
+function receiptSettled(receipt) {
+  const { failed, scoreIsFinal } = attemptScore(receipt);
+  return receipt?.bundleNotReceived === true || failed || scoreIsFinal;
+}
+__name(receiptSettled, "receiptSettled");
 var receiptAttemptId = /* @__PURE__ */ __name((receipt) => {
   const id = Number(receipt?.attemptId);
   return Number.isSafeInteger(id) && id > 0 ? id : void 0;
@@ -2708,7 +2755,6 @@ function receiptPending(receipt) {
   return stage === "submitted" && ([void 0, "submitted"].includes(receipt.status) || awaitingReview);
 }
 __name(receiptPending, "receiptPending");
-var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
 var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
 var receiptKey = /* @__PURE__ */ __name((receipt) => JSON.stringify([
   receipt.attemptId,
@@ -2717,40 +2763,41 @@ var receiptKey = /* @__PURE__ */ __name((receipt) => JSON.stringify([
   receipt.confirmedAt,
   receipt.ok,
   receipt.submissionState,
+  receipt.agentReport,
+  receipt.lastWorkerReceivedAt,
   ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])
 ]), "receiptKey");
+function attemptForReceipt(entry, receipt) {
+  return receipt ? entry?.overlays?.get(receiptKey(receipt)) : entry?.attempt;
+}
+__name(attemptForReceipt, "attemptForReceipt");
 function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  const overlay = entry?.overlays?.get(receiptKey(receipt));
+  const overlay = attemptForReceipt(entry, receipt);
   return overlay ? { ...receipt, ...overlay } : receipt;
 }
 __name(withLatestAttempt, "withLatestAttempt");
-function attemptProgressEvidence(attempt) {
-  if (receiptSettled(attempt)) return 3;
-  if (["evaluating", "scoring"].includes(attemptScore(attempt).scoring.state)) return 2;
-  return platformReceivedBundle(attempt) ? 1 : 0;
+function observeAttempt(receipt, observation, incoming) {
+  const previous = observation ?? receipt;
+  const order = compareAttemptRevisions(previous, incoming);
+  if (order === -1) return observation;
+  const attempt = refreshedAttemptFields(previous, incoming, order);
+  if (order !== 1) {
+    const settled = receiptSettled(attempt);
+    if (receiptSettled(previous) && (!settled || order === 0)) return observation;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return observation;
+  }
+  return attempt;
 }
-__name(attemptProgressEvidence, "attemptProgressEvidence");
-function updateAttemptOverlay(receipt, overlay, attempt) {
-  const previous = { ...receipt, ...overlay };
-  const order = compareAttemptUpdates(previous.updatedAt, attempt.updatedAt);
-  const settled = receiptSettled(previous);
-  if (order === -1 || order === 0 && settled) return overlay;
-  if (overlay?.updatedAt !== void 0 && (order === void 0 || order === 0 && attemptProgressEvidence(attempt) <= attemptProgressEvidence(previous))) return overlay;
-  const updated = {};
-  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) updated[field] = attempt[field];
-  if (Number.isFinite(parsePlatformTime(attempt.updatedAt))) updated.updatedAt = attempt.updatedAt;
-  return order === void 0 && settled && !receiptSettled({ ...receipt, ...updated }) ? overlay : updated;
-}
-__name(updateAttemptOverlay, "updateAttemptOverlay");
-function withSettledAttempt(item, entry, { closed = false } = {}) {
-  const row = (closed || entry?.attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!entry?.attempt || receiptSettled(row)) return row;
-  if (Date.parse(row.updatedAt) > Date.parse(entry.attempt.updatedAt)) return row;
+__name(observeAttempt, "observeAttempt");
+function withSettledAttempt(item, attempt, { closed = false } = {}) {
+  const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
+  if (!attempt || receiptSettled(row)) return row;
+  if (compareAttemptUpdates(row.updatedAt, attempt.updatedAt) === -1) return row;
   const merged = { ...row };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
   return receiptSettled(merged) ? merged : row;
 }
 __name(withSettledAttempt, "withSettledAttempt");
@@ -2774,8 +2821,8 @@ async function refreshAttempts(store, keys) {
         const attempt = await store.query(input, controller.signal);
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
           const previous = store.attempts[key2];
-          const overlays = new Map([...snapshots].map(([snapshot2, receipt]) => [snapshot2, updateAttemptOverlay(receipt, previous?.overlays?.get(snapshot2), attempt)]));
-          fresh.push([key2, { attempt: updateAttemptOverlay({}, previous?.attempt, attempt), overlays }]);
+          const overlays = new Map([...snapshots].map(([snapshot2, receipt]) => [snapshot2, observeAttempt(receipt, previous?.overlays?.get(snapshot2), attempt)]));
+          fresh.push([key2, { attempt: observeAttempt({}, previous?.attempt, attempt), overlays }]);
         }
       } catch {
       }
@@ -4129,7 +4176,7 @@ function taskAttemptIds(state) {
   return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 }
 __name(taskAttemptIds, "taskAttemptIds");
-function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React14.useState({ items: [], nextCursor: null, loaded: false });
   const [overview, setOverview] = React14.useState({ counts: void 0, partial: "" });
   const [busy, setBusy] = React14.useState(false);
@@ -4205,6 +4252,7 @@ function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [
   const items = [...history.items].sort((a, b) => time(b.createdAt) - time(a.createdAt) || (Number(b.id) || 0) - (Number(a.id) || 0));
   const linked = new Set(attemptIds);
   const missing = new Set(bundleMissingIds);
+  const latestId = receiptAttemptId(receipt);
   return h(
     "section",
     { className: "pg-guide pg-history", "aria-label": msg("提交历史", "Submission history"), "aria-busy": busy },
@@ -4234,10 +4282,11 @@ function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [
         node.focus?.();
       }
     }, "ref") }, items.map((item) => {
-      const entry = attempts?.[attemptKey({ baseUrl, challengeId }, Number(item.id))];
-      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
+      const id = Number(item.id);
+      const entry = attemptForReceipt(attempts?.[attemptKey({ baseUrl, challengeId }, id)], id === latestId ? receipt : void 0);
+      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt)) ? new Date(item.createdAt).toLocaleString(msg("zh-CN", "en-US"), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : msg("提交时间未知", "Submission time unknown");
-      const own = linked.has(Number(item.id));
+      const own = linked.has(id);
       return h(
         "li",
         { key: item.id, className: "pg-row" },
@@ -4333,7 +4382,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const closedIds = [.../* @__PURE__ */ new Set([
     ...Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : [],
     ...latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : [],
-    ...attemptIds.filter((id) => props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true)
+    ...attemptIds.filter((id) => id !== receiptAttemptId(current.receipt) && props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true)
   ])].filter((id) => Number.isSafeInteger(id) && id > 0);
   const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
   const archived = Boolean(archive?.archived);
@@ -4378,6 +4427,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
         key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
         baseUrl: scope.baseUrl,
         challengeId: historyChallenge,
+        receipt: current.receipt,
         attemptIds,
         bundleMissingIds: taskBundleMissingIds(current),
         closedIds,

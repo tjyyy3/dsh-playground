@@ -1367,23 +1367,119 @@ test('workbench refresh accepts stronger Worker evidence at the same attempt rev
 
   await refresh({ ...queuedAttempt, scoringQueue: { stage: 'queued', workerReceivedAt } });
   assert.deepEqual(shown(), [['排队中', '—'], ['排队中', '—']]);
+  await refresh({ ...queuedAttempt, scoringState: { state: 'queued', provisionalScore: 41 } });
+  assert.deepEqual(shown(), [['排队中', '参考 41'], ['排队中', '参考 41']]);
+  await refresh({ ...queuedAttempt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  assert.deepEqual(shown(), [['排队中', '参考 41'], ['排队中', '参考 41']]);
   const evaluating = { ...evaluatingAttempt, scoringQueue: { stage: 'received', workerReceivedAt } };
   await refresh(evaluating);
   assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
   await refresh(queued);
   assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
 
+  const provisional = { status: 'scoring', score: 0,
+    scoringState: { state: 'provisional', scoreIsFinal: false, provisionalScore: 63, workerStatus: 'harbor_scored' } };
+  await refresh(provisional);
+  assert.deepEqual(shown(), [['暂存分', '参考 63'], ['暂存分', '参考 63']]);
+  await refresh(evaluating);
+  assert.deepEqual(shown(), [['暂存分', '参考 63'], ['暂存分', '参考 63']]);
+  await refresh({ ...provisional, scoringState: { ...provisional.scoringState, provisionalScore: 0 } });
+  assert.deepEqual(shown(), [['暂存分', '参考 0'], ['暂存分', '参考 0']]);
+  await refresh({ status: 'scoring', score: 0, scoringQueue: { stage: 'received', workerReceivedAt },
+    scoringState: { state: 'evaluating', scoreIsFinal: false, workerStatus: 'trace_scoring' } });
+  assert.deepEqual(shown(), [['评测中', '—'], ['评测中', '—']]);
+  await refresh(provisional);
+  assert.deepEqual(shown(), [['评测中', '—'], ['评测中', '—']]);
+
   platform.set(7, { ...finalAttempt(80), updatedAt });
   h.tick(twoMinutes);
   await h.settled();
   assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
+  const before = h.calls.length;
   h.tick(twoMinutes);
-  assert.equal(h.calls.length, 5);
+  assert.equal(h.calls.length, before);
 
   await refresh(evaluating);
   await refresh(finalAttempt(60));
   assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
-  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7, 7, 7, 7]);
+});
+
+test('opening the workbench retains evaluating receipts against an older queue response', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const platform = new Map([[7, { ...queuedAttempt, updatedAt }]]);
+  const h = await refreshHarness(t, [['task', receiptOf(7, { ...evaluatingAttempt, updatedAt })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => [row.badge, row.score]), [['评测中', '参考 41']]);
+});
+
+test('a later Worker job for the same submission reopens its final score and resumes polling', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const job = (received) => ({ status: 'submitted', updatedAt, scoringState: { state: 'queued', scoreIsFinal: false },
+    scoringQueue: { stage: 'queued', submittedAt: updatedAt, workerReceivedAt: received } });
+  const first = job('2026-10-02T12:01:00Z');
+  const second = job('2026-10-02T13:02:00Z');
+  const platform = new Map([[7, first]]);
+  const h = await refreshHarness(t, [['task', receiptOf(7, first)]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.flush();
+  await h.settled();
+  platform.set(7, { ...finalAttempt(80), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分']]);
+
+  platform.set(7, second);
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...first, ...evaluatingAttempt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  platform.set(7, { ...finalAttempt(52), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+});
+
+test('a shared lookup begun before a reported re-upload cannot settle the new receipt', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const queued = { ...queuedAttempt, updatedAt, submissionState: 'uploaded' };
+  const receipt = receiptOf(7, { ...queued, trackedAt: '2026-10-02T12:01:00Z' });
+  const platform = new Map([[7, { ...finalAttempt(80), updatedAt }]]);
+  const h = await refreshHarness(t, [['original', receipt], ['retry', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  h.control.hold = true;
+  h.flush();
+  assert.equal(h.calls.length, 1);
+  h.sessions[1].projectionValues.playgroundTask.receipt = { ...receipt, trackedAt: '2026-10-02T14:00:00Z' };
+  h.flush();
+  h.control.hold = false;
+  h.release();
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['Agent 报告已上传', '—']]);
+
+  const retry = findAll(h.view.tree, (node) => node.type?.name === 'TaskSummaryRow' && node.props.session.id === 'retry')[0];
+  h.f.find(h.f.render(retry.type, retry.props), (node) => node.props?.className === 'pg-task-row-select').props.onClick();
+  h.flush();
+  const historyRow = async () => {
+    const drawer = h.f.find(h.view.tree, (node) => node.type?.name === 'TaskDetailDrawer');
+    const query = async () => ({ items: [{ id: 7, ...queuedAttempt, updatedAt }] });
+    const history = h.f.find(h.f.render(drawer.type, { ...drawer.props, query }), isHistory);
+    return historyRows(await h.f.mount(history))[0];
+  };
+  assert.match(await historyRow(), /评测中 · — 排队中/);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评测中', '参考 41']]);
+  platform.set(7, { ...finalAttempt(55), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '55 分']]);
+  assert.match(await historyRow(), /已出最终分 · 55 分/);
 });
 
 test('workbench refresh isolates identical attempt numbers across platforms and challenges', async (t) => {

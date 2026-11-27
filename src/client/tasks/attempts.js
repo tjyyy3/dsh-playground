@@ -1,31 +1,8 @@
 import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
-import { compareAttemptUpdates, parsePlatformTime, taskAttemptScope } from '../../../lib/task/evidence.js';
-
-// Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
-// final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
-// a reference while evaluation is pending. Receipts saved by older versions may carry `scoringState`
-// as a bare string (CLI output copied verbatim); it names the state only and never implies that the
-// score is final. New receipts always carry the normalised object.
-function attemptScore(item) {
-  const raw = item?.scoringState;
-  const scoring = typeof raw === 'string' ? { state: raw } : raw || {};
-  const failed = [scoring.state, item?.status].some((value) => ['failed', 'rejected'].includes(value)) || item?.bundleStatus === 'failed';
-  const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
-  const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : undefined;
-  const reference = scoreIsFinal || failed ? undefined : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
-  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && reference !== 0 ? reference : undefined };
-}
+import { ATTEMPT_STATE_FIELDS, attemptScore, compareAttemptRevisions, compareAttemptUpdates, keepsWorkerProgress, platformReceivedBundle, refreshedAttemptFields, taskAttemptScope } from '../../../lib/task/evidence.js';
 
 const stageTones = { final: 'success', finalLate: 'success', failed: 'error', evaluating: 'warning', incomplete: 'error' };
-
-// Mirrors platformReceivedBundle in lib/workflow.js: an evaluating, scoring or final state, or the
-// time the Worker received the bundle, proves it arrived.
-function platformReceivedBundle(attempt) {
-  const state = typeof attempt?.scoringState === 'string' ? attempt.scoringState : attempt?.scoringState?.state;
-  return ['evaluating', 'scoring', 'final', 'late_scored'].includes(state)
-    || (typeof attempt?.scoringQueue?.workerReceivedAt === 'string' && attempt.scoringQueue.workerReceivedAt !== '');
-}
 
 // Mirrors receiptBundleMissing in lib/workflow.js: the plugin's receipt says the upload into this submission
 // failed, and the platform shows no sign that the bundle arrived since.
@@ -114,7 +91,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
     : failed ? 'failed'
       : scoreIsFinal ? (states.includes('late_scored') ? 'finalLate' : 'final')
         : notUploaded ? 'incomplete'
-          : reported ? 'submitted' : states.some((value) => ['queued', 'evaluating', 'scoring', 'pending_review'].includes(value)) ? 'evaluating'
+          : reported ? 'submitted' : states.some((value) => ['queued', 'evaluating', 'scoring', 'provisional', 'pending_review'].includes(value)) ? 'evaluating'
             : uploadFailed || states.includes('draft') ? 'incomplete'
               : 'submitted';
   const stage = running ? 'running' : receiptStage;
@@ -153,8 +130,10 @@ const noArchiveError = Object.freeze({ id: '', message: '' });
 
 // A receipt whose evaluation has ended: a final score, or a failed or rejected attempt.
 // A submission the platform closed as "bundle missing" is settled too.
-const receiptSettled = (receipt) => receipt?.bundleNotReceived === true
-  || ['final', 'finalLate', 'failed'].includes(receiptProgress(receipt, zhText).stage);
+function receiptSettled(receipt) {
+  const { failed, scoreIsFinal } = attemptScore(receipt);
+  return receipt?.bundleNotReceived === true || failed || scoreIsFinal;
+}
 
 // The submission id of a receipt, or undefined when it is not a positive integer.
 const receiptAttemptId = (receipt) => {
@@ -182,42 +161,36 @@ function receiptPending(receipt) {
   return stage === 'submitted' && ([undefined, 'submitted'].includes(receipt.status) || awaitingReview);
 }
 
-// The platform fields a refreshed submission lays over a receipt or a history row.
-const ATTEMPT_STATE_FIELDS = ['status', 'bundleStatus', 'score', 'scoringState', 'scoringQueue', 'bundleNotReceived'];
-
 const attemptKey = (scope, id) => scope.conflict || id === undefined ? undefined : JSON.stringify([scope.baseUrl, scope.challengeId, id]);
 
 // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
 // resubmission under the same id or by "查询结果", no longer matches the stored result.
 const receiptKey = (receipt) => JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.trackedAt, receipt.confirmedAt,
-  receipt.ok, receipt.submissionState, ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])]);
+  receipt.ok, receipt.submissionState, receipt.agentReport, receipt.lastWorkerReceivedAt, ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])]);
+
+function attemptForReceipt(entry, receipt) {
+  return receipt ? entry?.overlays?.get(receiptKey(receipt)) : entry?.attempt;
+}
 
 function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  const overlay = entry?.overlays?.get(receiptKey(receipt));
+  const overlay = attemptForReceipt(entry, receipt);
   return overlay ? { ...receipt, ...overlay } : receipt;
 }
 
-// Worker evidence can advance while the attempt's platform timestamp stays the same.
-function attemptProgressEvidence(attempt) {
-  if (receiptSettled(attempt)) return 3;
-  if (['evaluating', 'scoring'].includes(attemptScore(attempt).scoring.state)) return 2;
-  return platformReceivedBundle(attempt) ? 1 : 0;
-}
-
-function updateAttemptOverlay(receipt, overlay, attempt) {
-  const previous = { ...receipt, ...overlay };
-  const order = compareAttemptUpdates(previous.updatedAt, attempt.updatedAt);
-  const settled = receiptSettled(previous);
-  if (order === -1 || (order === 0 && settled)) return overlay;
-  if (overlay?.updatedAt !== undefined && (order === undefined ||
-    (order === 0 && attemptProgressEvidence(attempt) <= attemptProgressEvidence(previous)))) return overlay;
-  const updated = {};
-  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) updated[field] = attempt[field];
-  if (Number.isFinite(parsePlatformTime(attempt.updatedAt))) updated.updatedAt = attempt.updatedAt;
-  return order === undefined && settled && !receiptSettled({ ...receipt, ...updated }) ? overlay : updated;
+function observeAttempt(receipt, observation, incoming) {
+  const previous = observation ?? receipt;
+  const order = compareAttemptRevisions(previous, incoming);
+  if (order === -1) return observation;
+  const attempt = refreshedAttemptFields(previous, incoming, order);
+  if (order !== 1) {
+    const settled = receiptSettled(attempt);
+    if (receiptSettled(previous) && (!settled || order === 0)) return observation;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return observation;
+  }
+  return attempt;
 }
 
 // A submission-history row with the workbench refresh's result for the same id laid over it, but
@@ -227,13 +200,13 @@ function updateAttemptOverlay(receipt, overlay, attempt) {
 // `/me/attempts` rows carry no closure marker, so the platform's "bundle missing" closure of the same id,
 // from the refreshed result or the task's merged receipt (`closed`), is laid over every row that shows no
 // received bundle or final score, settled ones included: the row then agrees with the task row.
-function withSettledAttempt(item, entry, { closed = false } = {}) {
-  const row = (closed || entry?.attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true
+function withSettledAttempt(item, attempt, { closed = false } = {}) {
+  const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true
     && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!entry?.attempt || receiptSettled(row)) return row;
-  if (Date.parse(row.updatedAt) > Date.parse(entry.attempt.updatedAt)) return row;
+  if (!attempt || receiptSettled(row)) return row;
+  if (compareAttemptUpdates(row.updatedAt, attempt.updatedAt) === -1) return row;
   const merged = { ...row };
-  for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
   return receiptSettled(merged) ? merged : row;
 }
 
@@ -260,8 +233,8 @@ async function refreshAttempts(store, keys) {
           && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
           const previous = store.attempts[key];
           const overlays = new Map([...snapshots].map(([snapshot, receipt]) =>
-            [snapshot, updateAttemptOverlay(receipt, previous?.overlays?.get(snapshot), attempt)]));
-          fresh.push([key, { attempt: updateAttemptOverlay({}, previous?.attempt, attempt), overlays }]);
+            [snapshot, observeAttempt(receipt, previous?.overlays?.get(snapshot), attempt)]));
+          fresh.push([key, { attempt: observeAttempt({}, previous?.attempt, attempt), overlays }]);
         }
       } catch { /* counted as failed */ }
     }
@@ -275,5 +248,5 @@ async function refreshAttempts(store, keys) {
   store.publish();
 }
 
-export { attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
+export { attemptForReceipt, attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
 

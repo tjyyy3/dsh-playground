@@ -279,6 +279,31 @@ test('a queued lookup cannot replace a receipt with a terminal platform status',
   assert.deepEqual(f.state(), closed);
 });
 
+test('task results keep a provisional score through replay and follow a new Worker job under the same id', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const firstJob = { stage: 'received', workerReceivedAt: '2026-10-02T12:01:00Z' };
+  let response = { status: 'scoring', scoringState: { state: 'evaluating' }, scoringQueue: firstJob };
+  f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, updatedAt, ...response });
+  f.record(await f.workflow.track({ attempt_id: 7, submission_state: 'uploaded' }, f.exec));
+  const evaluating = await f.workflow.results({}, f.exec);
+  response = { status: 'scoring', scoringState: { state: 'provisional', provisionalScore: 41 } };
+  f.record(await f.workflow.results({}, f.exec));
+  f.record(evaluating);
+  assert.equal(f.state().receipt.scoringState.provisionalScore, 41);
+  response = { status: 'scored', score: 80, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 80 } };
+  f.record(await f.workflow.results({}, f.exec));
+  assert.equal(f.state().submission.status, 'final');
+  response = { status: 'submitted', scoringState: { state: 'queued' },
+    scoringQueue: { stage: 'queued', workerReceivedAt: '2026-10-02T13:02:00Z' } };
+  f.record(await f.workflow.results({}, f.exec));
+  assert.equal(f.state().submission.status, 'running');
+  assert.equal(f.state().receipt.score, undefined);
+  f.record(evaluating);
+  assert.equal(f.state().receipt.scoringState.state, 'queued');
+});
+
 test('an explicitly newer platform result can reopen a final submission for manual review', async (t) => {
   const f = await fixture(t);
   await f.submit();

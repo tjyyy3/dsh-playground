@@ -1,6 +1,6 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
-import { attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withLatestAttempt, withSettledAttempt } from './attempts.js';
+import { attemptForReceipt, attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withLatestAttempt, withSettledAttempt } from './attempts.js';
 import { zhText } from '../shared/locale.js';
 import { h } from '../shared/react.js';
 import { safeMessage } from '../shared/errors.js';
@@ -43,7 +43,7 @@ function taskAttemptIds(state) {
 // `attempts` is the workbench store of refreshed submissions; it is only read here, never polled.
 // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
 // `closedIds` are the task's submissions its receipts or the store show closed as "bundle missing".
-function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
   // The first page's counts and partial reason (lib/workflow.js myAttempts).
   const [overview, setOverview] = React.useState({ counts: undefined, partial: '' });
@@ -109,6 +109,7 @@ function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [
   const items = [...history.items].sort((a, b) => (time(b.createdAt) - time(a.createdAt)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
   const linked = new Set(attemptIds);
   const missing = new Set(bundleMissingIds);
+  const latestId = receiptAttemptId(receipt);
   return h('section', { className: 'pg-guide pg-history', 'aria-label': msg('提交历史', 'Submission history'), 'aria-busy': busy },
     h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, status && msg(...status)),
     h('h3', { className: 'pg-brand', tabIndex: -1, ref: (node) => { latest.heading = node; } }, msg('提交历史', 'Submission history')),
@@ -127,11 +128,12 @@ function AttemptHistory({ baseUrl, challengeId, attemptIds, bundleMissingIds = [
     } }, items.map((item) => {
       // Same stage, badge and score rules as the task row and the drawer summary; `running` describes
       // the conversation, not this attempt, so it is not passed.
-      const entry = attempts?.[attemptKey({ baseUrl, challengeId }, Number(item.id))];
-      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(Number(item.id)) }), t, { bundleMissing: missing.has(Number(item.id)) });
+      const id = Number(item.id);
+      const entry = attemptForReceipt(attempts?.[attemptKey({ baseUrl, challengeId }, id)], id === latestId ? receipt : undefined);
+      const progress = receiptProgress(withSettledAttempt(item, entry, { closed: closedIds.includes(id) }), t, { bundleMissing: missing.has(id) });
       const created = Number.isFinite(Date.parse(item.createdAt))
         ? new Date(item.createdAt).toLocaleString(msg('zh-CN', 'en-US'), { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : msg('提交时间未知', 'Submission time unknown');
-      const own = linked.has(Number(item.id));
+      const own = linked.has(id);
       return h('li', { key: item.id, className: 'pg-row' },
         h('div', { className: 'pg-row-main' }, msg(`提交 #${item.id ?? '—'}`, `Submission #${item.id ?? '—'}`),
           h('div', { className: 'pg-row-sub' }, created, ' · ', progress.stageText, ' · ', progress.scoreText)),
@@ -198,7 +200,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const closedIds = [...new Set([
     ...(Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : []),
     ...(latestReceipt?.bundleNotReceived === true ? [receiptAttemptId(latestReceipt)] : []),
-    ...attemptIds.filter((id) => props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true),
+    ...attemptIds.filter((id) => id !== receiptAttemptId(current.receipt) && props.attempts?.[attemptKey(scope, id)]?.attempt?.bundleNotReceived === true),
   ])].filter((id) => Number.isSafeInteger(id) && id > 0);
   const openWeb = openWebButton(taskWebUrl(current.task?.challengeId ? current.task : state.task, webBase), title);
   const archived = Boolean(archive?.archived);
@@ -225,7 +227,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       // page one. "查询结果" keeps the stamp, so a results query does not remount it or drop loaded pages.
       historyChallenge && query ? h(AttemptHistory, {
         key: JSON.stringify([session.id, scope.baseUrl, historyChallenge, attemptIds.at(-1), current.receipt?.confirmedAt ?? current.receipt?.trackedAt]),
-        baseUrl: scope.baseUrl, challengeId: historyChallenge, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds,
+        baseUrl: scope.baseUrl, challengeId: historyChallenge, receipt: current.receipt, attemptIds, bundleMissingIds: taskBundleMissingIds(current), closedIds,
         limits: submissionLimitsOf(current, historyChallenge), attempts: props.attempts, query, t: props.t,
       }) : null));
 }
