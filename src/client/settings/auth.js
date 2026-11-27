@@ -21,7 +21,7 @@ function tokenPageUrl(apiBase) {
   return root ? openableWebUrl(`${root}/#dashboard/api`) : undefined;
 }
 
-const authCss = '.pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}';
+const authCss = '.pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{width:100%}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--pg-muted)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}';
 
 // Why a saved or found token does not log in, with the next step for where it came from.
 function tokenProblem(state) {
@@ -135,7 +135,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   React.useEffect(() => { check(); }, [query]);
   React.useEffect(() => {
     onStatusChange?.(!state || checking ? 'checking' : state.authenticated ? 'authenticated'
-      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated');
+      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated', state?.user);
   }, [state, checking, onStatusChange]);
   const submitLogin = async () => {
     if (latest.previewRequest) {

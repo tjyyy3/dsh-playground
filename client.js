@@ -499,11 +499,87 @@ function workspaceOptions(items) {
 __name(workspaceOptions, "workspaceOptions");
 
 // src/client/shared/styles.js
-var css = `
-  .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground);font-weight:600}.pg-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+var instrumentCss = `
+  :where(.pg-controller,.pg-workbench,.pg-guide,.pg-card,.pg-task-modal,.pg-codex-chats) {
+    --pg-base:#090B0E; --pg-panel:#0D1014; --pg-hover:#141920;
+    --pg-line:#1E232C; --pg-line-strong:#2C3340;
+    --pg-accent:#C6F24E; --pg-accent-hover:#DAFF73;
+    --pg-info:#7CC0FF; --pg-warning:#FFB04A; --pg-error:#FF8E7A;
+    --pg-text:#E6EAF0; --pg-muted:#A3ADBB; --pg-label:#808B9B; --pg-ink:#0A0C0F;
+    --pg-accent-strong:var(--pg-accent); --pg-accent-soft:#12170C;
+    --pg-control:#0F1216; --pg-control-line:#262C36;
+    --pg-r4:4px; --pg-r6:6px; --pg-r8:8px; --pg-r10:10px; --pg-r14:14px;
+    --pg-s4:4px; --pg-s8:8px; --pg-s12:12px; --pg-s16:16px; --pg-s24:24px;
+    --pg-h30:30px; --pg-h36:36px; --pg-h42:42px;
+    --pg-font-body:"Noto Sans SC",system-ui,sans-serif;
+    --pg-font-title:"Space Grotesk",var(--pg-font-body);
+    --pg-font-mono:"JetBrains Mono",ui-monospace,monospace;
+    --pg-grid:radial-gradient(rgba(230,234,240,.06) 1px,transparent 1px) 0 0 / 40px 40px;
+    color:var(--pg-text);
+    font-family:var(--pg-font-body);
+  }
+  :where(.pg-controller-brand,.pg-controller-chat-head,.pg-controller-tasks,.pg-workbench,.pg-guide,.pg-card,.pg-task-modal) :is(h1,h2,h3) {
+    font-family:var(--pg-font-title);
+  }
 `;
-var taskModalCss = `
-    .pg-task-modal{--pg-task-accent:#007f86;--pg-task-text:var(--dsw-alias-label-primary,#24282e);--pg-task-secondary:var(--dsw-alias-label-secondary,#68717c);--pg-task-base:var(--dsw-alias-bg-base,#fff);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--dsw-alias-border-l2,#d4dbe1);--pg-task-error:var(--dsw-alias-state-error-primary,#b42318);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:16px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;overflow:hidden}
+var css = instrumentCss + `
+
+  .pg-guide,.pg-card{box-sizing:border-box;max-width:100%;line-height:1.55;color:var(--pg-text);border:1px solid var(--pg-line);border-radius:var(--pg-r10);background:var(--pg-panel);padding:12px 14px}
+  .pg-guide{margin:4px 0 8px}
+  .pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}
+  .pg-column-heading h2{margin:0}
+  .pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}
+  .pg-mark{color:var(--pg-accent);font-weight:700}
+  .pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--pg-muted);margin:8px 0}
+  .pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .pg-button{min-height:var(--pg-h36);font:inherit;font-size:13px;line-height:1.4;padding:6px 14px;border-radius:var(--pg-r8);border:1px solid var(--pg-line-strong);background:transparent;color:var(--pg-text);cursor:pointer}
+  .pg-button:hover:not(:disabled){background:var(--pg-hover);border-color:#353D4A}
+  .pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}
+  .pg-button:is(:disabled,[aria-disabled="true"]){background:var(--pg-hover);border-color:var(--pg-control-line);color:var(--pg-label);cursor:default}
+  .pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--pg-muted)}
+  .pg-card h3{font-family:var(--pg-font-title);font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}
+  .pg-badge{display:inline-flex;align-items:center;gap:6px;min-height:20px;font-size:11.5px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r4);padding:0 6px;color:var(--pg-muted);white-space:nowrap}
+  .pg-badge:is([data-tone=running],[data-tone=result],[data-tone=evaluating],[data-tone=warning],[data-tone=scored],[data-tone=error],[data-tone=unknown])::before {content:"";width:7px;height:7px;box-sizing:border-box;border-radius:50%;background:currentColor;flex:none}
+  .pg-badge:is([data-tone=running],[data-tone=open],[data-tone=success]){color:var(--pg-accent)}
+  .pg-badge:is([data-tone=result],[data-tone=scored]){color:var(--pg-text)}
+  .pg-badge[data-tone=scored]::before{border-radius:0}
+  .pg-badge[data-tone=evaluating]{color:var(--pg-info)}
+  .pg-badge[data-tone=warning]{color:var(--pg-warning)}
+  .pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}
+  .pg-badge[data-tone=error]::before{border:1.5px solid currentColor;background:none}
+  .pg-badge[data-tone=unknown]::before{width:9px;height:9px;border:1px solid var(--pg-label);border-radius:2px;background:repeating-linear-gradient(135deg,var(--pg-label) 0 1.5px,transparent 1.5px 3.5px)}
+  .pg-badge[data-tone=running]::before{animation:pg-signal-pulse 1.8s ease-out infinite}
+  @keyframes pg-signal-pulse{0%{box-shadow:0 0 0 0 rgba(198,242,78,.55)}70%,100%{box-shadow:0 0 0 6px rgba(198,242,78,0)}}
+  @media(prefers-reduced-motion:reduce){.pg-badge[data-tone=running]::before{animation:none}}
+  .pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--pg-muted)}
+  .pg-score{font-family:var(--pg-font-mono);font-size:15px;font-weight:600;margin:12px 0 8px}
+  .pg-list{list-style:none;padding:0;margin:10px 0 0}
+  .pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--pg-line);font-size:12px}
+  .pg-row .pg-badge{align-self:start}
+  .pg-row-main{min-width:0;overflow-wrap:anywhere}
+  .pg-row-sub{margin-top:4px;color:var(--pg-muted)}
+  .pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}
+  .pg-metric{padding:8px 10px;border:1px solid var(--pg-line);border-radius:8px}
+  .pg-metric dt{font-size:11px;color:var(--pg-muted);overflow-wrap:anywhere}
+  .pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}
+  .pg-raw{font-size:12px;margin-top:10px;color:var(--pg-muted)}
+  .pg-raw summary{cursor:pointer}
+  .pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}
+  .pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}
+  .pg-card footer{margin-top:10px;font-size:11px;color:var(--pg-muted)}
+  .pg-primary{background:var(--pg-accent);border-color:transparent;color:var(--pg-ink);font-weight:600}
+  .pg-primary:hover:not(:disabled):not([aria-disabled="true"]){background:var(--pg-accent-hover);border-color:transparent}
+  .pg-list-action{background:var(--pg-accent-soft);border-color:#6E8A2A;color:var(--pg-accent);font-weight:600}
+  .pg-risk{background:var(--pg-warning);border-color:transparent;color:#1A1208;font-weight:600}
+  .pg-risk:hover:not(:disabled){background:#FFC276;border-color:transparent}
+  .pg-input{box-sizing:border-box;min-height:var(--pg-h36);padding:6px 10px;font:inherit;color:var(--pg-text);color-scheme:dark;background:var(--pg-control);border:1px solid var(--pg-control-line);border-radius:var(--pg-r8)}
+  .pg-input:disabled{background:var(--pg-hover);color:var(--pg-label)}
+  .pg-input::placeholder,.pg-codex-chats textarea::placeholder{color:var(--pg-label)}
+  .pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--pg-line);border-radius:7px;background:var(--pg-panel);color:var(--pg-muted);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+`;
+var taskModalCss = instrumentCss + `
+    .pg-task-modal{--pg-task-accent:var(--pg-accent);--pg-task-text:var(--pg-text);--pg-task-secondary:var(--pg-muted);--pg-task-base:var(--pg-base);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--pg-line);--pg-task-error:var(--pg-error);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:var(--pg-r14);background:var(--pg-task-base);color:var(--pg-task-text);font-size:14px;overflow:hidden}
     .pg-task-modal *{box-sizing:border-box}.pg-task-modal ::selection{background:color-mix(in srgb,var(--pg-task-accent) 25%,var(--pg-task-base));color:var(--pg-task-text)}
     .pg-task-modal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
     .pg-task-header{position:relative;flex:none;padding:24px 24px 0}.pg-task-header h2{padding-right:36px;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.2px}.pg-task-subtitle{margin:6px 0 0;color:var(--pg-task-secondary);font-size:13px;line-height:20px}
@@ -511,11 +587,18 @@ var taskModalCss = `
     .pg-task-body{display:grid;gap:24px;min-height:0;padding:24px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-task-border) transparent}
     .pg-task-summary{padding:16px;border-radius:10px;background:var(--pg-task-subtle)}.pg-task-summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.pg-task-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;margin:0;font-size:16px;line-height:25px;font-weight:500}.pg-task-mode{flex:none;margin-top:2px;padding:1px 7px;border:1px solid var(--pg-task-border);border-radius:5px;color:var(--pg-task-secondary);font-size:11px;line-height:18px;white-space:nowrap}.pg-task-id{margin:7px 0 0;color:var(--pg-task-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
     .pg-task-field{display:grid;gap:8px}.pg-task-field label{font-size:14px;font-weight:500;line-height:21px}.pg-task-select-wrap{position:relative;min-width:0}.pg-task-select-wrap>svg{position:absolute;top:13px;left:13px;pointer-events:none;color:var(--pg-task-secondary)}.pg-task-select-wrap>.pg-task-chevron{top:14px;right:13px;left:auto;width:15px;height:15px}
-    .pg-task-select{appearance:none;display:block;width:100%;height:44px;padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--pg-task-error)}
-    .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9ecf0);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
+    .pg-task-select{appearance:none;display:block;width:100%;height:var(--pg-h42);padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--pg-task-error)}
+    .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
     .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--pg-task-error);font-size:12px;line-height:20px;overflow-wrap:anywhere}
-    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
-    .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
+    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--pg-line)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+    .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:var(--pg-h42);padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}
+    .pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}
+    .pg-task-create{min-width:144px;border-color:transparent;background:var(--pg-accent);color:var(--pg-ink)}
+    .pg-task-create:hover:not(:disabled){background:var(--pg-accent-hover);border-color:transparent}
+    .pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--pg-label)}
+    .pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}
+    .pg-task-create[data-busy=true]{background:var(--pg-accent);color:var(--pg-ink)}
+    .pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
     .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent);outline-offset:2px}
     @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
     @media(max-width:600px){.pg-task-header{padding:22px 20px 0}.pg-task-header h2{font-size:19px}.pg-task-body{padding:20px;gap:20px}.pg-task-footer{padding:16px 20px 20px}.pg-task-summary{padding:14px}}
@@ -527,9 +610,13 @@ var React2 = __toESM(require("react"), 1);
 // src/client/shared/display.js
 function statusTone(state) {
   if (["failed", "incomplete", "rejected"].includes(state)) return "error";
-  if (["queued", "evaluating", "scoring", "pending_review", "awaiting_bundle", "awaiting_review", "active"].includes(state)) return "warning";
-  if (["submitted", "scored", "late_scored", "final", "ready", "open"].includes(state)) return "success";
-  return "neutral";
+  if (["queued", "evaluating", "scoring", "provisional"].includes(state)) return "evaluating";
+  if (["pending_review", "awaiting_bundle", "awaiting_review", "awaiting_confirmation"].includes(state)) return "warning";
+  if (["scored", "late_scored", "final"].includes(state)) return "scored";
+  if (state === "open") return "open";
+  if (["active", "running"].includes(state)) return "running";
+  if (["ready", "submitted"].includes(state)) return "result";
+  return state === "unknown" ? "unknown" : "neutral";
 }
 __name(statusTone, "statusTone");
 function openableWebUrl(value) {
@@ -593,7 +680,7 @@ function tokenPageUrl(apiBase) {
   return root ? openableWebUrl(`${root}/#dashboard/api`) : void 0;
 }
 __name(tokenPageUrl, "tokenPageUrl");
-var authCss = ".pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}";
+var authCss = ".pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{width:100%}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--pg-muted)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}";
 function tokenProblem(state) {
   const source = state.tokenSource;
   const fromFile = state.cliFilePath ? msg(`CLI 凭据文件 ${state.cliFilePath}`, `CLI credentials file ${state.cliFilePath}`) : msg("CLI 凭据文件", "the CLI credentials file");
@@ -688,7 +775,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     check();
   }, [query]);
   React2.useEffect(() => {
-    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated");
+    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user);
   }, [state, checking, onStatusChange]);
   const submitLogin = /* @__PURE__ */ __name(async () => {
     if (latest.previewRequest) {
@@ -1007,19 +1094,19 @@ var releaseCss = `
   .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
   .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
   .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
-  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--dsw-alias-label-secondary); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
+  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
   .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
   .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
   .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
-  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--dsw-alias-label-secondary) }.pg-release-version small { font-size:12px }
-  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--dsw-alias-label-primary) }
-  .pg-release-arrow { color:var(--dsw-alias-label-secondary) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
-  .pg-release-pref { min-height:54px; border-top:1px solid var(--dsw-alias-border-l2); font-weight:600; cursor:pointer }
-  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--dsw-alias-label-secondary); border-radius:12px; background:var(--dsw-alias-bg-base); cursor:pointer }
-  .pg-release-pref input::before { content:""; background:var(--dsw-alias-label-secondary); width:14px; height:14px; margin:2px; border-radius:50% }
+  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--pg-muted) }.pg-release-version small { font-size:12px }
+  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--pg-text) }
+  .pg-release-arrow { color:var(--pg-muted) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
+  .pg-release-pref { min-height:54px; border-top:1px solid var(--pg-line); font-weight:600; cursor:pointer }
+  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--pg-muted); border-radius:12px; background:var(--pg-base); cursor:pointer }
+  .pg-release-pref input::before { content:""; background:var(--pg-muted); width:14px; height:14px; margin:2px; border-radius:50% }
   .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
   @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
-  .pg-release-details { border-top:1px solid var(--dsw-alias-border-l2); padding:10px var(--inset); color:var(--dsw-alias-label-secondary); font-size:13px }.pg-release-details summary { cursor:pointer }
+  .pg-release-details { border-top:1px solid var(--pg-line); padding:10px var(--inset); color:var(--pg-muted); font-size:13px }.pg-release-details summary { cursor:pointer }
   .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
   @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
 `;
@@ -1050,7 +1137,7 @@ function ReleaseIndicator({ checks, active, open }) {
     className: "pg-release-indicator",
     onClick: open,
     title: msg(`查看版本 ${version2}`, `View version ${version2}`)
-  }, icon("M4 10a8 8 0 0 1 13-4l3 3m0-5v5h-5M20 14a8 8 0 0 1-13 4l-3-3m0 5v-5h5"), msg("有新版本", "Update available")) : null;
+  }, icon("M12 20V4m0 0-6 6m6-6 6 6", 14), msg("有新版本", "Update available")) : null;
 }
 __name(ReleaseIndicator, "ReleaseIndicator");
 function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
@@ -1333,6 +1420,21 @@ __name(controllerMessage, "controllerMessage");
 
 // src/client/controller/codex-chats.js
 var React4 = __toESM(require("react"), 1);
+var codexCss = `
+  .pg-controller-external-chats { margin-top:6px; border:1px solid #1A1F27; border-radius:var(--pg-r10); background:#0A0D10; }
+  .pg-controller-external-chats > summary { display:flex; align-items:center; gap:var(--pg-s8); padding:10px var(--pg-s12); border-radius:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .pg-controller-external-chats > summary svg { color:var(--pg-muted); }
+  .pg-controller-external-chats[open] > summary { border-bottom:1px solid #161B22; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .pg-codex-chats { display:grid; gap:var(--pg-s8); padding:var(--pg-s12); border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-panel); overflow-wrap:anywhere; }
+  .pg-controller-external-chats .pg-codex-chats { border:0; background:transparent; }
+  .pg-codex-chats h3,.pg-codex-chats p { margin:0; }
+  .pg-codex-chats label { display:grid; gap:var(--pg-s4); margin:6px 0; }
+  .pg-codex-chats .pg-input { width:100%; }
+  .pg-codex-chats .pg-controller-row { display:grid; gap:4px; width:100%; padding:8px 0; border:0; border-bottom:1px solid var(--pg-line); border-radius:var(--pg-r4); background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+  .pg-codex-chats .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
+  .pg-codex-chats .pg-controller-row span { color:var(--pg-label); font:10.5px/1.4 var(--pg-font-mono); }
+  .pg-codex-chats .pg-button { justify-self:start; }
+`;
 var reasons = /* @__PURE__ */ __name(() => ({
   controller_changed: msg("主控或工作区已变更，请重新打开。", "The controller or workspace changed. Reopen it to continue."),
   target_missing: msg("找不到此对话，请刷新并核对编号。", "Chat not found. Refresh and check the ID."),
@@ -1387,7 +1489,16 @@ function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
         if (expanded) setHasOpened(true);
       }, "onToggle")
     },
-    available ? h("summary", null, msg("外部 Codex 对话", "External Codex chats")) : null,
+    available ? h(
+      "summary",
+      null,
+      h(
+        "svg",
+        { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+        h("path", { d: "M2.5 4.5 6 8l-3.5 3.5M8 12h5.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" })
+      ),
+      msg("工作区 Codex 对话", "Workspace Codex chats")
+    ) : null,
     hasOpened ? h(CodexChats, {
       workspaceId,
       sessionId,
@@ -1495,6 +1606,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
   return h(
     "section",
     { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
+    showHeading ? h("style", null, css + codexCss) : null,
     showHeading ? h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")) : null,
     !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
     rows.map((source) => h(
@@ -1520,7 +1632,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
     data?.partial ? h("p", null, msg("仅显示最近的部分对话。可通过完整会话编号指定目标。", "Showing recent chats only. Enter the full chat ID to select another.")) : null,
     rows.length > 0 && data.kind !== "summary" ? h("button", {
       type: "button",
-      className: "pg-controller-action",
+      className: "pg-button",
       disabled: busy,
       onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
     }, msg("汇总最近结果", "Summarize recent results")) : null,
@@ -1529,12 +1641,14 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
       null,
       selected ? h("p", null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h("button", {
         type: "button",
+        className: "pg-button",
         disabled: busy,
         onClick: /* @__PURE__ */ __name(() => {
           select(null);
           setChoices(null);
         }, "onClick")
       }, msg("更换目标", "Change target"))) : h("label", null, msg("目标会话", "Target chat"), h("input", {
+        className: "pg-input",
         value: target,
         disabled: busy,
         placeholder: msg("完整编号或标题", "Full ID or title"),
@@ -1549,6 +1663,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         }, "onChange")
       })),
       h("label", null, msg("追问内容", "Follow-up message"), h("textarea", {
+        className: "pg-input",
         value: draft,
         disabled: busy,
         maxLength: 8e3,
@@ -1568,7 +1683,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         onClick: /* @__PURE__ */ __name(() => send(source), "onClick")
       }, msg(`发送给 ${label(source)}`, `Send to ${label(source)}`)))) : h(
         "button",
-        { type: "button", className: "pg-controller-action", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
+        { type: "button", className: "pg-button", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
         busy ? msg("等待原会话回复…", "Waiting for a reply from the original chat…") : msg("发送追问", "Send follow-up")
       )
     ) : null,
@@ -1582,7 +1697,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
         response.kind === "sent" ? response.text || msg("暂无最终回复。", "No final reply yet.") : response.kind === "unknown" && response.code === "interaction_required" ? msg("该轮需要权限或用户输入，请在原 Codex 会话查看。", "This turn needs permission or input. Open the original Codex chat.") : response.kind === "unknown" ? msg("发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。", "Delivery is unconfirmed. Check the turn in the original Codex chat before resending.") : reasons()[response.code] || msg("无法连接可接收追问的本机 Codex 服务。请在原会话继续。", "Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.")
       ),
-      response.kind === "unavailable" && draft ? h("button", { type: "button", onClick: /* @__PURE__ */ __name(async () => {
+      response.kind === "unavailable" && draft ? h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(async () => {
         try {
           await navigator.clipboard.writeText(draft);
           setCopied(true);
@@ -2003,7 +2118,7 @@ var noticeCss = `
   .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px }
   .pg-notice-batch { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
   .pg-contest-notice h2:focus-visible { outline:2px solid var(--pg-task-accent); outline-offset:3px; border-radius:4px }
-  .pg-notice-actions .pg-task-create { min-width:90px; background:var(--dsw-alias-button-primary-fill,var(--pg-task-accent)); color:var(--dsw-alias-label-primary-foreground,#fff) }
+  .pg-notice-actions .pg-task-create { min-width:90px; background:var(--pg-accent)); color:var(--pg-ink) }
   .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
   .pg-notice-disable:hover { text-decoration:underline }
 `;
@@ -2124,65 +2239,176 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
 }
 __name(CompetitionNotices, "CompetitionNotices");
 
-// src/client/controller/index.js
+// src/client/controller/styles.js
 var controllerPanelCss = `
-  .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
-  .pg-controller-bar { display:flex; align-items:center; gap:10px; min-height:48px; padding:0 14px; border-bottom:1px solid var(--dsw-alias-border-l3); flex-wrap:wrap; }
-  .pg-controller-bar h1 { font-size:15px; line-height:24px; margin:0; font-weight:600; }
-  .pg-controller-bar :is(select,button), .pg-controller-action, .pg-controller-row, .pg-controller-back { font:inherit; color:inherit; }
-  .pg-controller-bar select, .pg-controller-action { border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; padding:5px 8px; }
-  .pg-controller-bar button, .pg-controller-action, .pg-controller-row, .pg-controller-back { cursor:pointer; }
-  .pg-controller-bar button:hover, .pg-controller-action:hover:not(:disabled), .pg-controller-row:hover, .pg-controller-back:hover { background:var(--dsw-alias-interactive-bg-hover); }
-  .pg-controller-bar :is(button,select):focus-visible, .pg-controller-action:focus-visible, .pg-controller-row:focus-visible, .pg-controller-back:focus-visible, .pg-controller-resize:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:-2px; }
-  .pg-controller-tabs { display:flex; align-self:stretch; gap:4px; }
-  .pg-controller-challenge { border-bottom:1px solid var(--dsw-alias-border-l3); padding:8px 0; }
-  .pg-controller-challenge > summary { cursor:pointer; overflow-wrap:anywhere; }
-  .pg-controller-challenge > summary small { display:block; padding-left:16px; color:var(--dsw-alias-label-secondary); font-size:11px; }
-  .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
-  .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
-  .pg-controller-account { display:flex; align-items:center; position:relative; gap:4px; margin-left:auto; }
-  .pg-controller-bar .pg-release-indicator { display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600; padding:5px 2px; color:var(--dsw-alias-brand-primary); background:transparent; border:0; white-space:nowrap; }
+  .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); }
+  .pg-controller-bar { box-sizing:border-box; flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; min-height:56px; padding:0 var(--pg-s16); border-bottom:1px solid var(--pg-line); background:#0B0D10; }
+  .pg-controller-brand { display:flex; align-items:center; gap:10px; }
+  .pg-controller-brand svg { color:var(--pg-accent); flex:none; }
+  .pg-controller-brand h1 { margin:0; font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .pg-controller-brand small { font:10.5px/1.55 var(--pg-font-mono); color:var(--pg-label); border:1px solid var(--pg-control-line); border-radius:var(--pg-r4); padding:1px 5px; }
+  .pg-controller-workspace { position:relative; box-sizing:border-box; display:flex; align-items:center; gap:10px; height:var(--pg-h36); min-width:min(100%, 230px); max-width:min(100%, 280px); padding:0 10px 0 12px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); background:var(--pg-control); }
+  .pg-controller-workspace:not(:has(select:disabled)):hover { background:var(--pg-hover); border-color:#353D4A; }
+  .pg-controller-workspace > svg { color:var(--pg-muted); flex:none; }
+  .pg-controller-workspace-text { display:grid; flex:1; min-width:0; line-height:1.2; }
+  .pg-controller-workspace-text > span { font-size:13px; font-weight:500; }
+  .pg-controller-workspace-text small { font:10.5px/1.2 var(--pg-font-mono); color:var(--pg-label); }
+  .pg-controller-workspace-text > * { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-controller-workspace select { position:absolute; inset:0; width:100%; height:100%; opacity:0; color-scheme:dark; cursor:pointer; }
+  .pg-controller-workspace select:disabled { cursor:default; }
+  .pg-controller-workspace:has(select:disabled) { color:var(--pg-label); }
+  .pg-controller-bar button { font-family:inherit; }
+  .pg-controller-account-mark { display:grid; place-items:center; width:24px; height:24px; margin-left:-4px; border-radius:5px; background:#1B2028; color:var(--pg-accent); font:10.5px/1 var(--pg-font-mono); }
+  .pg-controller :is(.pg-controller-workspace:focus-within,.pg-controller-tab:focus-visible,.pg-controller-icon:focus-visible,.pg-controller-connection:focus-visible,.pg-release-indicator:focus-visible,.pg-language-menu button:focus-visible,.pg-controller-resize:focus-visible,.pg-controller-tasks summary:focus-visible,.pg-controller-row:focus-visible) { outline:2px solid var(--pg-accent); outline-offset:-2px; }
+  .pg-controller-tabs { display:flex; align-self:stretch; min-height:54px; gap:2px; }
+  .pg-controller-tab { padding:0 12px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--pg-muted); font-size:14px; font-weight:500; cursor:pointer; }
+  .pg-controller-tab:hover,.pg-controller-tab[aria-selected=true] { color:var(--pg-text); }
+  .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent); font-weight:600; }
+  .pg-controller-account { display:flex; align-items:center; flex-wrap:wrap; gap:var(--pg-s8); margin-left:auto; }
+  .pg-controller-account :is(.pg-controller-icon,.pg-controller-connection,.pg-release-indicator) { box-sizing:border-box; height:var(--pg-h36); border:1px solid #222833; border-radius:var(--pg-r6); background:var(--pg-control); color:var(--pg-muted); cursor:pointer; }
+  .pg-controller-account :is(.pg-controller-icon,.pg-controller-connection,.pg-release-indicator):hover { background:#1B2028; border-color:#353D4A; color:var(--pg-text); }
+  .pg-controller-account .pg-release-indicator { display:inline-flex; align-items:center; gap:6px; padding:0 10px; font-size:12.5px; color:var(--pg-info); border-color:#23364A; background:#0F1620; white-space:nowrap; }
+  .pg-controller-account .pg-controller-connection { display:flex; align-items:center; gap:8px; padding:0 10px; font-size:13px; color:var(--pg-text); white-space:nowrap; }
+  .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--pg-label); }
+  .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:var(--pg-accent); }
+  .pg-controller-connection:is([data-status=unavailable],[data-status=unauthenticated]) .pg-controller-connection-dot { background:var(--pg-error); }
+  .pg-controller-icon { display:grid; place-items:center; flex:none; width:var(--pg-h36); padding:0; }
+  .pg-controller-account .pg-controller-icon[aria-expanded=true] { background:var(--pg-hover); }
   .pg-language { position:relative; flex:none; }
-  .pg-language-menu, .pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
-  .pg-language-menu { padding:4px; }
-  .pg-language-menu button { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:32px; padding:4px 8px; text-align:start; border:0; border-radius:4px; background:transparent; }
+  .pg-language-menu,.pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--pg-control); border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); box-shadow:0 4px 12px rgba(0,0,0,.24); }
+  .pg-language-menu { padding:var(--pg-s4); }
+  .pg-language-menu button { display:flex; align-items:center; justify-content:space-between; gap:var(--pg-s12); width:100%; min-height:var(--pg-h30); padding:4px 8px; text-align:start; border:0; border-radius:var(--pg-r4); background:transparent; color:inherit; cursor:pointer; }
+  .pg-language-menu button:hover { background:var(--pg-hover); }
   .pg-language-tip { visibility:hidden; padding:5px 8px; font-size:12px; pointer-events:none; }
-  .pg-language:hover .pg-language-tip, .pg-language button:focus-visible + .pg-language-tip { visibility:visible; }
-  .pg-controller-icon { display:grid; place-items:center; width:32px; height:32px; padding:6px; border:0; border-radius:5px; background:transparent; }
-  .pg-controller-connection { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; white-space:nowrap; font-size:12px!important; }
-  .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--dsw-alias-label-secondary); }
-  .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:#16a34a; }
-  .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
+  .pg-language:hover .pg-language-tip,.pg-language button:focus-visible + .pg-language-tip { visibility:visible; }
   .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
-  .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
-  .pg-controller-view-switch { display:flex; flex:none; gap:4px; padding:4px 12px; border-bottom:1px solid var(--dsw-alias-border-l3); }
-  .pg-controller-view-switch [aria-pressed=true] { border-color:var(--pg-accent, #087f78); font-weight:600; }
-  .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
-  .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
-  .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
-  .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; background:var(--dsw-alias-bg-base); }
-  .pg-controller-tasks header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); }
-  .pg-controller-tasks h2 { font-size:14px; margin:0; }
-  .pg-controller-task-content { overflow:auto; min-height:0; padding:8px 12px 20px; }
-  .pg-controller-tasks p { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.5; }
-  .pg-controller-row { display:block; width:100%; border:0; border-bottom:1px solid var(--dsw-alias-border-l3); padding:10px 4px; background:transparent; text-align:left; }
-  .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
-  .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
-  .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
-  .pg-codex-chats { padding-bottom:12px; border-bottom:1px solid var(--dsw-alias-border-l3); overflow-wrap:anywhere; }
-  .pg-codex-chats label { display:block; margin:6px 0; }
-  .pg-codex-chats input, .pg-codex-chats textarea { box-sizing:border-box; width:100%; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:4px; padding:6px; }
+  .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--pg-grid),var(--pg-base); }
+  .pg-controller-chat-head { display:flex; flex:none; flex-wrap:wrap; align-items:center; gap:10px 14px; box-sizing:border-box; min-height:50px; padding:7px var(--pg-s24); border-bottom:1px solid #161B22; background:rgba(9,11,14,.86); }
+  .pg-controller-chat-head h2 { font-weight:600; font-size:14px; margin:0; }
+  .pg-controller-chat-head .pg-badge { height:22px; padding:0 8px; border-color:#2E3A1E; background:var(--pg-accent-soft); }
+  .pg-controller-chat-head .pg-badge::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pg-controller-session { font:11px/1.55 var(--pg-font-mono); color:var(--pg-label); }
+  .pg-controller-view-switch { display:flex; margin-left:auto; padding:2px; border:1px solid #222833; border-radius:var(--pg-r6); background:var(--pg-control); }
+  .pg-controller-view-switch .pg-button { min-height:28px; padding:0 12px; border:0; border-radius:var(--pg-r4); font-size:12.5px; color:var(--pg-muted); }
+  .pg-controller-view-switch .pg-button[aria-pressed=true] { background:#1E242D; color:var(--pg-text); }
+  .pg-controller-placeholder { margin:auto; max-width:440px; padding:var(--pg-s24); line-height:1.6; }
+  .pg-controller-resize { box-sizing:border-box; position:relative; z-index:1; flex:none; width:5px; margin-right:-5px; cursor:col-resize; touch-action:none; }
+  .pg-controller-resize:hover { background:var(--pg-hover); }
+  .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; border-left:1px solid var(--pg-line); background:#0C0F13; }
+  .pg-controller-task-head { display:flex; align-items:center; gap:10px; padding:14px var(--pg-s16) 10px; }
+  .pg-controller-tasks h2 { font-size:15px; font-weight:600; margin:0; }
+  .pg-controller-task-count { color:var(--pg-label); font:11px/1.5 var(--pg-font-mono); }
+  .pg-button.pg-controller-refresh { margin-left:auto; display:grid; place-items:center; width:var(--pg-h30); min-height:var(--pg-h30); padding:0; border-color:#222833; border-radius:var(--pg-r6); color:var(--pg-muted); }
+  .pg-controller-task-status { display:flex; align-items:center; flex-wrap:wrap; gap:var(--pg-s8); padding:0 var(--pg-s16) 10px; color:var(--pg-label); font:10.5px/1.5 var(--pg-font-mono); }
+  .pg-controller-rule { flex:1; height:1px; background:#1A1F27; }
+  .pg-controller-evidence { display:inline-flex; align-items:center; gap:var(--pg-s4); }
+  .pg-controller-evidence::before { content:""; box-sizing:border-box; width:8px; height:8px; border:1px solid var(--pg-muted); }
+  .pg-controller-evidence[data-evidence=host]::before { background:linear-gradient(135deg,var(--pg-muted) 50%,transparent 50%); }
+  .pg-controller-evidence[data-evidence=receipt]::before { background:var(--pg-text); border-color:var(--pg-text); }
+  .pg-controller-evidence[data-evidence=none]::before { border:1px dashed var(--pg-label); }
+  .pg-controller-task-content { overflow:auto; min-height:0; padding:0 10px 12px; scrollbar-width:thin; scrollbar-color:var(--pg-control-line) transparent; }
+  .pg-controller-tasks p { color:var(--pg-muted); font-size:13px; line-height:1.5; }
+  .pg-controller-challenge,.pg-controller-maintenance { margin-bottom:6px; }
+  .pg-controller-group { display:flex; align-items:center; gap:var(--pg-s8); padding:var(--pg-s8); border-radius:var(--pg-r6); cursor:pointer; }
+  .pg-controller-group::-webkit-details-marker,.pg-controller-external-chats > summary::-webkit-details-marker { display:none; }
+  .pg-controller-group:hover,.pg-controller-external-chats > summary:hover { background:var(--pg-hover); }
+  .pg-controller-group > svg { color:var(--pg-label); flex:none; }
+  details[open] > .pg-controller-group > svg { transform:rotate(90deg); }
+  .pg-controller-group-label { display:grid; flex:1; min-width:0; font-size:12.5px; font-weight:600; line-height:1.3; }
+  .pg-controller-group-label > span,.pg-controller-group-label > small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-controller-group-label > small { color:var(--pg-label); font:10.5px/1.3 var(--pg-font-mono); }
+  .pg-controller-maintenance .pg-controller-group-label { color:var(--pg-label); font-weight:400; }
+  .pg-controller-group-rows { display:grid; gap:2px; padding:2px 0 6px 18px; }
+  .pg-controller-row { display:grid; gap:6px; width:100%; padding:10px 12px; border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-control); color:var(--pg-text); text-align:left; font:inherit; cursor:pointer; }
+  .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
+  .pg-controller-row:disabled { color:var(--pg-label); cursor:default; }
+  .pg-controller-row strong { font-size:13.5px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; }
+  .pg-controller-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; font-size:11.5px; color:var(--pg-muted); }
+  .pg-controller-row-meta .pg-badge { min-height:0; border:0; padding:0; font-size:inherit; }
+  .pg-controller-row-meta .pg-badge::before { width:8px; height:8px; }
+  .pg-controller-row-time { font:10.5px/1.4 var(--pg-font-mono); color:var(--pg-label); overflow-wrap:anywhere; }
+  .pg-controller-back { margin:4px 0; }
   .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
   .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
-  .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
-  .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
-  .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
-  .pg-controller-external-chats { margin-top:16px; }
-  .pg-controller-external-chats > summary { cursor:pointer; }
-  .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
-  @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
-  @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
+  .pg-controller-markdown pre,.pg-controller-markdown table,.pg-controller-raw pre { max-width:100%; overflow:auto; }
+  .pg-controller-raw { margin-top:var(--pg-s16); font-size:12px; }
+  .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.55 var(--pg-font-mono); }
+  .pg-controller-error,.pg-controller-tasks .pg-controller-error { color:var(--pg-error); }
+  @media (max-width:600px) {
+    .pg-controller-bar { gap:4px 8px; padding:4px 8px; }
+    .pg-controller-tabs { min-height:36px; }
+    .pg-controller-workspace { min-width:0; }
+    .pg-controller-chat-head { padding-inline:var(--pg-s12); }
+    .pg-controller-tasks { width:min(380px,90%); }
+  }
+  @container (max-width:720px) {
+    .pg-controller-resize { display:none; }
+    .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; max-width:90%; z-index:10; box-shadow:-8px 0 24px rgba(0,0,0,.24); }
+  }
 `;
+
+// src/client/controller/task-evidence.js
+function taskEvidence({ state, liveEnd, terminalText }) {
+  if (state === "running" || liveEnd) return "host";
+  return terminalText ? "report" : "none";
+}
+__name(taskEvidence, "taskEvidence");
+
+// src/client/controller/index.js
+function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
+  return h("svg", {
+    width: size,
+    height: size,
+    viewBox,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.3,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true
+  }, h("path", { d: path }));
+}
+__name(lineIcon, "lineIcon");
+function controllerBrand() {
+  return h(
+    "div",
+    { className: "pg-controller-brand" },
+    h(
+      "svg",
+      { width: 26, height: 26, viewBox: "0 0 26 26", fill: "none", "aria-hidden": true },
+      h("rect", { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: "currentColor", strokeWidth: 1.5 }),
+      h("path", { d: "M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" })
+    ),
+    h("h1", null, "Playground"),
+    h("small", null, "DSH")
+  );
+}
+__name(controllerBrand, "controllerBrand");
+function evidenceMark(evidence, label2, description) {
+  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description }, label2);
+}
+__name(evidenceMark, "evidenceMark");
+function groupHeading(title, count, subtitle) {
+  return h(
+    "summary",
+    { className: "pg-controller-group" },
+    lineIcon("M3.5 2 6.5 5l-3 3", 10, "0 0 10 10"),
+    h("span", { className: "pg-controller-group-label" }, h("span", null, title), subtitle ? h("small", null, subtitle) : null),
+    h("span", { className: "pg-controller-task-count", "aria-label": msg(`${count} 个任务`, `${count} tasks`) }, count)
+  );
+}
+__name(groupHeading, "groupHeading");
+function taskTime(value, language) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return h(
+    "time",
+    { dateTime: date.toISOString(), title: date.toLocaleString(language) },
+    date.toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : date.toLocaleDateString(language, { month: "2-digit", day: "2-digit" })
+  );
+}
+__name(taskTime, "taskTime");
 var stopReasonLabels = /* @__PURE__ */ __name(() => ({
   completed: { detail: msg("完成", "Completed") },
   aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
@@ -2196,9 +2422,32 @@ function taskState(row) {
   if (reason?.state) return `${row.state === "settled" ? msg("上次", "Previous run: ") : ""}${reason.state}`;
   if (row.state === "settled") return msg("已收到历史结果", "Received a previous result");
   if (row.state === "ended" && row.terminalText) return msg("本次运行已结束 · 已收到结果", "Run ended · Result received");
-  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("暂无执行回执", "No execution receipt yet") }[row.state];
+  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("状态未知", "Status unknown") }[row.state];
 }
 __name(taskState, "taskState");
+function taskTone(row) {
+  if (row.state === "running") return "running";
+  const reason = row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0);
+  if (stopReasonLabels()[reason]?.state) return "error";
+  if (row.terminalText || row.state === "ended") return "result";
+  return "unknown";
+}
+__name(taskTone, "taskTone");
+function controllerHeader(sessionId, viewSwitch) {
+  return h(
+    "div",
+    { className: "pg-controller-chat-head" },
+    h("h2", null, msg("工作区主控", "Workspace controller")),
+    sessionId ? h("span", { className: "pg-badge", "data-tone": "open" }, msg("已初始化", "Initialized")) : null,
+    sessionId ? h(
+      "span",
+      { className: "pg-controller-session", title: sessionId },
+      sessionId.length > 18 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId
+    ) : null,
+    viewSwitch
+  );
+}
+__name(controllerHeader, "controllerHeader");
 function taskOutput(row) {
   if (row.state === "running") return "";
   const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === "text").map((part) => part.text).join("\n");
@@ -2222,7 +2471,7 @@ function ControllerSession({ sessionId, useSession, useConversation, useSessions
   const session = useSession((value) => value);
   const conversation = useConversation((value) => value);
   const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
-  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-controller-action", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
+  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
   if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在打开所选主控对话…", "Opening the selected controller chat…"));
   if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, msg("无法加载主控对话，请重新打开。", "Could not load the controller chat. Reopen it to try again."));
   if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在加载主控对话…", "Loading controller chat…"));
@@ -2249,23 +2498,23 @@ function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useCo
   return h(
     React7.Fragment,
     null,
-    showViewSwitch ? h(
+    controllerHeader(sessionId, showViewSwitch ? h(
       "div",
       { className: "pg-controller-view-switch", role: "group", "aria-label": msg("主控视图", "Controller view") },
       controllerViews.map((item) => h("button", {
         key: item.id,
-        className: "pg-controller-action",
+        className: "pg-button",
         type: "button",
         "aria-pressed": view === item,
         onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
       }, item.label()))
-    ) : null,
+    ) : null),
     renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
   );
 }
 __name(ControllerSessionContent, "ControllerSessionContent");
 function ControllerPanel(props) {
-  usePluginLanguage();
+  const language = usePluginLanguage();
   const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
   const workspaces = useWorkspaces((value) => value);
   const sessions = useSessions((value) => value);
@@ -2288,6 +2537,11 @@ function ControllerPanel(props) {
   }, "selectTab");
   const [dispatchControls] = React7.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React7.useState("checking");
+  const [accountName, setAccountName] = React7.useState("");
+  const [updateAuthStatus] = React7.useState(() => (status, user) => {
+    setAuthStatus(status);
+    setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
+  });
   const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
   const [preferences] = React7.useState(() => {
@@ -2300,8 +2554,7 @@ function ControllerPanel(props) {
   const [showTasks, setShowTasks] = React7.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
   const [taskWidth, setTaskWidth] = React7.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
   const [selectedTask, setSelectedTask] = React7.useState("");
-  const [showMaintenance, setShowMaintenance] = React7.useState(false);
-  const [closedChallenges, setClosedChallenges] = React7.useState(() => /* @__PURE__ */ new Set());
+  const [groupOpen, setGroupOpen] = React7.useState(() => /* @__PURE__ */ new Map());
   const [taskActionStatus, setTaskActionStatus] = React7.useState("");
   const [pane] = React7.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
@@ -2344,7 +2597,7 @@ function ControllerPanel(props) {
     setSelectedTask("");
     setTaskSnapshot(null);
     setIncludeChallengeId("");
-    setClosedChallenges(/* @__PURE__ */ new Set());
+    setGroupOpen(/* @__PURE__ */ new Map());
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
@@ -2406,7 +2659,7 @@ function ControllerPanel(props) {
       if (inFlight) return;
       inFlight = true;
       void controllerTasks({ workspaceId, sessionId: expectedId, ...includeChallengeId && { includeChallengeId } }, abort.signal).then((value) => {
-        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value });
+        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value, updatedAt: Date.now() });
       }).catch(() => {
         if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: "unavailable" } });
       }).finally(() => {
@@ -2468,7 +2721,7 @@ function ControllerPanel(props) {
         setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
         setShowTasks(true);
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
-        setClosedChallenges(/* @__PURE__ */ new Set());
+        setGroupOpen(/* @__PURE__ */ new Map());
       }
       const notice = state.coordination?.notice;
       if (notice && state.noticeKey === notice.key) notice.acknowledge();
@@ -2605,52 +2858,137 @@ function ControllerPanel(props) {
   }
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = /* @__PURE__ */ new Map();
+  const unassociated = [];
+  const maintenance = [];
   for (const item of tasks?.rows || []) {
-    if (item.category === "maintenance") continue;
+    if (item.category === "maintenance") {
+      maintenance.push(item);
+      continue;
+    }
     const challenge = item.challenge;
-    const groupKey = challenge ? JSON.stringify([challenge.baseUrl, challenge.id]) : "unassociated";
+    if (!challenge) {
+      unassociated.push(item);
+      continue;
+    }
+    const groupKey = JSON.stringify([challenge.baseUrl, challenge.id]);
     if (!challengeGroups.has(groupKey)) challengeGroups.set(groupKey, { challenge, rows: [] });
     challengeGroups.get(groupKey).rows.push(item);
   }
+  const taskCount = (tasks?.rows?.length ?? 0) - maintenance.length;
   const childAddress = expectedId && (row?.mode === "continuable" || row?.mode === "one-shot") ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
-  const listRow = /* @__PURE__ */ __name((item) => h(
-    "button",
-    { key: item.childId, className: "pg-controller-row", ref: /* @__PURE__ */ __name((node) => {
-      if (node) pane.rows.set(item.childId, node);
-      else pane.rows.delete(item.childId);
-    }, "ref"), onClick: /* @__PURE__ */ __name(() => {
-      pane.focus = "back";
-      setTaskActionStatus("");
-      setSelectedTask(item.childId);
-    }, "onClick") },
-    h("strong", null, item.label || msg("未命名任务", "Untitled task")),
-    h("span", null, [item.provider, taskState(item)].filter(Boolean).join(" · "))
-  ), "listRow");
+  const evidenceLabels = {
+    host: msg("宿主记录", "Host record"),
+    report: msg("Agent 报告", "Agent report"),
+    none: msg("无运行记录", "No run record")
+  };
+  const listRow = /* @__PURE__ */ __name((item) => {
+    const evidence = taskEvidence(item);
+    const created = taskTime(item.createdAt, language);
+    const label2 = taskState(item) || msg("状态未知", "Status unknown");
+    const tone = taskTone(item);
+    const showResult = tone === "result" && item.state === "ended" && item.terminalText;
+    return h(
+      "button",
+      {
+        type: "button",
+        key: item.childId,
+        className: "pg-controller-row",
+        ref: /* @__PURE__ */ __name((node) => {
+          if (node) pane.rows.set(item.childId, node);
+          else pane.rows.delete(item.childId);
+        }, "ref"),
+        onClick: /* @__PURE__ */ __name(() => {
+          pane.focus = "back";
+          setTaskActionStatus("");
+          setSelectedTask(item.childId);
+        }, "onClick")
+      },
+      h("strong", null, item.label || msg("未命名任务", "Untitled task")),
+      h(
+        "span",
+        { className: "pg-controller-row-meta" },
+        h(
+          "span",
+          { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
+          showResult ? msg("已收到结果", "Result received") : label2
+        ),
+        evidenceMark(evidence, evidenceLabels[evidence]),
+        item.provider || created ? h(
+          "span",
+          { className: "pg-controller-row-time" },
+          item.provider,
+          item.provider && created ? " · " : null,
+          created
+        ) : null
+      )
+    );
+  }, "listRow");
+  const taskGroup = /* @__PURE__ */ __name((key2, rows, title, subtitle, initiallyOpen = false, className = "pg-controller-challenge") => {
+    const open2 = groupOpen.get(key2) ?? initiallyOpen;
+    return h(
+      "details",
+      {
+        key: key2,
+        className,
+        open: open2,
+        onToggle: /* @__PURE__ */ __name((event) => {
+          const expanded = event.currentTarget.open;
+          if (expanded !== open2) setGroupOpen((groups) => new Map(groups).set(key2, expanded));
+        }, "onToggle")
+      },
+      groupHeading(title, rows.length, subtitle),
+      h("div", { className: "pg-controller-group-rows" }, rows.map(listRow))
+    );
+  }, "taskGroup");
   return h(
     "div",
     { className: "pg-controller" },
-    h("style", null, controllerPanelCss),
+    h("style", null, css + controllerPanelCss + codexCss),
     view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
     h(
       "header",
       { className: "pg-controller-bar" },
-      h("h1", null, "Playground"),
-      h("select", { "aria-label": msg("工作区", "Workspace"), value: workspaceId, disabled: busy || handoffBusy, onChange: /* @__PURE__ */ __name(async (event) => {
-        if (dispatchControls.busy) return;
-        if (event.target.value === "__add_workspace__") {
-          setBusy(true);
-          setError("");
-          try {
-            await props.addTaskWorkspace();
-          } catch {
-            setError("无法添加工作区，请重试。");
-          } finally {
-            setBusy(false);
-          }
-          return;
-        }
-        selectWorkspace(event.target.value);
-      }, "onChange") }, h("option", { value: "" }, msg("选择工作区", "Select workspace")), workspaceOptions(workspaces.items), h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))),
+      controllerBrand(),
+      h(
+        "div",
+        { className: "pg-controller-workspace" },
+        lineIcon("M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z"),
+        h(
+          "span",
+          { className: "pg-controller-workspace-text" },
+          h("span", { "aria-hidden": true }, selectedWorkspace ? selectedWorkspace.title || msg("未命名工作区", "Untitled workspace") : msg("选择工作区", "Select workspace")),
+          selectedWorkspace?.path ? h("small", { id: "pg-controller-workspace-path", title: selectedWorkspace.path }, selectedWorkspace.path) : null
+        ),
+        lineIcon("M3 4.5 6 7.5l3-3", 12, "0 0 12 12"),
+        h(
+          "select",
+          {
+            "aria-label": msg("工作区", "Workspace"),
+            "aria-describedby": selectedWorkspace?.path ? "pg-controller-workspace-path" : void 0,
+            value: workspaceId,
+            disabled: busy || handoffBusy,
+            onChange: /* @__PURE__ */ __name(async (event) => {
+              if (dispatchControls.busy) return;
+              if (event.target.value === "__add_workspace__") {
+                setBusy(true);
+                setError("");
+                try {
+                  await props.addTaskWorkspace();
+                } catch {
+                  setError("无法添加工作区，请重试。");
+                } finally {
+                  setBusy(false);
+                }
+                return;
+              }
+              selectWorkspace(event.target.value);
+            }, "onChange")
+          },
+          h("option", { value: "" }, msg("选择工作区", "Select workspace")),
+          workspaceOptions(workspaces.items),
+          h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))
+        )
+      ),
       h(
         "nav",
         { className: "pg-controller-tabs", role: "tablist", "aria-label": msg("Playground 导航", "Playground navigation"), onKeyDown: /* @__PURE__ */ __name((event) => {
@@ -2662,7 +3000,7 @@ function ControllerPanel(props) {
           selectTab(ids[next]);
           event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
         }, "onKeyDown") },
-        [["controller", msg("对话", "Chat")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
+        [["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
       ),
       h(
         "div",
@@ -2675,17 +3013,18 @@ function ControllerPanel(props) {
         h(
           "button",
           { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
+          accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
           h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
           { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
-        )
-      ),
-      view === "controller" ? h(
-        "button",
-        { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
-          pane.toggle = node;
-        }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
-        h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
-      ) : null
+        ),
+        view === "controller" ? h(
+          "button",
+          { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
+            pane.toggle = node;
+          }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
+          h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
+        ) : null
+      )
     ),
     h(
       "div",
@@ -2695,11 +3034,12 @@ function ControllerPanel(props) {
       h(
         "main",
         { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
-        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
+        !expectedId ? controllerHeader() : null,
+        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
           "div",
           { className: "pg-controller-placeholder" },
           h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
-          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-controller-action", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
+          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-button pg-primary", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
           h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
           renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
             setBusy(true);
@@ -2724,7 +3064,7 @@ function ControllerPanel(props) {
         { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
         h("style", null, css),
         h("h1", null, msg("连接设置", "Connection settings")),
-        h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
+        h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
         view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has("settings") ? h(ReleaseStatusPanel, {
           query: props.query,
@@ -2777,19 +3117,43 @@ function ControllerPanel(props) {
           }, "onKeyDown") },
           h(
             "header",
-            null,
+            { className: "pg-controller-task-head" },
             h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
               pane.heading = node;
-            }, "ref") }, msg("任务", "Tasks")),
-            h("button", { className: "pg-controller-back", disabled: !expectedId, onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("刷新任务", "Refresh tasks"))
+            }, "ref") }, msg("主控任务", "Controller tasks")),
+            tasks?.kind === "ready" ? h(
+              "span",
+              { className: "pg-controller-task-count" },
+              msg(`${taskCount} 个 · ${challengeGroups.size} 道赛题`, `${taskCount} tasks · ${challengeGroups.size} challenges`)
+            ) : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pg-button pg-controller-refresh",
+                disabled: !expectedId,
+                "aria-label": msg("刷新任务", "Refresh tasks"),
+                onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick")
+              },
+              lineIcon("M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75", 14)
+            )
+          ),
+          h(
+            "div",
+            { className: "pg-controller-task-status" },
+            tasks?.kind === "ready" ? h("span", null, msg("状态更新于 ", "Updated "), taskTime(taskSnapshot.updatedAt, language)) : null,
+            h("span", { className: "pg-controller-rule", "aria-hidden": true }),
+            evidenceMark("report", msg("报告", "Report"), evidenceLabels.report),
+            evidenceMark("host", msg("记录", "Record"), evidenceLabels.host),
+            evidenceMark("receipt", msg("回执", "Receipt"), msg("平台回执", "Platform receipt"))
           ),
           h(
             "div",
             { className: "pg-controller-task-content" },
-            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
+            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
               "div",
               { className: "pg-controller-detail" },
-              h("button", { className: "pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
+              h("button", { className: "pg-button pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
                 pane.back = node;
               }, "ref"), onClick: /* @__PURE__ */ __name(() => {
                 pane.focus = row.childId;
@@ -2798,7 +3162,7 @@ function ControllerPanel(props) {
               h("h3", null, row.label || msg("未命名任务", "Untitled task")),
               h("p", null, [row.provider, taskState(row)].filter(Boolean).join(" · ")),
               h("p", null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
-              childAddress ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+              childAddress ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 setTaskActionStatus("");
                 try {
                   await openTask(childAddress);
@@ -2811,7 +3175,7 @@ function ControllerPanel(props) {
               row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
               row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
               taskOutput(row) ? h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: taskOutput(row), running: false }, { fallback: h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row)) }) : h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row))) : null,
-              taskOutput(row) ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+              taskOutput(row) ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 try {
                   await navigator.clipboard.writeText(taskOutput(row));
                   setTaskActionStatus("已复制结果");
@@ -2824,30 +3188,20 @@ function ControllerPanel(props) {
             ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
               React7.Fragment,
               null,
-              [...challengeGroups].map(([groupKey, group]) => h(
-                "details",
-                {
-                  key: groupKey,
-                  className: "pg-controller-challenge",
-                  open: !closedChallenges.has(groupKey),
-                  onToggle: /* @__PURE__ */ __name((event) => {
-                    const closed = !event.currentTarget.open;
-                    if (closed === closedChallenges.has(groupKey)) return;
-                    const next = new Set(closedChallenges);
-                    if (closed) next.add(groupKey);
-                    else next.delete(groupKey);
-                    setClosedChallenges(next);
-                  }, "onToggle")
-                },
-                h(
-                  "summary",
-                  null,
-                  msg(`${group.challenge?.title || group.challenge?.id || "未关联赛题"}（${group.rows.length}）`, `${group.challenge?.title || group.challenge?.id || "No linked challenge"} (${group.rows.length})`),
-                  group.challenge ? h("small", null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h("small", null, msg("缺少明确的赛题关联，保留原任务和结果。", "The original task and result are available without a confirmed challenge link."))
-                ),
-                group.rows.map(listRow)
+              [...challengeGroups].map(([key2, group]) => taskGroup(
+                key2,
+                group.rows,
+                msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
+                [group.challenge.id, group.challenge.baseUrl].filter(Boolean).join(" · "),
+                true
               )),
-              tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, msg(`后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === "maintenance").length})`)), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
+              unassociated.length ? taskGroup(
+                "unassociated",
+                unassociated,
+                msg("未关联赛题", "No linked challenge"),
+                msg("缺少明确的赛题关联", "No confirmed challenge link")
+              ) : null,
+              maintenance.length ? taskGroup("maintenance", maintenance, msg("后台维护", "Background maintenance"), null, false, "pg-controller-maintenance") : null
             ),
             expectedId && props.codexChats ? h(ExternalCodexChats, {
               key: `${workspaceId}:${expectedId}`,
@@ -2967,7 +3321,7 @@ function taskAttemptScope(state) {
 __name(taskAttemptScope, "taskAttemptScope");
 
 // src/client/tasks/attempts.js
-var stageTones = { final: "success", finalLate: "success", failed: "error", evaluating: "warning", incomplete: "error" };
+var stageTones = { final: "scored", finalLate: "scored", failed: "error", evaluating: "evaluating", incomplete: "error" };
 var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
 function taskBundleMissingIds(state) {
   const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
@@ -3031,7 +3385,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const stage = running ? "running" : receiptStage;
   const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
   const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
-  const badgeTone = !receipt ? running ? "warning" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
+  const badgeTone = !receipt ? running ? "running" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
   const reportText = reported?.[t("progress.points") === "分" ? 0 : 1];
   return {
     stage,
@@ -3249,10 +3603,10 @@ function useDrawerFocus(fallback) {
 __name(useDrawerFocus, "useDrawerFocus");
 
 // src/client/catalog/detail.js
-function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
+function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ["sending", "initializing", "opening"].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h("button", { type: "button", className: "pg-button pg-primary", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
+  return h("button", { type: "button", className: primary ? "pg-button pg-primary" : "pg-button pg-list-action", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
     if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
@@ -3260,7 +3614,7 @@ function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
   }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
-var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
+var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--pg-muted)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--pg-line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
 function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
   const [detail, setDetail] = React9.useState(null);
   const [busy, setBusy] = React9.useState(false);
@@ -3356,7 +3710,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
       h(
         "div",
         { className: "pg-actions" },
-        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss }) : null,
+        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss, primary: true }) : null,
         openWebButton(detail?.webUrl || challenge.webUrl, title)
       ),
       failed ? h(
@@ -3956,10 +4310,15 @@ var React12 = __toESM(require("react"), 1);
 // src/client/tasks/start.js
 var React11 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false }) {
+function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false, primary = false }) {
   return h(
     "button",
-    { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => requestTask({ id: String(id), title: title || String(id), mode, sessionId }), "onClick") },
+    { type: "button", className: primary ? "pg-button pg-primary" : "pg-button pg-list-action", disabled, onClick: /* @__PURE__ */ __name(() => requestTask({ id: String(id), title: title || String(id), mode, sessionId }), "onClick") },
+    primary ? h(
+      "svg",
+      { width: 10, height: 10, viewBox: "0 0 10 10", "aria-hidden": true },
+      h("path", { d: "M2 1v8l6-4z", fill: "currentColor" })
+    ) : null,
     mode === "author" ? msg(`开始出题任务 · ${title || id}`, `Start authoring task · ${title || id}`) : msg(`开始参赛任务 · ${title || id}`, `Start participation task · ${title || id}`)
   );
 }
@@ -4173,6 +4532,54 @@ function blockedReason({ reason, sessionIds }) {
 __name(blockedReason, "blockedReason");
 
 // src/client/cards/tool.js
+var challengeCardCss = `
+  .pg-card.pg-tool-challenge { padding:0; border-color:var(--pg-control-line); background:var(--pg-control); overflow:hidden; }
+  .pg-tool-challenge-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; border-bottom:1px solid #1C2129; background:#0C0F13; }
+  .pg-tool-challenge-id { color:var(--pg-label); font:11px/1.55 var(--pg-font-mono); letter-spacing:.06em; overflow-wrap:anywhere; }
+  .pg-tool-challenge-meta [data-tone=open] { border-color:#2E3A1E; }
+  .pg-tool-challenge-body { display:grid; gap:var(--pg-s16); padding:var(--pg-s16); }
+  .pg-tool-challenge-body h3 { font-size:19px; letter-spacing:-.01em; }
+  .pg-tool-challenge-facts,.pg-tool-challenge-actions { display:flex; flex-wrap:wrap; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge-facts { color:var(--pg-muted); font-size:13px; }
+  .pg-tool-challenge-actions .pg-primary { display:inline-flex; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge .pg-raw { margin:0; }
+  .pg-tool-challenge .pg-raw > summary { display:inline-flex; align-items:center; margin-bottom:var(--pg-s4); }
+  .pg-tool-challenge footer { margin:0; color:var(--pg-label); font:10.5px/1.55 var(--pg-font-mono); }
+`;
+function challengeToolCard(data, text, t, sessionId, requestTask) {
+  const title = msg(data.titleZh || data.title, data.title || data.titleZh) || data.id;
+  const facts = [data.origin && t(`origins.${data.origin}`), data.discipline && t(`disciplines.${data.discipline}`)].filter(Boolean);
+  return h(
+    "section",
+    { className: "pg-card pg-tool-challenge", "aria-label": t("tools.playground_get_challenge") },
+    h("style", null, css + challengeCardCss),
+    h(
+      "div",
+      { className: "pg-tool-challenge-meta" },
+      h("span", { className: "pg-tool-challenge-id" }, "CHALLENGE · ", data.id),
+      data.status ? h("span", { className: "pg-badge", "data-tone": statusTone(data.status) }, stateLabel(data.status, t)) : null
+    ),
+    h(
+      "div",
+      { className: "pg-tool-challenge-body" },
+      h("h3", null, title),
+      facts.length ? h("div", { className: "pg-tool-challenge-facts" }, facts.join(" · ")) : null,
+      requestTask ? h(
+        "div",
+        { className: "pg-tool-challenge-actions" },
+        h(StartTaskButton, { id: data.id, title: data.title || data.titleZh, sessionId, requestTask, primary: true })
+      ) : null,
+      text || data.content && !data.contentGated ? h(
+        "details",
+        { className: "pg-raw" },
+        h("summary", { className: "pg-button" }, data.contentGated ? t("raw") : msg("查看题面", "View challenge statement")),
+        h("pre", null, text || data.content)
+      ) : null,
+      h("footer", null, t("snapshot"))
+    )
+  );
+}
+__name(challengeToolCard, "challengeToolCard");
 function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
   const language = usePluginLanguage();
   const t = languagePreference() ? zhText : hostText || zhText;
@@ -4187,6 +4594,9 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
   const receipt = approvedSubmit && data?.workflow?.kind === "receipt" ? data.workflow.receipt : void 0;
   const receiptId = receipt?.attemptId ?? data?.attemptId;
   const receiptState = receipt?.scoringState?.state || data?.scoringState?.state || receipt?.status || data?.status;
+  if (toolName === "playground_get_challenge" && data?.ok && !failed && data.id !== void 0) {
+    return challengeToolCard(data, text, t, sessionId, requestTask);
+  }
   const receiptLine = approvedSubmit && receiptId !== void 0 ? `${t("progress.attempt")} #${receiptId} · ${receiptState ? stateLabel(receiptState, t) : t("awaitingScore")}` : "";
   return h(
     "section",
@@ -4198,13 +4608,13 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       h("h3", null, data?.title || t(`tools.${toolName}`)),
       h(
         "span",
-        { className: "pg-badge", "data-tone": failed ? "error" : data?.scoringState?.scoreIsFinal ? "success" : statusTone(state) },
+        { className: "pg-badge", "data-tone": failed ? "error" : data?.scoringState?.scoreIsFinal ? "scored" : phase === "start" ? "running" : statusTone(state) },
         failed ? t("failed") : phase === "preparing" ? t("preparing") : phase === "start" ? t(approvedSubmit ? "approving" : toolName === "playground_submit_attempt" ? "uploading" : "running") : state ? stateLabel(state, t) : t("loaded")
       )
     ),
     failed ? h("p", { className: "pg-error", role: "alert" }, data?.error?.message || block.error?.message || text || t("failed")) : null,
     receiptLine ? h("p", { className: "pg-note pg-receipt", role: "status" }, receiptLine) : null,
-    phase === "result" && data?.ok && requestTask && (toolName === "playground_get_challenge" || toolName === "playground_list_challenges") ? h(
+    phase === "result" && data?.ok && requestTask && toolName === "playground_list_challenges" ? h(
       "div",
       { className: "pg-actions" },
       ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))
@@ -4246,7 +4656,11 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
             isAttempt && scoreLabel(item, t) ? h("div", null, scoreLabel(item, t)) : null
           )
         ),
-        h("span", { className: "pg-badge" }, stateLabel(item.scoringState?.state || item.status, t))
+        h(
+          "span",
+          { className: "pg-badge", "data-tone": item.scoringState?.scoreIsFinal ? "scored" : statusTone(item.scoringState?.state || item.status) },
+          stateLabel(item.scoringState?.state || item.status, t)
+        )
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
@@ -4410,7 +4824,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   return h(
     "section",
     { className: "pg-guide pg-workflow", "aria-label": msg("Playground 任务", "Playground task") },
-    h("style", null, css + ".pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}"),
+    h("style", null, css + ".pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{width:100%}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--pg-line)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}"),
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
@@ -4458,11 +4872,16 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       request.status === "awaiting_user" ? h(
         React13.Fragment,
         null,
-        h("p", { className: "pg-confirm-impact" }, msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)),
+        h(
+          "p",
+          { className: "pg-confirm-impact" },
+          h("span", { className: "pg-badge", "data-tone": "warning" }, msg("等待你答复", "Waiting for your reply")),
+          msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)
+        ),
         h(
           "div",
           { className: "pg-actions" },
-          h("button", { className: "pg-button pg-primary", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue"))
+          h("button", { className: "pg-button pg-risk", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue"))
         )
       ) : null,
       canCancel ? h("button", { className: "pg-button", disabled: busy || !allowed, onClick: /* @__PURE__ */ __name(() => act({ action: "cancel", requestId: request.requestId }), "onClick") }, msg("取消本次请求", "Cancel this request")) : null
@@ -4957,7 +5376,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   return h(
     "main",
     { className: "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
-    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
+    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--pg-text);background:var(--pg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--pg-muted)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--pg-muted)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--pg-line);border-radius:999px;background:var(--pg-base);color:var(--pg-text);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--pg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--pg-muted);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--pg-line);border-radius:10px;color:var(--pg-muted);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--pg-line-strong)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--pg-line);border-radius:10px;background:var(--pg-panel);color:var(--pg-text)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--pg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--pg-hover)}.pg-task-row.is-selected{background:var(--pg-hover)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--pg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-family:var(--pg-font-mono);font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-family:var(--pg-font-mono);font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--pg-muted);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--pg-base);color:var(--pg-text);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--pg-muted);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--pg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pg-muted)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--pg-muted)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
       { className: "pg-workbench-inner" },

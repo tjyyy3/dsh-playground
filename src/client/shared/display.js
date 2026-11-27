@@ -3,9 +3,13 @@ import { h } from './react.js';
 
 function statusTone(state) {
   if (['failed', 'incomplete', 'rejected'].includes(state)) return 'error';
-  if (['queued', 'evaluating', 'scoring', 'pending_review', 'awaiting_bundle', 'awaiting_review', 'active'].includes(state)) return 'warning';
-  if (['submitted', 'scored', 'late_scored', 'final', 'ready', 'open'].includes(state)) return 'success';
-  return 'neutral';
+  if (['queued', 'evaluating', 'scoring', 'provisional'].includes(state)) return 'evaluating';
+  if (['pending_review', 'awaiting_bundle', 'awaiting_review', 'awaiting_confirmation'].includes(state)) return 'warning';
+  if (['scored', 'late_scored', 'final'].includes(state)) return 'scored';
+  if (state === 'open') return 'open';
+  if (['active', 'running'].includes(state)) return 'running';
+  if (['ready', 'submitted'].includes(state)) return 'result';
+  return state === 'unknown' ? 'unknown' : 'neutral';
 }
 
 // The Host builds challenge web addresses; check them again before opening. Only https, plus http

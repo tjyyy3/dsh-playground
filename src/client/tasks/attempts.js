@@ -2,7 +2,7 @@ import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
 import { ATTEMPT_STATE_FIELDS, attemptScore, compareAttemptRevisions, compareAttemptUpdates, keepsWorkerProgress, parsePlatformTime, platformReceivedBundle, refreshedAttemptFields, taskAttemptScope } from '../../../lib/task/evidence.js';
 
-const stageTones = { final: 'success', finalLate: 'success', failed: 'error', evaluating: 'warning', incomplete: 'error' };
+const stageTones = { final: 'scored', finalLate: 'scored', failed: 'error', evaluating: 'evaluating', incomplete: 'error' };
 
 // Mirrors receiptBundleMissing in lib/workflow.js: the plugin's receipt says the upload into this submission
 // failed, and the platform shows no sign that the bundle arrived since.
@@ -100,7 +100,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const badgeText = !receipt ? t('progress.notSubmitted') : notReceived ? t('progress.notReceived')
     : notUploaded ? t('progress.notUploaded') : state ? stateLabel(state, t)
     : receipt.ok === false ? t('progress.notSubmitted') : t('unknown');
-  const badgeTone = !receipt ? (running ? 'warning' : 'neutral')
+  const badgeTone = !receipt ? (running ? 'running' : 'neutral')
     : receiptStage === 'submitted' && receipt.bundleStatus === 'incomplete' ? 'warning'
       : stageTones[receiptStage] || 'neutral';
   const reportText = reported?.[t('progress.points') === '分' ? 0 : 1];
