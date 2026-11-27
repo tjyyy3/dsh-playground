@@ -9,9 +9,9 @@ import { openWebButton } from '../shared/display.js';
 // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
   const busy = ['sending', 'initializing', 'opening'].includes(handoff.state?.phase);
-  const gated = handoff.catalogNotice?.target.gatedChallengeId === String(challenge.id);
+  const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
   return h('button', { type: 'button', className: 'pg-button pg-primary', disabled: gated, 'aria-disabled': busy || gated || undefined, onClick: (event) => {
-    if (busy || gated) return;
+    if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
     handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
@@ -39,6 +39,10 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
       const result = await query({ action: 'challenge', challengeId }, controller.signal);
       if (latest.controller !== controller) return;
       if (!result || typeof result !== 'object' || result.ok === false) throw new Error('challenge detail unavailable');
+      if (handoff?.gatedIds) {
+        if (result.contentGated === true) handoff.gatedIds.add(challengeId);
+        else if (result.contentGated === false && String(result.id) === challengeId) handoff.gatedIds.delete(challengeId);
+      }
       setDetail(result); setStatus(['赛题详情已读取。', 'Challenge details loaded.']);
     } catch {
       if (latest.controller !== controller) return;

@@ -225,6 +225,69 @@ test('a deleted or unverifiable linked child blocks the notice and preserves own
   assert.deepEqual(f.disk.get(sessionId).values.playgroundController.taskChallenges.orphan, challenge);
 });
 
+for (const history of ['complete', 'missing', 'truncated', 'wrong-session', 'different-projection']) {
+  test(`a saturated controller verifies evicted ownership with ${history} parent history`, async (t) => {
+    const f = await fixture(t);
+    const { workspaceId, sessionId, challengeId } = handoff;
+    const marker = { workspaceId, sessionId };
+    const header = { id: sessionId };
+    const command = (seq) => ({ seq, type: 'command/done', data: { kind: 'success', text: JSON.stringify({ playgroundController: marker }) } });
+    const association = (seq, childId, id, supersedes) => ({ seq, type: 'tool/result', data: { meta: { playgroundControllerAssociation: {
+      ...marker, childId, challenge: { id, baseUrl: f.client.baseUrl }, ...(supersedes && { supersedes }),
+    } } } });
+    const inheritedEventCount = 2;
+    const events = [command(0), association(1, 'inherited', challengeId), command(2)];
+    const children = [];
+    for (let n = 0; n < 101; n++) {
+      const childId = 'child-' + n;
+      children.push({ id: childId, mode: 'external', createdAt: n });
+      events.push(association(events.length, childId, n === 100 ? challengeId : 'other-' + n));
+      if (n === 0) events.push(association(events.length, childId, challengeId, 'other-0'));
+    }
+    const state = events.reduce((state, event) => controllerProjection.apply(state, event), controllerProjection.init(header, inheritedEventCount));
+    assert.equal(state.taskChallenges['child-0'], undefined);
+    f.put(workspaceId, sessionId, f.snapshot(controllerProjection.wire.view(state)));
+    const projections = f.ctx.sessionController.projections;
+    f.ctx.sessionController.projections = async (...args) => ({ ...await projections(...args), asOfSeq: events.at(-1).seq });
+    const previous = f.ctx.get;
+    const reads = [];
+    f.ctx.get = (name) => name === 'subagents' ? { listChildren: async () => children }
+      : name === 'sessionQuery' ? { readSession: async (id) => {
+        reads.push(id);
+        if (history === 'missing') return;
+        const recorded = history === 'different-projection' ? [...events.slice(0, -1), association(events.length - 1, 'different-child', 'other')] : events;
+        return { session: history === 'wrong-session' ? { id: 'foreign' } : header, inheritedEventCount,
+          events: history === 'truncated' ? recorded.slice(2) : recorded };
+      } } : previous(name);
+    const input = { ...handoff, notice: { scope: 'https://playground.example.test', key: 'reopened-round' } };
+    const response = await f.controller.dispatch(input);
+    if (history === 'complete') {
+      assert.equal(response.kind, 'linked');
+      assert.deepEqual(response.childIds, ['child-0', 'child-100']);
+      const focused = await f.controller.tasks({ ...marker, includeChallengeId: challengeId });
+      assert.equal(focused.rows.find((row) => row.childId === 'child-0')?.challenge.id, challengeId);
+      assert.deepEqual(focused.linkedChildIds, ['child-0', 'child-100']);
+      assert.equal((await f.controller.dispatch({ ...input, challengeId: 'other-0' })).kind, 'accepted');
+      assert.equal(f.promptRequests.length, 1);
+      assert.equal(reads.length, 1);
+      const newest = association(events.length, 'just-registered', 'new-task');
+      children.push({ id: 'just-registered', mode: 'external', createdAt: 102 });
+      events.push(newest);
+      const live = f.live.get(sessionId);
+      live.marker = controllerProjection.apply(live.marker, newest);
+      assert.deepEqual((await f.controller.dispatch({ ...input, challengeId: 'new-task' })).childIds, ['just-registered']);
+      assert.equal(reads.length, 2);
+      children.shift();
+      assert.equal((await f.controller.dispatch(input)).code, 'linked_task_unavailable');
+      assert.equal(f.promptRequests.length, 1);
+    } else {
+      assert.equal(response.code, 'controller_history_unavailable');
+      assert.deepEqual(f.promptRequests, []);
+    }
+    assert.ok(reads.length && reads.every((id) => id === sessionId));
+  });
+}
+
 test('explicit concurrent creation writes one native session and cold reopening keeps its id', async (t) => {
   const f = await fixture(t);
   f.put('one', 'challenge', f.snapshot(null, f.task));

@@ -258,16 +258,16 @@ function ControllerPanel(props) {
     finally { setBusy(false); }
   };
   const selectedWorkspace = workspaces.phase === 'ready' && workspaces.items.find((item) => item.workspaceId === workspaceId);
-  const handoffWorkspace = dispatchState?.notice && dispatchState.workspaceId !== workspaceId ? undefined : selectedWorkspace;
+  const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? undefined : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
   const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
   const needsRecheck = dispatchState?.phase === 'error' && dispatchState.workspaceId === workspaceId &&
     (['controller_changed', 'controller_missing', 'controller_init_required', 'controller_archived', 'workspace_mismatch'].includes(dispatchState.code) ||
-      dispatchState.notice && ['controller_init_failed', 'controller_attach_failed', 'controller_open_failed'].includes(dispatchState.code) ||
+      dispatchState.coordination && ['controller_init_failed', 'controller_attach_failed', 'controller_open_failed'].includes(dispatchState.code) ||
       dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
   const recheckHandoff = () => {
     setDispatchState({ phase: 'guide', challenge: dispatchState.challenge,
-      ...(dispatchState.notice && { notice: dispatchState.notice, workspaceId, showDialog: true }) });
+      ...(dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }) });
     setRetry(retry + 1);
   };
   const openAfterDispatch = async (state) => {
@@ -276,7 +276,7 @@ function ControllerPanel(props) {
       selectController(state.sessionId);
       if (state.linked) {
         const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => undefined);
-        if (value?.kind !== 'ready' || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
+        if (value?.kind !== 'ready' || value.missingLinkedChildren || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
           setDispatchState({ ...state, phase: 'error', code: 'linked_task_unavailable' });
           return;
         }
@@ -286,7 +286,7 @@ function ControllerPanel(props) {
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : '');
         setClosedChallenges(new Set());
       }
-      state.notice?.acknowledge();
+      state.coordination?.notice?.acknowledge();
       setDispatchState(null);
       setView('controller');
     } catch {
@@ -303,18 +303,18 @@ function ControllerPanel(props) {
   const sendChallenge = async (state, target, initialize = false) => {
     if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
     dispatchControls.busy = true;
-    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: initialize && state.notice ? 'initializing' : 'sending' };
+    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: initialize && state.coordination ? 'initializing' : 'sending' };
     setDispatchState(attempt);
     try {
       if (initialize) {
         const opened = await openController({ workspaceId: target.workspaceId, createIfMissing: true,
-          ...(state.notice && { expectedSessionId: target.sessionId || null }) });
+          ...(state.coordination && { expectedSessionId: target.sessionId || null }) });
         if (opened.kind !== 'opened') {
           setDispatchState({ ...attempt, phase: 'error', code: opened.code, message: opened.reason });
           return;
         }
         attempt = { ...attempt, sessionId: opened.sessionId };
-        if (state.notice) {
+        if (state.coordination) {
           try { await openControllerChat(opened.sessionId); }
           catch {
             setExpectedId(''); setInspection(null); setError('无法打开主控对话，请重试。');
@@ -327,9 +327,10 @@ function ControllerPanel(props) {
         }
         setInspection({ kind: 'existing', sessionId: opened.sessionId, archived: false });
       }
+      const notice = state.coordination?.notice;
       const result = await dispatchChallenge({ workspaceId: attempt.workspaceId, sessionId: attempt.sessionId,
         challengeId: attempt.challenge.id, requestId: attempt.requestId,
-        ...(state.notice && { notice: { scope: state.notice.scope, key: state.notice.key } }) });
+        ...(notice && { notice: { scope: notice.scope, key: notice.key } }) });
       if ((result.kind === 'accepted' || result.kind === 'linked') && result.sessionId === attempt.sessionId) {
         await openAfterDispatch({ ...attempt, linked: result.kind === 'linked', childIds: result.childIds });
       } else {
@@ -341,10 +342,10 @@ function ControllerPanel(props) {
       dispatchControls.busy = false;
     }
   };
-  const startHandoff = (challenge, notice) => {
+  const startHandoff = (challenge, coordination) => {
     if (busy || dispatchControls.busy) return;
-    if (notice) {
-      setDispatchState({ phase: 'guide', challenge, notice, workspaceId: '', showDialog: true });
+    if (coordination) {
+      setDispatchState({ phase: 'guide', challenge, coordination, workspaceId: '', showDialog: true });
       return;
     }
     if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
@@ -355,14 +356,14 @@ function ControllerPanel(props) {
     setDispatchState({ ...state, phase: 'guide', showDialog: true });
   };
   const coordinate = (target, notice) => {
-    if (target.kind === 'challenge') return startHandoff({ id: target.challengeId, title: target.title }, notice);
+    if (target.kind === 'challenge') return startHandoff({ id: target.challengeId, title: target.title }, { notice });
     setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
     setView('catalog');
   };
-  const handoff = { state: dispatchState, start: (challenge) => startHandoff(challenge, catalogNotice), catalogNotice };
+  const handoff = { state: dispatchState, start: (challenge, notice) => startHandoff(challenge, catalogNotice ? { notice } : undefined), catalogNotice };
   const selectHandoffWorkspace = (id) => {
-    if (dispatchState.notice && dispatchState.workspaceId !== id) {
-      setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, notice: dispatchState.notice, workspaceId: id, showDialog: true });
+    if (dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
     }
     selectWorkspace(id);
   };
@@ -389,14 +390,16 @@ function ControllerPanel(props) {
       handoffMessage = controllerMessage(dispatchState.message);
     } else if (dispatchState.code === 'linked_task_unavailable') {
       handoffMessage = msg('无法打开已关联的子任务，请在主控对话中核对已有工作。', 'The linked child task could not be opened. Check the existing work in the controller chat.');
+    } else if (dispatchState.code === 'controller_history_unavailable') {
+      handoffMessage = msg('无法核对完整派工历史，请在主控对话中检查已有工作。', 'The full assignment history could not be verified. Check existing work in the controller chat.');
     } else if (needsRecheck) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg('重新核对', 'Check again'), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
       const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId
         ? { challenge: dispatchState.challenge } : dispatchState;
-      const sessionId = state.sessionId || selectedController || (state.notice && inspection.sessionId);
-      const copy = state.notice ? noticeHandoffCopy(inspection, handoffWorkspace) : {
+      const sessionId = state.sessionId || selectedController || (state.coordination && inspection.sessionId);
+      const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
         label: selectedController ? msg('交给主控', 'Hand off to controller') : inspection.kind === 'incomplete' ? msg('初始化并交接', 'Initialize and hand off') : msg('创建主控并交接', 'Create controller and hand off'),
         message: canInitialize ? msg('DSH 会发送一条初始化消息，再把赛题交给主控。', 'DSH will send a setup message before handing the challenge to the controller.') : undefined,
       };

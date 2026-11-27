@@ -112,8 +112,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
+  const noticeCompetition = target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : '';
+  const [gatedIds] = React.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
   const [search, setSearch] = React.useState('');
-  const [season, setSeason] = React.useState(target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : '');
+  const [season, setSeason] = React.useState(noticeCompetition);
   // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
   const [period, setPeriod] = React.useState(target?.period ?? '');
   // The chosen official group of that period; '' is 全部 and the value whenever the period has no groups.
@@ -290,6 +292,13 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   // Challenges show only for the selection they were read for, never under another competition's, period's or group's controls.
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
+  const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: (challenge) => {
+    if (gatedIds.has(challenge.id)) return;
+    const source = shownList?.filters;
+    const matchesNotice = noticeCompetition && source?.season === noticeCompetition && (!target.period || target.period === source.period)
+      && (!target.group || target.group === source.group) && loaded.some((item) => String(item.id) === challenge.id);
+    handoff.start(challenge, matchesNotice ? catalogNotice : undefined);
+  } } : handoff;
   const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
   const total = shownList?.total;
   // Fixed ids of the shown list that the Host could not read; the info row says the list is incomplete.
@@ -420,7 +429,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       h('p', { className: 'pg-note pg-path' }, [item.discipline, item.origin, item.difficulty !== undefined ? msg(`难度 ${item.difficulty}`, `Difficulty ${item.difficulty}`) : null].filter(Boolean).join(' · ') || msg('Playground 赛题', 'Playground challenge')),
       h('p', { className: 'pg-note' }, msg(`题目编号：${item.id}${item.attempts !== undefined ? ` · 已有 ${item.attempts} 次提交` : ''}`, `Challenge ID: ${item.id}${item.attempts !== undefined ? ` · Submissions: ${item.attempts}` : ''}`)),
       h('div', { className: 'pg-actions' },
-        handoff ? h(DispatchChallengeButton, { challenge: item, handoff }) : null,
+        handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null,
         h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': msg(`查看详情：${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`, `View details: ${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`), onClick: () => setDetail(item),
           ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, msg('查看详情', 'View details')),
         openWebButton(item.webUrl, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id))
@@ -430,7 +439,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     canLoadMore ? h('button', { type: 'button', className: 'pg-button pg-load-more', 'aria-disabled': busy ? true : undefined, 'aria-busy': busy === 'more', onClick: loadMore,
       ref: (node) => { latest.more = node; } }, busy === 'more' ? msg('正在加载…', 'Loading…') : msg('加载更多', 'Load more')) : null,
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
-    detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff, close: () => setDetail(null),
+    detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff: catalogHandoff, close: () => setDetail(null),
       focusFallback: () => [latest.details.get(String(detail.id)), latest.heading] }) : null);
 }
 

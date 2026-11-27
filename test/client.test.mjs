@@ -5754,6 +5754,66 @@ test('a child removed before native navigation finishes leaves its notice pendin
   assert.ok(findAll(await h.notices(), (node) => node.type === 'h3').map(text).includes('Weekly contest'));
   assert.equal(h.dispatchCalls().length, 1);
 });
+
+for (const single of [false, true]) {
+  test(`a scoped drawer retains the gated detail for its card after ${single ? 'an unsuccessful singleton lookup' : 'a collection selection'}`, async (t) => {
+    globalThis.document = { addEventListener() {}, removeEventListener() {} };
+    t.after(() => { delete globalThis.document; });
+    let detailReads = 0;
+    const query = noticeQuery(single ? singleNotice : { kind: 'collection', competition: 'bohr-product', period: '5' });
+    const h = await controllerHandoffHarness(t, { query: (input) => input.action === 'challenge'
+      ? single && ++detailReads === 1 ? { ok: false } : { ok: true, ...challengeCard, contentGated: true } : query(input),
+    dispatch: admittedController });
+    await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+    const panel = await h.f.mount(h.catalog());
+    const oldButton = h.cardButton();
+    h.f.find(panel, buttonLabelled('查看详情')).props.onClick();
+    const catalog = h.catalog();
+    const drawer = h.f.find(h.f.render(catalog.type, catalog.props), (node) => node.type?.name === 'ChallengeDetailDrawer');
+    const shown = await h.f.mount(drawer);
+    const action = h.f.find(shown, (node) => node.type?.name === 'DispatchChallengeButton');
+    const button = h.f.render(action.type, action.props);
+    assert.equal(text(button), '题面需要权限');
+    assert.equal(button.props.disabled, true);
+    button.props.onClick();
+    assert.equal(h.modal(), undefined);
+    h.f.find(shown, buttonLabelled('关闭')).props.onClick();
+    assert.equal(h.cardButton().props.disabled, true);
+    oldButton.props.onClick();
+    assert.equal(h.modal(), undefined);
+    assert.deepEqual(h.dispatchCalls(), []);
+  });
+}
+
+for (const unavailable of [false, true]) {
+  test(`a round alert stays pending after ${unavailable ? 'automatic catalog fallback' : 'choosing another scoring round'}`, async (t) => {
+    const query = noticeQuery({ kind: 'collection', competition: 'knight-s4', group: 'r8' });
+    const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') }, dispatch: admittedController,
+      query: (input) => {
+        if (input.action === 'catalog' && input.group === 'r8' && unavailable) return { ok: false, error: { reason: 'group_not_available' } };
+        const result = query(input);
+        if (input.action === 'catalog') {
+          result.competitionTable[1].groups = [{ key: 'r7', labelZh: '第 7 轮', count: 1 }, { key: 'r8', labelZh: '第 8 轮', count: 1 }];
+          result.challenges.items = [{ ...challengeCard, id: input.group === 'r8' ? 'round-eight' : 'round-seven' }];
+        }
+        return result;
+      } });
+    await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+    const panel = await h.f.mount(h.catalog());
+    if (!unavailable) {
+      h.f.find(panel, (node) => node.type === 'button' && text(node).includes('第 7 轮')).props.onClick();
+      await settle();
+    }
+    h.cardButton().props.onClick();
+    assert.equal(h.modalWorkspace().props.value, '');
+    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+    await h.modalButton('确认交给主控').props.onClick();
+    const [sent] = h.dispatchCalls();
+    assert.equal(sent.challengeId, 'round-seven');
+    assert.equal(sent.notice, undefined);
+    assert.ok(findAll(await h.notices(), (node) => node.type === 'h3').map(text).includes('Weekly contest'));
+  });
+}
 test('an explicit controller result changes the selected workspace in the mounted panel and after remount', async (t) => {
   const h = await controllerHandoffHarness(t, { workspaceId: 'one',
     inspections: { one: existingController('main-one'), two: existingController('main-two') }, dispatch: admittedController });

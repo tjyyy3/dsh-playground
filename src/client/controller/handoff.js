@@ -5,7 +5,7 @@ import { h } from '../shared/react.js';
 import { taskModalCss } from '../shared/styles.js';
 import { workspaceOptions } from '../shared/workspaces.js';
 
-function noticeHandoffCopy(inspection, workspace) {
+function noticeHandoffCopy(inspection, workspace, notice) {
   const name = workspace.title || workspace.workspaceId;
   if (inspection.kind === 'absent') return { label: msg('创建主控对话', 'Create controller chat'),
     message: msg(`工作区「${name}」还没有主控。创建后可确认交接赛题。`, `Workspace “${name}” has no controller. Create one to continue to handoff confirmation.`) };
@@ -13,7 +13,9 @@ function noticeHandoffCopy(inspection, workspace) {
     message: msg(`请先完成工作区「${name}」的主控 ${inspection.sessionId} 的初始化，再确认交接赛题。`,
       `Finish setting up controller ${inspection.sessionId} in workspace “${name}”, then confirm the handoff.`) };
   return { label: msg('确认交给主控', 'Confirm handoff'),
-    message: msg(`工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。提交评测需另行授权。`,
+    message: !notice ? msg(`工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。提交评测需另行授权。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge. Submission requires a separate request.`)
+      : msg(`工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。提交评测需另行授权。`,
       `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work. Submission requires a separate request.`) };
 }
 
