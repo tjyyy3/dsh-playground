@@ -7,7 +7,7 @@ import { AuthStatusPanel } from './settings/auth.js';
 import { CatalogPanel } from './catalog/index.js';
 import { ArchivedTaskRow, TaskDetailDrawer, TaskSummaryRow } from './tasks/list.js';
 
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
@@ -160,7 +160,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         h('h1', null, msg('Playground 主控面板', 'Playground controller panel')),
         h('button', { className: 'pg-button', onClick: () => requestTask({ kind: 'controller' }) }, msg('打开工作区主控', 'Open workspace controller')),
         h('button', { className: 'pg-button', onClick: () => openable ? openTask(openable.id) : openChat() }, openable ? msg('返回所选任务对话', 'Return to selected task chat') : msg('打开 DSH 对话', 'Open DSH chat'))),
-      libraryOnly ? null : h(AuthStatusPanel, { query, login, saveToken, clearToken }),
+      libraryOnly ? null : h(AuthStatusPanel, { query, login, previewToken, saveToken, clearToken }),
       h('p', { className: 'pg-sr-only', role: 'status', 'aria-live': 'polite' }, announcement),
       section ? null : h('div', { className: 'pg-split-control' },
         h('span', null, msg('调整左右栏宽度', 'Adjust column widths')),

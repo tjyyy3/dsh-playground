@@ -2,6 +2,89 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
+import { createWorkflow } from '../lib/workflow.js';
+import { credentialRecords } from './fixtures/account-credentials.mjs';
+
+test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
+  const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [], cleanups = [];
+  let work, service, invocations, cleanupBlocked = false, reservationBlocked = false;
+  const records = credentialRecords();
+  const publish = (key) => { work = events.get('credentials/reference-updated')(key); };
+  const credentials = {
+    ...records,
+    async modifyRecord(key, mutate) {
+      if (reservationBlocked) throw Error('store unavailable');
+      return records.modifyRecord(key, mutate);
+    },
+    resolve: async (key) => saved.has(key) ? { source: 'file', value: saved.get(key) } : ambient.get(key),
+    describe: async (key) => saved.has(key) ? { source: 'file' } : { source: ambient.get(key)?.source },
+    set(key, value) { saved.set(key, value); publish(key); },
+    async unset(key) {
+      if (cleanupBlocked) throw Error('store unavailable');
+      if (saved.delete(key)) publish(key);
+    },
+  };
+  const ctx = {
+    get: (name) => name === 'credentials' ? credentials : { browserPeer: peer },
+    on: (name, fn) => events.set(name, fn), invocation: { peer },
+    effect: (register) => cleanups.push(register()),
+    provide: (_, result) => { service = result; }, typert: { register: (result) => { invocations = result.invocations; } },
+  };
+  const client = { baseUrl: 'https://example.test/api', async getCurrentUser({ token }) {
+    assert.equal([...saved.values()].some((value) => value.endsWith(':' + token)), false, 'outbound identity checks wait for removal');
+    reads.push(token);
+    if (token === 'synthetic-network') throw Object.assign(Error('offline'), { code: 'network_error' });
+    if (token === 'synthetic-rejected') return { authenticated: false, reason: 'rejected' };
+    return { authenticated: true, user: { id: 'account-2' } };
+  } };
+  registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
+  t.after(() => cleanups.forEach((cleanup) => cleanup()));
+  const schema = (method) => invocations.find((entry) => entry.method === method).parameters[0].codec.create();
+  const begin = () => service.startAccountSwitch(schema('startAccountSwitch').parse({}));
+  const collect = (id) => service.verifyAccount(schema('verifyAccount').parse({ id }));
+  assert.equal(schema('query').safeParse({ action: 'auth', candidateId: crypto.randomUUID() }).success, false);
+  assert.equal(schema('verifyAccount').safeParse({ id: crypto.randomUUID(), token: 'synthetic' }).success, false);
+  ctx.invocation.peer = {};
+  assert.deepEqual(await begin(), { ok: false });
+  ctx.invocation.peer = peer;
+  reservationBlocked = true;
+  assert.deepEqual(await begin(), { ok: false }, 'a browser cannot write without a durable cleanup record');
+  reservationBlocked = false;
+
+  for (const source of ['env', 'project-env', 'user-env']) {
+    const { credential, proof } = await begin();
+    ambient.set(credential, { source, value: `${proof}:synthetic-environment` });
+    publish(credential);
+    await work;
+    assert.equal(saved.has(credential), false);
+  }
+  assert.deepEqual(reads, []);
+
+  for (const [token, reason] of [['synthetic-network', 'network'], ['synthetic-rejected', 'rejected']]) {
+    const { id, credential, proof } = await begin();
+    const result = collect(id);
+    assert.equal((await collect(id)).authenticated, false, 'another collector cannot consume the same ticket');
+    credentials.set(credential, `${proof}:${token}`);
+    assert.equal((await result).reason, reason);
+    assert.equal(saved.has(credential), false);
+    assert.equal((await collect(id)).authenticated, false);
+    credentials.set(credential, `${proof}:synthetic-replay`);
+    await work;
+    assert.equal(saved.get(credential), `${proof}:synthetic-replay`, 'a retired reference no longer grants cleanup ownership');
+    saved.delete(credential);
+  }
+  assert.deepEqual(reads, ['synthetic-network', 'synthetic-rejected']);
+  const disconnected = await begin();
+  credentials.set(disconnected.credential, `${disconnected.proof}:synthetic-disconnected`);
+  await work;
+  assert.equal(saved.has(disconnected.credential), false, 'a dropped browser never has to call verify or unset for cleanup');
+  assert.deepEqual(reads.at(-1), 'synthetic-disconnected');
+  const blocked = await begin();
+  cleanupBlocked = true;
+  credentials.set(blocked.credential, `${blocked.proof}:synthetic-blocked`);
+  assert.equal((await collect(blocked.id)).reason, 'cleanup_failed');
+  assert.equal(reads.includes('synthetic-blocked'), false);
+});
 
 test('only the admitted browser peer can request a DSH-managed update', async () => {
   const peer = {};
