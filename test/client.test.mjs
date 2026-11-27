@@ -6,6 +6,7 @@ import test from 'node:test';
 import { createPlaygroundClient } from '../lib/api.js';
 import { readCompetitionNotices } from '../lib/competition-notices.js';
 import { createControllerHandoff } from '../lib/controller/handoff.js';
+import { controllerKey } from '../lib/controller/projection.js';
 import { publicChallengeUrl } from '../lib/links.js';
 import { createReleaseQuery } from '../lib/releases.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
@@ -5829,15 +5830,46 @@ for (const single of [false, true]) {
 }
 
 for (const unavailable of [false, true]) {
-  test(`a round alert stays pending after ${unavailable ? 'automatic catalog fallback' : 'choosing another scoring round'}`, async (t) => {
-    const query = noticeQuery({ kind: 'collection', competition: 'knight-s4', group: 'r8' });
-    const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') }, dispatch: admittedController,
+  test(`a round alert stays pending after ${unavailable ? 'opening linked work from the catalog fallback' : 'handing off another scoring round'}`, async (t) => {
+    const sessionId = 'main-one';
+    const linkedChallengeId = 'round-eight';
+    const challengeId = unavailable ? linkedChallengeId : 'round-seven';
+    const key = JSON.stringify(['season', 's4', 8]);
+    const query = noticeQuery({ kind: 'collection', competition: 'knight-s4', group: 'r8' }, { key });
+    const rounds = [{ seq: 7, challengeIds: ['round-seven'] }];
+    if (!unavailable) rounds.push({ seq: 8, challengeIds: [linkedChallengeId] });
+    const client = {
+      baseUrl: noticeScope,
+      noticeSeasons: async () => [{ slug: 's4', rounds: [{ seq: 8, status: 'active' }] }],
+      noticeHub: async () => [],
+      getCompetitionSchedules: async () => ({}),
+      getSeasonRounds: async () => ({ rounds }),
+      getChallenge: async (id) => ({ id, contentGated: false }),
+    };
+    const taskQueries = [];
+    const controllerTasks = async (input) => {
+      taskQueries.push(input);
+      return input.includeChallengeId === linkedChallengeId
+        ? { kind: 'ready', linkedChildIds: ['original'], rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] }
+        : { kind: 'ready', rows: [] };
+    };
+    const prompts = [];
+    const agent = { id: sessionId, session: {} };
+    const { dispatch } = createControllerHandoff({ client, enqueue: (_id, run) => run(), inspect: () => existingController(sessionId),
+      markerOf: () => ({ workspaceId: 'one' }), tasks: controllerTasks, ctx: {
+        agents: { get: () => agent }, workingDirectory: { get: () => 'chosen' },
+        sessionProjections: { stateOf: (_session, name) => name === controllerKey
+          ? { taskChallenges: { original: { id: linkedChallengeId, baseUrl: noticeScope } } } : undefined },
+        workspaceRegistry: { resolveByPath: async () => ({ id: 'one', sessionIds: [sessionId] }), archivedSessionIds: [] },
+        sessionController: { prompt: async (input) => { prompts.push(input); return { accepted: true }; } },
+      } });
+    const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController(sessionId) }, dispatch, controllerTasks,
       query: (input) => {
         if (input.action === 'catalog' && input.group === 'r8' && unavailable) return { ok: false, error: { reason: 'group_not_available' } };
         const result = query(input);
         if (input.action === 'catalog') {
-          result.competitionTable[1].groups = [{ key: 'r7', labelZh: '第 7 轮', count: 1 }, { key: 'r8', labelZh: '第 8 轮', count: 1 }];
-          result.challenges.items = [{ ...challengeCard, id: input.group === 'r8' ? 'round-eight' : 'round-seven' }];
+          result.competitionTable[1].groups = rounds.map(({ seq, challengeIds }) => ({ key: `r${seq}`, labelZh: `第 ${seq} 轮`, count: challengeIds.length }));
+          result.challenges.items = [{ ...challengeCard, id: input.group === 'r8' ? linkedChallengeId : challengeId }];
         }
         return result;
       } });
@@ -5851,9 +5883,16 @@ for (const unavailable of [false, true]) {
     assert.equal(h.modalWorkspace().props.value, '');
     h.modalWorkspace().props.onChange({ target: { value: 'one' } });
     await h.modalButton('确认交给主控').props.onClick();
+    assert.equal(h.modal(), undefined);
+    assert.equal(prompts.length, unavailable ? 0 : 1);
+    if (unavailable) {
+      assert.ok(taskQueries.some((input) => input.includeChallengeId === linkedChallengeId));
+      const pane = h.f.find(h.view(), (node) => node.type === 'aside');
+      assert.equal(text(h.f.find(pane, (node) => node.type === 'h3')), 'Previous investigation');
+    }
     const [sent] = h.dispatchCalls();
-    assert.equal(sent.challengeId, 'round-seven');
-    assert.equal(sent.notice, undefined);
+    assert.equal(sent.challengeId, challengeId);
+    assert.deepEqual(sent.notice, { scope: noticeScope, key });
     assert.ok(findAll(await h.notices(), (node) => node.type === 'h3').map(text).includes('Weekly contest'));
   });
 }

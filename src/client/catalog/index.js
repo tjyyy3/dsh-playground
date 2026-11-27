@@ -294,10 +294,10 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const loaded = shownList ? shownList.items : [];
   const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: (challenge) => {
     if (gatedIds.has(challenge.id)) return;
-    const source = shownList?.filters;
-    const matchesNotice = noticeCompetition && source?.season === noticeCompetition && (!target.period || target.period === source.period)
-      && (!target.group || target.group === source.group) && loaded.some((item) => String(item.id) === challenge.id);
-    handoff.start(challenge, matchesNotice ? catalogNotice : undefined);
+    // Keep the notice for deduplication within its competition. The Host verifies exact membership.
+    const fromNoticeCompetition = noticeCompetition && shownList?.filters.season === noticeCompetition
+      && loaded.some((item) => String(item.id) === challenge.id);
+    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : undefined);
   } } : handoff;
   const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
   const total = shownList?.total;
