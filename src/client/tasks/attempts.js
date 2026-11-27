@@ -200,11 +200,20 @@ function withLatestAttempt(state, attempts) {
   return overlay ? { ...receipt, ...overlay } : receipt;
 }
 
+// Worker evidence can advance while the attempt's platform timestamp stays the same.
+function attemptProgressEvidence(attempt) {
+  if (receiptSettled(attempt)) return 3;
+  if (['evaluating', 'scoring'].includes(attemptScore(attempt).scoring.state)) return 2;
+  return platformReceivedBundle(attempt) ? 1 : 0;
+}
+
 function updateAttemptOverlay(receipt, overlay, attempt) {
   const previous = { ...receipt, ...overlay };
   const order = compareAttemptUpdates(previous.updatedAt, attempt.updatedAt);
   const settled = receiptSettled(previous);
-  if (order === -1 || (order === 0 && settled) || (order !== 1 && overlay?.updatedAt !== undefined)) return overlay;
+  if (order === -1 || (order === 0 && settled)) return overlay;
+  if (overlay?.updatedAt !== undefined && (order === undefined ||
+    (order === 0 && attemptProgressEvidence(attempt) <= attemptProgressEvidence(previous)))) return overlay;
   const updated = {};
   for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) updated[field] = attempt[field];
   if (Number.isFinite(parsePlatformTime(attempt.updatedAt))) updated.updatedAt = attempt.updatedAt;

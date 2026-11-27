@@ -1347,6 +1347,45 @@ test('queued Agent-reported attempts keep their report and poll until the platfo
   assert.equal(h.calls.length, 4);
 });
 
+test('workbench refresh accepts stronger Worker evidence at the same attempt revision', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const workerReceivedAt = '2026-10-02T12:01:00Z';
+  const queued = { ...queuedAttempt, updatedAt, scoringQueue: { stage: 'awaiting_receipt' } };
+  const platform = new Map([[7, queued]]);
+  const h = await refreshHarness(t, [['a', receiptOf(7, { ...queued, submissionState: 'created' })],
+    ['b', receiptOf(7, { ...queued, submissionState: 'uploaded' })]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  const refresh = async (attempt) => {
+    platform.set(7, { ...attempt, updatedAt });
+    await h.button().props.onClick();
+    await h.settled();
+  };
+
+  h.flush();
+  await h.settled();
+  assert.deepEqual(shown(), [['已创建，上传未确认', '—'], ['Agent 报告已上传', '—']]);
+
+  await refresh({ ...queuedAttempt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  assert.deepEqual(shown(), [['排队中', '—'], ['排队中', '—']]);
+  const evaluating = { ...evaluatingAttempt, scoringQueue: { stage: 'received', workerReceivedAt } };
+  await refresh(evaluating);
+  assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
+  await refresh(queued);
+  assert.deepEqual(shown(), [['评测中', '参考 41'], ['评测中', '参考 41']]);
+
+  platform.set(7, { ...finalAttempt(80), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 5);
+
+  await refresh(evaluating);
+  await refresh(finalAttempt(60));
+  assert.deepEqual(shown(), [['评分完成', '80 分'], ['评分完成', '80 分']]);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7, 7, 7, 7]);
+});
+
 test('workbench refresh isolates identical attempt numbers across platforms and challenges', async (t) => {
   const original = 'https://original.example/api';
   const active = 'https://active.example/api';
