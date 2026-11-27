@@ -1523,6 +1523,55 @@ test('an equivalent Agent result preserves the final score in the loaded submiss
   assert.match(historyRows(rendered.tree)[0], /提交 #8 .* · 评测中 · — 排队中/);
 });
 
+test('replaying a final Agent receipt without Worker timestamps preserves later jobs and their scores', async (t) => {
+  const updatedAt = '2026-10-02T12:00:00Z';
+  const job = (workerReceivedAt) => ({ ...queuedAttempt, updatedAt, scoringQueue: { stage: 'queued', workerReceivedAt } });
+  const first = job('2026-10-02T12:01:00Z');
+  const second = job('2026-10-02T13:02:00Z');
+  const final = { ...finalAttempt(81), updatedAt };
+  const receipt = receiptOf(7, { ...queuedAttempt, updatedAt, trackedAt: updatedAt, submissionState: 'uploaded' });
+  const platform = new Map([[7, first]]);
+  const h = await refreshHarness(t, [['task', receipt]], platform);
+  const shown = () => h.rows().map(({ badge, score }) => [badge, score]);
+  const replay = (fields) => {
+    replayResults(h.sessions[0], { ...final, submissionState: 'final', ...fields });
+    h.flush();
+  };
+  h.flush();
+  await h.settled();
+  const history = openRefreshHistory(h, 'task', [{ id: 7, ...first }]);
+  await h.f.mount(history());
+  const historyRow = () => {
+    const element = history();
+    return historyRows(h.f.render(element.type, element.props))[0];
+  };
+  platform.set(7, final);
+  h.tick(twoMinutes);
+  await h.settled();
+  platform.set(7, second);
+  h.control.hold = true;
+  const refresh = h.button().props.onClick();
+  replay();
+  assert.deepEqual(shown(), [['评分完成', '81 分']]);
+  assert.match(historyRow(), /已出最终分 · 81 分/);
+
+  h.control.hold = false;
+  h.release();
+  await refresh;
+  await h.settled();
+  replay({ updatedAt: '2026-10-02T20:00:00+08:00', scoringState: { displayScore: 81, scoreIsFinal: true, state: 'final' } });
+  assert.deepEqual(shown(), [['排队中', '—']]);
+  assert.match(historyRow(), /评测中 · — 排队中/);
+
+  platform.set(7, { ...finalAttempt(52), updatedAt });
+  h.tick(twoMinutes);
+  await h.settled();
+  replay();
+  assert.deepEqual(shown(), [['评分完成', '52 分']]);
+  assert.match(historyRow(), /已出最终分 · 52 分/);
+  assert.equal(h.calls.length, 4);
+});
+
 test('a shared lookup begun before a reported re-upload cannot settle the new receipt', async (t) => {
   const updatedAt = '2026-10-02T12:00:00Z';
   const queued = { ...queuedAttempt, updatedAt, submissionState: 'uploaded' };
