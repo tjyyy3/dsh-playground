@@ -190,15 +190,15 @@ const attemptKey = (scope, id) => scope.conflict || id === undefined ? undefined
 
 // Identity of the receipt a stored result was fetched for. A receipt that has changed since, by a
 // resubmission under the same id or by "查询结果", no longer matches the stored result.
-const receiptKey = (receipt) => receipt ? JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.ok, receipt.status,
-  receipt.bundleStatus, receipt.score, receipt.scoringState]) : undefined;
+const receiptKey = (receipt) => JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.trackedAt, receipt.confirmedAt,
+  receipt.ok, receipt.submissionState, ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])]);
 
 // A lookup overlays the receipt it was fetched for. Preserve missing fields and settled results.
 function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  if (!entry || entry.receiptKey !== receiptKey(receipt)) return receipt;
+  if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
   return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
@@ -223,12 +223,12 @@ function withSettledAttempt(item, entry, { closed = false } = {}) {
 
 const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
-// A round reads each scoped attempt once, keeps the receipt snapshot and limits concurrent requests.
+// A round reads each scoped attempt once, keeps its receipt snapshots and limits concurrent requests.
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
   const wanted = keys.map((key) => {
-    const { scope, receipt } = store.receipts.get(key);
-    return { key, input: { action: 'attempt', attemptId: receiptAttemptId(receipt), ...scope }, receiptKey: receiptKey(receipt) };
+    const { scope, attemptId, receiptKeys } = store.receipts.get(key);
+    return { key, input: { action: 'attempt', attemptId, ...scope }, receiptKeys };
   });
   const controller = new AbortController();
   store.controller = controller;
@@ -238,11 +238,11 @@ async function refreshAttempts(store, keys) {
   let next = 0;
   const worker = async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const { key, input, receiptKey } = wanted[next++];
+      const { key, input, receiptKeys } = wanted[next++];
       try {
         const attempt = await store.query(input, controller.signal);
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl)
-          && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key, { attempt, receiptKey }]);
+          && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key, { attempt, receiptKeys }]);
       } catch { /* counted as failed */ }
     }
   };
@@ -255,5 +255,5 @@ async function refreshAttempts(store, keys) {
   store.publish();
 }
 
-export { attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
+export { attemptKey, attemptRefreshMs, bundleSummaryLine, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, receiptProgress, refreshAttempts, scoreLabel, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt, withSettledAttempt };
 

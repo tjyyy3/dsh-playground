@@ -2695,20 +2695,20 @@ function receiptPending(receipt) {
 __name(receiptPending, "receiptPending");
 var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
 var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
-var receiptKey = /* @__PURE__ */ __name((receipt) => receipt ? JSON.stringify([
+var receiptKey = /* @__PURE__ */ __name((receipt) => JSON.stringify([
   receipt.attemptId,
   receipt.updatedAt,
+  receipt.trackedAt,
+  receipt.confirmedAt,
   receipt.ok,
-  receipt.status,
-  receipt.bundleStatus,
-  receipt.score,
-  receipt.scoringState
-]) : void 0, "receiptKey");
+  receipt.submissionState,
+  ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])
+]), "receiptKey");
 function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  if (!entry || entry.receiptKey !== receiptKey(receipt)) return receipt;
+  if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
   return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
@@ -2727,8 +2727,8 @@ var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
   const wanted = keys.map((key2) => {
-    const { scope, receipt } = store.receipts.get(key2);
-    return { key: key2, input: { action: "attempt", attemptId: receiptAttemptId(receipt), ...scope }, receiptKey: receiptKey(receipt) };
+    const { scope, attemptId, receiptKeys } = store.receipts.get(key2);
+    return { key: key2, input: { action: "attempt", attemptId, ...scope }, receiptKeys };
   });
   const controller = new AbortController();
   store.controller = controller;
@@ -2738,10 +2738,10 @@ async function refreshAttempts(store, keys) {
   let next = 0;
   const worker = /* @__PURE__ */ __name(async () => {
     while (next < wanted.length && !controller.signal.aborted) {
-      const { key: key2, input, receiptKey: receiptKey2 } = wanted[next++];
+      const { key: key2, input, receiptKeys } = wanted[next++];
       try {
         const attempt = await store.query(input, controller.signal);
-        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key2, { attempt, receiptKey: receiptKey2 }]);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) fresh.push([key2, { attempt, receiptKeys }]);
       } catch {
       }
     }
@@ -3528,6 +3528,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   const [busy, setBusy] = React11.useState(false);
   const [adding, setAdding] = React11.useState(false);
   const [error, setError] = React11.useState("");
+  const [recovery, setRecovery] = React11.useState(null);
   const [inspection, setInspection] = React11.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
@@ -3544,16 +3545,29 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
   }, [inspectId, inspectController]);
   const archived = snapshot2?.archived;
   const needsInitialization = snapshot2?.kind === "absent" || snapshot2?.kind === "incomplete";
-  const actionLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
+  const createLabel = controller ? snapshot2?.kind === "absent" ? msg("创建主控对话", "Create controller chat") : snapshot2?.kind === "incomplete" ? msg("初始化主控对话", "Initialize controller chat") : msg("打开主控对话", "Open controller chat") : request.mode === "author" ? msg("创建出题任务", "Create authoring task") : msg("创建参赛任务", "Create participation task");
+  const actionLabel = recovery ? msg("打开任务对话", "Open task chat") : createLabel;
   const title = controller ? msg("打开工作区主控", "Open workspace controller") : actionLabel;
   const controllerError = snapshot2?.kind === "blocked" ? blockedReason(snapshot2) : archived ? msg("主控对话已归档。请先在 DSH 中取消归档。", "The controller chat is archived. Unarchive it in DSH first.") : "";
   const listError = workspaces.state === "error" ? msg(`无法读取 DSH 工作区列表${workspaces.error?.message ? `：${workspaces.error.message}` : ""}。请重启 DSH 后重试。`, `Could not load DSH workspaces${workspaces.error?.message ? `: ${workspaces.error.message}` : ""}. Restart DSH and try again.`) : "";
   const loading = workspaces.phase !== "ready" && !listError;
   const hint = listError || (loading ? msg("正在读取 DSH 工作区列表…", "Loading DSH workspaces…") : workspaces.items.length ? msg("选择已有工作区，或添加一个专用目录。", "Select an existing workspace or add a dedicated folder.") : msg("还没有工作区，请先添加。", "Add a workspace to get started."));
+  const actionError = recovery ? [recovery.message, error].filter(Boolean).join(" ") : error || controllerError;
+  const unavailable = busy || adding || !recovery && (!workspace || workspaces.phase !== "ready" || controller && (!snapshot2 || Boolean(controllerError)));
   const confirm = /* @__PURE__ */ __name(async () => {
-    if (!workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || controllerError)) return;
+    if (unavailable) return;
     setBusy(true);
     setError("");
+    if (recovery) {
+      try {
+        await openTask(recovery.sessionId);
+        closeTaskStart();
+      } catch {
+        setError(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
+        setBusy(false);
+      }
+      return;
+    }
     if (controller) {
       try {
         const result = await openController({ workspaceId: workspace.workspaceId, createIfMissing: needsInitialization });
@@ -3577,7 +3591,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     try {
       const result = await run(request.sessionId, { action: "start", challenge_id: request.id, mode: request.mode, workspace_id: workspace.workspaceId });
       if (result.ok && result.sessionId) created = result.sessionId;
-      else setError(result.error?.message || msg("任务创建失败", "Could not create the task"));
+      else {
+        const message = result.error?.message || msg("任务创建失败", "Could not create the task");
+        if (typeof result.sessionId === "string" && result.sessionId) setRecovery({ sessionId: result.sessionId, message });
+        else setError(message);
+      }
     } catch (failure) {
       setError(failure.message);
     }
@@ -3605,10 +3623,10 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
       "header",
       { className: "pg-task-header" },
       h("h2", null, title),
-      h("p", { className: "pg-task-subtitle" }, controller ? msg("选择要协调工作的 DSH 工作区。", "Select the DSH workspace for the controller.") : msg("选择任务文件的存放工作区", "Choose a workspace for the task files")),
+      recovery ? null : h("p", { className: "pg-task-subtitle" }, controller ? msg("选择要协调工作的 DSH 工作区。", "Select the DSH workspace for the controller.") : msg("选择任务文件的存放工作区", "Choose a workspace for the task files")),
       h(
         "button",
-        { type: "button", className: "pg-task-close", "aria-label": controller ? msg("关闭工作区主控", "Close workspace controller") : msg("取消创建任务", "Cancel task creation"), disabled: busy || adding, onClick: closeTaskStart },
+        { type: "button", className: "pg-task-close", "aria-label": controller ? msg("关闭工作区主控", "Close workspace controller") : recovery ? msg("关闭", "Close") : msg("取消创建任务", "Cancel task creation"), disabled: busy || adding, onClick: closeTaskStart },
         h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
       )
     ),
@@ -3626,7 +3644,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
         ),
         h("p", { className: "pg-task-id" }, request.id)
       ),
-      h(
+      recovery ? h("p", { className: "pg-task-error", role: "alert" }, actionError) : h(
         "div",
         { className: "pg-task-field" },
         h("label", { htmlFor: "pg-task-workspace" }, msg("目标工作区", "Workspace")),
@@ -3639,8 +3657,8 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
             {
               id: "pg-task-workspace",
               className: "pg-task-select",
-              "aria-invalid": Boolean(error || controllerError),
-              "aria-describedby": `${workspace ? "pg-task-path" : "pg-task-hint"}${error || controllerError ? " pg-task-error" : ""}`,
+              "aria-invalid": Boolean(actionError),
+              "aria-describedby": `${workspace ? "pg-task-path" : "pg-task-hint"}${actionError ? " pg-task-error" : ""}`,
               "data-empty": !workspace,
               "data-modal-autofocus": true,
               value: workspace ? selectedId : "",
@@ -3658,7 +3676,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
         ),
         workspace ? h("p", { id: "pg-task-path", className: "pg-task-path" }, workspace.path) : h("p", { id: "pg-task-hint", className: listError ? "pg-task-error" : "pg-task-hint", role: listError ? "alert" : loading ? "status" : void 0 }, hint),
         checking ? h("p", { className: "pg-task-hint", role: "status" }, msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…")) : null,
-        error || controllerError ? h("p", { id: "pg-task-error", className: "pg-task-error", role: "alert" }, error || controllerError) : null,
+        actionError ? h("p", { id: "pg-task-error", className: "pg-task-error", role: "alert" }, actionError) : null,
         needsInitialization ? h("p", { className: "pg-task-hint" }, msg("初始化会请当前 DSH 模型确认主控角色。", "Initialization asks the current DSH model to confirm its controller role.")) : null,
         snapshot2?.codex ? h("p", { className: "pg-task-hint" }, snapshot2.codex === "registered" ? msg("已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体。", "Codex subagents are available. The controller can use DSH subagents if Codex becomes unavailable.") : msg("未启用 Codex 时，主控可将工作交给 DSH 子智能体，在独立对话中执行。", "When Codex is disabled, the controller can delegate work to DSH subagents in separate chats.")) : null,
         h("button", { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: /* @__PURE__ */ __name(async () => {
@@ -3678,7 +3696,7 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
     h(
       "footer",
       { className: "pg-task-footer" },
-      h("p", null, controller ? msg("主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。", "The controller assigns tasks and collects results. Submit challenges from their separate participation chats.") : msg("将在所选目录创建独立对话并读写任务文件。", "A separate chat will use the selected directory to read and write task files.")),
+      recovery ? null : h("p", null, controller ? msg("主控派发任务并汇总结果。赛题提交在独立参赛对话中完成。", "The controller assigns tasks and collects results. Submit challenges from their separate participation chats.") : msg("将在所选目录创建独立对话并读写任务文件。", "A separate chat will use the selected directory to read and write task files.")),
       h(
         "div",
         { className: "pg-task-actions" },
@@ -3689,11 +3707,11 @@ function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorksp
             type: "button",
             className: "pg-task-button pg-task-create",
             "data-busy": busy,
-            disabled: !workspace || workspaces.phase !== "ready" || busy || adding || controller && (!snapshot2 || Boolean(controllerError)),
+            disabled: unavailable,
             onClick: confirm
           },
           busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? controller ? msg("正在打开…", "Opening…") : msg("正在创建…", "Creating…") : actionLabel
+          busy ? controller || recovery ? msg("正在打开…", "Opening…") : msg("正在创建…", "Creating…") : actionLabel
         )
       )
     )
@@ -4388,9 +4406,11 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const state = item.projectionValues?.playgroundTask;
     const receipt = state?.receipt;
     const scope = taskAttemptScope(state);
-    const key2 = attemptKey(scope, receiptAttemptId(receipt));
+    const attemptId = receiptAttemptId(receipt);
+    const key2 = attemptKey(scope, attemptId);
     if (!key2) continue;
-    if (!receipts.has(key2)) receipts.set(key2, { scope, receipt });
+    if (!receipts.has(key2)) receipts.set(key2, { scope, attemptId, receiptKeys: /* @__PURE__ */ new Set() });
+    receipts.get(key2).receiptKeys.add(receiptKey(receipt));
     if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;

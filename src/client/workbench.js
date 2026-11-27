@@ -1,6 +1,6 @@
 import { msg, usePluginLanguage } from './shared/language.js';
 import * as React from 'react';
-import { attemptKey, attemptRefreshMs, clock, noArchiveError, receiptAttemptId, receiptPending, refreshAttempts, taskAttemptScope, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt } from './tasks/attempts.js';
+import { attemptKey, attemptRefreshMs, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, refreshAttempts, taskAttemptScope, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt } from './tasks/attempts.js';
 import { h } from './shared/react.js';
 import { css } from './shared/styles.js';
 import { AuthStatusPanel } from './settings/auth.js';
@@ -52,9 +52,11 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     const state = item.projectionValues?.playgroundTask;
     const receipt = state?.receipt;
     const scope = taskAttemptScope(state);
-    const key = attemptKey(scope, receiptAttemptId(receipt));
+    const attemptId = receiptAttemptId(receipt);
+    const key = attemptKey(scope, attemptId);
     if (!key) continue;
-    if (!receipts.has(key)) receipts.set(key, { scope, receipt });
+    if (!receipts.has(key)) receipts.set(key, { scope, attemptId, receiptKeys: new Set() });
+    receipts.get(key).receiptKeys.add(receiptKey(receipt));
     if (receiptPending(withLatestAttempt(state, store.attempts))) pendingKeys.add(key);
   }
   const anyPending = pendingKeys.size > 0;

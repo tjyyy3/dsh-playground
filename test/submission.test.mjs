@@ -212,6 +212,72 @@ test('reading a prior receipt keeps the new submission pending until its own att
   assert.equal(f.state().submission.attemptId, 8);
 });
 
+test('a result waiting for counts cannot replace a newer same-attempt receipt and Agent report', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  f.record(await f.workflow.track({ attempt_id: 7, submission_state: 'created' }, f.exec));
+  const counting = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  f.client.getUserSubmissions = async () => { counting.resolve(); return release.promise; };
+  const pending = f.workflow.results({}, f.exec);
+  await counting.promise;
+
+  try {
+    f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, status: 'final', score: 9,
+      scoringState: { state: 'final', scoreIsFinal: true } });
+    f.record(await f.workflow.reportSubmission({ attempt_id: 7, submission_state: 'uploaded', message: 'Upload confirmed.' }, f.exec));
+  } finally {
+    release.resolve([]);
+  }
+  const newer = f.state();
+  const stale = await pending;
+  assert.equal(stale.scoringState.state, 'queued');
+  assert.equal(stale.workflow, undefined);
+  f.record(stale);
+  assert.deepEqual(f.state(), newer);
+  assert.equal(f.state().receipt.score, 9);
+  assert.equal(f.state().submission.status, 'final');
+  assert.equal(f.state().receipt.agentReport.message, 'Upload confirmed.');
+
+  const refreshed = await f.workflow.results({}, f.exec);
+  f.record(refreshed);
+  assert.deepEqual(f.state().receipt, newer.receipt);
+  assert.equal(f.state().submissionCounts.total, 0);
+});
+
+test('replaying a delayed result keeps same-attempt settlement and Agent upload evidence', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  f.record(await f.workflow.track({ attempt_id: 7, submission_state: 'created' }, f.exec));
+  const queued = await f.workflow.results({}, f.exec);
+
+  f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, status: 'final', score: 9,
+    scoringState: { state: 'final', scoreIsFinal: true } });
+  f.record(await f.workflow.results({}, f.exec));
+  const settled = f.state();
+  assert.equal(settled.submission.status, 'final');
+  f.record(queued);
+  assert.deepEqual(f.state(), settled);
+
+  f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, status: 'submitted', scoringState: { state: 'queued' } });
+  f.record(await f.workflow.reportSubmission({ attempt_id: 7, submission_state: 'uploaded', message: 'Upload confirmed.' }, f.exec));
+  const uploaded = f.state();
+  assert.equal(uploaded.submission.status, 'uploaded');
+  f.record(queued);
+  assert.deepEqual(f.state(), uploaded);
+});
+
+test('a queued lookup cannot replace a receipt with a terminal platform status', async (t) => {
+  const f = await fixture(t);
+  const queued = f.client.getAttempt;
+  f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, status: 'closed' });
+  f.record(await f.workflow.track({ attempt_id: 7 }, f.exec));
+  const closed = f.state();
+  f.client.getAttempt = queued;
+  f.record(await f.workflow.results({}, f.exec));
+  assert.deepEqual(f.state(), closed);
+});
+
 test('task result, tracking and history reads reject a changed platform before looking up attempts', async (t) => {
   const f = await fixture(t);
   const original = f.client.baseUrl;
@@ -258,6 +324,34 @@ test('a result for a different challenge or attempt leaves the saved receipt int
     const lookup = await f.ctx.queries.query({ action: 'attempt', attemptId: 7, baseUrl: f.client.baseUrl, challengeId: 'challenge-a' }, f.exec.signal);
     assert.equal(lookup.error?.code, code);
   }
+});
+
+test('workbench lookup and tracking reject malformed attempt IDs from the API adapter', async (t) => {
+  const f = await fixture(t);
+  let responseId;
+  const api = createPlaygroundClient({ baseUrl: f.client.baseUrl, fetchImpl: async (url) => {
+    assert.equal(url.pathname, '/api/attempts/1');
+    return Response.json({ id: responseId, challengeId: 'challenge-a', authorId: '5', status: 'final' });
+  } });
+  f.client.getAttempt = api.getAttempt;
+  const read = () => f.ctx.queries.query({ action: 'attempt', attemptId: 1, baseUrl: f.client.baseUrl, challengeId: 'challenge-a' }, f.exec.signal);
+  const track = () => f.workflow.track({ attempt_id: 1 }, f.exec);
+  const before = f.state();
+  for (const invalid of [undefined, -1, 'invalid', true, [1]]) {
+    responseId = invalid;
+    assert.equal((await read()).error?.code, 'attempt_mismatch', String(invalid));
+    const result = await track();
+    assert.equal(result.error?.code, 'attempt_mismatch', String(invalid));
+    f.record(result);
+    assert.deepEqual(f.state(), before);
+  }
+
+  responseId = '1';
+  assert.equal((await read()).id, 1);
+  const tracked = await track();
+  assert.equal(tracked.tracked, true);
+  f.record(tracked);
+  assert.deepEqual(f.state().attemptIds, [1]);
 });
 
 test('#74: an early tracked ID stays in flight and progress later records an upload failure or 429 once', async (t) => {
@@ -411,6 +505,32 @@ test('#74 r1: binding ignores a legacy card for another challenge and preserves 
     assert.equal(f.calls.length, 0);
     assert.doesNotMatch(bound.note, /待确认|检查卡/);
   }
+});
+
+test('binding and replay preserve a historical receipt on its original platform', async (t) => {
+  const f = await fixture(t);
+  const original = f.client.baseUrl;
+  const other = 'https://other.example/api';
+  const receipt = { attemptId: 41, challengeId: 'challenge-a', baseUrl: original, ok: true };
+  const saved = { ...workflowProjection.init(), receipt, attemptIds: [41] };
+  f.setState(saved);
+  f.client.baseUrl = other;
+  const refused = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(refused.error?.code, 'platform_changed');
+  f.record(refused);
+  assert.deepEqual(f.state(), saved);
+
+  f.record({ workflow: { kind: 'bind', task: { challengeId: 'challenge-a', baseUrl: other } } });
+  assert.deepEqual(f.state(), saved);
+
+  f.client.baseUrl = original;
+  const bound = await f.workflow.bind({ challenge_id: 'challenge-a' }, f.exec);
+  assert.equal(bound.ok, true);
+  f.record(bound);
+  assert.equal(f.state().task.baseUrl, original);
+  assert.deepEqual(f.state().receipt, receipt);
+  assert.deepEqual(f.state().attemptIds, [41]);
+  assert.equal((await f.workflow.results({}, f.exec)).ok, true);
 });
 
 test('#74: missing task, workspace, login or readable statement blocks before handoff', async (t) => {

@@ -680,6 +680,51 @@ test('a created task closes the dialog even when opening the new conversation fa
   assert.equal(warn.mock.callCount(), 1);
 });
 
+test('a partial task start retries opening the created conversation without creating another', async (t) => {
+  const instruction = '请打开已创建的对话 partial-task，并用 playground_bind_task 恢复。';
+  const starts = [], opened = [];
+  const { registrations, find, render } = await clientFixture(t, {
+    remote: { commands: { execute: async (sessionId, command) => {
+      assert.match(command, /^\/playground /);
+      starts.push([sessionId, JSON.parse(command.slice('/playground '.length))]);
+      const text = JSON.stringify({ ok: false, sessionId: 'partial-task', error: { code: 'task_context_failed', message: instruction } });
+      return { ok: true, value: { result: { kind: 'error', text } } };
+    } } },
+    uiWorkspace: { openSession: async (id) => {
+      opened.push(id);
+      if (opened.length === 1) throw Error('navigation failed');
+    } },
+  });
+  const overlay = registrations.get('playground.task-start');
+  const actions = overlay.definition.inject();
+  let items = [{ workspaceId: 'b', title: 'Workspace B', path: '/workspace-b' }];
+  actions.requestTask({ id: 'challenge', title: 'Challenge', mode: 'participate', sessionId: 'source' });
+  const props = { ...actions, useTaskRequest: (select) => select(actions.hooks.taskRequest.getSnapshot()),
+    useWorkspaces: (select) => select({ phase: 'ready', items }) };
+  const dialog = render(overlay.Component, props);
+  let tree = render(dialog.type, dialog.props);
+  find(tree, (node) => node.type === 'select').props.onChange({ target: { value: 'b' } });
+  tree = render(dialog.type, dialog.props);
+  await find(tree, (node) => node.type === 'button' && node.props.children.includes('创建参赛任务')).props.onClick();
+  assert.deepEqual(starts, [['source', { action: 'start', challenge_id: 'challenge', mode: 'participate', workspace_id: 'b' }]]);
+  assert.deepEqual(opened, []);
+
+  items = [];
+  tree = render(dialog.type, dialog.props);
+  const recoveryButton = () => find(tree, (node) => node.type === 'button' && node.props.children.includes('打开任务对话'));
+  assert.equal(text(find(tree, (node) => node.props?.role === 'alert')), instruction);
+  assert.ok(recoveryButton(), 'the primary action offers to open the existing conversation');
+  assert.equal(recoveryButton().props.disabled, false);
+  await recoveryButton().props.onClick();
+  tree = render(dialog.type, dialog.props);
+  assert.match(text(find(tree, (node) => node.props?.role === 'alert')), /partial-task/);
+  assert.match(text(tree), /无法打开任务对话，请重试。/);
+  await recoveryButton().props.onClick();
+  assert.deepEqual(opened, ['partial-task', 'partial-task']);
+  assert.equal(starts.length, 1);
+  assert.equal(render(overlay.Component, props), null);
+});
+
 test('the English controller dialog explains conflicting records and identifies both chats', async (t) => {
   const f = await clientFixture(t, {}, { localStorage: { getItem: () => 'en' } });
   const overlay = f.registrations.get('playground.task-start');
@@ -1315,6 +1360,21 @@ test('workbench refresh isolates identical attempt numbers across platforms and 
   await h.settled();
   assert.deepEqual(h.rows().map((row) => [row.id, row.score]), [['old', '—'], ['other-challenge', '—'], ['current', '80 分']]);
   assert.match(h.status(), /刷新失败/);
+});
+
+test('one workbench lookup refreshes both final and queued receipts for the same attempt', async (t) => {
+  const platform = new Map([[7, finalAttempt(80)]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, finalAttempt(70))], ['queued', receiptOf(7)]], platform);
+  const saved = JSON.stringify(h.sessions);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [7]);
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [
+    ['final', '评分完成', '80 分'], ['queued', '评分完成', '80 分'],
+  ]);
+  h.tick(twoMinutes);
+  assert.equal(h.calls.length, 1);
+  assert.equal(JSON.stringify(h.sessions), saved);
 });
 
 test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {
