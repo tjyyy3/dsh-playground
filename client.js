@@ -2556,6 +2556,21 @@ __name(ControllerPanel, "ControllerPanel");
 var React15 = __toESM(require("react"), 1);
 
 // lib/task/evidence.js
+var NO_OFFSET_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+function parsePlatformTime(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return Number.NaN;
+  const text = value.trim();
+  return Date.parse(NO_OFFSET_TIME.test(text) ? `${text.replace(" ", "T")}Z` : text);
+}
+__name(parsePlatformTime, "parsePlatformTime");
+function compareAttemptUpdates(previous, next) {
+  const before = parsePlatformTime(previous);
+  const after = parsePlatformTime(next);
+  return Number.isFinite(before) && Number.isFinite(after) ? Math.sign(after - before) : void 0;
+}
+__name(compareAttemptUpdates, "compareAttemptUpdates");
 var workChallengeId = /* @__PURE__ */ __name((item) => {
   const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
   return id === void 0 || id === null ? void 0 : String(id);
@@ -2709,9 +2724,12 @@ function withLatestAttempt(state, attempts) {
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
   if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
+  const order = compareAttemptUpdates(receipt.updatedAt, entry.attempt.updatedAt);
+  const settled = receiptSettled(receipt);
+  if (order === -1 || order === 0 && settled) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-  return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
+  return order === void 0 && settled && !receiptSettled(merged) ? receipt : merged;
 }
 __name(withLatestAttempt, "withLatestAttempt");
 function withSettledAttempt(item, entry, { closed = false } = {}) {

@@ -1377,6 +1377,36 @@ test('one workbench lookup refreshes both final and queued receipts for the same
   assert.equal(JSON.stringify(h.sessions), saved);
 });
 
+test('one workbench lookup preserves the newer final receipt while updating a queued copy', async (t) => {
+  const older = '2026-10-02T12:00:00Z';
+  const newer = '2026-10-02T14:00:00Z';
+  const platform = new Map([[7, { ...finalAttempt(70), updatedAt: older }]]);
+  const h = await refreshHarness(t, [['final', receiptOf(7, { ...finalAttempt(90), updatedAt: newer })],
+    ['queued', receiptOf(7, { ...queuedAttempt, updatedAt: older })]], platform);
+  h.flush();
+  await h.settled();
+  assert.deepEqual(h.calls.map((call) => call.id), [7]);
+  assert.deepEqual(h.rows().map((row) => [row.id, row.badge, row.score]), [
+    ['final', '评分完成', '90 分'], ['queued', '评分完成', '70 分'],
+  ]);
+
+  platform.set(7, { ...finalAttempt(70), updatedAt: '2026-10-02T22:00:00+08:00' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '70 分']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-02T22:00:00+08:00' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['90 分', '参考 41']);
+
+  platform.set(7, { ...evaluatingAttempt, updatedAt: '2026-10-03T14:00:00Z' });
+  await h.button().props.onClick();
+  await h.settled();
+  assert.deepEqual(h.rows().map((row) => row.score), ['参考 41', '参考 41']);
+  assert.deepEqual(h.calls.map((call) => call.id), [7, 7, 7, 7]);
+});
+
 test('the workbench refreshes unscored submissions now and every two minutes, and stops once all have a result', async (t) => {
   const platform = new Map([[61, queuedAttempt], [63, evaluatingAttempt]]);
   const h = await refreshHarness(t, [

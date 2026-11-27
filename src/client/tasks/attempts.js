@@ -1,6 +1,6 @@
 import { msg } from '../shared/language.js';
 import { stateLabel, zhText } from '../shared/locale.js';
-import { taskAttemptScope } from '../../../lib/task/evidence.js';
+import { compareAttemptUpdates, taskAttemptScope } from '../../../lib/task/evidence.js';
 
 // Score rules shared by every attempt display. A failed or rejected attempt has no score, even if a
 // final flag is set. Only a score the platform marks final is a score. A non-zero non-final score is
@@ -175,7 +175,6 @@ const visibleRefreshGapMs = 30000;
 // ("bundle missing") or, after a re-upload from elsewhere, starts evaluating it.
 function receiptPending(receipt) {
   if (receiptAttemptId(receipt) === undefined || receipt.bundleStatus === 'incomplete') return false;
-  // Agent reports describe the upload. Only the platform's progress determines whether to poll.
   const { stage } = receiptProgress({ ...receipt, submissionState: undefined }, zhText);
   if (stage === 'evaluating') return true;
   if (stage === 'incomplete' && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
@@ -193,15 +192,17 @@ const attemptKey = (scope, id) => scope.conflict || id === undefined ? undefined
 const receiptKey = (receipt) => JSON.stringify([receipt.attemptId, receipt.updatedAt, receipt.trackedAt, receipt.confirmedAt,
   receipt.ok, receipt.submissionState, ...ATTEMPT_STATE_FIELDS.map((field) => receipt[field])]);
 
-// A lookup overlays the receipt it was fetched for. Preserve missing fields and settled results.
 function withLatestAttempt(state, attempts) {
   const receipt = state?.receipt;
   if (!receipt) return receipt;
   const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
   if (!entry?.receiptKeys?.has(receiptKey(receipt))) return receipt;
+  const order = compareAttemptUpdates(receipt.updatedAt, entry.attempt.updatedAt);
+  const settled = receiptSettled(receipt);
+  if (order === -1 || (order === 0 && settled)) return receipt;
   const merged = { ...receipt };
   for (const field of ATTEMPT_STATE_FIELDS) if (entry.attempt[field] != null) merged[field] = entry.attempt[field];
-  return receiptSettled(receipt) && !receiptSettled(merged) ? receipt : merged;
+  return order === undefined && settled && !receiptSettled(merged) ? receipt : merged;
 }
 
 // A submission-history row with the workbench refresh's result for the same id laid over it, but
@@ -223,7 +224,6 @@ function withSettledAttempt(item, entry, { closed = false } = {}) {
 
 const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
-// A round reads each scoped attempt once, keeps its receipt snapshots and limits concurrent requests.
 async function refreshAttempts(store, keys) {
   if (!keys.length || store.controller || store.disposed) return;
   const wanted = keys.map((key) => {

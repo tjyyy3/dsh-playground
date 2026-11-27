@@ -278,6 +278,40 @@ test('a queued lookup cannot replace a receipt with a terminal platform status',
   assert.deepEqual(f.state(), closed);
 });
 
+test('an explicitly newer platform result can reopen a final submission for manual review', async (t) => {
+  const f = await fixture(t);
+  await f.submit();
+  const final = { status: 'scored', updatedAt: '2026-10-02T14:00:00Z', score: 90,
+    scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } };
+  const reopened = { status: 'pending_review', updatedAt: '2026-10-03T14:00:00Z',
+    scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 34 }, scoringQueue: { stage: 'manual_review' } };
+  let response = final;
+  f.client.getAttempt = async (id) => ({ id, challengeId: 'challenge-a', authorId: 5, ...response });
+  f.record(await f.workflow.track({ attempt_id: 7, submission_state: 'uploaded', message: 'Upload confirmed.' }, f.exec));
+  const saved = f.state();
+  const olderResult = await f.workflow.results({}, f.exec);
+  response = { ...final, score: 70, scoringState: { ...final.scoringState, displayScore: 70 } };
+  f.record(await f.workflow.results({}, f.exec));
+  assert.deepEqual(f.state(), saved);
+  for (const updatedAt of [undefined, 'invalid', '2026-10-02T13:00:00Z', '2026-10-02T22:00:00+08:00']) {
+    response = { ...reopened, updatedAt };
+    f.record(await f.workflow.results({}, f.exec));
+    assert.deepEqual(f.state(), saved);
+  }
+
+  response = reopened;
+  f.record(await f.workflow.results({}, f.exec));
+  const revised = f.state();
+  assert.equal(revised.receipt.status, 'pending_review');
+  assert.equal(revised.receipt.updatedAt, reopened.updatedAt);
+  assert.deepEqual(revised.receipt.scoringState, reopened.scoringState);
+  assert.deepEqual(revised.receipt.scoringQueue, { stage: 'manual_review' });
+  assert.deepEqual(revised.receipt.agentReport, saved.receipt.agentReport);
+  assert.equal(revised.submission.status, 'running');
+  f.record(olderResult);
+  assert.deepEqual(f.state(), revised);
+});
+
 test('task result, tracking and history reads reject a changed platform before looking up attempts', async (t) => {
   const f = await fixture(t);
   const original = f.client.baseUrl;
@@ -437,6 +471,28 @@ test('#74 r1: cancellation cannot reset a different request', async (t) => {
   assert.equal((await f.submit({ action: 'cancel', requestId: 'another-request' })).error.code, 'request_not_pending');
   assert.equal(f.state().submission.status, 'dispatched');
   assert.equal(f.calls.length, 1);
+});
+
+test('Agent progress for a cancelled handoff attempt resolves the recovery request', async (t) => {
+  const f = await fixture(t);
+  const initial = await f.submit();
+  f.record(await f.workflow.track({ attempt_id: 7, submission_state: 'created' }, f.exec));
+  await f.submit({ action: 'cancel', requestId: initial.submission.requestId });
+  const recovery = await f.submit();
+  assert.equal(recovery.submission.recovery.attemptId, 7);
+  assert.equal(recovery.submission.status, 'dispatched');
+  f.record(await f.workflow.reportSubmission({ attempt_id: 7, submission_state: 'uploaded', message: 'Upload confirmed.' }, f.exec));
+  assert.equal(f.state().receipt.submissionState, 'uploaded');
+  assert.equal(f.state().submission.requestId, recovery.submission.requestId);
+  assert.equal(f.state().submission.attemptId, 7);
+  assert.equal(f.state().submission.status, 'uploaded');
+  const following = await f.submit();
+  assert.equal(following.status, 'dispatched');
+  assert.equal(following.submission.recovery, undefined);
+  f.record(await f.workflow.reportSubmission({ attempt_id: 7, submission_state: 'uploaded', message: 'Upload confirmed.' }, f.exec));
+  assert.deepEqual(f.state().submission, following.submission);
+  assert.equal(f.state().receipt.submissionState, 'uploaded');
+  assert.deepEqual(f.state().attemptIds, [7]);
 });
 
 test('#74 r2: a restored dispatching request without a Host lock can be cancelled and reconciled', async (t) => {
