@@ -5477,6 +5477,27 @@ function ControllerPanel(props) {
       h("div", { className: "pg-controller-group-rows" }, rows.map(listRow))
     );
   }, "taskGroup");
+  const workspaceLoadError = msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.");
+  const workspaceLoading = msg("正在读取工作区…", "Loading workspaces…");
+  const controllerChecking = msg("正在核对主控对话…", "Checking controller chat…");
+  const archivedController = msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.");
+  const emptyTaskRail = tasks?.kind === "ready" && !tasks.rows.length || !expectedId && (workspaceId ? inspection?.kind === "absent" : workspaces.phase === "ready" && workspaces.state !== "error");
+  let taskRailStatus;
+  if (!expectedId && !emptyTaskRail) {
+    if (!workspaceId) {
+      taskRailStatus = workspaces.state === "error" ? h("p", { role: "alert" }, workspaceLoadError) : h("p", { role: "status" }, workspaceLoading);
+    } else if (inspection?.kind === "blocked") {
+      taskRailStatus = h("p", { role: "alert" }, controllerMessage(inspection.reason));
+    } else if (inspection?.archived) {
+      taskRailStatus = h("p", { role: "status" }, archivedController);
+    } else if (error) {
+      taskRailStatus = h("p", { role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry")));
+    } else if (inspection?.kind === "incomplete") {
+      taskRailStatus = h("p", { role: "status" }, msg("请先初始化此工作区的主控对话。", "Set up the controller chat for this workspace first."));
+    } else {
+      taskRailStatus = h("p", { role: "status" }, controllerChecking);
+    }
+  }
   return h(
     "div",
     { className: "pg-controller" },
@@ -5590,10 +5611,10 @@ function ControllerPanel(props) {
         "main",
         { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
         !expectedId ? controllerHeader() : null,
-        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
+        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? workspaceLoadError : workspaces.phase !== "ready" ? workspaceLoading : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, controllerChecking) : !expectedId && workspaceId && inspection ? h(
           "div",
           { className: "pg-controller-placeholder" },
-          h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
+          h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? archivedController : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
           inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-button pg-primary", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
           h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
           renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
@@ -5717,7 +5738,7 @@ function ControllerPanel(props) {
           h(
             "div",
             { className: "pg-controller-task-content" },
-            !expectedId || tasks?.kind === "ready" && !tasks.rows.length ? h(
+            taskRailStatus ?? (emptyTaskRail ? h(
               "div",
               { className: "pg-controller-task-empty" },
               h("h3", null, msg("还没有派出的任务", "No dispatched tasks yet")),
@@ -5800,7 +5821,7 @@ function ControllerPanel(props) {
                 msg("主控派活时没登记是哪道题", "The controller did not record a challenge for these tasks")
               ) : null,
               maintenance.length ? taskGroup("maintenance", maintenance, msg("后台维护", "Background maintenance"), null, false, "pg-controller-maintenance") : null
-            ),
+            )),
             expectedId && props.codexChats ? h(ExternalCodexChats, {
               key: `${workspaceId}:${expectedId}`,
               workspaceId,

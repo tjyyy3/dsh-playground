@@ -8144,7 +8144,7 @@ test('workspace selection hides old controller tasks immediately and ignores a l
 });
 
 
-async function codexSidebarFixture(t, codexChats, { browser, taskRows } = {}) {
+async function codexSidebarFixture(t, codexChats, { browser, taskRows, inspectController = async () => ({ kind: 'existing', sessionId: 'controller' }) } = {}) {
   const f = await clientFixture(t, {}, browser);
   const Main = f.registrations.get('main').Component;
   const rows = taskRows ?? [
@@ -8156,7 +8156,7 @@ async function codexSidebarFixture(t, codexChats, { browser, taskRows } = {}) {
   const props = { controllerSelection: { view: 'controller', workspaceId: 'ws', showTasks: true }, useControllerTarget: (select) => select(null),
     useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'ws', title: 'Fixture workspace' }] }),
     useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null, openControllerChat: async () => {},
-    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    inspectController,
     controllerTasks: async () => ({ kind: 'ready', rows }), codexChats };
   const cleanups = [];
   t.after(() => cleanups.reverse().forEach((cleanup) => cleanup?.()));
@@ -8200,7 +8200,7 @@ async function codexSidebarFixture(t, codexChats, { browser, taskRows } = {}) {
   };
   t.after(() => renderChats(null));
   const refresh = () => f.find(sidebar(), (node) => node.type === 'button' && node.props['aria-label'] === '刷新任务').props.onClick();
-  return { f, sidebar, external, renderExternal, renderChats, refresh, runEffects };
+  return { f, render, sidebar, external, renderExternal, renderChats, refresh, runEffects };
 }
 
 test('task sidebar hides external chats during detection and when detection is unavailable or fails', async (t) => {
@@ -8590,6 +8590,42 @@ test('[tasks-rail] explains the three evidence sources and describes row markers
 test('[tasks-rail] guides an empty user to the catalog', async (t) => {
   const { sidebar } = await codexSidebarFixture(t, undefined, { taskRows: [] });
   assert.match(text(sidebar()), /还没有派出的任务.*交给主控.*先读题列验证计划.*按赛题出现在这里.*去选题/);
+});
+
+test('[tasks-rail] offers an inspection retry when the controller lookup fails', async (t) => {
+  let checks = 0;
+  const { f, sidebar, render, runEffects } = await codexSidebarFixture(t, undefined, {
+    inspectController: async () => { checks += 1; throw new Error('Fixture controller lookup failed'); },
+  });
+  assert.doesNotMatch(text(sidebar()), /还没有派出的任务|去选题/);
+  const retry = buttonLabeled(f, sidebar(), '重试');
+  assert.ok(retry);
+  retry.props.onClick();
+  render(); runEffects(); await settle();
+  assert.equal(checks, 2);
+});
+
+test('[tasks-rail] explains when the controller is archived or blocked', async (t) => {
+  const cases = [
+    [{ kind: 'existing', sessionId: 'archived-controller', archived: true }, /主控对话已归档/],
+    [{ kind: 'blocked', reason: 'Fixture controller is blocked' }, /Fixture controller is blocked/],
+  ];
+  for (const [inspection, message] of cases) {
+    const { sidebar } = await codexSidebarFixture(t, undefined, { inspectController: async () => inspection });
+    assert.match(text(sidebar()), message);
+    assert.doesNotMatch(text(sidebar()), /还没有派出的任务|去选题/);
+  }
+});
+
+test('[tasks-rail] waits for the controller inspection before showing first-use guidance', async (t) => {
+  let settleInspection;
+  const result = new Promise((resolve) => { settleInspection = resolve; });
+  const { sidebar } = await codexSidebarFixture(t, undefined, { inspectController: () => result });
+  assert.match(text(sidebar()), /正在核对主控对话/);
+  assert.doesNotMatch(text(sidebar()), /还没有派出的任务|去选题/);
+  settleInspection({ kind: 'absent' });
+  await settle();
+  assert.match(text(sidebar()), /还没有派出的任务.*去选题/);
 });
 
 test('[tasks-rail] summarizes each challenge and names the unassociated group', async (t) => {
