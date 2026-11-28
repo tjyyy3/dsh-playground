@@ -137,6 +137,14 @@ var day = 24 * 60 * 60 * 1e3;
 var retryDelay = 3 * 60 * 1e3;
 var channels = ["stable", "beta"];
 var supported = ["registry", "git_pinned", "git_unpinned", "file"];
+function pinnedReleaseSpec(target) {
+  return /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
+}
+__name(pinnedReleaseSpec, "pinnedReleaseSpec");
+function isEligibleReleaseUpgrade(release) {
+  return release.status === "ready" && release.comparison === "upgrade" && Boolean(release.target?.version) && !release.incomplete && !release.restartRequired && release.compatible === true && release.registry?.status === "ready" && supported.includes(release.source) && (release.source === "registry" || Boolean(pinnedReleaseSpec(release.target)));
+}
+__name(isEligibleReleaseUpgrade, "isEligibleReleaseUpgrade");
 function createReleaseChecks(query, storage, now = Date.now) {
   let saved;
   try {
@@ -170,8 +178,11 @@ function createReleaseChecks(query, storage, now = Date.now) {
     const id = identity(result);
     const authoritative = result.status === "ready" && !result.incomplete && (!result.target || result.comparison === "current" || result.comparison === "downgrade" || result.registry?.status === "ready" && typeof result.compatible === "boolean");
     if (authoritative) {
-      const upgrade = supported.includes(result.source) && result.compatible === true && result.comparison === "upgrade" && !result.restartRequired && (result.source === "registry" || Boolean(result.target?.gitSpec));
-      records[channel] = { identity: id, checkedAt: time, version: upgrade ? result.target?.version ?? null : null };
+      records[channel] = {
+        identity: id,
+        checkedAt: time,
+        version: isEligibleReleaseUpgrade(result) ? result.target.version : null
+      };
     } else {
       const previous = records[channel];
       const resetAt = result.error === "rate_limited" ? Date.parse(result.resetAt) : NaN;
@@ -1460,6 +1471,7 @@ __name(LanguageMenu, "LanguageMenu");
 var React4 = __toESM(require("react"), 1);
 
 // src/client/settings/styles.js
+var sectionScrollMargin = 16;
 var settingsCss = `
   .pg-settings-page { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); font:14px/1.55 var(--pg-font-title); container-type:inline-size }
   .pg-settings-page[hidden] { display:none }
@@ -1486,7 +1498,7 @@ var settingsCss = `
   .pg-settings-dot[data-tone=info] { color:var(--pg-info) }
   .pg-settings-main { flex:1; min-width:0 }
   .pg-settings-content { display:flex; flex-direction:column; gap:28px; max-width:860px; padding:26px 32px 60px }
-  .pg-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; scroll-margin-block-start:16px }
+  .pg-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; scroll-margin-block-start:${sectionScrollMargin}px }
   .pg-settings-section:focus { outline:none }
   .pg-settings-section[data-section=account],.pg-settings-auth { display:grid; gap:14px }
   .pg-settings-section[data-section=api] { gap:10px }
@@ -1611,6 +1623,8 @@ function SettingsPage({ active, brand, onBack, checks, cliUpdate, configuredBase
   const id = React4.useId();
   const root = React4.useRef(null);
   const back = React4.useRef(null);
+  const scroll = React4.useRef(null);
+  const navigationOffset = React4.useRef(null);
   const sections = React4.useRef(/* @__PURE__ */ new Map());
   const [selected, setSelected] = React4.useState("account");
   const { version: version2 } = React4.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
@@ -1625,16 +1639,43 @@ function SettingsPage({ active, brand, onBack, checks, cliUpdate, configuredBase
   };
   const attention = {
     cli: cliWarning ? ["warning", msg("CLI 需更新", "CLI update needed")] : null,
-    updates: releaseAvailable || version2 ? ["info", msg("有新版本", "Update available")] : null
+    updates: releaseAvailable ?? version2 ? ["info", msg("有新版本", "Update available")] : null
   };
+  function revealSection(key2, focus) {
+    const target = sections.current.get(key2);
+    if (!target) return;
+    setSelected(key2);
+    if (focus) target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+    navigationOffset.current = scroll.current?.scrollTop;
+  }
+  __name(revealSection, "revealSection");
   React4.useLayoutEffect(() => {
-    if (!active) {
+    if (!active) return;
+    if (releaseVisit) {
+      revealSection("updates", false);
+    } else {
+      if (scroll.current) scroll.current.scrollTop = 0;
+      navigationOffset.current = null;
       setSelected("account");
+      back.current?.focus({ preventScroll: true });
+    }
+  }, [active, releaseVisit]);
+  const selectVisibleSection = /* @__PURE__ */ __name(({ currentTarget }) => {
+    const { scrollTop, clientHeight, scrollHeight } = currentTarget;
+    if (navigationOffset.current === scrollTop) return;
+    navigationOffset.current = null;
+    if (scrollTop > 0 && scrollHeight - clientHeight - scrollTop <= 1) {
+      setSelected("updates");
       return;
     }
-    if (releaseVisit) setSelected("updates");
-    else back.current?.focus({ preventScroll: true });
-  }, [active, releaseVisit]);
+    const threshold = currentTarget.getBoundingClientRect().top + sectionScrollMargin + 1;
+    let visible = "account";
+    for (const key2 of Object.keys(labels)) {
+      if (sections.current.get(key2)?.getBoundingClientRect().top <= threshold) visible = key2;
+    }
+    setSelected(visible);
+  }, "selectVisibleSection");
   const closeOnEscape = /* @__PURE__ */ __name((event) => {
     if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.nativeEvent?.isComposing) return;
     event.preventDefault();
@@ -1684,7 +1725,7 @@ function SettingsPage({ active, brand, onBack, checks, cliUpdate, configuredBase
     ) : null,
     h(
       "div",
-      { className: "pg-settings-scroll" },
+      { className: "pg-settings-scroll", ref: scroll, onScroll: selectVisibleSection },
       active ? h(
         "nav",
         { className: "pg-settings-nav", "aria-label": msg("设置分区", "Settings sections") },
@@ -1693,13 +1734,7 @@ function SettingsPage({ active, brand, onBack, checks, cliUpdate, configuredBase
           type: "button",
           "aria-controls": id + "-" + key2,
           "aria-current": key2 === selected ? "true" : void 0,
-          onClick: /* @__PURE__ */ __name(() => {
-            const target = sections.current.get(key2);
-            if (!target) return;
-            setSelected(key2);
-            target.focus({ preventScroll: true });
-            target.scrollIntoView({ block: "start" });
-          }, "onClick")
+          onClick: /* @__PURE__ */ __name(() => revealSection(key2, true), "onClick")
         }, label2, attention[key2] ? h("span", {
           className: "pg-settings-dot",
           "data-tone": attention[key2][0],
@@ -1839,7 +1874,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
     }
   }, "load");
   React5.useEffect(() => {
-    if (visit) heading.current?.focus();
+    if (visit) heading.current?.focus({ preventScroll: true });
     load(Boolean(visit));
     return () => scope.abort("release");
   }, [scope, visit]);
@@ -1863,7 +1898,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
   const notesUrl = openableWebUrl(target?.notesUrl);
   const canReadNotes = notesUrl?.startsWith("https://");
   const gitSource = ["git_pinned", "git_unpinned"].includes(info?.source);
-  const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
+  const gitSpec = pinnedReleaseSpec(target);
   const registrySource = info?.source === "registry";
   const registryReady = status === "ready" && release.registry?.status === "ready";
   const registryUpgrade = registrySource && registryReady && target && comparison === "upgrade" && release.compatible !== false && !release.restartRequired && !release.incomplete;
@@ -1891,8 +1926,8 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
     }[comparison] || msg(`已发布 ${targetLabel}。`, `${targetLabel} has been released.`) : info?.channel === "beta" ? msg("Beta 渠道暂无发布。", "No releases on the beta channel yet.") : msg("暂无稳定版发布。", "No stable release yet.")
   }[status];
   const showTarget = status === "ready" && comparison === "upgrade" && target && release.compatible !== false && !info?.restartRequired && (!registrySource || registryReady);
-  const updateAvailable = status === "ready" && comparison === "upgrade" && Boolean(target) && !info?.restartRequired;
-  React5.useEffect(() => {
+  const updateAvailable = status === "ready" ? isEligibleReleaseUpgrade(release) : null;
+  React5.useLayoutEffect(() => {
     onAvailable?.(updateAvailable);
   }, [updateAvailable, onAvailable]);
   return h(
@@ -5545,15 +5580,10 @@ function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
   }, h("path", { d: path }));
 }
 __name(lineIcon, "lineIcon");
-function controllerBrand(onClick) {
+function controllerBrand(onClick, label2 = msg("Playground 首页", "Playground home")) {
   return h(
     "button",
-    {
-      type: "button",
-      className: "pg-controller-brand",
-      onClick,
-      "aria-label": msg("Playground 首页", "Playground home")
-    },
+    { type: "button", className: "pg-controller-brand", onClick, "aria-label": label2 },
     h(
       "svg",
       { width: 26, height: 26, viewBox: "0 0 26 26", fill: "none", "aria-hidden": true },
@@ -5719,13 +5749,13 @@ function ControllerPanel(props) {
     updateView(next);
   }, "setView");
   const [releaseVisit, setReleaseVisit] = React13.useState(0);
-  const [releaseAvailable, setReleaseAvailable] = React13.useState(false);
-  const settingsReturn = React13.useRef("home");
+  const [releaseAvailable, setReleaseAvailable] = React13.useState(null);
+  const connectionButton = React13.useRef(null);
   const settingsOpener = React13.useRef(null);
   const restoreSettingsFocus = React13.useRef(false);
   const openSettings = /* @__PURE__ */ __name((event) => {
     if (view !== "settings") {
-      settingsReturn.current = view;
+      props.controllerSelection.settingsReturnView = view;
       settingsOpener.current = event?.currentTarget;
     }
     setView("settings");
@@ -5733,13 +5763,16 @@ function ControllerPanel(props) {
   const closeSettings = /* @__PURE__ */ __name(() => {
     restoreSettingsFocus.current = true;
     setReleaseVisit(0);
-    setReleaseAvailable(false);
-    setView(settingsReturn.current);
+    setReleaseAvailable(null);
+    const previous = props.controllerSelection.settingsReturnView;
+    setView(PRIMARY_TABS.includes(previous) ? previous : "home");
   }, "closeSettings");
   React13.useLayoutEffect(() => {
     if (view === "settings" || !restoreSettingsFocus.current) return;
     restoreSettingsFocus.current = false;
-    settingsOpener.current?.focus();
+    const opener = settingsOpener.current;
+    const target = opener?.isConnected ? opener : connectionButton.current;
+    target?.focus();
     settingsOpener.current = null;
   }, [view]);
   const error = controllerMessage(errorMessage);
@@ -6312,7 +6345,7 @@ function ControllerPanel(props) {
         h(LanguageMenu),
         h(
           "button",
-          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: openSettings },
+          { className: "pg-controller-connection", ref: connectionButton, title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: openSettings },
           accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
           h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
           { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
@@ -6383,7 +6416,7 @@ function ControllerPanel(props) {
         SettingsPage,
         {
           active: view === "settings",
-          brand: controllerBrand(closeSettings),
+          brand: controllerBrand(closeSettings, msg("返回工作台", "Back to workbench")),
           onBack: closeSettings,
           checks: props.releaseChecks,
           configuredBase,

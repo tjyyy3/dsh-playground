@@ -1,3 +1,5 @@
+export const sectionScrollMargin = 16;
+
 export const settingsCss = `
   .pg-settings-page { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); font:14px/1.55 var(--pg-font-title); container-type:inline-size }
   .pg-settings-page[hidden] { display:none }
@@ -24,7 +26,7 @@ export const settingsCss = `
   .pg-settings-dot[data-tone=info] { color:var(--pg-info) }
   .pg-settings-main { flex:1; min-width:0 }
   .pg-settings-content { display:flex; flex-direction:column; gap:28px; max-width:860px; padding:26px 32px 60px }
-  .pg-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; scroll-margin-block-start:16px }
+  .pg-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; scroll-margin-block-start:${sectionScrollMargin}px }
   .pg-settings-section:focus { outline:none }
   .pg-settings-section[data-section=account],.pg-settings-auth { display:grid; gap:14px }
   .pg-settings-section[data-section=api] { gap:10px }

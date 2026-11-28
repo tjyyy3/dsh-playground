@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { languagePreference, msg, setLanguage } from '../shared/language.js';
 import { h } from '../shared/react.js';
-import { settingsCss, releaseSettingsCss } from './styles.js';
+import { settingsCss, releaseSettingsCss, sectionScrollMargin } from './styles.js';
 
 const cliGuide = 'https://github.com/tjyyy3/dsh-playground/blob/main/guide/reference.md#install-or-update-the-playground-cli';
 
@@ -21,6 +21,8 @@ export function SettingsPage({ active, brand, onBack, checks, cliUpdate, configu
   const id = React.useId();
   const root = React.useRef(null);
   const back = React.useRef(null);
+  const scroll = React.useRef(null);
+  const navigationOffset = React.useRef(null);
   const sections = React.useRef(new Map());
   const [selected, setSelected] = React.useState('account');
   const { version } = React.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
@@ -35,13 +37,43 @@ export function SettingsPage({ active, brand, onBack, checks, cliUpdate, configu
   };
   const attention = {
     cli: cliWarning ? ['warning', msg('CLI 需更新', 'CLI update needed')] : null,
-    updates: releaseAvailable || version ? ['info', msg('有新版本', 'Update available')] : null,
+    updates: (releaseAvailable ?? version) ? ['info', msg('有新版本', 'Update available')] : null,
   };
+  function revealSection(key, focus) {
+    const target = sections.current.get(key);
+    if (!target) return;
+    setSelected(key);
+    if (focus) target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'start', behavior: 'instant' });
+    navigationOffset.current = scroll.current?.scrollTop;
+  }
   React.useLayoutEffect(() => {
-    if (!active) { setSelected('account'); return; }
-    if (releaseVisit) setSelected('updates');
-    else back.current?.focus({ preventScroll: true });
+    if (!active) return;
+    if (releaseVisit) {
+      revealSection('updates', false);
+    } else {
+      if (scroll.current) scroll.current.scrollTop = 0;
+      navigationOffset.current = null;
+      setSelected('account');
+      back.current?.focus({ preventScroll: true });
+    }
   }, [active, releaseVisit]);
+  const selectVisibleSection = ({ currentTarget }) => {
+    const { scrollTop, clientHeight, scrollHeight } = currentTarget;
+    // Keep a clicked section selected when its heading cannot reach the top.
+    if (navigationOffset.current === scrollTop) return;
+    navigationOffset.current = null;
+    if (scrollTop > 0 && scrollHeight - clientHeight - scrollTop <= 1) {
+      setSelected('updates');
+      return;
+    }
+    const threshold = currentTarget.getBoundingClientRect().top + sectionScrollMargin + 1;
+    let visible = 'account';
+    for (const key of Object.keys(labels)) {
+      if (sections.current.get(key)?.getBoundingClientRect().top <= threshold) visible = key;
+    }
+    setSelected(visible);
+  };
   const closeOnEscape = (event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.nativeEvent?.isComposing) return;
     event.preventDefault();
@@ -73,17 +105,11 @@ export function SettingsPage({ active, brand, onBack, checks, cliUpdate, configu
       msg('返回工作台', 'Back to workbench')),
     h('h1', null, msg('连接设置', 'Connection settings')),
     h('span', { className: 'pg-settings-escape' }, msg('Esc 返回', 'Esc to go back'))) : null,
-  h('div', { className: 'pg-settings-scroll' },
+  h('div', { className: 'pg-settings-scroll', ref: scroll, onScroll: selectVisibleSection },
     active ? h('nav', { className: 'pg-settings-nav', 'aria-label': msg('设置分区', 'Settings sections') },
       Object.entries(labels).map(([key, label]) => h('button', { key, type: 'button', 'aria-controls': id + '-' + key,
         'aria-current': key === selected ? 'true' : undefined,
-        onClick: () => {
-          const target = sections.current.get(key);
-          if (!target) return;
-          setSelected(key);
-          target.focus({ preventScroll: true });
-          target.scrollIntoView({ block: 'start' });
-        },
+        onClick: () => revealSection(key, true),
       }, label, attention[key] ? h('span', { className: 'pg-settings-dot', 'data-tone': attention[key][0], title: attention[key][1], role: 'img',
         'aria-label': attention[key][1] }) : null))) : null,
     h('main', { className: 'pg-settings-main' },

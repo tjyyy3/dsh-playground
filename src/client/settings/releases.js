@@ -3,8 +3,7 @@ import * as React from 'react';
 import { openableWebUrl } from '../shared/display.js';
 import { h } from '../shared/react.js';
 import { useRequestScope } from '../shared/request-scope.js';
-
-
+import { isEligibleReleaseUpgrade, pinnedReleaseSpec } from './release-checks.js';
 
 function icon(path, size = 16) {
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
@@ -64,7 +63,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
     }
   };
   React.useEffect(() => {
-    if (visit) heading.current?.focus();
+    if (visit) heading.current?.focus({ preventScroll: true });
     load(Boolean(visit));
     return () => scope.abort('release');
   }, [scope, visit]);
@@ -84,7 +83,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
   const notesUrl = openableWebUrl(target?.notesUrl);
   const canReadNotes = notesUrl?.startsWith('https://');
   const gitSource = ['git_pinned', 'git_unpinned'].includes(info?.source);
-  const gitSpec = /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
+  const gitSpec = pinnedReleaseSpec(target);
   const registrySource = info?.source === 'registry';
   const registryReady = status === 'ready' && release.registry?.status === 'ready';
   const registryUpgrade = registrySource && registryReady && target && comparison === 'upgrade'
@@ -121,8 +120,8 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
 
   const showTarget = status === 'ready' && comparison === 'upgrade' && target && release.compatible !== false
     && !info?.restartRequired && (!registrySource || registryReady);
-  const updateAvailable = status === 'ready' && comparison === 'upgrade' && Boolean(target) && !info?.restartRequired;
-  React.useEffect(() => { onAvailable?.(updateAvailable); }, [updateAvailable, onAvailable]);
+  const updateAvailable = status === 'ready' ? isEligibleReleaseUpgrade(release) : null;
+  React.useLayoutEffect(() => { onAvailable?.(updateAvailable); }, [updateAvailable, onAvailable]);
 
   return h('div', { className: 'pg-settings-release' },
     h('header', { className: 'pg-release-header' },

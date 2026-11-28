@@ -7553,7 +7553,8 @@ async function releasePanel(t, reply) {
   const element = panel(main());
   const render = () => f.render(element.type, element.props);
   await f.mount(element);
-  return { ...f, calls, writes, render, element,
+  return { ...f, calls, writes, render, element, main,
+    renderPage: (page) => f.render(page.type, page.props),
     checkButton: () => f.find(render(), (node) => node.type === 'button' && /检查|额度/.test(text(node))),
     check: () => f.find(render(), (node) => node.type === 'button' && /检查/.test(text(node))).props.onClick() };
 }
@@ -9171,17 +9172,21 @@ test('[submit-race] ignores an earlier projection read failing after a fresh ses
   view.unmount();
 });
 
-async function settingsPageFixture(t, { version = null, cliUpdate, configuredBase } = {}) {
+async function settingsPageFixture(t, { version = null, cliUpdate, configuredBase, view = 'controller' } = {}) {
   const f = await clientFixture(t);
   const main = f.registrations.get('main');
-  const props = { ...main.definition.inject(), controllerSelection: { view: 'controller' },
+  const props = { ...main.definition.inject(), controllerSelection: { view },
     useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
     useSessions: (fn) => fn({ ids: [], byId: {} }), renderSlot: () => null };
   const root = () => f.render(main.Component, props);
-  f.find(root(), (node) => node.props?.title === '连接设置').props.onClick();
-  const page = f.find(root(), (node) => node.type?.name === 'SettingsPage');
+  const connection = () => f.find(root(), (node) => node.props?.title === '连接设置');
+  const open = () => connection().props.onClick();
+  open();
+  const getPage = () => f.find(root(), (node) => node.type?.name === 'SettingsPage');
+  const page = getPage();
   const checks = { subscribe: () => () => {}, getSnapshot: () => ({ version }) };
-  return { f, props, root, page, render: () => f.render(page.type, { ...page.props, checks, cliUpdate, configuredBase }) };
+  return { f, main, props, root, page, connection, open, getPage,
+    render: () => f.render(page.type, { ...getPage().props, checks, cliUpdate, configuredBase }) };
 }
 
 test('[settings-page] section navigation scrolls and announces attention markers', async (t) => {
@@ -9278,15 +9283,110 @@ test('[settings-page] version card distinguishes checking, available and failed 
   assert.match(text(card()), /无法读取发布版本/);
 });
 
+test('[settings-page] manual scroll selects the visible section and reopening starts at the account', async (t) => {
+  const h = await settingsPageFixture(t);
+  const scroll = {
+    scrollTop: 0, clientHeight: 300, scrollHeight: 1100,
+    getBoundingClientRect: () => ({ top: 56 }),
+  };
+  const scrollNode = () => h.f.find(h.render(), (node) => node.props?.className === 'pg-settings-scroll');
+  const current = () => {
+    const selected = h.f.find(h.render(), (node) => node.type === 'button' && node.props['aria-current'] === 'true');
+    return selected.props['aria-controls'].split('-').at(-1);
+  };
+  const tree = h.render();
+  scrollNode().props.ref.current = scroll;
+  findAll(tree, (node) => node.props?.['data-section']).forEach((node, index) => {
+    node.props.ref({ getBoundingClientRect: () => ({ top: 56 + index * 240 - scroll.scrollTop }) });
+  });
+  assert.equal(current(), 'account');
+  scroll.scrollTop = 475;
+  scrollNode().props.onScroll({ currentTarget: scroll });
+  assert.equal(current(), 'api');
+  scroll.scrollTop = 800;
+  scrollNode().props.onScroll({ currentTarget: scroll });
+  assert.equal(current(), 'updates');
+
+  h.getPage().props.onBack();
+  h.render();
+  scroll.scrollTop = 800;
+  h.open();
+  h.render();
+  assert.equal(scroll.scrollTop, 0);
+  assert.equal(current(), 'account');
+});
+
+test('[settings-page] the updates marker requires an eligible release even with a cached update', async (t) => {
+  const target = releaseTarget('0.7.0');
+  const eligible = { target, comparison: 'upgrade', source: 'registry', restartRequired: false,
+    registry: { status: 'ready' }, compatible: true };
+  let reply;
+  const panel = await releasePanel(t, (input) => releaseReply(input, input.check ? reply : {}));
+  const marker = () => {
+    const page = panel.find(panel.main(), (node) => node.type?.name === 'SettingsPage');
+    return panel.find(panel.renderPage(page), (node) => node.props?.['data-tone'] === 'info');
+  };
+  for (const ineligible of [
+    { compatible: false },
+    { incomplete: true },
+    { registry: { status: 'pending', stage: 'tarball' } },
+    { source: 'git_pinned', target: { ...target, gitSpec: null } },
+    { source: 'git_unpinned', target: { ...target, gitSpec: 'github:tjyyy3/dsh-playground#main' } },
+    { source: 'link' },
+  ]) {
+    reply = eligible;
+    await panel.check();
+    panel.render();
+    assert.equal(marker()?.props['aria-label'], '有新版本');
+    reply = { ...eligible, ...ineligible };
+    await panel.check();
+    panel.render();
+    assert.equal(marker(), undefined, JSON.stringify(ineligible));
+  }
+  reply = { ...eligible, source: 'git_pinned' };
+  await panel.check();
+  panel.render();
+  assert.equal(marker()?.props['aria-label'], '有新版本');
+});
+
+test('[settings-page] returns keyboard focus from a detached Home readiness action', async (t) => {
+  const h = await settingsPageFixture(t, { view: 'home' });
+  h.getPage().props.onBack();
+  h.root();
+  const home = h.f.find(h.root(), (node) => node.type?.name === 'HomePanel');
+  const button = buttonLabeled(h.f, h.f.render(home.type, home.props), '用 API 令牌登录');
+  let restored = 0;
+  const ref = h.connection().props.ref;
+  if (ref) ref.current = { isConnected: true, focus: () => restored++ };
+  const opener = { isConnected: true, focus: () => assert.fail('the Home button was detached') };
+  button.props.onClick({ currentTarget: opener });
+  assert.equal(h.f.find(h.root(), (node) => node.type?.name === 'HomePanel'), undefined);
+  opener.isConnected = false;
+  h.render().props.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  assert.ok(h.f.find(h.root(), (node) => node.type?.name === 'HomePanel'));
+  assert.equal(restored, 1);
+});
+
+test('[settings-page] returns to the originating tab after the controller remounts', async (t) => {
+  const h = await settingsPageFixture(t, { view: 'submissions' });
+  assert.equal(h.props.controllerSelection.view, 'settings');
+  h.f.unmount(h.main.Component);
+  assert.equal(h.getPage().props.active, true);
+  buttonLabeled(h.f, h.render(), '返回工作台').props.onClick();
+  const selected = h.f.find(h.root(), (node) => node.props?.role === 'tab' && node.props['aria-selected']);
+  assert.equal(text(selected), '提交');
+});
+
 test('[settings-page] Escape returns to the previous workbench tab', async (t) => {
   const h = await settingsPageFixture(t);
   const tree = h.render();
+  const brand = h.f.find(tree, (node) => node.props?.className === 'pg-controller-brand');
+  assert.equal(brand.props['aria-label'], '返回工作台');
   let prevented = false;
   tree.props.onKeyDown({ key: 'Escape', preventDefault: () => { prevented = true; }, stopPropagation() {} });
   assert.equal(prevented, true);
   assert.equal(h.props.controllerSelection.view, 'controller');
 });
-
 
 test('[settings-page] discards an account preview that finishes after leaving settings', async (t) => {
   const f = await clientFixture(t);

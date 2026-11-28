@@ -22,9 +22,8 @@ function lineIcon(path, size = 16, viewBox = '0 0 16 16') {
     strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: path }));
 }
 
-function controllerBrand(onClick) {
-  return h('button', { type: 'button', className: 'pg-controller-brand', onClick,
-    'aria-label': msg('Playground 首页', 'Playground home') },
+function controllerBrand(onClick, label = msg('Playground 首页', 'Playground home')) {
+  return h('button', { type: 'button', className: 'pg-controller-brand', onClick, 'aria-label': label },
     h('svg', { width: 26, height: 26, viewBox: '0 0 26 26', fill: 'none', 'aria-hidden': true },
       h('rect', { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: 'currentColor', strokeWidth: 1.5 }),
       h('path', { d: 'M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' })),
@@ -157,13 +156,13 @@ function ControllerPanel(props) {
     updateView(next);
   };
   const [releaseVisit, setReleaseVisit] = React.useState(0);
-  const [releaseAvailable, setReleaseAvailable] = React.useState(false);
-  const settingsReturn = React.useRef('home');
+  const [releaseAvailable, setReleaseAvailable] = React.useState(null);
+  const connectionButton = React.useRef(null);
   const settingsOpener = React.useRef(null);
   const restoreSettingsFocus = React.useRef(false);
   const openSettings = (event) => {
     if (view !== 'settings') {
-      settingsReturn.current = view;
+      props.controllerSelection.settingsReturnView = view;
       settingsOpener.current = event?.currentTarget;
     }
     setView('settings');
@@ -171,13 +170,16 @@ function ControllerPanel(props) {
   const closeSettings = () => {
     restoreSettingsFocus.current = true;
     setReleaseVisit(0);
-    setReleaseAvailable(false);
-    setView(settingsReturn.current);
+    setReleaseAvailable(null);
+    const previous = props.controllerSelection.settingsReturnView;
+    setView(PRIMARY_TABS.includes(previous) ? previous : 'home');
   };
   React.useLayoutEffect(() => {
     if (view === 'settings' || !restoreSettingsFocus.current) return;
     restoreSettingsFocus.current = false;
-    settingsOpener.current?.focus();
+    const opener = settingsOpener.current;
+    const target = opener?.isConnected ? opener : connectionButton.current;
+    target?.focus();
     settingsOpener.current = null;
   }, [view]);
   const error = controllerMessage(errorMessage);
@@ -592,7 +594,7 @@ function ControllerPanel(props) {
         [['home', msg('首页', 'Home')], ['controller', msg('主控', 'Controller')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
       h('div', { className: 'pg-controller-account' },
         h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: showVersion }), h(LanguageMenu),
-        h('button', { className: 'pg-controller-connection', title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: openSettings },
+        h('button', { className: 'pg-controller-connection', ref: connectionButton, title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: openSettings },
           accountName ? h('span', { className: 'pg-controller-account-mark', title: accountName, 'aria-hidden': true }, Array.from(accountName).slice(0, 2).join('').toLocaleUpperCase()) : null,
           h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
           { checking: msg('检查中…', 'Checking…'), authenticated: msg('已登录', 'Signed in'), unauthenticated: msg('未登录', 'Signed out'), unavailable: msg('检测失败', 'Check failed') }[authStatus]),
@@ -624,7 +626,7 @@ function ControllerPanel(props) {
           } }),
           error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
           : renderSlot('playground.controller.session', { expectedId })),
-      h(SettingsPage, { active: view === 'settings', brand: controllerBrand(closeSettings), onBack: closeSettings,
+      h(SettingsPage, { active: view === 'settings', brand: controllerBrand(closeSettings, msg('返回工作台', 'Back to workbench')), onBack: closeSettings,
         checks: props.releaseChecks, configuredBase, authStatus, cliUpdate, releaseAvailable, releaseVisit },
         h(AuthStatusPanel, { ...props, settings: true, active: view === 'settings', onStatusChange: updateAuthStatus }),
         view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
