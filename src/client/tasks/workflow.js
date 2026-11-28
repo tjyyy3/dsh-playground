@@ -3,10 +3,12 @@ import * as React from 'react';
 import { h } from '../shared/react.js';
 import { receiptProgress, submissionCountsLine, withLatestAttempt } from './attempts.js';
 import { css } from '../shared/styles.js';
+import { needsQuotaDecision } from './submit-evidence.js';
 import { PlaygroundToolCard } from '../cards/tool.js';
 
-function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
+function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
   const [snapshot, setSnapshot] = React.useState(null);
+  const [choices, setChoices] = React.useState({});
   const [scope, setScope] = React.useState('operation');
   const [recursive, setRecursive] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -30,6 +32,43 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
     finally { setBusy(false); }
   };
   const scopeText = (item) => msg(`${item.kind === 'directory' ? `目录（${item.recursive ? '含子目录' : '仅直接文件'}）` : '文件'}：${item.path}`, `${item.kind === 'directory' ? `Directory (${item.recursive ? 'including subfolders' : 'direct files only'})` : 'File'}: ${item.path}`);
+  if (inline) return h('aside', { className: 'pg-submit-access', 'aria-label': msg('外部材料权限', 'External material permissions') },
+    h('header', null, h('h2', null, h('span', { className: 'pg-submit-lock', 'aria-hidden': true }), msg('外部材料权限', 'External material permissions')),
+      snapshot?.requests.length ? h('span', { className: 'pg-submit-pending' }, msg(`${snapshot.requests.length} 待授权`, `${snapshot.requests.length} pending`)) : null),
+    ...(snapshot?.requests || []).map((item) => {
+      const choice = choices[item.requestId] || { scope: 'operation', recursive: false };
+      const choose = (next) => setChoices((previous) => ({ ...previous, [item.requestId]: { ...choice, ...next } }));
+      return h('div', { key: item.requestId, className: 'pg-submit-access-card' },
+      h('p', null, msg('Agent 请求引用工作区外的材料', 'The Agent requests materials outside the workspace')),
+      ...item.scopes.map((entry) => h('div', { key: entry.path, className: 'pg-submit-path' },
+        h('code', null, entry.path), h('small', null, entry.kind === 'directory' ? msg('目录', 'Directory') : msg('文件', 'File'), ' · ',
+          item.operation === 'submit' ? msg('用途：提交材料引用', 'Purpose: submission materials') : msg('用途：记录材料引用', 'Purpose: record material references')))),
+      h('fieldset', { disabled: disabled || busy },
+        h('legend', null, msg('允许范围', 'Allow access for')),
+        [['operation', msg('仅本次操作允许', 'This operation only'), msg('默认 · 只用于这一次交接', 'Default · This handoff only')],
+          ['task', msg('本次任务内允许', 'This task'), msg('按路径和用途限定', 'Limited to these paths and this purpose')]].map(([value, label, hint]) =>
+          h('label', { key: value, className: 'pg-submit-radio', 'data-selected': value === choice.scope },
+            h('input', { type: 'radio', name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: () => choose({ scope: value }) }),
+            h('span', null, label, h('small', null, hint)))),
+        item.scopes.some((entry) => entry.kind === 'directory') ? h('label', { className: 'pg-submit-recursive' },
+          h('input', { type: 'checkbox', checked: choice.recursive, onChange: (event) => choose({ recursive: event.target.checked }) }), msg('目录授权包含子目录', 'Include subfolders in directory access')) : null),
+      h('p', null, msg('平台提交仍需单独请求。任务结束、切换工作区或宿主重启后授权失效。', 'Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.')),
+      h('button', { type: 'button', className: 'pg-button pg-primary', disabled: disabled || busy,
+        onClick: () => act({ action: 'authorize', requestId: item.requestId, ...choice }) },
+      item.operation === 'submit' ? msg('允许引用并继续交接', 'Allow references and resume handoff') : msg('允许引用并继续记录', 'Allow references and resume recording')));
+    }),
+    snapshot?.grants.length ? h('section', { className: 'pg-submit-grants' },
+      h('small', null, msg('本次任务已允许的范围', 'Access granted for this task')),
+      ...snapshot.grants.map((entry, index) => h('div', { key: `${entry.path}:${index}`, className: 'pg-submit-path' },
+        h('code', null, entry.path), h('small', null, entry.kind !== 'directory' ? msg('文件', 'File')
+          : entry.recursive ? msg('目录 · 包含子目录', 'Directory · Includes subfolders') : msg('目录 · 仅直接文件', 'Directory · Direct files only')))),
+      h('button', { type: 'button', className: 'pg-submit-link pg-submit-revoke', disabled: disabled || busy, onClick: () => act({ action: 'revoke' }) },
+        msg('撤销本任务全部材料授权', 'Revoke all material access for this task'))) : null,
+    snapshot && !snapshot.requests.length && !snapshot.grants.length ? h('p', null, msg('没有待授权的外部材料或任务级授权。', 'No pending external materials or task grants.')) : null,
+    error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
+    h('footer', null, h('div', null, h('small', null, msg('结果未知时', 'When the outcome is unknown')),
+      h('button', { type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refresh }, msg('刷新权限', 'Refresh access'))),
+      h('p', null, msg('先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。', 'Check existing submissions before creating another. Stopping generation cannot undo completed server writes.'))));
   return h('section', { className: 'pg-confirm', 'aria-label': msg('外部材料权限', 'External material permissions') },
     h('h4', null, msg('外部材料权限', 'External material permissions')),
     h('p', { className: 'pg-note' }, msg('仅用于当前任务所列比赛材料引用和后续读取。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。', 'Access covers the listed material references and subsequent reads for this task. Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.')),
@@ -51,7 +90,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
     error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null);
 }
 
-function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t }) {
+function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline }) {
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
@@ -86,6 +125,56 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const stages = { awaiting_user: msg('等待配额答复，尚未派发', 'Awaiting your quota decision before dispatch'), dispatching: msg('正在交接', 'Handing off'), dispatched: msg('已派发给 Agent，尚未取得新编号', 'Sent to the Agent. Awaiting a submission ID.'),
     not_created: msg('未创建新提交', 'No new submission created'), created: msg('已创建，上传状态未确认', 'Created. Upload unconfirmed.'), uploaded: msg('Agent 报告已上传', 'Agent reports a successful upload'), upload_failed: msg('已创建，Agent 报告上传失败', 'Created. Agent reports an upload failure.'),
     unknown: msg('结果未知，先核对已有提交', 'Outcome unknown. Check existing submissions first.'), running: msg('平台已接收，处理中', 'Received by the platform and processing'), final: msg('平台已返回最终结果', 'Final result received') };
+  if (inline) {
+    const risk = needsQuotaDecision(request);
+    const counts = request?.counts;
+    const limit = (request?.limits || counts?.limits)?.find((entry) => entry.period === 'day' && Number.isSafeInteger(entry.limit));
+    const lastScore = receiptProgress(receipt);
+    const today = counts?.date?.slice(5).replace('-', '.');
+    const countText = counts?.scope === 'current_account' && Number.isSafeInteger(counts.total) && today && !counts.partial
+      ? msg(`当前账号今天（北京时间 ${today}）已提交 ${counts.total} 次${counts.counted == null ? '' : `，其中占名额 ${counts.counted} 次`}。`,
+        `Today (Beijing time, ${today}) the current account submitted ${counts.total} times${counts.counted == null ? '' : `, with ${counts.counted} counted toward quota`}.`)
+      : submissionCountsLine(counts);
+    const riskText = msg('继续可能消耗提交名额。', 'Continuing may use a submission slot.');
+    const announcement = msg('提交会交给本任务的 Agent，按官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。', 'The task Agent uses the official CLI or API, then links the submission ID and tracks the result.');
+    const referenceFields = h('details', { className: 'pg-submit-references' },
+      h('summary', null, msg('材料引用（可选）', 'Material references (optional)'),
+        h('small', null, msg('仅传递路径，不读取内容或检查格式', 'Only paths are passed. Contents and formats are unchecked.'))),
+      h('div', null, ...[['bundle_path', msg('评测包路径', 'Evaluation bundle path')], ['trace_path', msg('执行轨迹路径', 'Execution trace path')],
+        ['outputs_path', msg('产物目录', 'Output directory')], ['manifest_path', msg('Manifest 路径', 'Manifest path')]].map(([key, label]) =>
+          h('label', { key }, label, h('input', { className: 'pg-input', value: files[key] || '', disabled: disabled || active || risk,
+            onChange: (event) => setFiles({ ...files, [key]: event.target.value }) })))));
+    const cancel = canCancel ? h('button', { type: 'button', className: 'pg-button', disabled: busy || !allowed,
+      onClick: () => act({ action: 'cancel', requestId: request.requestId }) }, msg('取消本次请求', 'Cancel this request')) : null;
+    const controls = task?.mode === 'author' ? h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'mode', mode: 'participate' }) }, msg('切回参赛', 'Switch to participation'))
+      : task && (risk ? h('section', { className: 'pg-submit-risk', 'aria-label': msg('本次提交有配额风险', 'Submission quota risk') },
+        h('header', null, h('span', { 'aria-hidden': true }, '⚠'), h('div', null,
+          h('h2', null, msg('本次提交有配额风险', 'Submission quota risk')),
+          h('p', null, [countText, limit?.source === 'statement'
+            ? msg(`题面写明每人每天最多 ${limit.limit} 次。`, `The statement allows at most ${limit.limit} submissions per account per day.`) : '', riskText].filter(Boolean).join(' ')),
+          h('small', null, msg('来源', 'Source'), ' · ',
+            (request.policy?.reasons || []).map((reason) => ({
+              statement_limit: msg('题面写明', 'Challenge statement'), quota_used_today: msg('当前账号提交记录', 'Account submission history'),
+              platform_limit: msg('平台曾返回 HTTP 429', 'Platform returned HTTP 429'),
+            })[reason]).filter(Boolean).join(' · ') || '—',
+            limit?.source === 'statement' && limit.excerpt ? msg(`（原文：${limit.excerpt}）`, ` (“${limit.excerpt}”)`) : null))),
+        h('dl', null, [
+          [msg('今天已占名额', 'Quota used today'), counts?.counted == null ? '—' : limit ? `${counts.counted} / ${limit.limit}` : counts.counted],
+          [msg('本题累计提交', 'Challenge submissions'), counts?.scope === 'current_account' ? counts.lifetime ?? '—' : '—'],
+          [msg('上次最终分', 'Last final score') + (lastScore.scoreIsFinal && receipt?.attemptId ? ` · #${receipt.attemptId}` : ''), lastScore.score ?? '—'],
+        ].map(([label, value]) => h('div', { key: label }, h('dd', null, value), h('dt', null, label)))),
+        referenceFields,
+        h('div', { className: 'pg-submit-risk-actions' },
+          h('button', { type: 'button', className: 'pg-button pg-risk', disabled, onClick: () => act({ action: 'confirm_quota', requestId: request.requestId }) }, msg('知悉配额风险，继续本次提交', 'Accept quota risk and continue')),
+          cancel, h('small', null, announcement)))
+        : h('section', { className: 'pg-submit-request' }, referenceFields,
+          h('div', { className: 'pg-actions' },
+            h('button', { type: 'button', className: 'pg-button pg-primary', disabled: disabled || active, onClick: () => act({ action: 'request', ...files }) }, msg('提交', 'Submit')),
+            cancel, h('p', { className: 'pg-note' }, stages[request?.status] || announcement)),
+          request?.message ? h('p', { className: 'pg-note' }, request.message) : null));
+    return renderInline({ state, request, controls, error, allowed, permissions: task && materials
+      ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true }) : null });
+  }
   return h('section', { className: 'pg-guide pg-workflow', 'aria-label': msg('Playground 任务', 'Playground task') },
     h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{width:100%}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--pg-line)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}'),
     h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : msg('Playground · 开始任务', 'Playground · Start task')),

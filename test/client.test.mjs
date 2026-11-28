@@ -8663,3 +8663,129 @@ test('[home] refreshes at five minutes and stops and aborts when home is left', 
   assert.equal(signals.length, 2);
   assert.ok(signals.every((signal) => signal.aborted));
 });
+
+function submitSession(state) {
+  return { id: 'submit-task', displayTitle: 'Playground · Test challenge', createdAt: '2026-11-26T00:00:00Z',
+    projectionValues: { playgroundTask: state } };
+}
+const submitFinal = { id: 21, challengeId: 'fixture', challengeTitle: 'Test challenge', identity: 'self',
+  createdAt: '2026-11-26T16:00:00Z', status: 'final', scoringState: { state: 'final', scoreIsFinal: true, displayScore: 71.5 } };
+const submitOlder = { ...submitFinal, id: 20, createdAt: '2026-11-26T15:59:59Z', scoringState: { ...submitFinal.scoringState, displayScore: 63 } };
+const submitTaskState = { task: { challengeId: 'fixture', title: 'Test challenge', cwd: '/workspace' } };
+const submitRisk = { requestId: 'quota-test', status: 'awaiting_user', latestAttemptId: 21, policy: { askFirst: true, reasons: ['quota_used_today'] } };
+
+async function submitFixture(t, { state = submitTaskState, query, submission, materials } = {}) {
+  const f = await clientFixture(t);
+  const main = f.registrations.get('playground.library');
+  const session = submitSession(state);
+  const projection = { state: 'ready', values: session.projectionValues };
+  const tree = f.render(main.Component, { ...main.definition.inject(), section: 'submissions', active: true, libraryOnly: true,
+    useSessions: (select) => select({ ids: [session.id], byId: { [session.id]: session }, projectionsBySession: { [session.id]: projection } }),
+    useSessionAccess: () => true, refreshProjections: async () => {}, query, submission, materials });
+  const page = f.find(tree, (node) => node.type?.name === 'SubmitPage');
+  assert.ok(page, 'the Submit tab renders the Instrument submission page');
+  const render = (node, props = {}) => f.render(node.type, { ...node.props, ...props });
+  const component = (root, name) => f.find(root, (node) => node.type?.name === name);
+  const btn = (root, label) => f.find(root, (node) => node.type === 'button' && text(node).trim() === label);
+  const task = () => component(render(page), 'SelectedTask');
+  const workflow = () => component(render(task()), 'TaskWorkflow');
+  const openScores = () => {
+    btn(render(page), '提交记录与评分').props.onClick();
+    return component(render(page), 'ScoringPane');
+  };
+  return { ...f, renderElement: render, component, btn, page, task, workflow, openScores, session };
+}
+
+test('[submit-page] lifecycle uses evidence for the current request and excludes an older receipt', async (t) => {
+  const f = await submitFixture(t, { state: { ...submitTaskState, submission: submitRisk, receipt: { ...submitFinal, attemptId: 21 } } });
+  const pane = f.renderElement(f.renderElement(f.workflow()));
+  const lifecycle = f.component(pane, 'Lifecycle');
+  const steps = findAll(f.renderElement(lifecycle), (node) => node.type === 'li');
+  assert.deepEqual(steps.map((step) => step.props['data-stage']), ['done', 'pending', 'current', 'pending', 'pending', 'pending']);
+  assert.match(text(steps[3]), /取得编号.*尚未创建/);
+  assert.match(text(steps[5]), /最终结果.*—/);
+});
+
+test('[submit-page] quota risk follows the persisted user-decision state', async (t) => {
+  const f = await submitFixture(t);
+  const workflow = f.workflow();
+  const controls = (submissionState) => f.renderElement(workflow, { state: { ...submitTaskState, submission: submissionState } }).props.controls;
+  assert.doesNotMatch(text(controls(undefined)), /本次提交有配额风险/);
+  f.unmount(workflow.type);
+  assert.doesNotMatch(text(controls({ ...submitRisk, status: 'dispatched' })), /本次提交有配额风险/);
+  f.unmount(workflow.type);
+  assert.match(text(controls(submitRisk)), /本次提交有配额风险/);
+});
+
+test('[submit-page] confirmation and cancellation call the existing handoff with the exact request ID', async (t) => {
+  const calls = [];
+  const f = await submitFixture(t, { state: { ...submitTaskState, submission: submitRisk }, submission: async (value) => { calls.push(value); return { ok: true }; } });
+  const workflow = f.workflow();
+  await f.btn(f.renderElement(workflow).props.controls, '知悉配额风险，继续本次提交').props.onClick();
+  await f.btn(f.renderElement(workflow).props.controls, '取消本次请求').props.onClick();
+  assert.deepEqual(calls, ['confirm_quota', 'cancel'].map((action) => ({ action, requestId: submitRisk.requestId, sessionId: f.session.id })));
+});
+
+test('[submit-page] material authorization resumes with the host ticket and keeps the one-operation default', async (t) => {
+  const calls = [];
+  const request = { requestId: 'material-test', operation: 'submit', scopes: [{ path: '/materials/bundle.zip', kind: 'file' }] };
+  const f = await submitFixture(t, {
+    materials: async (input) => {
+      calls.push(input);
+      return input.action === 'status' ? { ok: true, requests: [request], grants: [] }
+        : { ok: true, input: { action: 'request', material_request_id: request.requestId, bundle_path: request.scopes[0].path } };
+    },
+    submission: async (input) => { calls.push(input); return { ok: true }; },
+  });
+  const permission = f.renderElement(f.workflow()).props.permissions;
+  const sidebar = await f.mount(permission);
+  await f.btn(sidebar, '允许引用并继续交接').props.onClick();
+  assert.deepEqual(calls.slice(1, 3), [
+    { action: 'authorize', requestId: request.requestId, scope: 'operation', recursive: false, sessionId: f.session.id },
+    { action: 'request', material_request_id: request.requestId, bundle_path: '/materials/bundle.zip', sessionId: f.session.id },
+  ]);
+});
+
+test('[submit-page] status labels and symbols preserve the five evidenced outcomes', async (t) => {
+  const f = await submitFixture(t);
+  const cases = [
+    [submitFinal, '评分完成', 'scored', 'square'],
+    [{ status: 'evaluating', scoringState: { state: 'evaluating' } }, '评测中', 'evaluating', 'dot'],
+    [{ status: 'failed', bundleNotReceived: true }, '未收到评测包，需重新提交', 'warning', 'dot'],
+    [{ status: 'rejected' }, '未通过', 'error', 'ring'],
+    [{ status: 'draft', submissionState: 'created' }, '已创建，上传未确认', 'warning', 'striped'],
+  ];
+  const items = cases.map(([item], index) => ({ challengeId: 'fixture', id: 21 + index, ...item }));
+  const view = f.renderElement(f.openScores(), { history: { items } });
+  const badges = findAll(view, (node) => node.props?.className === 'pg-badge pg-submit-status');
+  assert.deepEqual(badges.map((badge) => [text(badge), badge.props['data-tone'], badge.props['data-shape']]), cases.map(([, ...expected]) => expected));
+});
+
+test('[submit-page] computes four totals on the Beijing day boundary and leaves unread counts blank', async (t) => {
+  const date = new Date('2026-11-27T08:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now: date });
+  const f = await submitFixture(t);
+  const pane = f.openScores();
+  const totals = (history) => findAll(f.renderElement(pane, { history }), (node) => node.type === 'dd').map(text);
+  assert.deepEqual(totals({}), ['—', '—', '—', '—']);
+  assert.deepEqual(totals({ items: [submitFinal, submitOlder, { ...submitOlder, id: 19, scoringState: undefined, status: 'failed', bundleNotReceived: true }] }), ['3', '1', '2', '1']);
+});
+
+test('[submit-page] compares two explicit final scores and omits dimensions without a scorecard', async (t) => {
+  const f = await submitFixture(t);
+  const pane = f.renderElement(f.openScores(), { history: { items: [submitFinal, submitOlder] },
+    compare: [JSON.stringify(['fixture', 21]), JSON.stringify(['fixture', 20])] });
+  const scorecard = f.renderElement(f.component(pane, 'Scorecard'));
+  assert.match(text(scorecard), /总分\s+\+8\.5/);
+  assert.equal(findAll(scorecard, (node) => node.props?.className === 'pg-submit-dimensions').length, 0);
+});
+
+test('[submit-page] shows explicitly supplied numeric dimensions and ignores narrative fields', async (t) => {
+  const f = await submitFixture(t);
+  const view = f.renderElement(f.openScores(), { history: { items: [{ ...submitFinal, scorecard: '{"dimensions":{"accuracy":0,"trace":0.8,"note":"text"}}' }] } });
+  const card = f.renderElement(f.component(view, 'Scorecard'));
+  const dimensions = f.find(card, (node) => node.props?.className === 'pg-submit-dimensions');
+  assert.match(text(dimensions), /accuracy.*0.*trace.*0.8/);
+  assert.equal(findAll(dimensions, (node) => node.type === 'meter').length, 2);
+  assert.doesNotMatch(text(dimensions), /note/);
+});

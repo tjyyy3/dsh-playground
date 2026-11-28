@@ -541,3 +541,43 @@ test('[home] queries anonymous public sources independently and projects the fie
   assert.ok(requests.every(([, method, authorization]) => method === 'GET' && authorization === undefined));
   assert.ok(requests.some(([path, , , perPage]) => path === '/api/challenges' && perPage === '6'));
 });
+
+test('[submit-page] reads account-wide pages and scoring totals without changing the scoped history contract', async () => {
+  let service;
+  let query;
+  const ctx = {
+    provide: (_, value) => { service = value; },
+    typert: { register: ({ invocations }) => { query = invocations.find((item) => item.method === 'query').parameters[0].codec.create(); } },
+  };
+  const signal = new AbortController().signal;
+  const member = { authorId: 'member', time: '2026-11-27T00:00:00Z' };
+  const client = {
+    baseUrl: 'https://example.test/api',
+    getCurrentUser: async () => ({ authenticated: true, user: { id: 'member' } }),
+    getUserSubmissions: async (options) => {
+      assert.equal(options.signal, signal);
+      return [
+        { ...member, attemptId: 1, challengeId: 'alpha', status: 'final', scoringState: { state: 'final', scoreIsFinal: true, displayScore: 71.5 } },
+        { ...member, attemptId: 2, challengeId: 'beta', status: 'failed', execStatus: 'failed', execLog: '[Not evaluated - bundle missing]' },
+        { ...member, attemptId: 3, challengeId: 'gamma', status: 'draft' },
+        { ...member, attemptId: 4, challengeId: 'other', authorId: 'other-account' },
+      ];
+    },
+  };
+  registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
+  const input = { action: 'my_attempts', allChallenges: true, limit: 2 };
+  const first = await service.query(query.parse(input), signal);
+  assert.equal(first.baseUrl, client.baseUrl);
+  assert.equal(first.submissionCounts.lifetime, 3);
+  assert.deepEqual(first.scoringTotals, { final: 1, attention: 2 });
+  assert.deepEqual(first.challenges.map(([id]) => id), ['gamma', 'beta', 'alpha']);
+  assert.deepEqual(first.items.map(({ id }) => id), [3, 2]);
+  assert.equal(first.items[1].bundleNotReceived, true);
+  const next = await service.query(query.parse({ ...input, cursor: first.nextCursor }), signal);
+  assert.deepEqual(next.items.map(({ id }) => id), [1]);
+  assert.equal(next.nextCursor, null);
+  const scoped = await service.query(query.parse({ action: 'my_attempts', challengeId: 'beta' }), signal);
+  assert.equal(scoped.submissionCounts.lifetime, 1);
+  assert.equal(scoped.scoringTotals, undefined);
+  assert.equal(query.safeParse({ ...input, challengeId: 'beta' }).success, false);
+});

@@ -233,5 +233,5 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
       }) : null));
 }
 
-export { ArchivedTaskRow, TaskDetailDrawer, TaskSummaryRow };
+export { ArchivedTaskRow, TaskArchiveControl, TaskDetailDrawer, TaskSummaryRow };
 

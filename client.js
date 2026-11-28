@@ -2168,10 +2168,10 @@ function createNoticeState(saved = null) {
   };
 }
 __name(createNoticeState, "createNoticeState");
-function collectItems(items, sources, now) {
+function collectItems(items, sources2, now) {
   const byKey = /* @__PURE__ */ new Map();
   for (const item of items) {
-    if (typeof item?.key !== "string" || !item.key || !sources.has(item.source)) continue;
+    if (typeof item?.key !== "string" || !item.key || !sources2.has(item.source)) continue;
     const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
     const start = timestamp(item.startAt);
     const end = timestamp(item.endAt);
@@ -2203,8 +2203,8 @@ function enterNotices(state, snapshot2, time) {
   const view = { state, scope, status: "ready", kind: "new", items: [], batchIds: [] };
   if (!state.enabled) return { ...view, status: "disabled" };
   if (!scope || snapshot2?.ok !== true || !isStringArray(snapshot2?.sources) || !snapshot2.sources.length || !Array.isArray(snapshot2.items)) return { ...view, status: "error" };
-  const sources = new Set(snapshot2.sources);
-  const current = collectItems(snapshot2.items, sources, now);
+  const sources2 = new Set(snapshot2.sources);
+  const current = collectItems(snapshot2.items, sources2, now);
   const site = Object.hasOwn(state.sites, scope) ? state.sites[scope] : emptySite();
   const known = new Set(site.discovered);
   const initialized = new Set(site.initializedSources);
@@ -2234,7 +2234,7 @@ function enterNotices(state, snapshot2, time) {
     const remaining = batch.entries.flatMap((entry) => {
       const record = current.get(entry.key);
       if (!record) {
-        const sourceUnavailable = entry.sources.some((source) => !sources.has(source));
+        const sourceUnavailable = entry.sources.some((source) => !sources2.has(source));
         const unexpired = entry.endAt === null || entry.endAt > now;
         return sourceUnavailable && unexpired ? [entry] : [];
       }
@@ -2270,7 +2270,7 @@ function enterNotices(state, snapshot2, time) {
       nextBatchId,
       sites: { ...state.sites, [scope]: {
         ...site,
-        initializedSources: unique([...initialized, ...sources]),
+        initializedSources: unique([...initialized, ...sources2]),
         discovered: unique([...known, ...current.keys()]),
         unverified: [...unverified],
         pending
@@ -2969,6 +2969,10 @@ var challengeDetailCss = `
 `;
 
 // lib/task/evidence.js
+var attemptNumber = /* @__PURE__ */ __name((value) => {
+  const id = typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : value;
+  return Number.isSafeInteger(id) && id > 0 ? id : void 0;
+}, "attemptNumber");
 var NO_OFFSET_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 function parsePlatformTime(value) {
   if (value instanceof Date) return value.getTime();
@@ -3020,6 +3024,11 @@ function attemptScore(item) {
   return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && (reference !== 0 || explicitZero) ? reference : void 0 };
 }
 __name(attemptScore, "attemptScore");
+function taskAttemptIds(state) {
+  const ids = Array.isArray(state?.attemptIds) ? state.attemptIds.map(attemptNumber) : [attemptNumber(state?.receipt?.attemptId)];
+  return [...new Set(ids.filter((id) => id !== void 0))];
+}
+__name(taskAttemptIds, "taskAttemptIds");
 var RECEIVED_STATES = /* @__PURE__ */ new Set(["evaluating", "scoring", "provisional", "final", "late_scored"]);
 function platformReceivedBundle(attempt) {
   const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
@@ -3056,6 +3065,11 @@ __name(taskAttemptScope, "taskAttemptScope");
 
 // lib/submission/policy.js
 var BEIJING_OFFSET_MS = 8 * 60 * 60 * 1e3;
+function beijingDate(value) {
+  const ms = parsePlatformTime(value);
+  return Number.isFinite(ms) ? new Date(ms + BEIJING_OFFSET_MS).toISOString().slice(0, 10) : void 0;
+}
+__name(beijingDate, "beijingDate");
 var CN_SCOPE = "(每人每天|每人每日|每个账号每天|每天|每日|每人|每个账号|每位参赛者|每支队伍)";
 var dayOrTotal = /* @__PURE__ */ __name((match) => /[天日]/u.test(match[1]) ? "day" : "total", "dayOrTotal");
 var STATEMENT_LIMIT_PATTERNS = [
@@ -4217,7 +4231,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt) ? { created: ["已创建，上传未确认", "Created; upload unconfirmed"], uploaded: ["Agent 报告已上传", "Agent reports uploaded"], unknown: ["结果未知，先核对已有提交", "Outcome unknown; reconcile existing attempts"] }[receipt?.submissionState] : void 0;
   const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "provisional", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
   const stage = running ? "running" : receiptStage;
-  const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
+  const scoreText2 = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
   const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
   const badgeTone = !receipt ? running ? "running" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
   const reportText = reported?.[t("progress.points") === "分" ? 0 : 1];
@@ -4230,7 +4244,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
     scoreIsFinal,
     score: finalScore,
     referenceScore,
-    scoreText
+    scoreText: scoreText2
   };
 }
 __name(receiptProgress, "receiptProgress");
@@ -4846,8 +4860,8 @@ function controllerBrand(onClick) {
   );
 }
 __name(controllerBrand, "controllerBrand");
-function evidenceMark(evidence, label2, description) {
-  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description }, label2);
+function evidenceMark(evidence, label2, description2) {
+  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description2 }, label2);
 }
 __name(evidenceMark, "evidenceMark");
 function groupHeading(title, rows, subtitle, summarize) {
@@ -5649,7 +5663,7 @@ function ControllerPanel(props) {
           visit: releaseVisit
         }) : null
       ),
-      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff, catalogDestination, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
+      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "submissions" ? { account: authStatus === "authenticated" ? accountId : void 0, accountName } : {}, ...section === "catalog" ? { handoff, catalogDestination, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
       view === "controller" && showTasks ? h(
         React11.Fragment,
         null,
@@ -5857,6 +5871,9 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
+var React17 = __toESM(require("react"), 1);
+
+// src/client/tasks/submit-page.js
 var React16 = __toESM(require("react"), 1);
 
 // src/client/tasks/list.js
@@ -5864,6 +5881,78 @@ var React15 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
 var React14 = __toESM(require("react"), 1);
+
+// src/client/tasks/submit-evidence.js
+var needsQuotaDecision = /* @__PURE__ */ __name((request) => request?.status === "awaiting_user" && request.policy?.askFirst !== false, "needsQuotaDecision");
+function submissionStatus(item, bundleMissing) {
+  const progress = receiptProgress(item, void 0, { bundleMissing });
+  if (item?.bundleNotReceived && !progress.scoreIsFinal) return { key: "missing", tone: "warning", shape: "dot", label: msg("未收到评测包，需重新提交", "Bundle missing. Submit again.") };
+  if (progress.stage === "failed") return { key: "failed", tone: "error", shape: "ring", label: msg("未通过", "Failed") };
+  if (progress.scoreIsFinal) return { key: "final", tone: "scored", shape: "square", label: progress.stage === "finalLate" ? msg("赛后评分完成", "Late score finalized") : msg("评分完成", "Scored") };
+  if (!platformReceivedBundle(item) && item?.submissionState === "created") return { key: "created", tone: "warning", shape: "striped", label: msg("已创建，上传未确认", "Created. Upload unconfirmed.") };
+  if (progress.stage === "evaluating") return { key: "evaluating", tone: "evaluating", shape: "dot", label: msg("评测中", "Evaluating") };
+  return { key: bundleMissing || progress.stage === "incomplete" || item?.scoringState?.actionNeeded ? "attention" : "other", tone: progress.badgeTone, label: progress.badgeText };
+}
+__name(submissionStatus, "submissionStatus");
+var needsAttention = /* @__PURE__ */ __name((key2) => ["missing", "created", "attention"].includes(key2), "needsAttention");
+function submissionTotals(items, { counts, scoringTotals, partial, nextCursor } = {}, now = /* @__PURE__ */ new Date()) {
+  const date = beijingDate(now);
+  if (!items || partial) return { date };
+  const statuses = items.map(({ attempt, bundleMissing }) => submissionStatus(attempt, bundleMissing).key);
+  return {
+    date,
+    total: counts?.lifetime ?? (nextCursor ? void 0 : items.length),
+    today: counts?.partialReasons?.includes("time_unknown") ? void 0 : counts?.date === date ? counts.total : nextCursor || items.some(({ attempt }) => !beijingDate(attempt.createdAt)) ? void 0 : items.filter(({ attempt }) => beijingDate(attempt.createdAt) === date).length,
+    final: scoringTotals?.final ?? (nextCursor ? void 0 : statuses.filter((key2) => key2 === "final").length),
+    attention: scoringTotals?.attention ?? (nextCursor ? void 0 : statuses.filter(needsAttention).length)
+  };
+}
+__name(submissionTotals, "submissionTotals");
+function lifecycle(session, state, request, receipt) {
+  const attemptId = receiptAttemptId(receipt);
+  const previousId = attemptNumber(request?.latestAttemptId);
+  const waitingForNewId = request?.requestId && (request.status === "awaiting_user" || previousId === attemptId);
+  const currentId = attemptNumber(request?.attemptId) ?? (waitingForNewId ? void 0 : attemptId);
+  const evidence = currentId === attemptId && currentId ? receipt : void 0;
+  const evaluated = platformReceivedBundle(evidence) || evidence?.bundleNotReceived === true;
+  const complete = evaluated && (attemptScore(evidence).scoreIsFinal || evidence?.bundleNotReceived === true || attemptScore(evidence).failed) || Boolean(evidence && attemptScore(evidence).failed);
+  const agentEvidence = session.running || request?.reportedBy === "agent" || Boolean(receipt?.agentReport);
+  const requesting = needsQuotaDecision(request) || ["dispatching", "dispatched", "unknown", "not_created"].includes(request?.status);
+  return [
+    { reached: Boolean(state?.task), time: session.createdAt, source: "host" },
+    { reached: agentEvidence, time: receipt?.agentReport?.at, source: session.running ? "host" : "agent" },
+    { reached: Boolean(request?.requestId), current: requesting, time: request?.requestedAt ?? request?.dispatchedAt, source: "host" },
+    { reached: Boolean(currentId), time: evidence?.createdAt ?? evidence?.trackedAt, source: evidence?.createdAt ? "platform" : "host" },
+    { reached: evaluated, time: evidence?.scoringQueue?.workerReceivedAt, source: "platform" },
+    { reached: complete, time: evidence?.updatedAt, source: "platform" }
+  ];
+}
+__name(lifecycle, "lifecycle");
+function compareFinalScores(first, second) {
+  const a = attemptScore(first);
+  const b = attemptScore(second);
+  if (first?.challengeId !== second?.challengeId || !Number.isFinite(a.finalScore) || !Number.isFinite(b.finalScore)) return void 0;
+  return a.finalScore - b.finalScore;
+}
+__name(compareFinalScores, "compareFinalScores");
+function scoreDimensions(attempt) {
+  if (attempt?.scorecardTruncated) return [];
+  let dimensions;
+  try {
+    dimensions = JSON.parse(attempt?.scorecard ?? "null")?.dimensions;
+  } catch {
+    return [];
+  }
+  if (!dimensions || typeof dimensions !== "object" || Array.isArray(dimensions)) return [];
+  return Object.entries(dimensions).filter(([label2, score]) => label2.trim() && Number.isFinite(score));
+}
+__name(scoreDimensions, "scoreDimensions");
+var sortSubmissionRows = /* @__PURE__ */ __name((a, b) => (parsePlatformTime(b.createdAt) || 0) - (parsePlatformTime(a.createdAt) || 0) || b.id - a.id, "sortSubmissionRows");
+function attributedAttempt(state, attempt) {
+  const scope = taskAttemptScope(state);
+  return !scope.conflict && scope.challengeId === attempt.challengeId && taskAttemptIds(state).includes(attempt.id) && (!scope.baseUrl || !attempt.baseUrl || scope.baseUrl === attempt.baseUrl);
+}
+__name(attributedAttempt, "attributedAttempt");
 
 // src/client/cards/tool.js
 var React13 = __toESM(require("react"), 1);
@@ -6250,8 +6339,9 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
 __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
-function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
+function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
   const [snapshot2, setSnapshot] = React14.useState(null);
+  const [choices, setChoices] = React14.useState({});
   const [scope, setScope] = React14.useState("operation");
   const [recursive, setRecursive] = React14.useState(false);
   const [error, setError] = React14.useState("");
@@ -6286,6 +6376,97 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
     }
   }, "act");
   const scopeText = /* @__PURE__ */ __name((item) => msg(`${item.kind === "directory" ? `目录（${item.recursive ? "含子目录" : "仅直接文件"}）` : "文件"}：${item.path}`, `${item.kind === "directory" ? `Directory (${item.recursive ? "including subfolders" : "direct files only"})` : "File"}: ${item.path}`), "scopeText");
+  if (inline) return h(
+    "aside",
+    { className: "pg-submit-access", "aria-label": msg("外部材料权限", "External material permissions") },
+    h(
+      "header",
+      null,
+      h("h2", null, h("span", { className: "pg-submit-lock", "aria-hidden": true }), msg("外部材料权限", "External material permissions")),
+      snapshot2?.requests.length ? h("span", { className: "pg-submit-pending" }, msg(`${snapshot2.requests.length} 待授权`, `${snapshot2.requests.length} pending`)) : null
+    ),
+    ...(snapshot2?.requests || []).map((item) => {
+      const choice = choices[item.requestId] || { scope: "operation", recursive: false };
+      const choose = /* @__PURE__ */ __name((next) => setChoices((previous) => ({ ...previous, [item.requestId]: { ...choice, ...next } })), "choose");
+      return h(
+        "div",
+        { key: item.requestId, className: "pg-submit-access-card" },
+        h("p", null, msg("Agent 请求引用工作区外的材料", "The Agent requests materials outside the workspace")),
+        ...item.scopes.map((entry) => h(
+          "div",
+          { key: entry.path, className: "pg-submit-path" },
+          h("code", null, entry.path),
+          h(
+            "small",
+            null,
+            entry.kind === "directory" ? msg("目录", "Directory") : msg("文件", "File"),
+            " · ",
+            item.operation === "submit" ? msg("用途：提交材料引用", "Purpose: submission materials") : msg("用途：记录材料引用", "Purpose: record material references")
+          )
+        )),
+        h(
+          "fieldset",
+          { disabled: disabled || busy },
+          h("legend", null, msg("允许范围", "Allow access for")),
+          [
+            ["operation", msg("仅本次操作允许", "This operation only"), msg("默认 · 只用于这一次交接", "Default · This handoff only")],
+            ["task", msg("本次任务内允许", "This task"), msg("按路径和用途限定", "Limited to these paths and this purpose")]
+          ].map(([value, label2, hint]) => h(
+            "label",
+            { key: value, className: "pg-submit-radio", "data-selected": value === choice.scope },
+            h("input", { type: "radio", name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: /* @__PURE__ */ __name(() => choose({ scope: value }), "onChange") }),
+            h("span", null, label2, h("small", null, hint))
+          )),
+          item.scopes.some((entry) => entry.kind === "directory") ? h(
+            "label",
+            { className: "pg-submit-recursive" },
+            h("input", { type: "checkbox", checked: choice.recursive, onChange: /* @__PURE__ */ __name((event) => choose({ recursive: event.target.checked }), "onChange") }),
+            msg("目录授权包含子目录", "Include subfolders in directory access")
+          ) : null
+        ),
+        h("p", null, msg("平台提交仍需单独请求。任务结束、切换工作区或宿主重启后授权失效。", "Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.")),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "pg-button pg-primary",
+            disabled: disabled || busy,
+            onClick: /* @__PURE__ */ __name(() => act({ action: "authorize", requestId: item.requestId, ...choice }), "onClick")
+          },
+          item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording")
+        )
+      );
+    }),
+    snapshot2?.grants.length ? h(
+      "section",
+      { className: "pg-submit-grants" },
+      h("small", null, msg("本次任务已允许的范围", "Access granted for this task")),
+      ...snapshot2.grants.map((entry, index) => h(
+        "div",
+        { key: `${entry.path}:${index}`, className: "pg-submit-path" },
+        h("code", null, entry.path),
+        h("small", null, entry.kind !== "directory" ? msg("文件", "File") : entry.recursive ? msg("目录 · 包含子目录", "Directory · Includes subfolders") : msg("目录 · 仅直接文件", "Directory · Direct files only"))
+      )),
+      h(
+        "button",
+        { type: "button", className: "pg-submit-link pg-submit-revoke", disabled: disabled || busy, onClick: /* @__PURE__ */ __name(() => act({ action: "revoke" }), "onClick") },
+        msg("撤销本任务全部材料授权", "Revoke all material access for this task")
+      )
+    ) : null,
+    snapshot2 && !snapshot2.requests.length && !snapshot2.grants.length ? h("p", null, msg("没有待授权的外部材料或任务级授权。", "No pending external materials or task grants.")) : null,
+    error ? h("p", { className: "pg-error", role: "alert" }, error) : null,
+    h(
+      "footer",
+      null,
+      h(
+        "div",
+        null,
+        h("small", null, msg("结果未知时", "When the outcome is unknown")),
+        h("button", { type: "button", className: "pg-submit-link", disabled: busy, onClick: refresh }, msg("刷新权限", "Refresh access"))
+      ),
+      h("p", null, msg("先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。", "Check existing submissions before creating another. Stopping generation cannot undo completed server writes."))
+    )
+  );
   return h(
     "section",
     { className: "pg-confirm", "aria-label": msg("外部材料权限", "External material permissions") },
@@ -6327,7 +6508,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
   );
 }
 __name(MaterialPermissions, "MaterialPermissions");
-function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t }) {
+function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline }) {
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
@@ -6370,7 +6551,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const disabled = busy || running || !allowed;
   const active = ["dispatching", "dispatched", "created", "unknown"].includes(request?.status);
   const canCancel = ["awaiting_user", "dispatching", "dispatched", "created", "unknown"].includes(request?.status);
-  const stages = {
+  const stages2 = {
     awaiting_user: msg("等待配额答复，尚未派发", "Awaiting your quota decision before dispatch"),
     dispatching: msg("正在交接", "Handing off"),
     dispatched: msg("已派发给 Agent，尚未取得新编号", "Sent to the Agent. Awaiting a submission ID."),
@@ -6382,6 +6563,94 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     running: msg("平台已接收，处理中", "Received by the platform and processing"),
     final: msg("平台已返回最终结果", "Final result received")
   };
+  if (inline) {
+    const risk = needsQuotaDecision(request);
+    const counts = request?.counts;
+    const limit = (request?.limits || counts?.limits)?.find((entry) => entry.period === "day" && Number.isSafeInteger(entry.limit));
+    const lastScore = receiptProgress(receipt);
+    const today = counts?.date?.slice(5).replace("-", ".");
+    const countText = counts?.scope === "current_account" && Number.isSafeInteger(counts.total) && today && !counts.partial ? msg(
+      `当前账号今天（北京时间 ${today}）已提交 ${counts.total} 次${counts.counted == null ? "" : `，其中占名额 ${counts.counted} 次`}。`,
+      `Today (Beijing time, ${today}) the current account submitted ${counts.total} times${counts.counted == null ? "" : `, with ${counts.counted} counted toward quota`}.`
+    ) : submissionCountsLine(counts);
+    const riskText = msg("继续可能消耗提交名额。", "Continuing may use a submission slot.");
+    const announcement = msg("提交会交给本任务的 Agent，按官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent uses the official CLI or API, then links the submission ID and tracks the result.");
+    const referenceFields = h(
+      "details",
+      { className: "pg-submit-references" },
+      h(
+        "summary",
+        null,
+        msg("材料引用（可选）", "Material references (optional)"),
+        h("small", null, msg("仅传递路径，不读取内容或检查格式", "Only paths are passed. Contents and formats are unchecked."))
+      ),
+      h("div", null, ...[
+        ["bundle_path", msg("评测包路径", "Evaluation bundle path")],
+        ["trace_path", msg("执行轨迹路径", "Execution trace path")],
+        ["outputs_path", msg("产物目录", "Output directory")],
+        ["manifest_path", msg("Manifest 路径", "Manifest path")]
+      ].map(([key2, label2]) => h("label", { key: key2 }, label2, h("input", {
+        className: "pg-input",
+        value: files[key2] || "",
+        disabled: disabled || active || risk,
+        onChange: /* @__PURE__ */ __name((event) => setFiles({ ...files, [key2]: event.target.value }), "onChange")
+      }))))
+    );
+    const cancel = canCancel ? h("button", {
+      type: "button",
+      className: "pg-button",
+      disabled: busy || !allowed,
+      onClick: /* @__PURE__ */ __name(() => act({ action: "cancel", requestId: request.requestId }), "onClick")
+    }, msg("取消本次请求", "Cancel this request")) : null;
+    const controls = task?.mode === "author" ? h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation")) : task && (risk ? h(
+      "section",
+      { className: "pg-submit-risk", "aria-label": msg("本次提交有配额风险", "Submission quota risk") },
+      h("header", null, h("span", { "aria-hidden": true }, "⚠"), h(
+        "div",
+        null,
+        h("h2", null, msg("本次提交有配额风险", "Submission quota risk")),
+        h("p", null, [countText, limit?.source === "statement" ? msg(`题面写明每人每天最多 ${limit.limit} 次。`, `The statement allows at most ${limit.limit} submissions per account per day.`) : "", riskText].filter(Boolean).join(" ")),
+        h(
+          "small",
+          null,
+          msg("来源", "Source"),
+          " · ",
+          (request.policy?.reasons || []).map((reason) => ({
+            statement_limit: msg("题面写明", "Challenge statement"),
+            quota_used_today: msg("当前账号提交记录", "Account submission history"),
+            platform_limit: msg("平台曾返回 HTTP 429", "Platform returned HTTP 429")
+          })[reason]).filter(Boolean).join(" · ") || "—",
+          limit?.source === "statement" && limit.excerpt ? msg(`（原文：${limit.excerpt}）`, ` (“${limit.excerpt}”)`) : null
+        )
+      )),
+      h("dl", null, [
+        [msg("今天已占名额", "Quota used today"), counts?.counted == null ? "—" : limit ? `${counts.counted} / ${limit.limit}` : counts.counted],
+        [msg("本题累计提交", "Challenge submissions"), counts?.scope === "current_account" ? counts.lifetime ?? "—" : "—"],
+        [msg("上次最终分", "Last final score") + (lastScore.scoreIsFinal && receipt?.attemptId ? ` · #${receipt.attemptId}` : ""), lastScore.score ?? "—"]
+      ].map(([label2, value]) => h("div", { key: label2 }, h("dd", null, value), h("dt", null, label2)))),
+      referenceFields,
+      h(
+        "div",
+        { className: "pg-submit-risk-actions" },
+        h("button", { type: "button", className: "pg-button pg-risk", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue")),
+        cancel,
+        h("small", null, announcement)
+      )
+    ) : h(
+      "section",
+      { className: "pg-submit-request" },
+      referenceFields,
+      h(
+        "div",
+        { className: "pg-actions" },
+        h("button", { type: "button", className: "pg-button pg-primary", disabled: disabled || active, onClick: /* @__PURE__ */ __name(() => act({ action: "request", ...files }), "onClick") }, msg("提交", "Submit")),
+        cancel,
+        h("p", { className: "pg-note" }, stages2[request?.status] || announcement)
+      ),
+      request?.message ? h("p", { className: "pg-note" }, request.message) : null
+    ));
+    return renderInline({ state, request, controls, error, allowed, permissions: task && materials ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true }) : null });
+  }
   return h(
     "section",
     { className: "pg-guide pg-workflow", "aria-label": msg("Playground 任务", "Playground task") },
@@ -6426,7 +6695,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     request ? h(
       "div",
       { className: "pg-confirm", role: "status" },
-      h("p", { className: "pg-note" }, request.status === "not_created" && request.recovery ? msg("已解除交接状态，服务器结果待核对", "Handoff cleared. The server outcome still needs verification.") : stages[request.status] || request.status),
+      h("p", { className: "pg-note" }, request.status === "not_created" && request.recovery ? msg("已解除交接状态，服务器结果待核对", "Handoff cleared. The server outcome still needs verification.") : stages2[request.status] || request.status),
       request.policy?.announcement ? h("p", { className: "pg-note" }, request.policy.announcement) : null,
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
@@ -6517,11 +6786,11 @@ function TaskSummaryRow({ session, attempts, selected, onSelect, onOpen, selectR
   );
 }
 __name(TaskSummaryRow, "TaskSummaryRow");
-function taskAttemptIds(state) {
+function taskAttemptIds2(state) {
   const ids = Array.isArray(state?.attemptIds) ? state.attemptIds : [state?.receipt?.attemptId];
   return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
 }
-__name(taskAttemptIds, "taskAttemptIds");
+__name(taskAttemptIds2, "taskAttemptIds");
 function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const [history, setHistory] = React15.useState({ items: [], nextCursor: null, loaded: false });
   const [overview, setOverview] = React15.useState({ counts: void 0, partial: "" });
@@ -6724,7 +6993,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
   const current = projection?.state === "ready" && projection.values?.playgroundTask || state;
   const scope = taskAttemptScope({ task: current.task || state.task, receipt: current.receipt });
   const historyChallenge = !scope.conflict && (current.task?.challengeId || state.task?.challengeId);
-  const attemptIds = taskAttemptIds(current);
+  const attemptIds = taskAttemptIds2(current);
   const latestReceipt = withLatestAttempt(current, props.attempts, session.id);
   const closedIds = [.../* @__PURE__ */ new Set([
     ...Array.isArray(current.bundleClosedIds) ? current.bundleClosedIds.map(Number) : [],
@@ -6788,33 +7057,843 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
 }
 __name(TaskDetailDrawer, "TaskDetailDrawer");
 
+// src/client/tasks/submit-styles.js
+var submitCss = `
+  .pg-submit-page { height:100%; width:100%; min-width:0; display:flex; flex-direction:column; overflow:auto; background:var(--pg-base); font-size:13px; container-type:inline-size; }
+  .pg-submit-page * { box-sizing:border-box; }
+  .pg-submit-page :is(h1,h2,h3,p,dl,dd) { margin:0; }
+  .pg-submit-page h2 { font-size:15px; font-weight:600; }
+  .pg-submit-page small { font-size:11.5px; color:var(--pg-muted); }
+  .pg-submit-page :is(button,summary,select,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:2px; }
+  .pg-submit-page .pg-submit-kicker,.pg-submit-page time,.pg-submit-page code { font:11px/1.5 var(--pg-font-mono); color:var(--pg-label); }
+  .pg-submit-page time { white-space:nowrap; }
+  .pg-submit-page .pg-button { border-radius:6px; padding-inline:12px; }
+  .pg-submit-bar { min-height:48px; display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; padding:6px 20px; background:var(--pg-ink); border-bottom:1px solid #161B22; }
+  .pg-submit-tabs { display:flex; padding:2px; gap:2px; border:1px solid #222833; border-radius:6px; background:var(--pg-control); }
+  .pg-submit-tabs .pg-button { display:flex; align-items:center; gap:6px; min-height:28px; padding:0 12px; font-size:12.5px; border:0; border-radius:4px; color:var(--pg-muted); }
+  .pg-submit-tabs .pg-button[aria-pressed=true] { background:#1E242D; color:var(--pg-text); }
+  .pg-submit-account { margin-inline-start:auto; }
+  .pg-submit-filters { display:flex; flex-wrap:wrap; gap:16px; margin-inline-start:auto; }
+  .pg-submit-filters label { display:flex; align-items:center; padding:0 9px; gap:6px; min-height:32px; border:1px solid var(--pg-control-line); border-radius:6px; background:var(--pg-control); color:var(--pg-muted); }
+  .pg-submit-filters select { max-width:145px; width:100%; border:0; font:inherit; color:var(--pg-text); background:var(--pg-control); color-scheme:dark; }
+  .pg-submit-filters label:first-child { width:198px; }
+  .pg-submit-filters label { white-space:nowrap; }
+  .pg-submit-filters label:last-child { width:122px; }
+  .pg-submit-task-grid { flex:1; display:grid; grid-template-columns:minmax(215px,300px) minmax(0,1fr) minmax(270px,340px); min-height:0; }
+  .pg-submit-rail,.pg-submit-access { min-width:0; background:#0B0D10; overflow:auto; scrollbar-width:thin; }
+  .pg-submit-rail { padding:14px 10px; border-inline-end:1px solid #1A1F27; }
+  .pg-submit-task { width:100%; display:grid; min-width:0; text-align:start; gap:8px; margin:0 0 7px; padding:11px 12px 13px; border:1px solid transparent; border-radius:8px; background:transparent; font:inherit; color:inherit; cursor:pointer; }
+  .pg-submit-task:is(:hover,[aria-pressed=true]) { background:var(--pg-hover); border-color:var(--pg-control-line); }
+  .pg-submit-task strong { font-size:13.5px; font-weight:500; overflow-wrap:anywhere; }
+  .pg-submit-ticks { display:grid; grid-template-columns:repeat(6,1fr); gap:3px; }
+  .pg-submit-ticks i { display:block; height:4px; border-radius:1px; background:var(--pg-control-line); }
+  .pg-submit-ticks i[data-stage=done] { background:var(--pg-accent); }
+  .pg-submit-ticks i[data-stage=current] { background:var(--pg-warning); }
+  .pg-submit-rail-meta { display:flex; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--pg-muted); }
+  .pg-submit-rail-meta [data-tone=warning] { color:var(--pg-warning); }
+  .pg-submit-rail-meta [data-tone=active] { color:var(--pg-accent); }
+  .pg-submit-rail-meta [data-tone=evaluating] { color:var(--pg-info); }
+  .pg-submit-rail-meta small { font:10px/1.5 var(--pg-font-mono); color:var(--pg-label); text-align:end; }
+  .pg-submit-rail .pg-archived-toggle { padding:6px 12px; background:none; border:0; color:var(--pg-label); font:inherit; cursor:pointer; }
+  .pg-submit-rail .pg-archived-row { display:flex; justify-content:space-between; align-items:center; min-width:0; gap:8px; padding:6px; }
+  .pg-submit-rail .pg-task-row-open { color:var(--pg-text); background:var(--pg-panel); border:1px solid var(--pg-line); border-radius:6px; cursor:pointer; }
+  .pg-submit-task-detail { min-width:0; overflow:auto; scrollbar-width:thin; }
+  .pg-submit-task-inner { max-width:860px; padding:22px 28px 40px; margin:auto; display:grid; gap:20px; }
+  .pg-submit-task-header { display:flex; justify-content:space-between; align-items:start; gap:8px 16px; flex-wrap:wrap; }
+  .pg-submit-task-header h1 { margin:7px 0 5px; font-size:24px; font-weight:600; letter-spacing:-.015em; overflow-wrap:anywhere; }
+  .pg-submit-task-header p { color:var(--pg-muted); font-size:12.5px; overflow-wrap:anywhere; }
+  .pg-submit-task-actions { display:flex; align-items:start; gap:8px; flex-wrap:wrap; }
+  .pg-submit-task-actions .pg-archive { margin:0; display:grid; }
+  .pg-submit-lifecycle { position:relative; padding:18px 18px 18px; border:1px solid #222833; border-radius:12px; background:var(--pg-panel); }
+  .pg-submit-lifecycle::before,.pg-submit-lifecycle::after { position:absolute; content:''; width:12px; height:12px; border:solid var(--pg-accent); pointer-events:none; }
+  .pg-submit-lifecycle::before { inset:-1px auto auto -1px; border-width:2px 0 0 2px; border-top-left-radius:12px; }
+  .pg-submit-lifecycle::after { inset:auto -1px -1px auto; border-width:0 2px 2px 0; border-bottom-right-radius:12px; }
+  .pg-submit-lifecycle header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .pg-submit-lifecycle header div { display:flex; gap:14px; flex-wrap:wrap; color:var(--pg-muted); font-size:11px; }
+  .pg-submit-lifecycle [data-source]::before { content:''; display:inline-block; width:8px; height:8px; border:1px solid currentColor; margin-inline-end:5px; }
+  .pg-submit-lifecycle [data-source=host]::before { background:linear-gradient(135deg, currentColor 50%, transparent 50%); }
+  .pg-submit-lifecycle [data-source=platform]::before { background:currentColor; }
+  .pg-submit-lifecycle ol { display:grid; grid-template-columns:repeat(6,minmax(104px,1fr)); margin:0; padding:0; overflow:auto; list-style:none; }
+  .pg-submit-lifecycle li { display:grid; gap:8px; color:var(--pg-text); }
+  .pg-submit-lifecycle li[data-stage=pending] { color:var(--pg-label); }
+  .pg-submit-lifecycle li[data-stage=current] { color:var(--pg-warning); }
+  .pg-submit-lifecycle li strong { font-weight:500; }
+  .pg-submit-lifecycle li small { color:var(--pg-label); font-size:11px; }
+  .pg-submit-node { display:flex; align-items:center; }
+  .pg-submit-node span { display:grid; place-items:center; width:22px; height:22px; flex:none; border:1px solid currentColor; border-radius:50%; color:var(--pg-accent); font:10px var(--pg-font-mono); }
+  [data-stage=current] > .pg-submit-node span { color:var(--pg-warning); }
+  [data-stage=pending] > .pg-submit-node span { color:var(--pg-label); border-style:dashed; }
+  .pg-submit-lifecycle li:not(:last-child) .pg-submit-node::after { content:''; flex:1; height:2px; margin:0 6px; background:var(--pg-accent); }
+  .pg-submit-lifecycle li[data-stage=current] .pg-submit-node::after,.pg-submit-lifecycle li[data-stage=pending] .pg-submit-node::after { background:repeating-linear-gradient(90deg,var(--pg-line-strong) 0 4px,transparent 4px 8px); }
+  .pg-submit-risk { display:grid; gap:14px; padding:18px; border:1px solid #4A3A1A; border-radius:12px; background:#120F09; color:#E8D7BC; }
+  .pg-submit-risk header { display:flex; gap:12px; }
+  .pg-submit-risk header small { display:block; margin-top:3px; }
+  .pg-submit-risk header > span { color:var(--pg-warning); font-size:20px; line-height:1.2; }
+  .pg-submit-risk h2 { color:#FFD9A0; font-size:16px; margin-bottom:4px; }
+  .pg-submit-risk p { font-size:13.5px; }
+  .pg-submit-risk small,.pg-submit-risk dt { color:#B9A27F; }
+  .pg-submit-risk dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; border:1px solid #2F2614; border-radius:8px; background:#2F2614; overflow:hidden; }
+  .pg-submit-risk dl div { display:grid; gap:4px; background:#15110A; padding:11px 12px; }
+  .pg-submit-risk dd { font:18px/1.3 var(--pg-font-mono); color:var(--pg-text); }
+  .pg-submit-risk dt { font-size:11px; }
+  .pg-submit-references { border:1px solid var(--pg-line); border-radius:8px; }
+  .pg-submit-risk .pg-submit-references { border-color:#2F2614; }
+  .pg-submit-references summary { padding:10px 12px; cursor:pointer; }
+  .pg-submit-references summary small { margin-inline-start:12px; }
+  .pg-submit-references > div { padding:4px 12px 12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(185px,1fr)); gap:8px; }
+  .pg-submit-references label { display:grid; gap:4px; }
+  .pg-submit-references input { min-width:0; }
+  .pg-submit-risk-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pg-submit-risk-actions small { flex:1 1 220px; }
+  .pg-submit-risk-actions .pg-button { min-height:38px; padding-inline:14px; border-color:#3A2F18; }
+  .pg-submit-risk-actions .pg-risk { padding-inline:16px; }
+  .pg-submit-link { padding:0; background:none; border:0; color:var(--pg-accent); cursor:pointer; font:inherit; }
+  .pg-submit-link:hover { text-decoration:underline; }
+  .pg-submit-task-history { display:grid; gap:10px; }
+  .pg-submit-task-history header,.pg-submit-table-card header { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .pg-submit-task-history header small,.pg-submit-table-card header small { color:var(--pg-label); }
+  .pg-submit-task-history header button,.pg-submit-table-card header .pg-submit-kicker { margin-inline-start:auto; }
+  .pg-submit-history-row { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 14px; min-height:54px; border:1px solid var(--pg-line); border-radius:10px; background:var(--pg-panel); }
+  .pg-submit-history-row > span:not(.pg-submit-status) { color:var(--pg-muted); font-size:12px; }
+  .pg-submit-history-row time { margin-inline-start:auto; }
+  .pg-submit-history-row strong { font:500 18px var(--pg-font-mono); }
+  .pg-submit-history-row button { color:var(--pg-text); font:12.5px var(--pg-font-mono); }
+  .pg-submit-access { display:flex; flex-direction:column; gap:14px; padding:18px 16px; border-inline-start:1px solid #1A1F27; }
+  .pg-submit-access header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .pg-submit-access header h2 { display:flex; align-items:center; gap:10px; }
+  .pg-submit-lock { display:inline-block; position:relative; width:11px; height:8px; border:1.5px solid currentColor; border-radius:2px; margin-top:3px; }
+  .pg-submit-lock::before { content:''; position:absolute; width:7px; height:6px; inset:-6px 0 auto 0; margin:auto; border:1.5px solid currentColor; border-bottom:0; border-radius:6px 6px 0 0; }
+  .pg-submit-access p { font-size:12px; color:var(--pg-muted); }
+  .pg-submit-access-card,.pg-submit-grants { display:grid; gap:10px; }
+  .pg-submit-access-card { padding:13px; border:1px solid #2A313C; border-radius:10px; background:var(--pg-control); }
+  .pg-submit-access-card > button,.pg-submit-access > button,.pg-submit-grants > button { justify-self:start; align-self:start; }
+  .pg-submit-pending { padding:1px 6px; border-radius:3px; background:var(--pg-warning); color:var(--pg-ink); font:11px/1.5 var(--pg-font-mono); }
+  .pg-submit-path { display:grid; gap:4px; padding:9px 10px; border:1px solid var(--pg-line); border-radius:6px; background:var(--pg-ink); }
+  .pg-submit-path code { color:var(--pg-text); font-size:12px; overflow-wrap:anywhere; }
+  .pg-submit-path small { color:var(--pg-label); }
+  .pg-submit-access fieldset { display:grid; gap:6px; margin:0; padding:0; border:0; }
+  .pg-submit-access legend { color:var(--pg-muted); font-size:12px; padding:0 0 6px; }
+  .pg-submit-radio { display:flex; align-items:flex-start; gap:9px; padding:9px; border:1px solid var(--pg-line); border-radius:8px; }
+  .pg-submit-radio[data-selected=true] { background:var(--pg-accent-soft); border-color:#657D27; }
+  .pg-submit-radio small { display:block; color:var(--pg-label); }
+  .pg-submit-page input:is([type=radio],[type=checkbox]) { accent-color:var(--pg-accent); }
+  .pg-submit-recursive { font-size:11px; color:var(--pg-muted); }
+  .pg-submit-revoke { color:var(--pg-error); font-size:12px; }
+  .pg-submit-access footer { margin-top:auto; padding-top:12px; border-top:1px solid #1A1F27; }
+  .pg-submit-access footer > div { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; gap:6px; }
+  .pg-submit-access footer button { font-size:11px; }
+  .pg-submit-access footer small { color:var(--pg-label); }
+  .pg-submit-empty { padding:24px; }
+
+  .pg-submit-scoring { width:100%; max-width:1440px; margin:0 auto; padding:20px clamp(18px,4.45cqw,64px) 40px; overflow:auto; scrollbar-width:thin; }
+  .pg-submit-totals { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--pg-line); border-radius:12px; background:var(--pg-panel); }
+  .pg-submit-totals > div { display:grid; gap:3px; padding:16px 18px; min-height:108px; align-content:center; }
+  .pg-submit-totals > div + div { border-inline-start:1px solid var(--pg-line); }
+  .pg-submit-totals dt { font-size:11px; color:var(--pg-label); }
+  .pg-submit-totals dd { font:30px/1.12 var(--pg-font-mono); }
+  .pg-submit-totals > div:last-child dd { color:var(--pg-warning); }
+  .pg-submit-scoring-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(295px,400px); gap:18px; align-items:start; margin-top:18px; }
+  .pg-submit-table-card,.pg-submit-scorecard { min-width:0; border:1px solid var(--pg-line); border-radius:12px; background:var(--pg-panel); overflow:hidden; }
+  .pg-submit-table-card header { padding:12px 16px; border-bottom:1px solid #161B22; }
+  .pg-submit-table-card header .pg-submit-kicker { white-space:nowrap; }
+  .pg-submit-table-card > p { padding:8px 16px; }
+  .pg-submit-table-scroll { overflow:auto; scrollbar-width:thin; }
+  .pg-submit-table-card table { width:100%; border-collapse:collapse; min-width:650px; }
+  .pg-submit-table-card :is(td,th) { padding:0 8px; text-align:start; }
+  .pg-submit-table-card :is(td,th):first-child { padding-inline-start:16px; width:42px; white-space:nowrap; }
+  .pg-submit-table-card :is(td,th):last-child { padding-inline-end:16px; text-align:end; }
+  .pg-submit-table-card :is(td,th):nth-child(2) { min-width:82px; }
+  .pg-submit-table-card :is(td,th):nth-child(4) { min-width:183px; }
+  .pg-submit-table-card th { height:36px; color:var(--pg-label); font-size:11px; font-weight:400; }
+  .pg-submit-table-card td { height:48px; border-bottom:1px solid #161B22; overflow-wrap:anywhere; }
+  .pg-submit-table-card td:nth-child(5) { font-size:12px; color:var(--pg-muted); }
+  .pg-submit-table-card td:last-child { font:16px var(--pg-font-mono); }
+  .pg-submit-reference-score { color:var(--pg-info); }
+  .pg-submit-table-card td input { appearance:none; display:grid; place-items:center; width:18px; height:18px; margin:0; border:1px solid #495568; border-radius:4px; cursor:pointer; }
+  .pg-submit-table-card td input:checked { background:var(--pg-accent); border-color:var(--pg-accent); color:var(--pg-ink); }
+  .pg-submit-table-card td input:checked::after { content:'✓'; font-size:11px; }
+  .pg-submit-table-card td button { color:var(--pg-text); font:12.5px var(--pg-font-mono); }
+  .pg-submit-table-card tr[data-selected=true] { background:var(--pg-hover); }
+  .pg-submit-table-card tr[data-selected=true] td button { color:var(--pg-accent); }
+  .pg-submit-status[data-shape=striped]::before { border:1px solid currentColor; border-radius:2px; background:repeating-linear-gradient(135deg,currentColor 0 1px,transparent 1px 3px); }
+  .pg-submit-table-card .pg-submit-status { border:0; padding:0; }
+  .pg-submit-table-card footer { padding:12px; text-align:center; }
+  .pg-submit-scorecard { padding:16px 18px 18px; }
+  .pg-submit-scorecard header { display:flex; justify-content:space-between; align-items:start; gap:12px; }
+  .pg-submit-scorecard header > div:last-child { display:grid; text-align:end; }
+  .pg-submit-scorecard header strong { font:40px/1.1 var(--pg-font-mono); letter-spacing:-.03em; }
+  .pg-submit-compared { display:flex; flex-wrap:wrap; gap:8px 12px; padding:11px 12px; margin:14px 0; border:1px solid #222833; border-radius:8px; background:var(--pg-ink); font:12px var(--pg-font-mono); }
+  .pg-submit-compared span::before { content:''; display:inline-block; width:10px; height:4px; margin-inline-end:5px; background:var(--pg-accent); vertical-align:middle; }
+  .pg-submit-compared span:nth-child(2) { color:var(--pg-muted); }
+  .pg-submit-compared span:nth-child(2)::before { background:var(--pg-label); }
+  .pg-submit-compared strong { margin-inline-start:auto; color:var(--pg-accent); font-weight:500; }
+  .pg-submit-scorecard dl { margin-top:14px; padding-top:12px; border-top:1px solid #161B22; display:grid; gap:5px; }
+  .pg-submit-scorecard dl > div { display:grid; grid-template-columns:80px minmax(0,1fr); gap:12px; }
+  .pg-submit-scorecard dt { color:var(--pg-label); }
+  .pg-submit-scorecard dd { overflow-wrap:anywhere; }
+  .pg-submit-dimensions { list-style:none; padding:0; display:grid; gap:7px; }
+  .pg-submit-dimensions li { display:grid; grid-template-columns:minmax(80px,1fr) 2fr auto; gap:12px; align-items:center; }
+  .pg-submit-dimensions meter { width:100%; accent-color:var(--pg-accent); }
+  .pg-submit-dimensions strong { grid-column:3; }
+  @container (max-width:1120px) {
+    .pg-submit-task-grid { grid-template-columns:215px minmax(0,1fr) 270px; }
+    .pg-submit-task-inner { padding-inline:18px; }
+    .pg-submit-scoring-grid { grid-template-columns:minmax(0,1fr) minmax(270px,32%); }
+  }
+  @container (max-width:900px) {
+    .pg-submit-task-grid { grid-template-columns:200px minmax(0,1fr); min-height:max-content; }
+    .pg-submit-access { grid-column:2; border-top:1px solid var(--pg-line); }
+    .pg-submit-rail { grid-row:span 2; }
+    .pg-submit-scoring-grid { grid-template-columns:minmax(0,1fr); }
+  }
+  @container (max-width:620px) {
+    .pg-submit-task-grid { grid-template-columns:minmax(0,1fr); }
+    .pg-submit-rail { grid-row:auto; border-bottom:1px solid var(--pg-line); }
+    .pg-submit-access { grid-column:auto; }
+    .pg-submit-totals { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .pg-submit-totals > div:nth-child(n+3) { border-top:1px solid var(--pg-line); }
+  }
+`;
+
+// src/client/tasks/submit-page.js
+var stages = /* @__PURE__ */ __name(() => [
+  msg("任务创建", "Task created"),
+  msg("Agent 执行", "Agent execution"),
+  msg("请求提交", "Request submission"),
+  msg("取得编号", "Submission ID"),
+  msg("平台评测", "Platform evaluation"),
+  msg("最终结果", "Final result")
+], "stages");
+var sources = /* @__PURE__ */ __name(() => ({ agent: msg("Agent 报告", "Agent report"), host: msg("宿主记录", "Host record"), platform: msg("平台回执", "Platform receipt") }), "sources");
+var briefTime = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Shanghai", month: "numeric", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+var displayTime = /* @__PURE__ */ __name((value) => {
+  const time = parsePlatformTime(value);
+  return Number.isFinite(time) ? briefTime.format(time).replace("/", ".").replace(", ", " ") : "—";
+}, "displayTime");
+var titleOf = /* @__PURE__ */ __name((session, task) => task?.title || session?.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task"), "titleOf");
+var scoreText = /* @__PURE__ */ __name((score) => Number.isFinite(score) ? Number.isInteger(score) ? score.toFixed(1) : String(score) : "—", "scoreText");
+var stateOf = /* @__PURE__ */ __name((session) => session?.projectionValues?.playgroundTask, "stateOf");
+var rowKey = /* @__PURE__ */ __name(({ id, challengeId }) => JSON.stringify([challengeId, id]), "rowKey");
+var button = /* @__PURE__ */ __name((label2, onClick, props) => h("button", { type: "button", className: "pg-button", onClick, ...props }, label2), "button");
+var historyContext = /* @__PURE__ */ __name(() => msg("当前账号 · 包括在终端或其他工具中完成的提交", "Current account · Includes submissions made in the terminal and other tools"), "historyContext");
+var description = /* @__PURE__ */ __name(() => msg("按时间从新到旧 · 包括在终端和其他工具中完成的提交", "Newest first · Includes submissions made in the terminal and other tools"), "description");
+function useHistory(query, active, scope, limit) {
+  const { account, challengeId, baseUrl, stamp } = scope;
+  const key2 = JSON.stringify([account, challengeId, baseUrl, stamp]);
+  const [data, setData] = React16.useState({});
+  const [pending] = React16.useState(() => ({ controller: null }));
+  const current = data.key === key2 ? data : {};
+  const load = /* @__PURE__ */ __name(async (cursor) => {
+    if (!query) return;
+    pending.controller?.abort();
+    const controller = new AbortController();
+    pending.controller = controller;
+    setData({ ...current, key: key2, busy: true, error: "" });
+    try {
+      const result = await query({
+        action: "my_attempts",
+        limit,
+        ...challengeId ? { challengeId } : { allChallenges: true },
+        ...baseUrl ? { baseUrl } : {},
+        ...cursor ? { cursor } : {}
+      }, controller.signal);
+      if (controller.signal.aborted) return;
+      if (!Array.isArray(result?.items) || result?.ok === false) throw new Error(result?.error?.code === "authentication_required" ? msg("登录后可查看提交历史。", "Sign in to view submissions.") : safeMessage(result?.error?.message));
+      const byKey = new Map((cursor ? current.items : []).map((item) => [rowKey(item), item]));
+      for (const item of result.items) {
+        if (item && Number.isSafeInteger(item.id)) byKey.set(rowKey(item), { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl });
+      }
+      setData({
+        key: key2,
+        items: [...byKey.values()].sort(sortSubmissionRows),
+        nextCursor: result.nextCursor,
+        busy: false,
+        counts: result.submissionCounts,
+        scoringTotals: result.scoringTotals,
+        challenges: result.challenges,
+        partial: result.partial
+      });
+    } catch (failure) {
+      if (!controller.signal.aborted) setData({ ...current, key: key2, busy: false, error: failure?.message || msg("提交历史读取失败。", "Could not load submission history.") });
+    }
+  }, "load");
+  React16.useEffect(() => {
+    if (active) void load();
+    return () => pending.controller?.abort();
+  }, [query, active, key2]);
+  return { ...current, reload: /* @__PURE__ */ __name(() => load(), "reload"), loadMore: /* @__PURE__ */ __name(() => load(current.nextCursor), "loadMore") };
+}
+__name(useHistory, "useHistory");
+function relatedRow(item, tasks, attempts) {
+  const session = tasks.find((task) => attributedAttempt(stateOf(task), item));
+  const state = stateOf(session);
+  const receipt = withLatestAttempt(state, attempts, session?.id);
+  const latest = receiptAttemptId(receipt) === item.id;
+  const scope = state ? taskAttemptScope(state) : void 0;
+  const observed = latest ? receipt : scope && attempts?.[attemptKey(scope, item.id)]?.attempt;
+  const row = withHistoryAttempt(item, observed, { latest, closed: state?.bundleClosedIds?.includes(item.id) });
+  const attempt = {
+    ...row,
+    submissionState: row.submissionState ?? observed?.submissionState,
+    identity: row.identity ?? observed?.identity,
+    scorecard: row.scorecard ?? observed?.scorecard,
+    scorecardTruncated: row.scorecardTruncated ?? observed?.scorecardTruncated
+  };
+  return { attempt, session, bundleMissing: taskBundleMissingIds(state).includes(item.id) };
+}
+__name(relatedRow, "relatedRow");
+function relationOf(row) {
+  const identity = row.attempt.identity === "agent" || row.attempt.authorIsAgent ? msg("Agent 账号", "Agent account") : row.attempt.identity === "self" ? msg("本人", "My account") : msg("身份未知", "Identity unknown");
+  return row.session ? `${identity} · ${msg("本对话", "Task chat")}` : identity;
+}
+__name(relationOf, "relationOf");
+function statusBadge(row) {
+  const { tone, shape, label: label2 } = submissionStatus(row.attempt, row.bundleMissing);
+  return h("span", { className: "pg-badge pg-submit-status", "data-tone": tone, "data-shape": shape }, label2);
+}
+__name(statusBadge, "statusBadge");
+function Lifecycle({ session, state, request }) {
+  const steps = lifecycle(session, state, request, state.receipt);
+  const labels = stages();
+  const evidence = sources();
+  return h(
+    "section",
+    { className: "pg-submit-lifecycle", "aria-label": msg("提交进度", "Submission progress") },
+    h(
+      "header",
+      null,
+      h("span", { className: "pg-submit-kicker" }, "LIFECYCLE"),
+      h("div", null, ...Object.entries(evidence).map(([key2, label2]) => h("span", { key: key2, "data-source": key2 }, label2)))
+    ),
+    h("ol", null, ...steps.map((step, index) => h(
+      "li",
+      { key: labels[index], "data-stage": step.current ? "current" : step.reached ? "done" : "pending" },
+      h("div", { className: "pg-submit-node", "aria-hidden": true }, h("span", null, step.current ? "!" : step.reached ? "✓" : String(index + 1).padStart(2, "0"))),
+      h("strong", null, labels[index]),
+      h("time", null, step.reached ? displayTime(step.time) : "—"),
+      h("small", { "data-source": step.reached ? step.source : void 0 }, step.current && request?.status === "awaiting_user" ? msg("等待配额答复", "Waiting for quota decision") : step.reached ? evidence[step.source] : index === 3 && steps[2].reached ? msg("尚未创建", "Not created") : "—")
+    )))
+  );
+}
+__name(Lifecycle, "Lifecycle");
+function HistoryNotice({ history }) {
+  return h(
+    React16.Fragment,
+    null,
+    history.error ? h("p", { className: "pg-error", role: "alert" }, history.error, " ", button(msg("重试", "Retry"), history.reload)) : null,
+    history.partial ? h("p", { className: "pg-note", role: "status" }, msg("平台记录不完整，仅显示可核实的提交。", "Platform history is incomplete. Showing verified submissions.")) : null,
+    history.busy && !history.items ? h("p", { className: "pg-note", role: "status" }, msg("正在读取提交历史…", "Loading submission history…")) : null,
+    history.items?.length === 0 ? h("p", { className: "pg-note" }, msg("暂无提交记录。", "No submissions yet.")) : null
+  );
+}
+__name(HistoryNotice, "HistoryNotice");
+function TaskHistory({ scope, attemptId, stamp, account, query, active, tasks, attempts, openScore }) {
+  const history = useHistory(
+    query,
+    active && Boolean(scope.challengeId) && !scope.conflict,
+    { account, challengeId: scope.challengeId, baseUrl: scope.baseUrl, stamp },
+    20
+  );
+  const rows = (history.items || []).map((item) => relatedRow(item, tasks, attempts));
+  const recent = rows.find(({ attempt }) => attempt.id === attemptId) || rows[0];
+  return h(
+    "section",
+    { className: "pg-submit-task-history", "aria-label": msg("本题提交历史", "Challenge submission history") },
+    h(
+      "header",
+      null,
+      h("h2", null, msg("本题提交历史", "Challenge submission history")),
+      h("small", null, historyContext()),
+      recent ? button(msg("查看评分详情", "View score details"), () => openScore(recent.attempt), { className: "pg-submit-link" }) : null
+    ),
+    h(HistoryNotice, { history }),
+    ...rows.map((row) => h(
+      "div",
+      { key: rowKey(row.attempt), className: "pg-submit-history-row" },
+      button(`#${row.attempt.id}`, () => openScore(row.attempt), { className: "pg-submit-link" }),
+      statusBadge(row),
+      h("span", null, relationOf(row)),
+      h("time", null, displayTime(row.attempt.createdAt)),
+      h("strong", null, scoreText(attemptScore(row.attempt).finalScore))
+    )),
+    history.nextCursor ? button(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy }) : null
+  );
+}
+__name(TaskHistory, "TaskHistory");
+function TaskRail({ taskSessions, archivedTasks, showArchived, setShowArchived, archive, selected, select, attempts, workspaceOf, nav, refInto }) {
+  return h(
+    "nav",
+    { className: "pg-submit-rail", "aria-label": msg("参赛任务", "Participation tasks") },
+    ...taskSessions.map((session) => {
+      const state = stateOf(session);
+      const receipt = withLatestAttempt(state, attempts, session.id);
+      const steps = lifecycle(session, state, state?.submission, receipt);
+      const status = submissionStatus(receipt);
+      const [label2, tone] = steps[2].current && state.submission?.status === "awaiting_user" ? [msg("等待配额答复", "Waiting for quota decision"), "warning"] : session.running ? [msg("Agent 执行中", "Agent running"), "active"] : state?.submission?.status === "unknown" ? [msg("状态未知 · 先核对已有提交", "Unknown · Reconcile existing attempts"), "neutral"] : status.key === "evaluating" && platformReceivedBundle(receipt) ? [msg("评测中 · 平台已接收", "Evaluating · Received"), status.tone] : [status.label, status.tone];
+      return button(
+        h(
+          React16.Fragment,
+          null,
+          h("strong", null, titleOf(session, state?.task)),
+          h(
+            "span",
+            { className: "pg-submit-ticks", "aria-hidden": true },
+            steps.map((step, index) => h("i", { key: index, "data-stage": step.current ? "current" : step.reached ? "done" : "pending" }))
+          ),
+          h("span", { className: "pg-submit-rail-meta" }, h("span", { "data-tone": tone }, label2), h("small", null, workspaceOf(session, state?.task)?.title))
+        ),
+        () => select(session.id),
+        { key: session.id, className: "pg-submit-task", "aria-pressed": session.id === selected, ref: refInto(nav.rows, session.id) }
+      );
+    }),
+    archive && archivedTasks.length ? h(
+      React16.Fragment,
+      null,
+      button(msg(`已归档 ${archivedTasks.length} 个`, `Archived (${archivedTasks.length})`), () => setShowArchived(!showArchived), {
+        className: "pg-archived-toggle",
+        "aria-expanded": showArchived,
+        "aria-controls": "pg-submit-archived",
+        ref: /* @__PURE__ */ __name((node) => {
+          nav.toggle = node;
+        }, "ref")
+      }),
+      showArchived ? h("div", { id: "pg-submit-archived", role: "list" }, archivedTasks.map((session) => h(ArchivedTaskRow, { key: session.id, session, archive, buttonRef: refInto(nav.archived, session.id) }))) : null
+    ) : null
+  );
+}
+__name(TaskRail, "TaskRail");
+function TaskPane({ session, archive, archiveError, openConversation, openError, workspaceOf, state, request, controls, permissions, error, allowed, history, nav, archived }) {
+  const task = state.task;
+  const context = [task?.competitionName, task?.periodName, task?.categoryName].filter(Boolean);
+  const meta = [session.modelName || session.modelId, task?.cwd || session.cwd || workspaceOf(session, task)?.path].filter(Boolean);
+  return h(
+    React16.Fragment,
+    null,
+    h(
+      "article",
+      { className: "pg-submit-task-detail" },
+      h(
+        "div",
+        { className: "pg-submit-task-inner" },
+        h(
+          "header",
+          { className: "pg-submit-task-header" },
+          h(
+            "div",
+            null,
+            h("small", { className: "pg-submit-kicker" }, [msg("参赛任务", "Participation tasks"), ...context].join(" · ")),
+            h("h1", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+              nav.heading = node;
+            }, "ref") }, titleOf(session, task)),
+            h("p", null, [msg("任务 Agent", "Task Agent"), ...meta].join(" · "))
+          ),
+          h(
+            "div",
+            { className: "pg-submit-task-actions" },
+            archived ? null : button(msg("打开任务对话", "Open task chat"), () => openConversation(session.id)),
+            h(TaskArchiveControl, { session, archive: archive && { ...archive, archived, error: archiveError.id === session.id ? archiveError.message : "" } })
+          )
+        ),
+        openError || error ? h("p", { className: "pg-error", role: "alert" }, openError || error) : null,
+        h(Lifecycle, { session, state, request }),
+        controls,
+        allowed === false ? h("p", { className: "pg-note" }, msg("当前连接没有此会话的操作权限。", "This connection cannot perform actions in this chat.")) : null,
+        h(TaskHistory, { ...history, scope: taskAttemptScope(state), stamp: state.receipt?.trackedAt ?? state.receipt?.confirmedAt, attemptId: receiptAttemptId(state.receipt) })
+      )
+    ),
+    permissions || h(
+      "aside",
+      { className: "pg-submit-access", "aria-label": msg("外部材料权限", "External material permissions") },
+      h("h2", null, msg("外部材料权限", "External material permissions")),
+      h("p", null, msg("暂无可显示的材料权限。", "No material permissions available."))
+    )
+  );
+}
+__name(TaskPane, "TaskPane");
+function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
+  const attempt = row.attempt;
+  const key2 = rowKey(attempt);
+  const [detail, setDetail] = React16.useState({});
+  const [pending] = React16.useState(() => ({ controller: null }));
+  const load = /* @__PURE__ */ __name(async (refresh = false) => {
+    if (!query) return;
+    pending.controller?.abort();
+    const controller = new AbortController();
+    pending.controller = controller;
+    setDetail((previous) => ({ ...previous, key: key2, busy: true, error: "" }));
+    try {
+      const value2 = await query({
+        action: "attempt",
+        attemptId: attempt.id,
+        challengeId: attempt.challengeId,
+        ...attempt.baseUrl ? { baseUrl: attempt.baseUrl } : {}
+      }, controller.signal);
+      if (controller.signal.aborted) return;
+      if (value2?.ok === false || Number(value2?.id) !== attempt.id || String(value2.challengeId) !== attempt.challengeId) throw new Error();
+      setDetail({ key: key2, attempt: value2 });
+      if (refresh) onRefresh({ ...attempt, ...value2 });
+    } catch {
+      if (!controller.signal.aborted) setDetail({ key: key2, error: msg("评分详情读取失败。", "Could not load score details.") });
+    }
+  }, "load");
+  React16.useEffect(() => {
+    if (active) void load();
+    return () => pending.controller?.abort();
+  }, [active, query, key2]);
+  const value = detail.key === key2 ? { ...attempt, ...detail.attempt } : attempt;
+  const delta = compareFinalScores(value, compared?.attempt);
+  const dimensions = scoreDimensions(value);
+  const source = submissionStatus(value, row.bundleMissing);
+  const missing = value.bundleNotReceived === true;
+  const received = platformReceivedBundle(value);
+  const status = value.status || value.scoringState ? source.label : "—";
+  return h(
+    "aside",
+    { className: "pg-submit-scorecard", "aria-label": msg("评分详情", "Scorecard") },
+    h(
+      "header",
+      null,
+      h(
+        "div",
+        null,
+        h("span", { className: "pg-submit-kicker" }, "SCORECARD", compared ? msg(" · 对比 2 次提交", " · Comparing 2 submissions") : ""),
+        h("h2", null, value.challengeTitle || attempt.challengeTitle || attempt.challengeId)
+      ),
+      h("div", null, h("strong", null, scoreText(attemptScore(value).finalScore)), h("small", null, msg("最终分数", "Final score")))
+    ),
+    compared ? h(
+      "div",
+      { className: "pg-submit-compared" },
+      h("span", null, `# ${attempt.id}`),
+      h("span", null, `# ${compared.attempt.id}`),
+      h("strong", null, msg("总分", "Total"), " ", delta === void 0 ? "—" : `${delta >= 0 ? "+" : ""}${Number(delta.toFixed(3))}`)
+    ) : null,
+    dimensions.length ? h(
+      "ul",
+      { className: "pg-submit-dimensions", "aria-label": msg("分维度评分", "Score dimensions") },
+      dimensions.map(([label2, score]) => h(
+        "li",
+        { key: label2 },
+        h("span", null, label2),
+        score >= 0 && score <= 1 ? h("meter", { min: 0, max: 1, value: score, "aria-label": label2 }) : null,
+        h("strong", null, score)
+      ))
+    ) : null,
+    h("dl", null, ...[
+      [msg("平台状态", "Platform status"), status],
+      [msg("评测包", "Evaluation bundle"), missing ? msg("未收到", "Missing") : received ? msg("已接收", "Received") : "—"],
+      [msg("提交者", "Submitter"), value.authorName || relationOf(row)]
+    ].map(([name, fact]) => h("div", { key: name }, h("dt", null, name), h("dd", null, fact)))),
+    detail.key === key2 && detail.error ? h("p", { className: "pg-error", role: "alert" }, detail.error) : null,
+    h(
+      "div",
+      { className: "pg-actions" },
+      button(msg("刷新结果", "Refresh result"), () => load(true), { disabled: detail.key === key2 && detail.busy }),
+      row.session ? button(msg("打开参赛任务", "Open participation task"), () => openTask(row.session.id)) : null
+    )
+  );
+}
+__name(Scorecard, "Scorecard");
+function ScoringPane({ history, challenge, status, query, attempts, tasks, openTask, active, picked, setPicked, compare, setCompare }) {
+  const [updates, setUpdates] = React16.useState({});
+  const loaded = history.items?.map((item) => relatedRow({ ...item, ...updates[rowKey(item)] }, tasks, attempts));
+  const scoringTotals = history.scoringTotals && { ...history.scoringTotals };
+  if (scoringTotals && loaded) {
+    for (const [index, row] of loaded.entries()) {
+      const before = submissionStatus(history.items[index]).key;
+      const after = submissionStatus(row.attempt, row.bundleMissing).key;
+      scoringTotals.final += Number(after === "final") - Number(before === "final");
+      scoringTotals.attention += Number(needsAttention(after)) - Number(needsAttention(before));
+    }
+  }
+  const totals = submissionTotals(loaded, { ...history, scoringTotals });
+  const filtered = (loaded || []).filter((row) => (!challenge || row.attempt.challengeId === challenge) && (!status || submissionStatus(row.attempt, row.bundleMissing).key === status));
+  const available = new Map((loaded || []).map((row) => [rowKey(row.attempt), row]));
+  const selectedRows = compare.map((key2) => available.get(key2)).filter(Boolean);
+  const requested = picked && (available.get(rowKey(picked)) || relatedRow({ ...picked, ...updates[rowKey(picked)] }, tasks, attempts));
+  const focused = selectedRows.length === 2 ? selectedRows[0] : requested || selectedRows[0] || filtered[0];
+  const compared = selectedRows.length === 2 ? selectedRows[1] : void 0;
+  const toggle = /* @__PURE__ */ __name((key2) => setCompare((previous) => previous.includes(key2) ? previous.filter((item) => item !== key2) : [...previous.slice(-1), key2]), "toggle");
+  return h(
+    "div",
+    { className: "pg-submit-scoring" },
+    h("dl", { className: "pg-submit-totals" }, ...[
+      [msg("累计提交", "Total submissions"), totals.total, msg("当前账号 · 所有赛题", "Current account · All challenges")],
+      [msg("今天", "Today"), totals.today, `${msg("北京时间", "Beijing time")} ${totals.date ?? "—"}`],
+      [msg("已出最终分", "Final scores"), totals.final, msg("平台已确认的最终结果", "Final results confirmed by the platform")],
+      [msg("需处理", "Needs attention"), totals.attention, msg("评测包未收到 · 上传未确认", "Bundle missing · Upload unconfirmed")]
+    ].map(([label2, value, hint]) => h("div", { key: label2 }, h("dt", null, label2), h("dd", null, value ?? "—"), h("small", null, hint)))),
+    h(
+      "div",
+      { className: "pg-submit-scoring-grid" },
+      h(
+        "section",
+        { className: "pg-submit-table-card", "aria-label": msg("提交历史", "Submission history") },
+        h(
+          "header",
+          null,
+          h("h2", null, msg("提交历史", "Submission history")),
+          h("small", null, description()),
+          loaded ? h("span", { className: "pg-submit-kicker" }, msg(`已加载 ${loaded.length}`, `Loaded ${loaded.length}`), totals.total == null ? "" : ` / ${totals.total}`) : null
+        ),
+        h(HistoryNotice, { history }),
+        h("div", { className: "pg-submit-table-scroll" }, h(
+          "table",
+          null,
+          h("thead", null, h("tr", null, ...[
+            msg("对比", "Compare"),
+            msg("编号", "ID"),
+            msg("赛题", "Challenge"),
+            msg("状态", "Status"),
+            msg("关联", "Link"),
+            msg("时间", "Time"),
+            msg("分数", "Score")
+          ].map((label2) => h("th", { key: label2, scope: "col" }, label2)))),
+          h("tbody", null, ...filtered.map((row) => {
+            const attempt = row.attempt;
+            const key2 = rowKey(attempt);
+            const scoring = attemptScore(attempt);
+            const selected = focused && rowKey(focused.attempt) === key2;
+            return h(
+              "tr",
+              { key: key2, "data-selected": selected },
+              h("td", null, h("input", {
+                type: "checkbox",
+                checked: compare.includes(key2),
+                onChange: /* @__PURE__ */ __name(() => toggle(key2), "onChange"),
+                "aria-label": msg(`对比提交 #${attempt.id}`, `Compare submission #${attempt.id}`)
+              })),
+              h("td", null, button(`#${attempt.id}`, () => {
+                setCompare([]);
+                setPicked(attempt);
+              }, { className: "pg-submit-link", "aria-pressed": selected })),
+              h("td", null, attempt.challengeTitle || attempt.challengeId),
+              h("td", null, statusBadge(row)),
+              h("td", null, relationOf(row)),
+              h("td", null, h("time", null, displayTime(attempt.createdAt))),
+              h(
+                "td",
+                { className: scoring.referenceScore !== void 0 ? "pg-submit-reference-score" : void 0 },
+                scoreText(scoring.finalScore ?? scoring.referenceScore)
+              )
+            );
+          }))
+        )),
+        loaded?.length && !filtered.length ? h("p", { className: "pg-note" }, msg("已加载记录中没有匹配的提交。", "No matching submissions in the loaded history.")) : null,
+        history.nextCursor ? h("footer", null, button(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy })) : null
+      ),
+      focused ? h(Scorecard, {
+        row: focused,
+        compared,
+        query,
+        active,
+        openTask,
+        onRefresh: /* @__PURE__ */ __name((value) => setUpdates((previous) => ({ ...previous, [rowKey(value)]: value })), "onRefresh")
+      }) : null
+    )
+  );
+}
+__name(ScoringPane, "ScoringPane");
+function SubmitPage({
+  active,
+  account,
+  accountName,
+  taskSessions,
+  archivedTasks,
+  workspaces,
+  archive,
+  byId,
+  projections,
+  selected,
+  select,
+  showArchived,
+  setShowArchived,
+  nav,
+  refInto,
+  announcement,
+  openError,
+  openConversation,
+  archiveError,
+  store,
+  useSessionAccess,
+  refreshProjections,
+  query,
+  run,
+  submission,
+  materials,
+  t
+}) {
+  const [view, setView] = React16.useState("tasks");
+  const [picked, setPicked] = React16.useState(null);
+  const [comparison, setComparison] = React16.useState({});
+  const [challenge, setChallenge] = React16.useState("");
+  const [status, setStatus] = React16.useState("");
+  const scoreActive = active && view === "scores";
+  const history = useHistory(query, scoreActive, { account }, 6);
+  const session = byId[selected];
+  const projection = projections?.[selected];
+  const state = projection?.state === "ready" ? projection.values?.playgroundTask || {} : stateOf(session) || {};
+  const archived = archivedTasks.some(({ id }) => id === selected);
+  const [filterAccount, setFilterAccount] = React16.useState(account);
+  const activeChallenge = filterAccount === account ? challenge : "";
+  const activeStatus = filterAccount === account ? status : "";
+  const tasks = [...taskSessions, ...archivedTasks];
+  const workspaceOf = /* @__PURE__ */ __name((item, task) => workspaces?.find((workspace) => item.workspaceId && workspace.workspaceId === item.workspaceId || workspace.sessionIds?.includes(item.id) || (item.cwd || task?.cwd) && workspace.path === (item.cwd || task?.cwd)), "workspaceOf");
+  const openScore = /* @__PURE__ */ __name((attempt) => {
+    setPicked({ account, attempt });
+    setComparison({ account, keys: [] });
+    setChallenge("");
+    setStatus("");
+    setView("scores");
+  }, "openScore");
+  const openTask = /* @__PURE__ */ __name((id) => {
+    select(id);
+    setView("tasks");
+  }, "openTask");
+  const pane = /* @__PURE__ */ __name((data) => h(TaskPane, {
+    ...data,
+    session,
+    archived,
+    archive,
+    archiveError,
+    openConversation,
+    openError,
+    workspaceOf,
+    nav,
+    history: { query, account, active: active && view === "tasks", tasks, attempts: store.attempts, openScore }
+  }), "pane");
+  const taskPane = session ? h(
+    "div",
+    { className: "pg-submit-task-grid" },
+    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived, archive, selected, select, attempts: store.attempts, workspaceOf, nav, refInto }),
+    archived || projection?.state !== "ready" ? h(
+      React16.Fragment,
+      null,
+      pane({ state, request: state.submission }),
+      !archived ? h(SelectedTask, { key: session.id, session, projection, useSessionAccess, refreshProjections, attempts: store.attempts, run, submission, materials, t }) : null
+    ) : h(SelectedTask, {
+      key: session.id,
+      session,
+      projection,
+      useSessionAccess,
+      refreshProjections,
+      attempts: store.attempts,
+      run,
+      submission,
+      materials,
+      t,
+      inline: true,
+      renderInline: pane
+    })
+  ) : h(
+    "div",
+    { className: "pg-submit-task-grid" },
+    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived, archive, selected, select, attempts: store.attempts, workspaceOf, nav, refInto }),
+    h("p", { className: "pg-note pg-submit-empty", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+      nav.heading = node;
+    }, "ref") }, msg("暂无参赛任务。", "No participation tasks yet."))
+  );
+  const challengeOptions = history.challenges || [...new Map((history.items || []).map(({ challengeId, challengeTitle }) => [challengeId, challengeTitle])).entries()];
+  const filters = view === "scores" ? h(
+    "div",
+    { className: "pg-submit-filters" },
+    h("label", null, msg("赛题", "Challenge"), h(
+      "select",
+      { value: activeChallenge, onChange: /* @__PURE__ */ __name((event) => {
+        setFilterAccount(account);
+        setChallenge(event.target.value);
+        setStatus(activeStatus);
+      }, "onChange") },
+      h("option", { value: "" }, msg("全部赛题", "All challenges")),
+      ...challengeOptions.map(([id, title]) => h("option", { key: id, value: id }, title || id))
+    )),
+    h("label", null, msg("状态", "Status"), h(
+      "select",
+      { value: activeStatus, onChange: /* @__PURE__ */ __name((event) => {
+        setFilterAccount(account);
+        setStatus(event.target.value);
+        setChallenge(activeChallenge);
+      }, "onChange") },
+      ...[
+        ["", msg("全部", "All")],
+        ["final", msg("评分完成", "Scored")],
+        ["evaluating", msg("评测中", "Evaluating")],
+        ["missing", msg("未收到评测包", "Bundle missing")],
+        ["failed", msg("未通过", "Failed")],
+        ["created", msg("上传未确认", "Upload unconfirmed")],
+        ["attention", msg("待处理", "Needs attention")],
+        ["other", msg("其他", "Other")]
+      ].map(([value, label2]) => h("option", { key: value, value }, label2))
+    ))
+  ) : null;
+  return h(
+    "main",
+    { className: "pg-workbench pg-submit-page", "aria-label": msg("Playground 提交", "Playground submissions") },
+    h("style", null, css + submitCss),
+    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, announcement),
+    h(
+      "header",
+      { className: "pg-submit-bar" },
+      h(
+        "div",
+        { role: "group", "aria-label": msg("提交视图", "Submission view"), className: "pg-submit-tabs" },
+        button(h(React16.Fragment, null, msg("参赛任务", "Participation tasks"), h("small", null, taskSessions.length)), () => setView("tasks"), { "aria-pressed": view === "tasks" }),
+        button(msg("提交记录与评分", "Submissions and scores"), () => setView("scores"), { "aria-pressed": view === "scores" })
+      ),
+      accountName || store.refreshedAt ? h(
+        "span",
+        { className: "pg-submit-kicker pg-submit-account" },
+        [accountName ? msg(`当前账号 ${accountName}`, `Account ${accountName}`) : "", store.refreshedAt ? msg(`状态更新于 ${clock(store.refreshedAt)}`, `Updated at ${clock(store.refreshedAt)}`) : ""].filter(Boolean).join(" · ")
+      ) : null,
+      filters
+    ),
+    view === "tasks" ? taskPane : h(ScoringPane, {
+      key: account ?? "",
+      history,
+      challenge: activeChallenge,
+      status: activeStatus,
+      query,
+      attempts: store.attempts,
+      tasks,
+      active: scoreActive,
+      openTask,
+      picked: picked?.account === account ? picked?.attempt : void 0,
+      setPicked: /* @__PURE__ */ __name((attempt) => setPicked({ account, attempt }), "setPicked"),
+      compare: comparison.account === account ? comparison.keys ?? [] : [],
+      setCompare: /* @__PURE__ */ __name((change) => setComparison((previous) => ({ account, keys: typeof change === "function" ? change(previous.account === account ? previous.keys ?? [] : []) : change })), "setCompare")
+    })
+  );
+}
+__name(SubmitPage, "SubmitPage");
+
 // src/client/workbench.js
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, catalogDestination, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, accountName, catalogDestination, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
-  const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
+  const workspaceSnapshot = typeof useWorkspaces === "function" ? useWorkspaces((value) => value) : void 0;
+  const archivedIds = workspaceSnapshot?.archivedSessionIds;
   const archiveAvailable = Array.isArray(archivedIds);
   const archivedSet = new Set(archiveAvailable ? archivedIds : []);
   const sessions = catalog.ids.map((id) => catalog.byId[id]).filter((session2) => !session2.parentId);
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React16.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React16.useState(false);
-  const [archiveBusy, setArchiveBusy] = React16.useState("");
-  const [archiveError, setArchiveError] = React16.useState(noArchiveError);
-  const [split, setSplit] = React16.useState(50);
-  const [announcement, setAnnouncement] = React16.useState("");
-  const [drawerOpen, setDrawerOpen] = React16.useState(false);
-  const [nav] = React16.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React17.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React17.useState(false);
+  const [archiveBusy, setArchiveBusy] = React17.useState("");
+  const [archiveError, setArchiveError] = React17.useState(noArchiveError);
+  const [split, setSplit] = React17.useState(50);
+  const [announcement, setAnnouncement] = React17.useState("");
+  const [drawerOpen, setDrawerOpen] = React17.useState(false);
+  const [nav] = React17.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React16.useState("");
-  const [openError, setOpenError] = React16.useState("");
-  const [, setVersion] = React16.useState(0);
-  const [store] = React16.useState(() => {
+  const [webBase, setWebBase] = React17.useState("");
+  const [openError, setOpenError] = React17.useState("");
+  const [, setVersion] = React17.useState(0);
+  const [store] = React17.useState(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -6846,14 +7925,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     store.query = query;
     store.taskKeys = [...receipts.keys()];
     store.pendingKeys = [...pendingKeys];
     store.receipts = receipts;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     store.disposed = !active;
     if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingKeys);
     return () => {
@@ -6862,7 +7941,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       store.controller = null;
     };
   }, [active]);
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refreshAttempts(store, store.pendingKeys);
@@ -6879,13 +7958,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [active, anyPending]);
   const refreshing = Boolean(store.controller);
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (performance.now() - pending.at > unarchiveFocusMs) {
@@ -6934,6 +8013,38 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       setOpenError(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
     });
   }, "openConversation");
+  if (section === "submissions") return h(SubmitPage, {
+    active,
+    account,
+    accountName,
+    workspaces: workspaceSnapshot?.items,
+    taskSessions,
+    archivedTasks,
+    archive,
+    byId: catalog.byId,
+    projections: catalog.projectionsBySession,
+    selected: session?.id,
+    select: /* @__PURE__ */ __name((id) => {
+      setSelected(id);
+      setDrawerOpen(archivedSet.has(id));
+      setOpenError("");
+      setArchiveError(noArchiveError);
+    }, "select"),
+    showArchived,
+    setShowArchived,
+    nav,
+    refInto,
+    announcement,
+    openError,
+    openConversation,
+    archiveError,
+    store,
+    useSessionAccess,
+    refreshProjections,
+    run,
+    query,
+    ...props
+  });
   return h(
     "main",
     { className: section === "catalog" ? "pg-workbench pg-workbench-catalog" : "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
