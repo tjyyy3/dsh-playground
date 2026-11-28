@@ -214,54 +214,67 @@ function withHistoryAttempt(item, attempt, { latest, closed }) {
   if (!attempt || receiptSettled(row) || order === -1) return row;
   const merged = { ...row };
   for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
-  return receiptSettled(merged) ? merged : row;
+  if (!receiptSettled(merged)) return row;
+  if (order === 1) merged.updatedAt = attempt.updatedAt;
+  return merged;
 }
 
 const clock = (time) => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
 
-async function refreshAttempts(store, keys) {
-  if (!keys.length || store.controller || store.disposed) return;
-  const wanted = keys.map((key) => {
-    const { scope, attemptId, snapshots } = store.receipts.get(key);
-    return { key, input: { action: 'attempt', attemptId, ...scope }, snapshots };
+async function refreshAttempts(store, keys, scope) {
+  if (!keys.length || scope.pending('attempts')) return;
+  const round = scope.begin('attempts');
+  if (!round) return;
+  const { query } = store;
+  const wanted = keys.flatMap((key) => {
+    const receipt = store.receipts.get(key);
+    if (!receipt) return [];
+    const { scope, attemptId, snapshots } = receipt;
+    return [{ key, input: { action: 'attempt', attemptId, ...scope }, snapshots }];
   });
-  const controller = new AbortController();
-  store.controller = controller;
   store.startedAt = Date.now();
   store.publish();
   const fresh = [];
   let next = 0;
+  const stillTracked = ({ key, snapshots }) => [...snapshots.keys()].some((id) => store.receipts.get(key)?.snapshots.has(id));
   const worker = async () => {
-    while (next < wanted.length && !controller.signal.aborted) {
-      const { key, input, snapshots } = wanted[next++];
+    while (next < wanted.length && round.isCurrent()) {
+      const request = wanted[next++];
+      if (!stillTracked(request)) continue;
+      const { input } = request;
       try {
-        const attempt = await store.query(input, controller.signal);
+        const attempt = await query(input, round.signal);
+        if (!round.isCurrent()) return;
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl)
           && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
-          fresh.push({ key, snapshots, attempt });
+          fresh.push({ ...request, attempt });
         }
-      } catch { /* counted as failed */ }
+      } catch { /* counted as failed if the receipt is still tracked */ }
     }
   };
   await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
-  if (store.controller !== controller) return;
-  store.controller = null;
-  const updates = fresh.map(({ key, snapshots, attempt }) => {
+  if (!round.isCurrent()) return;
+  round.finish();
+  const updates = fresh.filter(stillTracked).map(({ key, snapshots, attempt }) => {
     const previous = store.attempts[key];
-    const current = store.receipts.get(key)?.snapshots;
-    const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+    const current = store.receipts.get(key).snapshots;
+    const overlays = new Map();
+    for (const [receiptId, receipt] of snapshots) {
+      const latest = current.get(receiptId);
+      if (!latest) continue;
       const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
-      // A results replay may have arrived while this round was running. Only the same confirmation
-      // can share the response that was requested for the original receipt.
-      const latest = current?.get(receiptId);
-      const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
-      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
-    }));
+      // A results replay for this confirmation may have arrived during the round.
+      const overlay = latest === receipt ? initial : overlayForReceipt(latest, initial);
+      overlays.set(receiptId, { ...overlay, ...observeAttempt(overlay, attempt) });
+    }
     return [key, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
   });
-  store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
-  store.failed = fresh.length < wanted.length;
-  if (!store.failed) { store.refreshedAt = Date.now(); store.partial = false; } else if (fresh.length) store.partial = true;
+  const tracked = wanted.filter(stillTracked).length;
+  if (tracked) {
+    store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
+    store.failed = updates.length < tracked;
+    if (!store.failed) { store.refreshedAt = Date.now(); store.partial = false; } else if (updates.length) store.partial = true;
+  }
   store.publish();
 }
 

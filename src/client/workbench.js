@@ -2,6 +2,7 @@ import { msg, usePluginLanguage } from './shared/language.js';
 import * as React from 'react';
 import { attemptKey, attemptRefreshMs, clock, noArchiveError, receiptAttemptId, receiptKey, receiptPending, refreshAttempts, taskAttemptScope, unarchiveFocusMs, visibleRefreshGapMs, withLatestAttempt } from './tasks/attempts.js';
 import { h } from './shared/react.js';
+import { useRequestScope } from './shared/request-scope.js';
 import { css } from './shared/styles.js';
 import { SubmitPage } from './tasks/submit-page.js';
 import { AuthStatusPanel } from './settings/auth.js';
@@ -26,10 +27,11 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const [showArchived, setShowArchived] = React.useState(false);
   // Id of the conversation whose archive change is in flight, and the last failure with the conversation
   // it belongs to: a drawer shows only its own task's failure.
-  const [archiveBusy, setArchiveBusy] = React.useState('');
-  const [archiveError, setArchiveError] = React.useState(noArchiveError);
+  const [archiveStatus, setArchiveStatus] = React.useState({});
+  const clearArchiveError = () => setArchiveStatus((previous) => ({ ...previous, error: undefined }));
   const [split, setSplit] = React.useState(50);
-  const [announcement, setAnnouncement] = React.useState('');
+  const [notice, setNotice] = React.useState({});
+  const setAnnouncement = (text, owner) => setNotice({ text, owner, scope: actions });
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   // Focus targets from callback refs: each task row's main button and each archived row's 取消归档 by id, the
   // archived-list toggle and the 任务总览 heading. `restored` is a successful 取消归档 from the archived list whose
@@ -38,16 +40,18 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const refInto = (map, id) => (node) => { if (node) map.set(id, node); else map.delete(id); };
   // Web root reported by the latest catalog read; only tasks recorded without webUrl or baseUrl use it.
   const [webBase, setWebBase] = React.useState('');
-  const [openError, setOpenError] = React.useState('');
+  const [openFailure, setOpenFailure] = React.useState({});
+  const clearOpenError = () => setOpenFailure({});
   // Latest platform state of each task's submission. Mutable holder plus a version counter: it lives
   // in memory only and never reaches a session projection, so refreshing writes no conversation record.
   const [, setVersion] = React.useState(0);
-  const [store] = React.useState(() => {
-    const holder = { attempts: {}, refreshedAt: undefined, failed: false, partial: false, controller: null, disposed: false, startedAt: undefined,
+  const polling = useRequestScope([active, section, account, query]);
+  const store = React.useMemo(() => {
+    const holder = { attempts: {}, refreshedAt: undefined, failed: false, partial: false, startedAt: undefined,
       version: 0, query: null, pendingKeys: [], taskKeys: [], receipts: new Map() };
     holder.publish = () => setVersion(++holder.version);
     return holder;
-  });
+  }, [account, query]);
   const receipts = new Map();
   const pendingKeys = new Set();
   for (const item of taskSessions) {
@@ -64,21 +68,21 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const anyPending = pendingKeys.size > 0;
   // The timers and listeners below read these at call time. Declared first, so they are current
   // when the mount and polling effects run.
-  React.useEffect(() => { store.query = query; store.taskKeys = [...receipts.keys()]; store.pendingKeys = [...pendingKeys]; store.receipts = receipts; });
+  React.useLayoutEffect(() => { store.query = query; store.taskKeys = [...receipts.keys()]; store.pendingKeys = [...pendingKeys]; store.receipts = receipts; });
+  const refresh = (keys) => refreshAttempts(store, keys, polling);
   const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
   // Opening the workbench reads the pending submissions once. A mount that follows a cleanup, as in
   // StrictMode, starts over.
   React.useEffect(() => {
-    store.disposed = !active;
-    if (active && pageVisible() && section !== 'catalog') refreshAttempts(store, store.pendingKeys);
-    return () => { store.disposed = true; store.controller?.abort(); store.controller = null; };
-  }, [active]);
+    if (active && pageVisible() && section !== 'catalog') refresh(store.pendingKeys);
+    return () => polling.abort('attempts');
+  }, [polling]);
   // While any submission is unscored: every two minutes, and when the page becomes visible again unless a
   // round began in the last 30 seconds. It depends on whether anything is pending, not on which ids, so a
   // task finishing neither requests again nor resets the timer. The ids are read when a round starts.
   React.useEffect(() => {
     if (!active || section === 'catalog' || !anyPending) return undefined;
-    const tick = () => { if (pageVisible()) refreshAttempts(store, store.pendingKeys); };
+    const tick = () => { if (pageVisible()) refresh(store.pendingKeys); };
     const onVisibility = () => { if (store.startedAt === undefined || Date.now() - store.startedAt >= visibleRefreshGapMs) tick(); };
     // Pending submissions that appear before any round has run (a list that loaded after mounting).
     if (store.startedAt === undefined) tick();
@@ -88,8 +92,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       clearInterval(timer);
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [active, anyPending]);
-  const refreshing = Boolean(store.controller);
+  }, [polling, anyPending]);
+  const refreshing = polling.pending('attempts');
   // A task archived from its open drawer stays selected so the drawer can offer "撤销"; once the drawer
   // is closed, the selection moves back to a task that is not archived.
   React.useEffect(() => {
@@ -107,6 +111,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   React.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
+    if (!isVisible(pending)) { nav.restored = null; return; }
     if (performance.now() - pending.at > unarchiveFocusMs) { nav.restored = null; return; }
     if (archivedSet.has(pending.id)) return;
     nav.restored = null;
@@ -115,51 +120,78 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     [nav.rows.get(pending.id), nav.archived.get(pending.next), nav.archived.get(pending.previous), nav.toggle, nav.heading].find(Boolean)?.focus?.();
   });
   const session = (archivedSet.has(selected) && !drawerOpen ? undefined : catalog.byId[selected]) || taskSessions[0];
-  // "归档任务", "撤销" and "取消归档". No confirmation: the conversation can be restored. The actions report
-  // failures as a short message and never throw; the catch only covers a host that throws anyway.
-  // `fromList` marks 取消归档 in the archived list: a success removes that row and its button, so focus moves to
-  // the restored task's row (see the effect below). The drawer's single button stays and keeps focus itself.
-  const toggleArchive = (id, archive, { fromList = false } = {}) => {
-    if (archiveBusy) return undefined;
-    setArchiveBusy(id);
-    setArchiveError(noArchiveError);
-    setAnnouncement('');
+  const actions = useRequestScope([active, section, account, section === 'submissions' ? session?.id : undefined]);
+  const isVisible = (entry) => entry.scope === actions && (!entry.owner || entry.owner.isCurrent());
+  const archiveBusy = isVisible(archiveStatus) ? archiveStatus.busy : '';
+  const archiveError = isVisible(archiveStatus) ? archiveStatus.error ?? noArchiveError : noArchiveError;
+  const announcement = isVisible(notice) ? notice.text : '';
+  const openError = isVisible(openFailure) ? openFailure.message : '';
+  // Archive changes belong to their conversation. Keep the old neighbours for focus restoration.
+  const toggleArchive = async (id, archive, { fromList = false, owner } = {}) => {
+    if (!active || (owner && !owner.isCurrent()) || actions.pending('archive')) return;
+    const action = actions.begin('archive');
+    if (!action) return;
+    const isCurrent = () => action.isCurrent() && (!owner || owner.isCurrent());
+    const target = { scope: actions, owner };
+    setArchiveStatus({ ...target, busy: id });
+    setAnnouncement('', owner);
     nav.restored = null;
     const order = archivedTasks.map((item) => item.id);
     const index = order.indexOf(id);
     const neighbours = { next: order[index + 1], previous: order[index - 1] };
-    return Promise.resolve().then(() => (archive ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive ? msg('归档未完成，请重试。', 'Could not archive the task. Try again.') : msg('取消归档未完成，请重试。', 'Could not unarchive the task. Try again.') }))
-      .then((result) => {
-        setArchiveBusy('');
-        if (result?.ok === false) { setArchiveError({ id, message: result.message }); setAnnouncement(result.message); }
-        else {
-          setAnnouncement(archive ? msg('任务已归档', 'Task archived') : msg('任务已取消归档', 'Task restored'));
-          if (fromList && !archive) nav.restored = { id, ...neighbours, at: performance.now() };
-        }
-      });
+    try {
+      let result;
+      try {
+        await Promise.resolve();
+        if (!isCurrent()) return;
+        result = await (archive ? archiveTask : unarchiveTask)(id);
+      }
+      catch {
+        result = { ok: false, message: archive ? msg('归档未完成，请重试。', 'Could not archive the task. Try again.') : msg('取消归档未完成，请重试。', 'Could not unarchive the task. Try again.') };
+      }
+      if (!isCurrent()) return;
+      if (result?.ok === false) {
+        setArchiveStatus({ ...target, error: { id, message: result.message } });
+        setAnnouncement(result.message, owner);
+      } else {
+        setArchiveStatus(target);
+        setAnnouncement(archive ? msg('任务已归档', 'Task archived') : msg('任务已取消归档', 'Task restored'), owner);
+        if (fromList && !archive) nav.restored = { ...target, id, ...neighbours, at: performance.now() };
+      }
+    } finally { action.finish(); }
   };
   const archive = archiveAvailable ? { busy: archiveBusy, change: toggleArchive } : undefined;
-  // Selecting another task or closing the drawer drops the last failure.
-  const closeDrawer = () => { setDrawerOpen(false); setArchiveError(noArchiveError); };
-  // DSH does not open archived conversations: the header skips an archived selection.
+  const closeDrawer = () => { setDrawerOpen(false); clearArchiveError(); };
   const openable = session && !archivedSet.has(session.id) ? session : taskSessions[0];
-  // The row's "打开对话" and the drawer's "打开任务对话": a failed navigation is reported, not left unhandled.
-  // Navigation is deferred so a synchronous throw is caught too and the caller (the drawer's close) always continues.
-  // Both messages are cleared first, so a repeated failure changes the live region again and a success leaves no stale note.
-  const openConversation = (id) => {
-    setAnnouncement('');
-    setOpenError('');
-    return Promise.resolve().then(() => openTask(id)).catch((failure) => {
+  const openConversation = async (id, owner) => {
+    if (!active || (owner && !owner.isCurrent())) return;
+    const action = actions.begin('open');
+    if (!action) return;
+    const isCurrent = () => action.isCurrent() && (!owner || owner.isCurrent());
+    setAnnouncement('', owner);
+    clearOpenError();
+    try {
+      // Let a caller close its drawer before navigation, and validate again after yielding.
+      await Promise.resolve();
+      if (isCurrent()) await openTask(id);
+    } catch (failure) {
+      if (!isCurrent()) return;
       console.warn('Playground: failed to open the task conversation', failure);
-      setAnnouncement(msg('无法打开任务对话，请重试。', 'Could not open the task chat. Try again.'));
-      setOpenError(msg('无法打开任务对话，请重试。', 'Could not open the task chat. Try again.'));
-    });
+      const message = msg('无法打开任务对话，请重试。', 'Could not open the task chat. Try again.');
+      setAnnouncement(message, owner);
+      setOpenFailure({ scope: actions, owner, message });
+    } finally { action.finish(); }
   };
   if (section === 'submissions') return h(SubmitPage, {
     active, account, accountName, workspaces: workspaceSnapshot?.items, taskSessions, archivedTasks, archive,
-    byId: catalog.byId, projections: catalog.projectionsBySession, selected: session?.id, select: (id) => { setSelected(id); setDrawerOpen(archivedSet.has(id)); setOpenError(''); setArchiveError(noArchiveError); },
+    byId: catalog.byId, projections: catalog.projectionsBySession, selected: session?.id, select: (id) => { setSelected(id); setDrawerOpen(archivedSet.has(id)); clearOpenError(); clearArchiveError(); },
     showArchived, setShowArchived, nav, refInto, announcement, openError, openConversation,
-    archiveError, store, useSessionAccess, refreshProjections, run, query, ...props,
+    archiveError, taskFeedback: (owner) => ({
+      announcement: notice.scope === actions && notice.owner === owner ? notice.text : '',
+      openError: openFailure.scope === actions && openFailure.owner === owner ? openFailure.message : '',
+      archiveError: archiveStatus.scope === actions && archiveStatus.owner === owner ? archiveStatus.error ?? noArchiveError : noArchiveError,
+      archiveBusy: archiveStatus.scope === actions && archiveStatus.owner === owner ? archiveStatus.busy : '',
+    }), store, useSessionAccess, refreshProjections, run, query, ...props,
   });
   return h('main', { className: section === 'catalog' ? 'pg-workbench pg-workbench-catalog' : 'pg-workbench', 'aria-label': msg('Playground 工作台', 'Playground Workbench') },
     h('style', null, css + '.pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--pg-text);background:var(--pg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--pg-muted)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--pg-muted)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--pg-line);border-radius:999px;background:var(--pg-base);color:var(--pg-text);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--pg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--pg-muted);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--pg-line);border-radius:10px;color:var(--pg-muted);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--pg-line-strong)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--pg-line);border-radius:10px;background:var(--pg-panel);color:var(--pg-text)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--pg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--pg-hover)}.pg-task-row.is-selected{background:var(--pg-hover)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--pg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-family:var(--pg-font-mono);font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-family:var(--pg-font-mono);font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--pg-muted);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--pg-base);color:var(--pg-text);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--pg-muted);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--pg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pg-muted)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--pg-muted)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}'),
@@ -183,7 +215,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
           h('div', { className: 'pg-column-heading' }, h('h2', { tabIndex: -1, ref: (node) => { nav.heading = node; } }, msg('任务总览', 'Task overview')),
             h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, msg(`${taskSessions.length} 个任务`, `${taskSessions.length} task${taskSessions.length === 1 ? "" : "s"}`)),
               taskSessions.length ? h('button', { type: 'button', className: 'pg-button pg-refresh', disabled: refreshing || !receipts.size,
-                onClick: () => refreshAttempts(store, store.taskKeys) }, refreshing ? msg('正在刷新…', 'Refreshing…') : msg('刷新', 'Refresh')) : null)),
+                onClick: () => refresh(store.taskKeys) }, refreshing ? msg('正在刷新…', 'Refreshing…') : msg('刷新', 'Refresh')) : null)),
           store.failed ? h('p', { className: 'pg-note pg-refresh-status pg-error', role: 'status' },
             store.partial ? msg('刷新失败，部分任务显示的不是最新状态', 'Refresh failed. Some task statuses may be out of date.')
               : store.refreshedAt ? msg(`刷新失败，显示的是 ${clock(store.refreshedAt)} 的状态`, `Refresh failed. Showing statuses from ${clock(store.refreshedAt)}.`) : msg('刷新失败，显示的是任务记录中的状态', 'Refresh failed. Showing the statuses saved in the task records.'))
@@ -191,7 +223,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
           // Visible copy of the navigation failure; the live region above already announces it.
           openError ? h('p', { className: 'pg-note pg-error pg-open-error', role: 'none' }, openError) : null,
           taskSessions.length ? h('div', { className: 'pg-task-list', role: 'list', 'aria-label': msg('Playground 任务列表', 'Playground task list') },
-            taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); setArchiveError(noArchiveError); setAnnouncement(msg(`已打开任务：${item.displayTitle}`, `Opened task: ${item.displayTitle}`)); }, onOpen: () => openConversation(item.id), selectRef: refInto(nav.rows, item.id) })))
+            taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: () => { setSelected(item.id); setDrawerOpen(true); clearArchiveError(); setAnnouncement(msg(`已打开任务：${item.displayTitle}`, `Opened task: ${item.displayTitle}`)); }, onOpen: () => openConversation(item.id), selectRef: refInto(nav.rows, item.id) })))
             : h('p', { className: 'pg-task-empty' }, archivedTasks.length ? msg('没有未归档的任务。', 'No active tasks.') : msg('还没有 Playground 任务。先从赛题目录选择一个题目。', 'No Playground tasks yet. Select a challenge from the catalog to get started.')),
           // Visible copy of an archive failure while the drawer is closed; the drawer shows its own.
           archive && archiveError.message && !drawerOpen ? h('p', { className: 'pg-note pg-error pg-archive-error', role: 'none' }, archiveError.message) : null,

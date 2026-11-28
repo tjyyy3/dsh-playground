@@ -4336,54 +4336,68 @@ function withHistoryAttempt(item, attempt, { latest, closed }) {
   if (!attempt || receiptSettled(row) || order === -1) return row;
   const merged = { ...row };
   for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
-  return receiptSettled(merged) ? merged : row;
+  if (!receiptSettled(merged)) return row;
+  if (order === 1) merged.updatedAt = attempt.updatedAt;
+  return merged;
 }
 __name(withHistoryAttempt, "withHistoryAttempt");
 var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
-async function refreshAttempts(store, keys) {
-  if (!keys.length || store.controller || store.disposed) return;
-  const wanted = keys.map((key2) => {
-    const { scope, attemptId, snapshots } = store.receipts.get(key2);
-    return { key: key2, input: { action: "attempt", attemptId, ...scope }, snapshots };
+async function refreshAttempts(store, keys, scope) {
+  if (!keys.length || scope.pending("attempts")) return;
+  const round = scope.begin("attempts");
+  if (!round) return;
+  const { query } = store;
+  const wanted = keys.flatMap((key2) => {
+    const receipt = store.receipts.get(key2);
+    if (!receipt) return [];
+    const { scope: scope2, attemptId, snapshots } = receipt;
+    return [{ key: key2, input: { action: "attempt", attemptId, ...scope2 }, snapshots }];
   });
-  const controller = new AbortController();
-  store.controller = controller;
   store.startedAt = Date.now();
   store.publish();
   const fresh = [];
   let next = 0;
+  const stillTracked = /* @__PURE__ */ __name(({ key: key2, snapshots }) => [...snapshots.keys()].some((id) => store.receipts.get(key2)?.snapshots.has(id)), "stillTracked");
   const worker = /* @__PURE__ */ __name(async () => {
-    while (next < wanted.length && !controller.signal.aborted) {
-      const { key: key2, input, snapshots } = wanted[next++];
+    while (next < wanted.length && round.isCurrent()) {
+      const request = wanted[next++];
+      if (!stillTracked(request)) continue;
+      const { input } = request;
       try {
-        const attempt = await store.query(input, controller.signal);
+        const attempt = await query(input, round.signal);
+        if (!round.isCurrent()) return;
         if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
-          fresh.push({ key: key2, snapshots, attempt });
+          fresh.push({ ...request, attempt });
         }
       } catch {
       }
     }
   }, "worker");
   await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
-  if (store.controller !== controller) return;
-  store.controller = null;
-  const updates = fresh.map(({ key: key2, snapshots, attempt }) => {
+  if (!round.isCurrent()) return;
+  round.finish();
+  const updates = fresh.filter(stillTracked).map(({ key: key2, snapshots, attempt }) => {
     const previous = store.attempts[key2];
-    const current = store.receipts.get(key2)?.snapshots;
-    const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+    const current = store.receipts.get(key2).snapshots;
+    const overlays = /* @__PURE__ */ new Map();
+    for (const [receiptId, receipt] of snapshots) {
+      const latest = current.get(receiptId);
+      if (!latest) continue;
       const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
-      const latest = current?.get(receiptId);
-      const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
-      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
-    }));
+      const overlay = latest === receipt ? initial : overlayForReceipt(latest, initial);
+      overlays.set(receiptId, { ...overlay, ...observeAttempt(overlay, attempt) });
+    }
     return [key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
   });
-  store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
-  store.failed = fresh.length < wanted.length;
-  if (!store.failed) {
-    store.refreshedAt = Date.now();
-    store.partial = false;
-  } else if (fresh.length) store.partial = true;
+  const tracked = wanted.filter(stillTracked).length;
+  if (tracked) {
+    store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
+    store.failed = updates.length < tracked;
+    if (!store.failed) {
+      store.refreshedAt = Date.now();
+      store.partial = false;
+    } else if (updates.length) store.partial = true;
+  }
   store.publish();
 }
 __name(refreshAttempts, "refreshAttempts");
@@ -5871,16 +5885,57 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
-var React17 = __toESM(require("react"), 1);
+var React18 = __toESM(require("react"), 1);
+
+// src/client/shared/request-scope.js
+var React12 = __toESM(require("react"), 1);
+function useRequestScope(dependencies) {
+  const scope = React12.useMemo(() => {
+    const requests = /* @__PURE__ */ new Map();
+    const scope2 = {
+      mounted: false,
+      isCurrent: /* @__PURE__ */ __name(() => scope2.mounted, "isCurrent"),
+      pending: /* @__PURE__ */ __name((channel) => requests.has(channel), "pending"),
+      abort: /* @__PURE__ */ __name((channel) => {
+        requests.get(channel)?.abort();
+        requests.delete(channel);
+      }, "abort"),
+      begin(channel) {
+        if (!scope2.isCurrent()) return;
+        scope2.abort(channel);
+        const controller = new AbortController();
+        requests.set(channel, controller);
+        return {
+          signal: controller.signal,
+          isCurrent: /* @__PURE__ */ __name(() => scope2.isCurrent() && requests.get(channel) === controller, "isCurrent"),
+          finish: /* @__PURE__ */ __name(() => {
+            if (requests.get(channel) === controller) scope2.abort(channel);
+          }, "finish")
+        };
+      },
+      close() {
+        scope2.mounted = false;
+        for (const channel of requests.keys()) scope2.abort(channel);
+      }
+    };
+    return scope2;
+  }, dependencies);
+  React12.useLayoutEffect(() => {
+    scope.mounted = true;
+    return () => scope.close();
+  }, [scope]);
+  return scope;
+}
+__name(useRequestScope, "useRequestScope");
 
 // src/client/tasks/submit-page.js
-var React16 = __toESM(require("react"), 1);
+var React17 = __toESM(require("react"), 1);
 
 // src/client/tasks/list.js
-var React15 = __toESM(require("react"), 1);
+var React16 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React14 = __toESM(require("react"), 1);
+var React15 = __toESM(require("react"), 1);
 
 // src/client/tasks/submit-evidence.js
 var needsQuotaDecision = /* @__PURE__ */ __name((request) => request?.status === "awaiting_user" && request.policy?.askFirst !== false, "needsQuotaDecision");
@@ -5955,10 +6010,10 @@ function attributedAttempt(state, attempt) {
 __name(attributedAttempt, "attributedAttempt");
 
 // src/client/cards/tool.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React12 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false, primary = false }) {
   return h(
@@ -5981,18 +6036,18 @@ function TaskStartOverlay(props) {
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React12.useState("");
-  const [busy, setBusy] = React12.useState(false);
-  const [adding, setAdding] = React12.useState(false);
-  const [error, setError] = React12.useState("");
-  const [recovery, setRecovery] = React12.useState(null);
-  const [inspection, setInspection] = React12.useState(null);
+  const [selectedId, setSelectedId] = React13.useState("");
+  const [busy, setBusy] = React13.useState(false);
+  const [adding, setAdding] = React13.useState(false);
+  const [error, setError] = React13.useState("");
+  const [recovery, setRecovery] = React13.useState(null);
+  const [inspection, setInspection] = React13.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
   const snapshot2 = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
   const checking = Boolean(inspectId && !snapshot2);
-  React12.useEffect(() => {
+  React13.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -6276,7 +6331,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
     ) : null,
     data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, msg("打开工作台", "Open workbench")) : null,
     data ? h(
-      React13.Fragment,
+      React14.Fragment,
       null,
       h(
         "div",
@@ -6314,7 +6369,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React13.Fragment,
+        React14.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -6339,59 +6394,79 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
 __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
-function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
-  const key2 = JSON.stringify([sessionId, request?.requestId]);
-  const pending = React14.useRef(null);
-  const [status, setStatus] = React14.useState({});
-  const { snapshot: snapshot2, error } = status.key === key2 ? status : {};
-  const [choices, setChoices] = React14.useState({});
-  const [scope, setScope] = React14.useState("operation");
-  const [recursive, setRecursive] = React14.useState(false);
-  const [busy, setBusy] = React14.useState(false);
+function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline, owner, activeView }) {
+  const scope = useRequestScope([sessionId, request?.requestId, request?.operation, materials, owner]);
+  const [status, setStatus] = React15.useState({});
+  const { snapshot: snapshot2, error } = status.scope === scope ? status : {};
+  const view = useRequestScope([scope, JSON.stringify(snapshot2?.requests.map(({ requestId }) => requestId))]);
+  const controls = useRequestScope([view, disabled]);
+  const [selection, setSelection] = React15.useState({});
+  const choices = selection.scope === scope ? selection.choices : {};
+  const choose = /* @__PURE__ */ __name((requestId, change) => {
+    if (!controls.isCurrent() || disabled || scope.pending("action")) return;
+    setSelection((previous) => {
+      const choices2 = previous.scope === scope ? previous.choices : {};
+      return { scope, choices: { ...choices2, [requestId]: { ...choices2[requestId], ...change } } };
+    });
+  }, "choose");
+  const defaults = { scope: "operation", recursive: false };
+  const [busyView, setBusyView] = React15.useState(null);
+  const busy = busyView === view;
   const setError = /* @__PURE__ */ __name((error2) => setStatus((previous) => ({
-    key: key2,
-    snapshot: previous.key === key2 ? previous.snapshot : void 0,
+    scope,
+    snapshot: previous.scope === scope ? previous.snapshot : void 0,
     error: error2
   })), "setError");
   const refresh = /* @__PURE__ */ __name(async () => {
-    const read = pending.current;
-    if (read?.key !== key2) return;
-    const generation = ++read.generation;
-    const isCurrent = /* @__PURE__ */ __name(() => pending.current === read && read.generation === generation, "isCurrent");
+    if (activeView === false) return;
+    const read = scope.begin("status");
+    if (!read) return;
     try {
       const value = await materials({ action: "status", sessionId });
-      if (!isCurrent()) return;
+      if (!read.isCurrent()) return;
       if (value.ok === false) throw new Error(value.error.message);
-      setStatus({ key: key2, snapshot: value });
+      const requests = request?.operation ? value.requests.filter((item) => item.operation !== request.operation || item.requestId === request.requestId) : value.requests;
+      setStatus({ scope, snapshot: { ...value, requests } });
     } catch (failure) {
-      if (isCurrent()) setError(failure.message);
+      if (read.isCurrent()) setError(failure.message);
+    } finally {
+      read.finish();
     }
   }, "refresh");
-  React14.useEffect(() => {
-    pending.current = { key: key2, generation: 0 };
-    setScope("operation");
-    setRecursive(false);
+  React15.useEffect(() => {
     void refresh();
     return () => {
-      pending.current = null;
+      scope.abort("status");
+      scope.abort("action");
     };
-  }, [key2, materials]);
+  }, [scope]);
   const act = /* @__PURE__ */ __name(async (input) => {
-    const read = pending.current;
-    if (read?.key !== key2) return;
-    setBusy(true);
+    if (!controls.isCurrent() || disabled || scope.pending("action")) return;
+    const action = scope.begin("action");
+    if (!action) return;
+    const isCurrent = /* @__PURE__ */ __name(() => action.isCurrent() && view.isCurrent(), "isCurrent");
+    scope.abort("status");
+    setBusyView(view);
     setError("");
     try {
       const result = await materials({ ...input, sessionId });
+      if (!isCurrent()) return;
       if (result.ok === false) throw new Error(result.error.message);
-      if (input.action === "authorize") await resume(result.input);
-      if (pending.current === read) await refresh();
+      if (input.action === "authorize") {
+        if (!controls.isCurrent()) return;
+        if (result.input?.material_request_id !== input.requestId) throw new Error(msg("材料请求已变化，请刷新权限。", "The material request changed. Refresh access."));
+        await resume(result.input);
+        if (!isCurrent()) return;
+      }
+      await refresh();
     } catch (failure) {
-      if (pending.current === read) setError(failure.message);
+      if (isCurrent()) setError(failure.message);
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusyView(null);
+      action.finish();
     }
   }, "act");
+  const refreshFromView = /* @__PURE__ */ __name(() => view.isCurrent() && !scope.pending("action") ? refresh() : void 0, "refreshFromView");
   const scopeText = /* @__PURE__ */ __name((item) => msg(`${item.kind === "directory" ? `目录（${item.recursive ? "含子目录" : "仅直接文件"}）` : "文件"}：${item.path}`, `${item.kind === "directory" ? `Directory (${item.recursive ? "including subfolders" : "direct files only"})` : "File"}: ${item.path}`), "scopeText");
   if (inline) return h(
     "aside",
@@ -6403,8 +6478,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       snapshot2?.requests.length ? h("span", { className: "pg-submit-pending" }, msg(`${snapshot2.requests.length} 待授权`, `${snapshot2.requests.length} pending`)) : null
     ),
     ...(snapshot2?.requests || []).map((item) => {
-      const choice = choices[item.requestId] || { scope: "operation", recursive: false };
-      const choose = /* @__PURE__ */ __name((next) => setChoices((previous) => ({ ...previous, [item.requestId]: { ...choice, ...next } })), "choose");
+      const choice = { ...defaults, ...choices[item.requestId] };
       return h(
         "div",
         { key: item.requestId, className: "pg-submit-access-card" },
@@ -6431,13 +6505,13 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
           ].map(([value, label2, hint]) => h(
             "label",
             { key: value, className: "pg-submit-radio", "data-selected": value === choice.scope },
-            h("input", { type: "radio", name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: /* @__PURE__ */ __name(() => choose({ scope: value }), "onChange") }),
+            h("input", { type: "radio", name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: /* @__PURE__ */ __name(() => choose(item.requestId, { scope: value }), "onChange") }),
             h("span", null, label2, h("small", null, hint))
           )),
           item.scopes.some((entry) => entry.kind === "directory") ? h(
             "label",
             { className: "pg-submit-recursive" },
-            h("input", { type: "checkbox", checked: choice.recursive, onChange: /* @__PURE__ */ __name((event) => choose({ recursive: event.target.checked }), "onChange") }),
+            h("input", { type: "checkbox", checked: choice.recursive, onChange: /* @__PURE__ */ __name((event) => choose(item.requestId, { recursive: event.target.checked }), "onChange") }),
             msg("目录授权包含子目录", "Include subfolders in directory access")
           ) : null
         ),
@@ -6475,7 +6549,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       type: "button",
       className: "pg-submit-link",
       disabled: busy,
-      onClick: refresh
+      onClick: refreshFromView
     }, msg("刷新权限", "Refresh access"))) : null,
     snapshot2?.requests.length ? h(
       "footer",
@@ -6484,7 +6558,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
         "div",
         null,
         h("small", null, msg("结果未知时", "When the outcome is unknown")),
-        h("button", { type: "button", className: "pg-submit-link", disabled: busy, onClick: refresh }, msg("刷新权限", "Refresh access"))
+        h("button", { type: "button", className: "pg-submit-link", disabled: busy, onClick: refreshFromView }, msg("刷新权限", "Refresh access"))
       ),
       h("p", null, msg("先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。", "Check existing submissions before creating another. Stopping generation cannot undo completed server writes."))
     ) : null
@@ -6501,76 +6575,87 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       ...item.scopes.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
       h("label", { className: "pg-field" }, msg("允许范围", "Allow access for"), h(
         "select",
-        { value: scope, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => setScope(event.target.value), "onChange") },
+        { value: choices[item.requestId]?.scope ?? defaults.scope, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => choose(item.requestId, { scope: event.target.value }), "onChange") },
         h("option", { value: "operation" }, msg("仅本次操作允许", "This operation only")),
         h("option", { value: "task" }, msg("本次任务内允许", "This task"))
       )),
       item.scopes.some((entry) => entry.kind === "directory") ? h(
         "label",
         { className: "pg-field" },
-        h("input", { type: "checkbox", checked: recursive, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => setRecursive(event.target.checked), "onChange") }),
+        h("input", { type: "checkbox", checked: choices[item.requestId]?.recursive ?? defaults.recursive, disabled: disabled || busy, onChange: /* @__PURE__ */ __name((event) => choose(item.requestId, { recursive: event.target.checked }), "onChange") }),
         msg("目录授权包含子目录", "Include subfolders in directory access")
       ) : null,
       h("button", {
         className: "pg-button pg-primary",
         disabled: disabled || busy,
-        onClick: /* @__PURE__ */ __name(() => act({ action: "authorize", requestId: item.requestId, scope, recursive }), "onClick")
+        onClick: /* @__PURE__ */ __name(() => act({ action: "authorize", requestId: item.requestId, ...defaults, ...choices[item.requestId] }), "onClick")
       }, item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording"))
     )),
     snapshot2?.grants?.length ? h(
-      React14.Fragment,
+      React15.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("本次任务已允许的范围", "Access granted for this task")),
       ...snapshot2.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
       h("button", { className: "pg-button", disabled: disabled || busy, onClick: /* @__PURE__ */ __name(() => act({ action: "revoke" }), "onClick") }, msg("撤销本任务全部材料授权", "Revoke all material access for this task"))
     ) : null,
     snapshot2 && !snapshot2.requests.length && !snapshot2.grants.length ? h("p", { className: "pg-note" }, msg("没有待授权的外部材料，也没有任务级授权。", "No external materials await approval and this task has no active grants.")) : null,
-    h("button", { className: "pg-button", disabled: busy, onClick: refresh }, msg("刷新材料权限", "Refresh permissions")),
+    h("button", { className: "pg-button", disabled: busy, onClick: refreshFromView }, msg("刷新材料权限", "Refresh permissions")),
     error ? h("p", { className: "pg-error", role: "alert" }, error) : null
   );
 }
 __name(MaterialPermissions, "MaterialPermissions");
-function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline }) {
+function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline, account, activeView = true }) {
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React14.useState(state?.materials || {});
-  const [busy, setBusy] = React14.useState(false);
-  const [error, setError] = React14.useState("");
-  const [request, setRequest] = React14.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React14.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React14.useState(Boolean(state?.materialAccess));
-  React14.useEffect(() => {
-    setFiles(state?.materials || {});
-  }, [state?.materials]);
-  React14.useEffect(() => {
-    setRequest(state?.submission);
-  }, [state?.submission]);
-  React14.useEffect(() => {
-    if (state?.materialAccess) {
-      setAccessRequest(state.materialAccess);
-      setShowAccess(true);
-    }
-  }, [state?.materialAccess]);
+  const identity = useRequestScope([sessionId, task?.challengeId, task?.baseUrl, task?.mode, cwd, account, activeView]);
+  const projection = JSON.stringify([state?.submission, state?.materialAccess]);
+  const operation = useRequestScope([identity, projection, allowed, run, submission]);
+  const materialFields = JSON.stringify(state?.materials);
+  const [draft, setDraft] = React15.useState({});
+  const files = draft.identity === identity && draft.revision === materialFields ? draft.files : state?.materials || {};
+  const [local, setLocal] = React15.useState({});
+  const current = local.operation === operation ? local : {};
+  const { busy, error } = current;
+  const request = current.request ?? state?.submission;
+  const accessRequest = current.accessRequest ?? state?.materialAccess;
+  const [accessVisibility, setAccessVisibility] = React15.useState({});
+  const showAccess = accessVisibility.operation === operation ? accessVisibility.visible : Boolean(accessRequest);
+  const controlsScope = useRequestScope([
+    operation,
+    running,
+    request?.requestId,
+    request?.status,
+    accessRequest?.requestId,
+    JSON.stringify(files)
+  ]);
+  const permissionsOwner = useRequestScope([identity, request?.requestId, allowed]);
+  const setFiles = /* @__PURE__ */ __name((files2) => {
+    if (controlsScope.isCurrent() && !operation.pending("action")) setDraft({ identity, revision: materialFields, files: files2 });
+  }, "setFiles");
   const act = /* @__PURE__ */ __name(async (input) => {
-    if (busy) return;
-    setBusy(true);
-    setError("");
+    if (!activeView || !allowed || running && input.action !== "cancel" || !controlsScope.isCurrent() || operation.pending("action")) return;
+    const action = operation.begin("action");
+    if (!action) return;
+    const update = /* @__PURE__ */ __name((fields) => setLocal((previous) => ({ ...previous.operation === operation ? previous : {}, operation, ...fields })), "update");
+    update({ busy: true, error: "" });
     try {
       const result = ["request", "confirm_quota", "cancel"].includes(input.action) ? await submission({ ...input, sessionId }) : await run(sessionId, input);
-      if (result.ok === false) setError(result.error?.message || result.note || msg("操作未完成", "Operation did not finish"));
-      if (result.submission) setRequest(result.submission);
-      if (result.workflow?.kind === "material-access") {
-        setAccessRequest(result.workflow.request);
-        setShowAccess(true);
-      }
+      if (!action.isCurrent()) return;
+      update({
+        busy: false,
+        ...result.ok === false ? { error: result.error?.message || result.note || msg("操作未完成", "Operation did not finish") } : {},
+        ...result.submission ? { request: result.submission } : {},
+        ...result.workflow?.kind === "material-access" ? { accessRequest: result.workflow.request } : {}
+      });
+      if (result.workflow?.kind === "material-access") setAccessVisibility({ operation, visible: true });
     } catch (failure) {
-      setError(failure.message);
+      if (action.isCurrent()) update({ busy: false, error: failure.message });
     } finally {
-      setBusy(false);
+      action.finish();
     }
   }, "act");
-  const disabled = busy || running || !allowed;
+  const disabled = busy || running || !allowed || !activeView;
   const active = ["dispatching", "dispatched", "created", "unknown"].includes(request?.status);
   const canCancel = ["awaiting_user", "dispatching", "dispatched", "created", "unknown"].includes(request?.status);
   const stages2 = {
@@ -6671,7 +6756,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       ),
       request?.message ? h("p", { className: "pg-note" }, request.message) : null
     ));
-    return renderInline({ state, request, controls, error, allowed, permissions: task && materials ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true }) : null });
+    return renderInline({ state, request, controls, error, allowed, permissions: task && materials ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true, owner: permissionsOwner, activeView }) : null });
   }
   return h(
     "section",
@@ -6680,19 +6765,21 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
-      React14.Fragment,
+      React15.Fragment,
       null,
-      h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, msg("外部材料权限", "External material permissions")),
-      showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null
+      h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => {
+        if (controlsScope.isCurrent()) setAccessVisibility({ operation, visible: !showAccess });
+      }, "onClick") }, msg("外部材料权限", "External material permissions")),
+      showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, owner: permissionsOwner, activeView }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React14.Fragment,
+      React15.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("出题模式目前只支持本地准备。", "Authoring mode currently supports local preparation only.")),
       h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation"))
     ) : null,
     task && task.mode !== "author" ? h(
-      React14.Fragment,
+      React15.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent submits through the official CLI or API according to the challenge requirements. It records the submission ID and tracks the result.")),
       h(
@@ -6722,7 +6809,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React14.Fragment,
+        React15.Fragment,
         null,
         h(
           "p",
@@ -6752,10 +6839,23 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
 __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
-  const [error, setError] = React14.useState("");
-  React14.useEffect(() => {
-    refreshProjections(session.id).catch((failure) => setError(failure.message));
-  }, [session.id, refreshProjections]);
+  const scope = useRequestScope([session.id, props.account, props.activeView, refreshProjections]);
+  const [failure, setFailure] = React15.useState({});
+  const error = failure.scope === scope ? failure.message : "";
+  React15.useEffect(() => {
+    if (props.activeView === false) return;
+    const read = scope.begin("projection");
+    if (!read) return;
+    const refresh = /* @__PURE__ */ __name(async () => {
+      try {
+        await refreshProjections(session.id);
+      } catch (error2) {
+        if (read.isCurrent()) setFailure({ scope, message: error2.message });
+      }
+    }, "refresh");
+    void refresh();
+    return () => read.finish();
+  }, [scope]);
   if (error || projection?.state === "error" || projection?.state === "migration-required") {
     return h("p", { className: "pg-error", role: "alert" }, error || projection.error?.message || msg("请先在 DSH 中打开此会话，完成会话迁移后再继续。", "Open this chat in DSH to complete its migration before continuing."));
   }
@@ -6814,13 +6914,14 @@ function taskAttemptIds2(state) {
 }
 __name(taskAttemptIds2, "taskAttemptIds");
 function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
-  const [history, setHistory] = React15.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React15.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React15.useState(false);
-  const [error, setError] = React15.useState("");
-  const [signedOut, setSignedOut] = React15.useState(false);
-  const [status, setStatus] = React15.useState(null);
-  const [latest] = React15.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const scope = useRequestScope([baseUrl, challengeId, query]);
+  const [history, setHistory] = React16.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React16.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React16.useState(false);
+  const [error, setError] = React16.useState("");
+  const [signedOut, setSignedOut] = React16.useState(false);
+  const [status, setStatus] = React16.useState(null);
+  const [latest] = React16.useState(() => ({ list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -6828,14 +6929,13 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
     }
   }, "refocusHeading");
   const load = /* @__PURE__ */ __name(async (cursor) => {
-    latest.controller?.abort();
-    const controller = new AbortController();
-    latest.controller = controller;
+    const read = scope.begin("history");
+    if (!read) return;
     setBusy(true);
     setStatus(["正在读取提交历史…", "Loading submission history…"]);
     try {
-      const result = await query({ action: "my_attempts", challengeId, ...baseUrl ? { baseUrl } : {}, limit: 50, ...cursor ? { cursor } : {} }, controller.signal);
-      if (latest.controller !== controller) return;
+      const result = await query({ action: "my_attempts", challengeId, ...baseUrl ? { baseUrl } : {}, limit: 50, ...cursor ? { cursor } : {} }, read.signal);
+      if (!read.isCurrent()) return;
       if (result?.ok === false) {
         if (result.error?.code === "authentication_required") {
           setSignedOut(true);
@@ -6867,24 +6967,19 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       if (cursor && !nextCursor) latest.list?.focus?.();
       if (!items2.length) refocusHeading();
     } catch (failure) {
-      if (latest.controller !== controller) return;
+      if (!read.isCurrent()) return;
       latest.refocus = false;
       setError(failure.message);
       setStatus(["提交历史读取失败。", "Could not load submission history."]);
     } finally {
-      if (latest.controller === controller) {
-        latest.controller = null;
-        setBusy(false);
-      }
+      if (read.isCurrent()) setBusy(false);
+      read.finish();
     }
   }, "load");
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     load();
-    return () => {
-      latest.controller?.abort();
-      latest.controller = null;
-    };
-  }, [query, challengeId]);
+    return () => scope.abort("history");
+  }, [scope]);
   const time = /* @__PURE__ */ __name((value) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : -Infinity, "time");
   const items = [...history.items].sort((a, b) => time(b.createdAt) - time(a.createdAt) || (Number(b.id) || 0) - (Number(a.id) || 0));
   const linked = new Set(attemptIds);
@@ -6906,8 +7001,10 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       "div",
       { className: "pg-actions" },
       h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => {
-        latest.refocus = true;
-        return load();
+        if (scope.isCurrent()) {
+          latest.refocus = true;
+          return load();
+        }
       }, "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry"))
     ) : null,
     busy && !history.loaded ? h("p", { className: "pg-note" }, msg("正在读取提交历史…", "Loading submission history…")) : null,
@@ -7299,18 +7396,16 @@ var rowKey = /* @__PURE__ */ __name(({ id, challengeId, baseUrl }) => JSON.strin
 var button = /* @__PURE__ */ __name((label2, onClick, props) => h("button", { type: "button", className: "pg-button", onClick, ...props }, label2), "button");
 var historyContext = /* @__PURE__ */ __name(() => msg("当前账号 · 包括在终端或其他工具中完成的提交", "Current account · Includes submissions made in the terminal and other tools"), "historyContext");
 var description = /* @__PURE__ */ __name(() => msg("按时间从新到旧 · 包括在终端和其他工具中完成的提交", "Newest first · Includes submissions made in the terminal and other tools"), "description");
-function useHistory(query, active, scope, limit) {
-  const { account, challengeId, baseUrl, stamp } = scope;
-  const key2 = JSON.stringify([account, challengeId, baseUrl, stamp]);
-  const [data, setData] = React16.useState({});
-  const [pending] = React16.useState(() => ({ controller: null }));
-  const current = data.key === key2 ? data : {};
+function useHistory(query, active, context, limit) {
+  const { account, challengeId, baseUrl, stamp, sessionId } = context;
+  const scope = useRequestScope([query, active, account, sessionId, challengeId, baseUrl, stamp, limit]);
+  const [data, setData] = React17.useState({});
+  const current = data.scope === scope ? data : {};
   const load = /* @__PURE__ */ __name(async (cursor) => {
-    if (!query) return;
-    pending.controller?.abort();
-    const controller = new AbortController();
-    pending.controller = controller;
-    setData({ ...current, key: key2, busy: true, error: "" });
+    if (!query || !active) return;
+    const read = scope.begin("history");
+    if (!read) return;
+    setData({ ...current, scope, busy: true, error: "" });
     try {
       const result = await query({
         action: "my_attempts",
@@ -7318,17 +7413,18 @@ function useHistory(query, active, scope, limit) {
         ...challengeId ? { challengeId } : { allChallenges: true },
         ...baseUrl ? { baseUrl } : {},
         ...cursor ? { cursor } : {}
-      }, controller.signal);
-      if (controller.signal.aborted) return;
+      }, read.signal);
+      if (!read.isCurrent()) return;
       if (!Array.isArray(result?.items) || result?.ok === false) throw new Error(result?.error?.code === "authentication_required" ? msg("登录后可查看提交历史。", "Sign in to view submissions.") : safeMessage(result?.error?.message));
       const byKey = new Map((cursor ? current.items : []).map((item) => [rowKey(item), item]));
       for (const item of result.items) {
         if (!item || !Number.isSafeInteger(item.id)) continue;
         const attempt = { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl };
-        byKey.set(rowKey(attempt), attempt);
+        const previous = byKey.get(rowKey(attempt));
+        if (!previous || !olderDetail(previous, attempt)) byKey.set(rowKey(attempt), attempt);
       }
       setData({
-        key: key2,
+        scope,
         items: [...byKey.values()].sort(sortSubmissionRows),
         nextCursor: result.nextCursor,
         busy: false,
@@ -7338,16 +7434,48 @@ function useHistory(query, active, scope, limit) {
         partial: result.partial
       });
     } catch (failure) {
-      if (!controller.signal.aborted) setData({ ...current, key: key2, busy: false, error: failure?.message || msg("提交历史读取失败。", "Could not load submission history.") });
+      if (read.isCurrent()) setData({ ...current, scope, busy: false, error: failure?.message || msg("提交历史读取失败。", "Could not load submission history.") });
+    } finally {
+      read.finish();
     }
   }, "load");
-  React16.useEffect(() => {
-    if (active) void load();
-    return () => pending.controller?.abort();
-  }, [query, active, key2]);
-  return { ...current, reload: /* @__PURE__ */ __name(() => load(), "reload"), loadMore: /* @__PURE__ */ __name(() => load(current.nextCursor), "loadMore") };
+  React17.useEffect(() => {
+    void load();
+    return () => scope.abort("history");
+  }, [scope]);
+  return { ...current, reload: /* @__PURE__ */ __name(() => load(), "reload"), loadMore: /* @__PURE__ */ __name(() => current.nextCursor && load(current.nextCursor), "loadMore"), isCurrent: scope.isCurrent };
 }
 __name(useHistory, "useHistory");
+function observationOf(attempt) {
+  const { scoring, scoreIsFinal, finalScore, referenceScore } = attemptScore(attempt);
+  return JSON.stringify([
+    attempt.updatedAt,
+    attempt.scoringQueue?.workerReceivedAt ?? attempt.lastWorkerReceivedAt,
+    attempt.status,
+    attempt.bundleStatus,
+    attempt.bundleNotReceived,
+    attempt.submissionState,
+    scoring.state,
+    scoring.workerStatus,
+    scoreIsFinal,
+    finalScore,
+    referenceScore,
+    attempt.scorecard,
+    attempt.scorecardTruncated
+  ]);
+}
+__name(observationOf, "observationOf");
+function olderDetail(summary, detail) {
+  const order = compareAttemptRevisions(summary, detail);
+  if (order) return order < 0;
+  const before = attemptScore(summary);
+  const after = attemptScore(detail);
+  if (before.scoreIsFinal || before.failed || summary.bundleNotReceived === true) {
+    return !(after.scoreIsFinal || after.failed || detail.bundleNotReceived === true);
+  }
+  return !after.scoreIsFinal && !after.failed && detail.bundleNotReceived !== true && !keepsWorkerProgress(summary, detail);
+}
+__name(olderDetail, "olderDetail");
 function relatedRow(item, tasks, attempts) {
   const session = tasks.find((task) => attributedAttempt(stateOf(task), item));
   const state = stateOf(session);
@@ -7360,10 +7488,14 @@ function relatedRow(item, tasks, attempts) {
     ...row,
     submissionState: row.submissionState ?? observed?.submissionState,
     identity: row.identity ?? observed?.identity,
-    scorecard: row.scorecard ?? observed?.scorecard,
-    scorecardTruncated: row.scorecardTruncated ?? observed?.scorecardTruncated
+    scorecard: row.scorecard,
+    scorecardTruncated: row.scorecardTruncated
   };
-  return { attempt, session, bundleMissing: taskBundleMissingIds(state).includes(item.id) };
+  if (observed && !olderDetail(attempt, observed)) {
+    attempt.scorecard ??= observed.scorecard;
+    attempt.scorecardTruncated ??= observed.scorecardTruncated;
+  }
+  return { attempt, observation: observationOf(attempt), session, bundleMissing: taskBundleMissingIds(state).includes(item.id) };
 }
 __name(relatedRow, "relatedRow");
 function relationOf(row) {
@@ -7402,7 +7534,7 @@ function Lifecycle({ session, state, request }) {
 __name(Lifecycle, "Lifecycle");
 function HistoryNotice({ history }) {
   return h(
-    React16.Fragment,
+    React17.Fragment,
     null,
     history.error ? h("p", { className: "pg-error", role: "alert" }, history.error, " ", button(msg("重试", "Retry"), history.reload)) : null,
     history.partial ? h("p", { className: "pg-note", role: "status" }, msg("平台记录不完整，仅显示可核实的提交。", "Platform history is incomplete. Showing verified submissions.")) : null,
@@ -7411,13 +7543,16 @@ function HistoryNotice({ history }) {
   );
 }
 __name(HistoryNotice, "HistoryNotice");
-function TaskHistory({ scope, attemptId, stamp, account, query, active, tasks, attempts, openScore }) {
+function TaskHistory({ scope, attemptId, stamp, sessionId, account, query, active, tasks, attempts, openScore }) {
   const history = useHistory(
     query,
     active && Boolean(scope.challengeId) && !scope.conflict,
-    { account, challengeId: scope.challengeId, baseUrl: scope.baseUrl, stamp },
+    { account, challengeId: scope.challengeId, baseUrl: scope.baseUrl, stamp, sessionId },
     20
   );
+  const pick = /* @__PURE__ */ __name((attempt) => {
+    if (active && history.isCurrent()) openScore(attempt);
+  }, "pick");
   const rows = (history.items || []).map((item) => relatedRow(item, tasks, attempts));
   const recent = rows.find(({ attempt }) => attempt.id === attemptId) || rows[0];
   return h(
@@ -7428,13 +7563,13 @@ function TaskHistory({ scope, attemptId, stamp, account, query, active, tasks, a
       null,
       h("h2", null, msg("本题提交历史", "Challenge submission history")),
       h("small", null, historyContext()),
-      recent ? button(msg("查看评分详情", "View score details"), () => openScore(recent.attempt), { className: "pg-submit-link" }) : null
+      recent ? button(msg("查看评分详情", "View score details"), () => pick(recent.attempt), { className: "pg-submit-link" }) : null
     ),
     h(HistoryNotice, { history }),
     ...rows.map((row) => h(
       "div",
       { key: rowKey(row.attempt), className: "pg-submit-history-row" },
-      button(`#${row.attempt.id}`, () => openScore(row.attempt), { className: "pg-submit-link" }),
+      button(`#${row.attempt.id}`, () => pick(row.attempt), { className: "pg-submit-link" }),
       statusBadge(row),
       h("span", null, relationOf(row)),
       h("time", null, displayTime(row.attempt.createdAt)),
@@ -7456,7 +7591,7 @@ function TaskRail({ taskSessions, archivedTasks, showArchived, setShowArchived, 
       const [label2, tone] = steps[2].current && state.submission?.status === "awaiting_user" ? [msg("等待配额答复", "Waiting for quota decision"), "warning"] : session.running ? [msg("Agent 执行中", "Agent running"), "active"] : state?.submission?.status === "unknown" ? [msg("状态未知 · 先核对已有提交", "Unknown · Reconcile existing attempts"), "neutral"] : status.key === "evaluating" && platformReceivedBundle(receipt) ? [msg("评测中 · 平台已接收", "Evaluating · Received"), status.tone] : [status.label, status.tone];
       return button(
         h(
-          React16.Fragment,
+          React17.Fragment,
           null,
           h("strong", null, titleOf(session, state?.task)),
           h(
@@ -7471,7 +7606,7 @@ function TaskRail({ taskSessions, archivedTasks, showArchived, setShowArchived, 
       );
     }),
     archive && archivedTasks.length ? h(
-      React16.Fragment,
+      React17.Fragment,
       null,
       button(msg(`已归档 ${archivedTasks.length} 个`, `Archived (${archivedTasks.length})`), () => setShowArchived(!showArchived), {
         className: "pg-archived-toggle",
@@ -7491,7 +7626,7 @@ function TaskPane({ session, archive, archiveError, openConversation, openError,
   const context = [task?.competitionName, task?.periodName, task?.categoryName].filter(Boolean);
   const meta = [session.modelName || session.modelId, task?.cwd || session.cwd || workspaceOf(session, task)?.path].filter(Boolean);
   return h(
-    React16.Fragment,
+    React17.Fragment,
     null,
     h(
       "article",
@@ -7522,7 +7657,7 @@ function TaskPane({ session, archive, archiveError, openConversation, openError,
         h(Lifecycle, { session, state, request }),
         controls,
         allowed === false ? h("p", { className: "pg-note" }, msg("当前连接没有此会话的操作权限。", "This connection cannot perform actions in this chat.")) : null,
-        h(TaskHistory, { ...history, scope: taskAttemptScope(state), stamp: state.receipt?.trackedAt ?? state.receipt?.confirmedAt, attemptId: receiptAttemptId(state.receipt) })
+        h(TaskHistory, { ...history, sessionId: session.id, scope: taskAttemptScope(state), stamp: state.receipt?.trackedAt ?? state.receipt?.confirmedAt, attemptId: receiptAttemptId(state.receipt) })
       )
     ),
     permissions || h(
@@ -7536,35 +7671,39 @@ function TaskPane({ session, archive, archiveError, openConversation, openError,
 __name(TaskPane, "TaskPane");
 function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
   const attempt = row.attempt;
-  const key2 = rowKey(attempt);
-  const [detail, setDetail] = React16.useState({});
-  const [pending] = React16.useState(() => ({ controller: null }));
+  const scope = useRequestScope([rowKey(attempt), row.observation, active, query, row.session?.id]);
+  const [detail, setDetail] = React17.useState({});
   const load = /* @__PURE__ */ __name(async (refresh = false) => {
-    if (!query) return;
-    pending.controller?.abort();
-    const controller = new AbortController();
-    pending.controller = controller;
-    setDetail((previous) => ({ key: key2, attempt: previous.key === key2 ? previous.attempt : void 0, busy: true }));
+    if (!query || !active) return;
+    const read = scope.begin("detail");
+    if (!read) return;
+    setDetail((previous) => ({ scope, attempt: previous.scope === scope ? previous.attempt : void 0, busy: true }));
     try {
       const value2 = await query({
         action: "attempt",
         attemptId: attempt.id,
         challengeId: attempt.challengeId,
         ...attempt.baseUrl ? { baseUrl: attempt.baseUrl } : {}
-      }, controller.signal);
-      if (controller.signal.aborted) return;
-      if (value2?.ok === false || Number(value2?.id) !== attempt.id || String(value2.challengeId) !== attempt.challengeId) throw new Error();
-      setDetail({ key: key2, attempt: value2 });
+      }, read.signal);
+      if (!read.isCurrent()) return;
+      if (value2?.ok === false || Number(value2?.id) !== attempt.id || String(value2.challengeId) !== attempt.challengeId || attempt.baseUrl && value2.baseUrl && value2.baseUrl !== attempt.baseUrl) throw new Error();
+      if (olderDetail(attempt, value2)) {
+        setDetail({ scope });
+        return;
+      }
+      setDetail({ scope, attempt: value2 });
       if (refresh) onRefresh({ ...attempt, ...value2, baseUrl: attempt.baseUrl });
     } catch {
-      if (!controller.signal.aborted) setDetail({ key: key2, error: msg("评分详情读取失败。", "Could not load score details.") });
+      if (read.isCurrent()) setDetail({ scope, error: msg("评分详情读取失败。", "Could not load score details.") });
+    } finally {
+      read.finish();
     }
   }, "load");
-  React16.useEffect(() => {
-    if (active) void load();
-    return () => pending.controller?.abort();
-  }, [active, query, key2]);
-  const value = detail.key === key2 ? { ...attempt, ...detail.attempt } : attempt;
+  React17.useEffect(() => {
+    void load();
+    return () => scope.abort("detail");
+  }, [scope]);
+  const value = detail.scope === scope && detail.attempt && !olderDetail(attempt, detail.attempt) ? { ...attempt, ...detail.attempt } : attempt;
   const delta = compareFinalScores(value, compared?.attempt);
   const dimensions = scoreDimensions(value);
   const source = submissionStatus(value, row.bundleMissing);
@@ -7608,19 +7747,27 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
       [msg("评测包", "Evaluation bundle"), missing ? msg("未收到", "Missing") : received ? msg("已接收", "Received") : "—"],
       [msg("提交者", "Submitter"), value.authorName || relationOf(row)]
     ].map(([name, fact]) => h("div", { key: name }, h("dt", null, name), h("dd", null, fact)))),
-    detail.key === key2 && detail.error ? h("p", { className: "pg-error", role: "alert" }, detail.error) : null,
+    detail.scope === scope && detail.error ? h("p", { className: "pg-error", role: "alert" }, detail.error) : null,
     h(
       "div",
       { className: "pg-actions" },
-      button(msg("刷新结果", "Refresh result"), () => load(true), { disabled: detail.key === key2 && detail.busy }),
-      row.session ? button(msg("打开参赛任务", "Open participation task"), () => openTask(row.session.id)) : null
+      button(msg("刷新结果", "Refresh result"), () => load(true), { disabled: detail.scope === scope && detail.busy }),
+      row.session ? button(msg("打开参赛任务", "Open participation task"), () => {
+        if (active && scope.isCurrent()) openTask(row.session.id);
+      }) : null
     )
   );
 }
 __name(Scorecard, "Scorecard");
-function ScoringPane({ history, challenge, status, query, attempts, tasks, openTask, active, picked, setPicked, compare, setCompare }) {
-  const [updates, setUpdates] = React16.useState({});
-  const loaded = history.items?.map((item) => relatedRow({ ...item, ...updates[rowKey(item)] }, tasks, attempts));
+function ScoringPane({ history, account, challenge, status, query, attempts, tasks, openTask, active, picked, setPicked, compare, setCompare }) {
+  const scope = useRequestScope([account, query, active]);
+  const [updates, setUpdates] = React17.useState({});
+  const observedRow = /* @__PURE__ */ __name((item) => {
+    const row = relatedRow(item, tasks, attempts);
+    const update = updates.scope === scope ? updates.items[rowKey(item)] : void 0;
+    return update?.observation === row.observation ? { ...row, attempt: update.attempt } : row;
+  }, "observedRow");
+  const loaded = history.items?.map(observedRow);
   const scoringTotals = history.scoringTotals && { ...history.scoringTotals };
   if (scoringTotals && loaded) {
     for (const [index, row] of loaded.entries()) {
@@ -7634,10 +7781,19 @@ function ScoringPane({ history, challenge, status, query, attempts, tasks, openT
   const filtered = (loaded || []).filter((row) => (!challenge || row.attempt.challengeId === challenge) && (!status || submissionStatus(row.attempt, row.bundleMissing).key === status));
   const available = new Map((loaded || []).map((row) => [rowKey(row.attempt), row]));
   const selectedRows = compare.map((key2) => available.get(key2)).filter(Boolean);
-  const requested = picked && (available.get(rowKey(picked)) || relatedRow({ ...picked, ...updates[rowKey(picked)] }, tasks, attempts));
+  const requested = picked && (available.get(rowKey(picked)) || observedRow(picked));
   const focused = selectedRows.length === 2 ? selectedRows[0] : requested || selectedRows[0] || filtered[0];
   const compared = selectedRows.length === 2 ? selectedRows[1] : void 0;
-  const toggle = /* @__PURE__ */ __name((key2) => setCompare((previous) => previous.includes(key2) ? previous.filter((item) => item !== key2) : [...previous.slice(-1), key2]), "toggle");
+  const table = useRequestScope([scope, challenge, status, JSON.stringify(filtered.map(({ attempt }) => rowKey(attempt)))]);
+  const toggle = /* @__PURE__ */ __name((key2) => {
+    if (active && table.isCurrent()) setCompare((previous) => previous.includes(key2) ? previous.filter((item) => item !== key2) : [...previous.slice(-1), key2]);
+  }, "toggle");
+  const pick = /* @__PURE__ */ __name((attempt) => {
+    if (active && table.isCurrent()) {
+      setCompare([]);
+      setPicked(attempt);
+    }
+  }, "pick");
   return h(
     "div",
     { className: "pg-submit-scoring" },
@@ -7687,10 +7843,7 @@ function ScoringPane({ history, challenge, status, query, attempts, tasks, openT
                 onChange: /* @__PURE__ */ __name(() => toggle(key2), "onChange"),
                 "aria-label": msg(`对比提交 #${attempt.id}`, `Compare submission #${attempt.id}`)
               })),
-              h("td", null, button(`#${attempt.id}`, () => {
-                setCompare([]);
-                setPicked(attempt);
-              }, { className: "pg-submit-link", "aria-pressed": selected })),
+              h("td", null, button(`#${attempt.id}`, () => pick(attempt), { className: "pg-submit-link", "aria-pressed": selected })),
               h("td", null, attempt.challengeTitle || attempt.challengeId),
               h("td", null, statusBadge(row)),
               h("td", null, relationOf(row)),
@@ -7712,7 +7865,13 @@ function ScoringPane({ history, challenge, status, query, attempts, tasks, openT
         query,
         active,
         openTask,
-        onRefresh: /* @__PURE__ */ __name((value) => setUpdates((previous) => ({ ...previous, [rowKey(value)]: value })), "onRefresh")
+        onRefresh: /* @__PURE__ */ __name((value) => {
+          if (!scope.isCurrent()) return;
+          setUpdates((previous) => ({ scope, items: {
+            ...previous.scope === scope ? previous.items : {},
+            [rowKey(value)]: { observation: focused.observation, attempt: value }
+          } }));
+        }, "onRefresh")
       }) : null
     )
   );
@@ -7745,56 +7904,72 @@ function SubmitPage({
   run,
   submission,
   materials,
-  t
+  t,
+  taskFeedback
 }) {
-  const [view, setView] = React16.useState("tasks");
-  const [picked, setPicked] = React16.useState(null);
-  const [comparison, setComparison] = React16.useState({});
-  const [challenge, setChallenge] = React16.useState("");
-  const [status, setStatus] = React16.useState("");
+  const [view, setView] = React17.useState("tasks");
+  const [picked, setPicked] = React17.useState(null);
+  const [comparison, setComparison] = React17.useState({});
+  const [filtersByAccount, setFilters] = React17.useState({});
+  const accountScope = useRequestScope([account, query]);
   const scoreActive = active && view === "scores";
+  const taskActive = active && view === "tasks";
+  const viewScope = useRequestScope([active, account, view, selected]);
+  const feedback = taskFeedback?.(viewScope) ?? { announcement, openError, archiveError, archiveBusy: archive?.busy };
   const history = useHistory(query, scoreActive, { account }, 6);
   const session = byId[selected];
   const projection = projections?.[selected];
   const state = projection?.state === "ready" ? projection.values?.playgroundTask || {} : stateOf(session) || {};
   const archived = archivedTasks.some(({ id }) => id === selected);
-  const [filterAccount, setFilterAccount] = React16.useState(account);
-  const activeChallenge = filterAccount === account ? challenge : "";
-  const activeStatus = filterAccount === account ? status : "";
+  const { challenge: activeChallenge = "", status: activeStatus = "" } = filtersByAccount.scope === accountScope ? filtersByAccount : {};
   const tasks = [...taskSessions, ...archivedTasks];
   const workspaceOf = /* @__PURE__ */ __name((item, task) => workspaces?.find((workspace) => item.workspaceId && workspace.workspaceId === item.workspaceId || workspace.sessionIds?.includes(item.id) || (item.cwd || task?.cwd) && workspace.path === (item.cwd || task?.cwd)), "workspaceOf");
   const openScore = /* @__PURE__ */ __name((attempt) => {
-    setPicked({ account, attempt });
-    setComparison({ account, keys: [] });
-    setChallenge("");
-    setStatus("");
+    if (!taskActive || !viewScope.isCurrent()) return;
+    setPicked({ scope: accountScope, attempt });
+    setComparison({ scope: accountScope, keys: [] });
+    setFilters({});
     setView("scores");
   }, "openScore");
   const openTask = /* @__PURE__ */ __name((id) => {
-    select(id);
-    setView("tasks");
+    if (scoreActive && viewScope.isCurrent()) {
+      select(id);
+      setView("tasks");
+    }
   }, "openTask");
+  const selectTask = /* @__PURE__ */ __name((id) => {
+    if (taskActive && viewScope.isCurrent()) select(id);
+  }, "selectTask");
+  const toggleArchiveList = /* @__PURE__ */ __name((next) => {
+    if (taskActive && viewScope.isCurrent()) setShowArchived(next);
+  }, "toggleArchiveList");
+  const taskArchive = archive && { ...archive, busy: feedback.archiveBusy, change: /* @__PURE__ */ __name((id, next, options) => {
+    if (taskActive && viewScope.isCurrent()) return archive.change(id, next, { ...options, owner: viewScope });
+  }, "change") };
+  const openTaskConversation = /* @__PURE__ */ __name((id) => {
+    if (taskActive && viewScope.isCurrent()) return openConversation(id, viewScope);
+  }, "openTaskConversation");
   const pane = /* @__PURE__ */ __name((data) => h(TaskPane, {
     ...data,
     session,
     archived,
-    archive,
-    archiveError,
-    openConversation,
-    openError,
+    archive: taskArchive,
+    archiveError: feedback.archiveError,
+    openConversation: openTaskConversation,
+    openError: feedback.openError,
     workspaceOf,
     nav,
-    history: { query, account, active: active && view === "tasks", tasks, attempts: store.attempts, openScore }
+    history: { query, account, active: taskActive, tasks, attempts: store.attempts, openScore }
   }), "pane");
   const taskPane = session ? h(
     "div",
     { className: "pg-submit-task-grid" },
-    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived, archive, selected, select, attempts: store.attempts, workspaceOf, nav, refInto }),
+    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived: toggleArchiveList, archive: taskArchive, selected, select: selectTask, attempts: store.attempts, workspaceOf, nav, refInto }),
     archived || projection?.state !== "ready" ? h(
-      React16.Fragment,
+      React17.Fragment,
       null,
       pane({ state, request: state.submission }),
-      !archived ? h(SelectedTask, { key: session.id, session, projection, useSessionAccess, refreshProjections, attempts: store.attempts, run, submission, materials, t }) : null
+      !archived ? h(SelectedTask, { key: session.id, session, projection, useSessionAccess, refreshProjections, attempts: store.attempts, run, submission, materials, t, account, activeView: taskActive }) : null
     ) : h(SelectedTask, {
       key: session.id,
       session,
@@ -7806,13 +7981,15 @@ function SubmitPage({
       submission,
       materials,
       t,
+      account,
+      activeView: taskActive,
       inline: true,
       renderInline: pane
     })
   ) : h(
     "div",
     { className: "pg-submit-task-grid" },
-    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived, archive, selected, select, attempts: store.attempts, workspaceOf, nav, refInto }),
+    h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived: toggleArchiveList, archive: taskArchive, selected, select: selectTask, attempts: store.attempts, workspaceOf, nav, refInto }),
     h("p", { className: "pg-note pg-submit-empty", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
       nav.heading = node;
     }, "ref") }, msg("暂无参赛任务。", "No participation tasks yet."))
@@ -7824,9 +8001,7 @@ function SubmitPage({
     h("label", null, msg("赛题", "Challenge"), h(
       "select",
       { value: activeChallenge, onChange: /* @__PURE__ */ __name((event) => {
-        setFilterAccount(account);
-        setChallenge(event.target.value);
-        setStatus(activeStatus);
+        if (scoreActive && viewScope.isCurrent()) setFilters({ scope: accountScope, challenge: event.target.value, status: activeStatus });
       }, "onChange") },
       h("option", { value: "" }, msg("全部赛题", "All challenges")),
       ...challengeOptions.map(([id, title]) => h("option", { key: id, value: id }, title || id))
@@ -7834,9 +8009,7 @@ function SubmitPage({
     h("label", null, msg("状态", "Status"), h(
       "select",
       { value: activeStatus, onChange: /* @__PURE__ */ __name((event) => {
-        setFilterAccount(account);
-        setStatus(event.target.value);
-        setChallenge(activeChallenge);
+        if (scoreActive && viewScope.isCurrent()) setFilters({ scope: accountScope, challenge: activeChallenge, status: event.target.value });
       }, "onChange") },
       ...[
         ["", msg("全部", "All")],
@@ -7854,15 +8027,19 @@ function SubmitPage({
     "main",
     { className: "pg-workbench pg-submit-page", "aria-label": msg("Playground 提交", "Playground submissions") },
     h("style", null, css + submitCss),
-    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, announcement),
+    h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, feedback.announcement),
     h(
       "header",
       { className: "pg-submit-bar" },
       h(
         "div",
         { role: "group", "aria-label": msg("提交视图", "Submission view"), className: "pg-submit-tabs" },
-        button(h(React16.Fragment, null, msg("参赛任务", "Participation tasks"), h("small", null, taskSessions.length)), () => setView("tasks"), { "aria-pressed": view === "tasks" }),
-        button(msg("提交记录与评分", "Submissions and scores"), () => setView("scores"), { "aria-pressed": view === "scores" })
+        button(h(React17.Fragment, null, msg("参赛任务", "Participation tasks"), h("small", null, taskSessions.length)), () => {
+          if (active && viewScope.isCurrent()) setView("tasks");
+        }, { "aria-pressed": view === "tasks" }),
+        button(msg("提交记录与评分", "Submissions and scores"), () => {
+          if (active && viewScope.isCurrent()) setView("scores");
+        }, { "aria-pressed": view === "scores" })
       ),
       accountName || store.refreshedAt ? h(
         "span",
@@ -7873,6 +8050,7 @@ function SubmitPage({
     ),
     view === "tasks" ? taskPane : h(ScoringPane, {
       key: account ?? "",
+      account,
       history,
       challenge: activeChallenge,
       status: activeStatus,
@@ -7881,10 +8059,10 @@ function SubmitPage({
       tasks,
       active: scoreActive,
       openTask,
-      picked: picked?.account === account ? picked?.attempt : void 0,
-      setPicked: /* @__PURE__ */ __name((attempt) => setPicked({ account, attempt }), "setPicked"),
-      compare: comparison.account === account ? comparison.keys ?? [] : [],
-      setCompare: /* @__PURE__ */ __name((change) => setComparison((previous) => ({ account, keys: typeof change === "function" ? change(previous.account === account ? previous.keys ?? [] : []) : change })), "setCompare")
+      picked: picked?.scope === accountScope ? picked.attempt : void 0,
+      setPicked: /* @__PURE__ */ __name((attempt) => setPicked({ scope: accountScope, attempt }), "setPicked"),
+      compare: comparison.scope === accountScope ? comparison.keys : [],
+      setCompare: /* @__PURE__ */ __name((change) => setComparison((previous) => ({ scope: accountScope, keys: typeof change === "function" ? change(previous.scope === accountScope ? previous.keys : []) : change })), "setCompare")
     })
   );
 }
@@ -7902,29 +8080,30 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React17.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React17.useState(false);
-  const [archiveBusy, setArchiveBusy] = React17.useState("");
-  const [archiveError, setArchiveError] = React17.useState(noArchiveError);
-  const [split, setSplit] = React17.useState(50);
-  const [announcement, setAnnouncement] = React17.useState("");
-  const [drawerOpen, setDrawerOpen] = React17.useState(false);
-  const [nav] = React17.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React18.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React18.useState(false);
+  const [archiveStatus, setArchiveStatus] = React18.useState({});
+  const clearArchiveError = /* @__PURE__ */ __name(() => setArchiveStatus((previous) => ({ ...previous, error: void 0 })), "clearArchiveError");
+  const [split, setSplit] = React18.useState(50);
+  const [notice, setNotice] = React18.useState({});
+  const setAnnouncement = /* @__PURE__ */ __name((text, owner) => setNotice({ text, owner, scope: actions }), "setAnnouncement");
+  const [drawerOpen, setDrawerOpen] = React18.useState(false);
+  const [nav] = React18.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React17.useState("");
-  const [openError, setOpenError] = React17.useState("");
-  const [, setVersion] = React17.useState(0);
-  const [store] = React17.useState(() => {
+  const [webBase, setWebBase] = React18.useState("");
+  const [openFailure, setOpenFailure] = React18.useState({});
+  const clearOpenError = /* @__PURE__ */ __name(() => setOpenFailure({}), "clearOpenError");
+  const [, setVersion] = React18.useState(0);
+  const polling = useRequestScope([active, section, account, query]);
+  const store = React18.useMemo(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
       failed: false,
       partial: false,
-      controller: null,
-      disposed: false,
       startedAt: void 0,
       version: 0,
       query: null,
@@ -7934,7 +8113,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
     holder.publish = () => setVersion(++holder.version);
     return holder;
-  });
+  }, [account, query]);
   const receipts = /* @__PURE__ */ new Map();
   const pendingKeys = /* @__PURE__ */ new Set();
   for (const item of taskSessions) {
@@ -7949,26 +8128,22 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;
-  React17.useEffect(() => {
+  React18.useLayoutEffect(() => {
     store.query = query;
     store.taskKeys = [...receipts.keys()];
     store.pendingKeys = [...pendingKeys];
     store.receipts = receipts;
   });
+  const refresh = /* @__PURE__ */ __name((keys) => refreshAttempts(store, keys, polling), "refresh");
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React17.useEffect(() => {
-    store.disposed = !active;
-    if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingKeys);
-    return () => {
-      store.disposed = true;
-      store.controller?.abort();
-      store.controller = null;
-    };
-  }, [active]);
-  React17.useEffect(() => {
+  React18.useEffect(() => {
+    if (active && pageVisible() && section !== "catalog") refresh(store.pendingKeys);
+    return () => polling.abort("attempts");
+  }, [polling]);
+  React18.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
-      if (pageVisible()) refreshAttempts(store, store.pendingKeys);
+      if (pageVisible()) refresh(store.pendingKeys);
     }, "tick");
     const onVisibility = /* @__PURE__ */ __name(() => {
       if (store.startedAt === void 0 || Date.now() - store.startedAt >= visibleRefreshGapMs) tick();
@@ -7980,17 +8155,21 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       clearInterval(timer);
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [active, anyPending]);
-  const refreshing = Boolean(store.controller);
-  React17.useEffect(() => {
+  }, [polling, anyPending]);
+  const refreshing = polling.pending("attempts");
+  React18.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React17.useEffect(() => {
+  React18.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
+    if (!isVisible(pending)) {
+      nav.restored = null;
+      return;
+    }
     if (performance.now() - pending.at > unarchiveFocusMs) {
       nav.restored = null;
       return;
@@ -8002,40 +8181,71 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     [nav.rows.get(pending.id), nav.archived.get(pending.next), nav.archived.get(pending.previous), nav.toggle, nav.heading].find(Boolean)?.focus?.();
   });
   const session = (archivedSet.has(selected) && !drawerOpen ? void 0 : catalog.byId[selected]) || taskSessions[0];
-  const toggleArchive = /* @__PURE__ */ __name((id, archive2, { fromList = false } = {}) => {
-    if (archiveBusy) return void 0;
-    setArchiveBusy(id);
-    setArchiveError(noArchiveError);
-    setAnnouncement("");
+  const actions = useRequestScope([active, section, account, section === "submissions" ? session?.id : void 0]);
+  const isVisible = /* @__PURE__ */ __name((entry) => entry.scope === actions && (!entry.owner || entry.owner.isCurrent()), "isVisible");
+  const archiveBusy = isVisible(archiveStatus) ? archiveStatus.busy : "";
+  const archiveError = isVisible(archiveStatus) ? archiveStatus.error ?? noArchiveError : noArchiveError;
+  const announcement = isVisible(notice) ? notice.text : "";
+  const openError = isVisible(openFailure) ? openFailure.message : "";
+  const toggleArchive = /* @__PURE__ */ __name(async (id, archive2, { fromList = false, owner } = {}) => {
+    if (!active || owner && !owner.isCurrent() || actions.pending("archive")) return;
+    const action = actions.begin("archive");
+    if (!action) return;
+    const isCurrent = /* @__PURE__ */ __name(() => action.isCurrent() && (!owner || owner.isCurrent()), "isCurrent");
+    const target = { scope: actions, owner };
+    setArchiveStatus({ ...target, busy: id });
+    setAnnouncement("", owner);
     nav.restored = null;
     const order = archivedTasks.map((item) => item.id);
     const index = order.indexOf(id);
     const neighbours = { next: order[index + 1], previous: order[index - 1] };
-    return Promise.resolve().then(() => (archive2 ? archiveTask : unarchiveTask)(id)).catch(() => ({ ok: false, message: archive2 ? msg("归档未完成，请重试。", "Could not archive the task. Try again.") : msg("取消归档未完成，请重试。", "Could not unarchive the task. Try again.") })).then((result) => {
-      setArchiveBusy("");
-      if (result?.ok === false) {
-        setArchiveError({ id, message: result.message });
-        setAnnouncement(result.message);
-      } else {
-        setAnnouncement(archive2 ? msg("任务已归档", "Task archived") : msg("任务已取消归档", "Task restored"));
-        if (fromList && !archive2) nav.restored = { id, ...neighbours, at: performance.now() };
+    try {
+      let result;
+      try {
+        await Promise.resolve();
+        if (!isCurrent()) return;
+        result = await (archive2 ? archiveTask : unarchiveTask)(id);
+      } catch {
+        result = { ok: false, message: archive2 ? msg("归档未完成，请重试。", "Could not archive the task. Try again.") : msg("取消归档未完成，请重试。", "Could not unarchive the task. Try again.") };
       }
-    });
+      if (!isCurrent()) return;
+      if (result?.ok === false) {
+        setArchiveStatus({ ...target, error: { id, message: result.message } });
+        setAnnouncement(result.message, owner);
+      } else {
+        setArchiveStatus(target);
+        setAnnouncement(archive2 ? msg("任务已归档", "Task archived") : msg("任务已取消归档", "Task restored"), owner);
+        if (fromList && !archive2) nav.restored = { ...target, id, ...neighbours, at: performance.now() };
+      }
+    } finally {
+      action.finish();
+    }
   }, "toggleArchive");
   const archive = archiveAvailable ? { busy: archiveBusy, change: toggleArchive } : void 0;
   const closeDrawer = /* @__PURE__ */ __name(() => {
     setDrawerOpen(false);
-    setArchiveError(noArchiveError);
+    clearArchiveError();
   }, "closeDrawer");
   const openable = session && !archivedSet.has(session.id) ? session : taskSessions[0];
-  const openConversation = /* @__PURE__ */ __name((id) => {
-    setAnnouncement("");
-    setOpenError("");
-    return Promise.resolve().then(() => openTask(id)).catch((failure) => {
+  const openConversation = /* @__PURE__ */ __name(async (id, owner) => {
+    if (!active || owner && !owner.isCurrent()) return;
+    const action = actions.begin("open");
+    if (!action) return;
+    const isCurrent = /* @__PURE__ */ __name(() => action.isCurrent() && (!owner || owner.isCurrent()), "isCurrent");
+    setAnnouncement("", owner);
+    clearOpenError();
+    try {
+      await Promise.resolve();
+      if (isCurrent()) await openTask(id);
+    } catch (failure) {
+      if (!isCurrent()) return;
       console.warn("Playground: failed to open the task conversation", failure);
-      setAnnouncement(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
-      setOpenError(msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again."));
-    });
+      const message = msg("无法打开任务对话，请重试。", "Could not open the task chat. Try again.");
+      setAnnouncement(message, owner);
+      setOpenFailure({ scope: actions, owner, message });
+    } finally {
+      action.finish();
+    }
   }, "openConversation");
   if (section === "submissions") return h(SubmitPage, {
     active,
@@ -8051,8 +8261,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     select: /* @__PURE__ */ __name((id) => {
       setSelected(id);
       setDrawerOpen(archivedSet.has(id));
-      setOpenError("");
-      setArchiveError(noArchiveError);
+      clearOpenError();
+      clearArchiveError();
     }, "select"),
     showArchived,
     setShowArchived,
@@ -8062,6 +8272,12 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     openError,
     openConversation,
     archiveError,
+    taskFeedback: /* @__PURE__ */ __name((owner) => ({
+      announcement: notice.scope === actions && notice.owner === owner ? notice.text : "",
+      openError: openFailure.scope === actions && openFailure.owner === owner ? openFailure.message : "",
+      archiveError: archiveStatus.scope === actions && archiveStatus.owner === owner ? archiveStatus.error ?? noArchiveError : noArchiveError,
+      archiveBusy: archiveStatus.scope === actions && archiveStatus.owner === owner ? archiveStatus.busy : ""
+    }), "taskFeedback"),
     store,
     useSessionAccess,
     refreshProjections,
@@ -8130,7 +8346,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
                 type: "button",
                 className: "pg-button pg-refresh",
                 disabled: refreshing || !receipts.size,
-                onClick: /* @__PURE__ */ __name(() => refreshAttempts(store, store.taskKeys), "onClick")
+                onClick: /* @__PURE__ */ __name(() => refresh(store.taskKeys), "onClick")
               }, refreshing ? msg("正在刷新…", "Refreshing…") : msg("刷新", "Refresh")) : null
             )
           ),
@@ -8147,7 +8363,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
             taskSessions.map((item) => h(TaskSummaryRow, { key: item.id, session: item, attempts: store.attempts, selected: item.id === selected, onSelect: /* @__PURE__ */ __name(() => {
               setSelected(item.id);
               setDrawerOpen(true);
-              setArchiveError(noArchiveError);
+              clearArchiveError();
               setAnnouncement(msg(`已打开任务：${item.displayTitle}`, `Opened task: ${item.displayTitle}`));
             }, "onSelect"), onOpen: /* @__PURE__ */ __name(() => openConversation(item.id), "onOpen"), selectRef: refInto(nav.rows, item.id) }))
           ) : h("p", { className: "pg-task-empty" }, archivedTasks.length ? msg("没有未归档的任务。", "No active tasks.") : msg("还没有 Playground 任务。先从赛题目录选择一个题目。", "No Playground tasks yet. Select a challenge from the catalog to get started.")),

@@ -3,6 +3,7 @@ import * as React from 'react';
 import { attemptKey, receiptAttemptId, receiptProgress, submissionCountsLine, submissionLimitsOf, taskAttemptScope, taskBundleMissingIds, withHistoryAttempt, withLatestAttempt } from './attempts.js';
 import { zhText } from '../shared/locale.js';
 import { h } from '../shared/react.js';
+import { useRequestScope } from '../shared/request-scope.js';
 import { safeMessage } from '../shared/errors.js';
 import { useDrawerFocus } from '../shared/drawer.js';
 import { openWebButton, taskWebUrl } from '../shared/display.js';
@@ -44,6 +45,7 @@ function taskAttemptIds(state) {
 // `bundleMissingIds` are the submissions whose bundle this task's receipts say never arrived.
 // `closedIds` are the task's submissions its receipts or the store show closed as "bundle missing".
 function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
+  const scope = useRequestScope([baseUrl, challengeId, query]);
   const [history, setHistory] = React.useState({ items: [], nextCursor: null, loaded: false });
   // The first page's counts and partial reason (lib/workflow.js myAttempts).
   const [overview, setOverview] = React.useState({ counts: undefined, partial: '' });
@@ -53,18 +55,17 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
   const [status, setStatus] = React.useState(null);
   // Mutable holder (not render state): only the newest request may update the list; `list` and `heading` are focus targets.
   // `refocus` is set by "重试": its button disappears once a read succeeds, so focus must move into the section.
-  const [latest] = React.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const [latest] = React.useState(() => ({ list: null, heading: null, refocus: false }));
   // An empty or signed-out result renders no list, so focus goes to the always-present heading.
   const refocusHeading = () => { if (latest.refocus) { latest.refocus = false; latest.heading?.focus?.(); } };
   // The error stays visible until the next read settles, so "重试" keeps its place (and focus) while it runs.
   const load = async (cursor) => {
-    latest.controller?.abort();
-    const controller = new AbortController();
-    latest.controller = controller;
+    const read = scope.begin('history');
+    if (!read) return;
     setBusy(true); setStatus(['正在读取提交历史…', 'Loading submission history…']);
     try {
-      const result = await query({ action: 'my_attempts', challengeId, ...(baseUrl ? { baseUrl } : {}), limit: 50, ...(cursor ? { cursor } : {}) }, controller.signal);
-      if (latest.controller !== controller) return;
+      const result = await query({ action: 'my_attempts', challengeId, ...(baseUrl ? { baseUrl } : {}), limit: 50, ...(cursor ? { cursor } : {}) }, read.signal);
+      if (!read.isCurrent()) return;
       if (result?.ok === false) {
         if (result.error?.code === 'authentication_required') {
           setSignedOut(true); setError(''); setOverview({ counts: undefined, partial: '' }); setHistory({ items: [], nextCursor: null, loaded: true }); setStatus(['登录后可查看提交历史。', 'Sign in to view submission history.']);
@@ -94,17 +95,18 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       // After "重试" a non-empty list takes focus when it attaches (see the `ul` ref).
       if (!items.length) refocusHeading();
     } catch (failure) {
-      if (latest.controller !== controller) return;
+      if (!read.isCurrent()) return;
       latest.refocus = false;
       setError(failure.message); setStatus(['提交历史读取失败。', 'Could not load submission history.']);
     } finally {
-      if (latest.controller === controller) { latest.controller = null; setBusy(false); }
+      if (read.isCurrent()) setBusy(false);
+      read.finish();
     }
   };
   React.useEffect(() => {
     load();
-    return () => { latest.controller?.abort(); latest.controller = null; };
-  }, [query, challengeId]);
+    return () => scope.abort('history');
+  }, [scope]);
   const time = (value) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : -Infinity;
   const items = [...history.items].sort((a, b) => (time(b.createdAt) - time(a.createdAt)) || ((Number(b.id) || 0) - (Number(a.id) || 0)));
   const linked = new Set(attemptIds);
@@ -119,7 +121,7 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
     signedOut ? h('p', { className: 'pg-note' }, msg('登录后可查看提交历史。关闭任务详情后，在“Playground 连接状态”中登录。', 'Close task details and sign in under Playground connection status to view submission history.')) : null,
     error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
     error && !items.length ? h('div', { className: 'pg-actions' },
-      h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => { latest.refocus = true; return load(); } }, busy ? msg('正在读取…', 'Loading…') : msg('重试', 'Retry'))) : null,
+      h('button', { type: 'button', className: 'pg-button', disabled: busy, onClick: () => { if (scope.isCurrent()) { latest.refocus = true; return load(); } } }, busy ? msg('正在读取…', 'Loading…') : msg('重试', 'Retry'))) : null,
     busy && !history.loaded ? h('p', { className: 'pg-note' }, msg('正在读取提交历史…', 'Loading submission history…')) : null,
     history.loaded && !signedOut && !items.length && !error && !overview.partial ? h('p', { className: 'pg-note' }, msg('这道题还没有提交记录。', 'No submissions yet for this challenge.')) : null,
     items.length ? h('ul', { className: 'pg-list', 'aria-label': msg('提交历史列表', 'Submission history list'), tabIndex: -1, ref: (node) => {

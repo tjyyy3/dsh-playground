@@ -1,64 +1,86 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
 import { h } from '../shared/react.js';
+import { useRequestScope } from '../shared/request-scope.js';
 import { receiptProgress, submissionCountsLine, withLatestAttempt } from './attempts.js';
 import { css } from '../shared/styles.js';
 import { needsQuotaDecision } from './submit-evidence.js';
 import { PlaygroundToolCard } from '../cards/tool.js';
 
-function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
-  const key = JSON.stringify([sessionId, request?.requestId]);
-  const pending = React.useRef(null);
+function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline, owner, activeView }) {
+  const scope = useRequestScope([sessionId, request?.requestId, request?.operation, materials, owner]);
   const [status, setStatus] = React.useState({});
-  const { snapshot, error } = status.key === key ? status : {};
-  const [choices, setChoices] = React.useState({});
-  const [scope, setScope] = React.useState('operation');
-  const [recursive, setRecursive] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
+  const { snapshot, error } = status.scope === scope ? status : {};
+  const view = useRequestScope([scope, JSON.stringify(snapshot?.requests.map(({ requestId }) => requestId))]);
+  const controls = useRequestScope([view, disabled]);
+  const [selection, setSelection] = React.useState({});
+  const choices = selection.scope === scope ? selection.choices : {};
+  const choose = (requestId, change) => {
+    if (!controls.isCurrent() || disabled || scope.pending('action')) return;
+    setSelection((previous) => {
+      const choices = previous.scope === scope ? previous.choices : {};
+      return { scope, choices: { ...choices, [requestId]: { ...choices[requestId], ...change } } };
+    });
+  };
+  const defaults = { scope: 'operation', recursive: false };
+  const [busyView, setBusyView] = React.useState(null);
+  const busy = busyView === view;
   const setError = (error) => setStatus((previous) => ({
-    key, snapshot: previous.key === key ? previous.snapshot : undefined, error,
+    scope, snapshot: previous.scope === scope ? previous.snapshot : undefined, error,
   }));
   const refresh = async () => {
-    const read = pending.current;
-    if (read?.key !== key) return;
-    const generation = ++read.generation;
-    const isCurrent = () => pending.current === read && read.generation === generation;
+    if (activeView === false) return;
+    const read = scope.begin('status');
+    if (!read) return;
     try {
       const value = await materials({ action: 'status', sessionId });
-      if (!isCurrent()) return;
+      if (!read.isCurrent()) return;
       if (value.ok === false) throw new Error(value.error.message);
-      setStatus({ key, snapshot: value });
+      const requests = request?.operation ? value.requests.filter((item) => item.operation !== request.operation
+        || item.requestId === request.requestId) : value.requests;
+      setStatus({ scope, snapshot: { ...value, requests } });
     } catch (failure) {
-      if (isCurrent()) setError(failure.message);
-    }
+      if (read.isCurrent()) setError(failure.message);
+    } finally { read.finish(); }
   };
   React.useEffect(() => {
-    pending.current = { key, generation: 0 };
-    setScope('operation');
-    setRecursive(false);
     void refresh();
-    return () => { pending.current = null; };
-  }, [key, materials]);
+    return () => { scope.abort('status'); scope.abort('action'); };
+  }, [scope]);
+
   const act = async (input) => {
-    const read = pending.current;
-    if (read?.key !== key) return;
-    setBusy(true); setError('');
+    if (!controls.isCurrent() || disabled || scope.pending('action')) return;
+    const action = scope.begin('action');
+    if (!action) return;
+    const isCurrent = () => action.isCurrent() && view.isCurrent();
+    // An earlier status read cannot invalidate the authorization just started on this card.
+    scope.abort('status');
+    setBusyView(view); setError('');
     try {
       const result = await materials({ ...input, sessionId });
+      if (!isCurrent()) return;
       if (result.ok === false) throw new Error(result.error.message);
-      if (input.action === 'authorize') await resume(result.input);
-      if (pending.current === read) await refresh();
+      if (input.action === 'authorize') {
+        if (!controls.isCurrent()) return;
+        if (result.input?.material_request_id !== input.requestId) throw new Error(msg('材料请求已变化，请刷新权限。', 'The material request changed. Refresh access.'));
+        await resume(result.input);
+        if (!isCurrent()) return;
+      }
+      await refresh();
     } catch (failure) {
-      if (pending.current === read) setError(failure.message);
-    } finally { setBusy(false); }
+      if (isCurrent()) setError(failure.message);
+    } finally {
+      if (isCurrent()) setBusyView(null);
+      action.finish();
+    }
   };
+  const refreshFromView = () => view.isCurrent() && !scope.pending('action') ? refresh() : undefined;
   const scopeText = (item) => msg(`${item.kind === 'directory' ? `目录（${item.recursive ? '含子目录' : '仅直接文件'}）` : '文件'}：${item.path}`, `${item.kind === 'directory' ? `Directory (${item.recursive ? 'including subfolders' : 'direct files only'})` : 'File'}: ${item.path}`);
   if (inline) return h('aside', { className: 'pg-submit-access', 'aria-label': msg('外部材料权限', 'External material permissions') },
     h('header', null, h('h2', null, h('span', { className: 'pg-submit-lock', 'aria-hidden': true }), msg('外部材料权限', 'External material permissions')),
       snapshot?.requests.length ? h('span', { className: 'pg-submit-pending' }, msg(`${snapshot.requests.length} 待授权`, `${snapshot.requests.length} pending`)) : null),
     ...(snapshot?.requests || []).map((item) => {
-      const choice = choices[item.requestId] || { scope: 'operation', recursive: false };
-      const choose = (next) => setChoices((previous) => ({ ...previous, [item.requestId]: { ...choice, ...next } }));
+      const choice = { ...defaults, ...choices[item.requestId] };
       return h('div', { key: item.requestId, className: 'pg-submit-access-card' },
       h('p', null, msg('Agent 请求引用工作区外的材料', 'The Agent requests materials outside the workspace')),
       ...item.scopes.map((entry) => h('div', { key: entry.path, className: 'pg-submit-path' },
@@ -69,10 +91,10 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
         [['operation', msg('仅本次操作允许', 'This operation only'), msg('默认 · 只用于这一次交接', 'Default · This handoff only')],
           ['task', msg('本次任务内允许', 'This task'), msg('按路径和用途限定', 'Limited to these paths and this purpose')]].map(([value, label, hint]) =>
           h('label', { key: value, className: 'pg-submit-radio', 'data-selected': value === choice.scope },
-            h('input', { type: 'radio', name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: () => choose({ scope: value }) }),
+            h('input', { type: 'radio', name: `material-scope-${item.requestId}`, checked: choice.scope === value, onChange: () => choose(item.requestId, { scope: value }) }),
             h('span', null, label, h('small', null, hint)))),
         item.scopes.some((entry) => entry.kind === 'directory') ? h('label', { className: 'pg-submit-recursive' },
-          h('input', { type: 'checkbox', checked: choice.recursive, onChange: (event) => choose({ recursive: event.target.checked }) }), msg('目录授权包含子目录', 'Include subfolders in directory access')) : null),
+          h('input', { type: 'checkbox', checked: choice.recursive, onChange: (event) => choose(item.requestId, { recursive: event.target.checked }) }), msg('目录授权包含子目录', 'Include subfolders in directory access')) : null),
       h('p', null, msg('平台提交仍需单独请求。任务结束、切换工作区或宿主重启后授权失效。', 'Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.')),
       h('button', { type: 'button', className: 'pg-button pg-primary', disabled: disabled || busy,
         onClick: () => act({ action: 'authorize', requestId: item.requestId, ...choice }) },
@@ -87,10 +109,10 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
         msg('撤销本任务全部材料授权', 'Revoke all material access for this task'))) : null,
     snapshot && !snapshot.requests.length && !snapshot.grants.length ? h('p', null, msg('没有待授权的外部材料或任务级授权。', 'No pending external materials or task grants.')) : null,
     error ? h('p', { className: 'pg-error', role: 'alert' }, error, snapshot?.requests.length ? null : h('button', {
-      type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refresh,
+      type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refreshFromView,
     }, msg('刷新权限', 'Refresh access'))) : null,
     snapshot?.requests.length ? h('footer', null, h('div', null, h('small', null, msg('结果未知时', 'When the outcome is unknown')),
-      h('button', { type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refresh }, msg('刷新权限', 'Refresh access'))),
+      h('button', { type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refreshFromView }, msg('刷新权限', 'Refresh access'))),
       h('p', null, msg('先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。', 'Check existing submissions before creating another. Stopping generation cannot undo completed server writes.'))) : null);
   return h('section', { className: 'pg-confirm', 'aria-label': msg('外部材料权限', 'External material permissions') },
     h('h4', null, msg('外部材料权限', 'External material permissions')),
@@ -98,51 +120,66 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
     ...(snapshot?.requests || []).map((item) => h('div', { key: item.requestId, className: 'pg-form' },
       h('p', { className: 'pg-note' }, item.operation === 'submit' ? msg('为已请求的提交传递材料引用。授权后继续交接，配额例外仍需答复。', 'Pass material references for the requested submission. Granting access resumes the handoff. Quota exceptions still require your response.') : msg('记录材料引用。授权后继续记录，不会上传。', 'Record material references. Granting access resumes recording without uploading files.')),
       ...item.scopes.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
-      h('label', { className: 'pg-field' }, msg('允许范围', 'Allow access for'), h('select', { value: scope, disabled: disabled || busy, onChange: (event) => setScope(event.target.value) },
+      h('label', { className: 'pg-field' }, msg('允许范围', 'Allow access for'), h('select', { value: choices[item.requestId]?.scope ?? defaults.scope, disabled: disabled || busy, onChange: (event) => choose(item.requestId, { scope: event.target.value }) },
         h('option', { value: 'operation' }, msg('仅本次操作允许', 'This operation only')), h('option', { value: 'task' }, msg('本次任务内允许', 'This task')))),
       item.scopes.some((entry) => entry.kind === 'directory') ? h('label', { className: 'pg-field' },
-        h('input', { type: 'checkbox', checked: recursive, disabled: disabled || busy, onChange: (event) => setRecursive(event.target.checked) }), msg('目录授权包含子目录', 'Include subfolders in directory access')) : null,
+        h('input', { type: 'checkbox', checked: choices[item.requestId]?.recursive ?? defaults.recursive, disabled: disabled || busy, onChange: (event) => choose(item.requestId, { recursive: event.target.checked }) }), msg('目录授权包含子目录', 'Include subfolders in directory access')) : null,
       h('button', { className: 'pg-button pg-primary', disabled: disabled || busy,
-        onClick: () => act({ action: 'authorize', requestId: item.requestId, scope, recursive }) }, item.operation === 'submit' ? msg('允许引用并继续交接', 'Allow references and resume handoff') : msg('允许引用并继续记录', 'Allow references and resume recording')))),
+        onClick: () => act({ action: 'authorize', requestId: item.requestId, ...defaults, ...choices[item.requestId] }) }, item.operation === 'submit' ? msg('允许引用并继续交接', 'Allow references and resume handoff') : msg('允许引用并继续记录', 'Allow references and resume recording')))),
     snapshot?.grants?.length ? h(React.Fragment, null,
       h('p', { className: 'pg-note' }, msg('本次任务已允许的范围', 'Access granted for this task')),
       ...snapshot.grants.map((entry) => h('p', { key: entry.path, className: 'pg-note pg-path' }, scopeText(entry))),
       h('button', { className: 'pg-button', disabled: disabled || busy, onClick: () => act({ action: 'revoke' }) }, msg('撤销本任务全部材料授权', 'Revoke all material access for this task'))) : null,
     snapshot && !snapshot.requests.length && !snapshot.grants.length ? h('p', { className: 'pg-note' }, msg('没有待授权的外部材料，也没有任务级授权。', 'No external materials await approval and this task has no active grants.')) : null,
-    h('button', { className: 'pg-button', disabled: busy, onClick: refresh }, msg('刷新材料权限', 'Refresh permissions')),
+    h('button', { className: 'pg-button', disabled: busy, onClick: refreshFromView }, msg('刷新材料权限', 'Refresh permissions')),
     error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null);
 }
 
-function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline }) {
+function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission, materials, t, inline, renderInline, account, activeView = true }) {
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React.useState(state?.materials || {});
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState('');
-  const [request, setRequest] = React.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React.useState(Boolean(state?.materialAccess));
-  React.useEffect(() => { setFiles(state?.materials || {}); }, [state?.materials]);
-  React.useEffect(() => { setRequest(state?.submission); }, [state?.submission]);
-  React.useEffect(() => {
-    if (state?.materialAccess) { setAccessRequest(state.materialAccess); setShowAccess(true); }
-  }, [state?.materialAccess]);
+  const identity = useRequestScope([sessionId, task?.challengeId, task?.baseUrl, task?.mode, cwd, account, activeView]);
+  const projection = JSON.stringify([state?.submission, state?.materialAccess]);
+  const operation = useRequestScope([identity, projection, allowed, run, submission]);
+  const materialFields = JSON.stringify(state?.materials);
+  const [draft, setDraft] = React.useState({});
+  const files = draft.identity === identity && draft.revision === materialFields ? draft.files : state?.materials || {};
+  const [local, setLocal] = React.useState({});
+  const current = local.operation === operation ? local : {};
+  const { busy, error } = current;
+  const request = current.request ?? state?.submission;
+  const accessRequest = current.accessRequest ?? state?.materialAccess;
+  const [accessVisibility, setAccessVisibility] = React.useState({});
+  const showAccess = accessVisibility.operation === operation ? accessVisibility.visible : Boolean(accessRequest);
+  const controlsScope = useRequestScope([operation, running, request?.requestId, request?.status, accessRequest?.requestId,
+    JSON.stringify(files)]);
+  const permissionsOwner = useRequestScope([identity, request?.requestId, allowed]);
+  const setFiles = (files) => {
+    if (controlsScope.isCurrent() && !operation.pending('action')) setDraft({ identity, revision: materialFields, files });
+  };
   const act = async (input) => {
-    if (busy) return;
-    setBusy(true); setError('');
+    if (!activeView || !allowed || (running && input.action !== 'cancel') || !controlsScope.isCurrent() || operation.pending('action')) return;
+    const action = operation.begin('action');
+    if (!action) return;
+    const update = (fields) => setLocal((previous) => ({ ...(previous.operation === operation ? previous : {}), operation, ...fields }));
+    update({ busy: true, error: '' });
     try {
       const result = ['request', 'confirm_quota', 'cancel'].includes(input.action)
         ? await submission({ ...input, sessionId }) : await run(sessionId, input);
-      if (result.ok === false) setError(result.error?.message || result.note || msg('操作未完成', 'Operation did not finish'));
-      if (result.submission) setRequest(result.submission);
-      if (result.workflow?.kind === 'material-access') {
-        setAccessRequest(result.workflow.request); setShowAccess(true);
-      }
-    } catch (failure) { setError(failure.message); }
-    finally { setBusy(false); }
+      if (!action.isCurrent()) return;
+      update({
+        busy: false,
+        ...(result.ok === false ? { error: result.error?.message || result.note || msg('操作未完成', 'Operation did not finish') } : {}),
+        ...(result.submission ? { request: result.submission } : {}),
+        ...(result.workflow?.kind === 'material-access' ? { accessRequest: result.workflow.request } : {}),
+      });
+      if (result.workflow?.kind === 'material-access') setAccessVisibility({ operation, visible: true });
+    } catch (failure) {
+      if (action.isCurrent()) update({ busy: false, error: failure.message });
+    } finally { action.finish(); }
   };
-  const disabled = busy || running || !allowed;
+  const disabled = busy || running || !allowed || !activeView;
   const active = ['dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
   const canCancel = ['awaiting_user', 'dispatching', 'dispatched', 'created', 'unknown'].includes(request?.status);
   const stages = { awaiting_user: msg('等待配额答复，尚未派发', 'Awaiting your quota decision before dispatch'), dispatching: msg('正在交接', 'Handing off'), dispatched: msg('已派发给 Agent，尚未取得新编号', 'Sent to the Agent. Awaiting a submission ID.'),
@@ -196,15 +233,15 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
             cancel, h('p', { className: 'pg-note' }, stages[request?.status] || announcement)),
           request?.message ? h('p', { className: 'pg-note' }, request.message) : null));
     return renderInline({ state, request, controls, error, allowed, permissions: task && materials
-      ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true }) : null });
+      ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, inline: true, owner: permissionsOwner, activeView }) : null });
   }
   return h('section', { className: 'pg-guide pg-workflow', 'aria-label': msg('Playground 任务', 'Playground task') },
     h('style', null, css + '.pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{width:100%}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--pg-line)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}'),
     h('h3', { className: 'pg-brand' }, task ? `Playground · ${task.title}` : msg('Playground · 开始任务', 'Playground · Start task')),
     task ? h('p', { className: 'pg-note pg-path' }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(React.Fragment, null,
-      h('button', { className: 'pg-button', 'aria-expanded': showAccess, onClick: () => setShowAccess(!showAccess) }, msg('外部材料权限', 'External material permissions')),
-      showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null) : null,
+      h('button', { className: 'pg-button', 'aria-expanded': showAccess, onClick: () => { if (controlsScope.isCurrent()) setAccessVisibility({ operation, visible: !showAccess }); } }, msg('外部材料权限', 'External material permissions')),
+      showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, owner: permissionsOwner, activeView }) : null) : null,
     task?.mode === 'author' ? h(React.Fragment, null,
       h('p', { className: 'pg-note' }, msg('出题模式目前只支持本地准备。', 'Authoring mode currently supports local preparation only.')),
       h('button', { className: 'pg-button', disabled, onClick: () => act({ action: 'mode', mode: 'participate' }) }, msg('切回参赛', 'Switch to participation'))) : null,
@@ -240,10 +277,20 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
 
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, 'commands/execute');
-  const [error, setError] = React.useState('');
+  const scope = useRequestScope([session.id, props.account, props.activeView, refreshProjections]);
+  const [failure, setFailure] = React.useState({});
+  const error = failure.scope === scope ? failure.message : '';
   React.useEffect(() => {
-    refreshProjections(session.id).catch((failure) => setError(failure.message));
-  }, [session.id, refreshProjections]);
+    if (props.activeView === false) return;
+    const read = scope.begin('projection');
+    if (!read) return;
+    const refresh = async () => {
+      try { await refreshProjections(session.id); }
+      catch (error) { if (read.isCurrent()) setFailure({ scope, message: error.message }); }
+    };
+    void refresh();
+    return () => read.finish();
+  }, [scope]);
   if (error || projection?.state === 'error' || projection?.state === 'migration-required') {
     return h('p', { className: 'pg-error', role: 'alert' }, error || projection.error?.message || msg('请先在 DSH 中打开此会话，完成会话迁移后再继续。', 'Open this chat in DSH to complete its migration before continuing.'));
   }

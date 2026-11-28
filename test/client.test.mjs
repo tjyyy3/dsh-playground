@@ -32,13 +32,29 @@ async function clientFixture(t, services = {}, browser = {}) {
   let plugin;
   const states = new Map();
   const effects = [];
+  const stateWrites = [];
   let hooks;
   let cursor;
+  let layoutEffects;
+  const sameDeps = (a, b) => Boolean(a && b) && a.length === b.length && a.every((dep, index) => Object.is(dep, b[index]));
   const React = {
     useId: () => 'fixture-id',
     useRef: (initial) => {
       const index = cursor++;
       return hooks[index] ??= { current: initial };
+    },
+    useMemo: (factory, deps) => {
+      const index = cursor++;
+      if (!sameDeps(hooks[index]?.deps, deps)) hooks[index] = { deps, value: factory() };
+      return hooks[index].value;
+    },
+    useLayoutEffect: (effect, deps) => {
+      const index = cursor++;
+      const values = hooks;
+      if (!sameDeps(values[index]?.deps, deps)) layoutEffects.push(() => {
+        values[index]?.cleanup?.();
+        values[index] = { deps, cleanup: effect() };
+      });
     },
     useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
     createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
@@ -46,7 +62,7 @@ async function clientFixture(t, services = {}, browser = {}) {
       const values = hooks;
       const index = cursor++;
       if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;
-      return [values[index], (value) => { values[index] = typeof value === 'function' ? value(values[index]) : value; }];
+      return [values[index], (value) => { stateWrites.push(index); values[index] = typeof value === 'function' ? value(values[index]) : value; }];
     },
     // Effects are collected, not run; a test runs them to simulate mounting.
     useEffect: (effect, deps) => { effects.push(Object.assign(() => effect(), { deps })); }, Fragment: Symbol('fragment'),
@@ -78,9 +94,15 @@ async function clientFixture(t, services = {}, browser = {}) {
     if (!states.has(Component)) states.set(Component, []);
     hooks = states.get(Component);
     cursor = 0;
-    return Component(props);
+    layoutEffects = [];
+    const tree = Component(props);
+    layoutEffects.forEach((effect) => effect());
+    return tree;
   }
-  const unmount = (Component) => states.delete(Component);
+  const unmount = (Component) => {
+    states.get(Component)?.forEach((slot) => slot?.cleanup?.());
+    states.delete(Component);
+  };
   // Render the workbench for one source session and return its panels.
   function workbench(sessionId, access = true, handoff = { start: () => assert.fail('unexpected handoff') }) {
     const main = registrations.get('playground.library');
@@ -98,7 +120,7 @@ async function clientFixture(t, services = {}, browser = {}) {
     await settle();
     return render(element.type, element.props);
   }
-  return { plugin, registrations, find, render, unmount, effects, workbench, mount };
+  return { plugin, registrations, find, render, unmount, effects, workbench, mount, stateWrites };
 }
 
 test('upgrading enabled competition alerts retains history, batches new entries and resumes quietly after opt-in', async (t) => {
@@ -5543,9 +5565,7 @@ async function emailLogin(panel, after) {
   return panel.rerender();
 }
 function deferred() {
-  let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  return Promise.withResolvers();
 }
 
 test('email sign-in discards a delayed candidate identity and leaves the CLI account active', async (t) => {
@@ -8937,4 +8957,212 @@ test('[submit-page] shows explicitly supplied numeric dimensions and ignores nar
   assert.match(text(dimensions), /accuracy.*0.*trace.*0.8/);
   assert.equal(findAll(dimensions, (node) => node.type === 'meter').length, 2);
   assert.doesNotMatch(text(dimensions), /note/);
+});
+
+function submitRaceView(f, element) {
+  let effects = [];
+  return {
+    update(props) {
+      f.effects.length = 0;
+      const tree = f.renderElement(element, props);
+      effects = f.effects.splice(0).map((effect, index) => {
+        const previous = effects[index];
+        if (previous && effect.deps.length === previous.deps.length
+          && effect.deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return previous;
+        previous?.cleanup?.();
+        return { deps: effect.deps, cleanup: effect() };
+      });
+      return tree;
+    },
+    unmount() {
+      effects.forEach(({ cleanup }) => cleanup?.());
+      effects = [];
+      f.unmount(element.type);
+    },
+  };
+}
+
+const raceMaterial = (requestId) => ({ requestId, operation: 'submit', scopes: [{ path: '/materials/' + requestId, kind: 'file' }] });
+const racePermissions = (request) => ({ ok: true, requests: [request], grants: [] });
+const raceTicket = (request) => ({ ok: true, input: { action: 'request', material_request_id: request.requestId } });
+
+for (const unmount of [false, true]) {
+  test('[submit-race] drops a delayed authorization after ' + (unmount ? 'unmount' : 'switching material requests'), async (t) => {
+    const a = raceMaterial('request-a'), b = raceMaterial('request-b');
+    const authorization = deferred();
+    const calls = [];
+    let projected = a;
+    const f = await submitFixture(t, {
+      state: { ...submitTaskState, materialAccess: a },
+      materials: (input) => {
+        calls.push(input);
+        return input.action === 'status' ? Promise.resolve(racePermissions(projected)) : authorization.promise;
+      },
+      submission: async (input) => { calls.push(input); return { ok: true }; },
+    });
+    const permission = f.renderElement(f.workflow()).props.permissions;
+    const view = submitRaceView(f, permission);
+    view.update({ request: a });
+    await settle();
+    const authorize = f.btn(view.update({ request: a }), '允许引用并继续交接').props.onClick;
+    const oldAction = authorize();
+    assert.equal(calls.at(-1).requestId, a.requestId);
+    if (unmount) {
+      view.unmount();
+    } else {
+      projected = b;
+      view.update({ request: b });
+      await settle();
+      assert.match(text(view.update({ request: b })), /\/materials\/request-b/);
+    }
+    const reads = calls.length;
+    const writes = f.stateWrites.length;
+    authorization.resolve(raceTicket(a));
+    await oldAction;
+    assert.equal(calls.length, reads, 'expired authorization cannot resume or refresh');
+    assert.equal(f.stateWrites.length, writes, 'the expired action cannot write state');
+    assert.ok(calls.every((input) => input.material_request_id !== a.requestId));
+    if (!unmount) {
+      await authorize();
+      assert.equal(calls.length, reads, 'the previous authorization button can no longer send an RPC');
+      view.unmount();
+    }
+  });
+}
+
+for (const failure of [false, true]) {
+  test('[submit-race] keeps current permissions when the previous status read ' + (failure ? 'fails' : 'succeeds') + ' late', async (t) => {
+    const a = raceMaterial('request-a'), b = raceMaterial('request-b');
+    const old = deferred(), latest = deferred();
+    const reads = [old, latest];
+    const authorizations = [];
+    const f = await submitFixture(t, {
+      state: { ...submitTaskState, materialAccess: a },
+      materials: async (input) => {
+        if (input.action === 'status') return reads.shift()?.promise ?? racePermissions(b);
+        authorizations.push(input);
+        return raceTicket(b);
+      },
+      submission: async () => ({ ok: true }),
+    });
+    const permission = f.renderElement(f.workflow()).props.permissions;
+    const view = submitRaceView(f, permission);
+    view.update({ request: a });
+    view.update({ request: b });
+    latest.resolve(racePermissions(b));
+    await settle();
+    const writes = f.stateWrites.length;
+    if (failure) old.reject(new Error('expired status read'));
+    else old.resolve(racePermissions(a));
+    await settle();
+    const sidebar = view.update({ request: b });
+    assert.match(text(sidebar), /\/materials\/request-b/);
+    assert.doesNotMatch(text(sidebar), /\/materials\/request-a|expired status read/);
+    assert.equal(f.stateWrites.length, writes);
+    await f.btn(sidebar, '允许引用并继续交接').props.onClick();
+    assert.deepEqual(authorizations.map(({ requestId }) => requestId), [b.requestId]);
+    view.unmount();
+  });
+}
+
+test('[submit-race] refreshes score details when the same attempt gains a final summary', async (t) => {
+  const evaluating = { ...submitFinal, status: 'evaluating', updatedAt: '2026-11-27T00:00:00Z', scoringState: { state: 'evaluating' } };
+  const scored = { ...submitFinal, updatedAt: '2026-11-27T00:02:00Z' };
+  const initial = deferred(), refresh = deferred(), afterFinal = deferred();
+  const replies = [initial, refresh, afterFinal];
+  const inputs = [];
+  const query = (input) => { inputs.push(input); return replies.shift().promise; };
+  const f = await submitFixture(t);
+  const pane = f.openScores();
+  const card = (attempt) => f.component(f.renderElement(pane, { history: { items: [attempt] }, query }), 'Scorecard');
+  const view = submitRaceView(f, card(evaluating));
+  view.update(card(evaluating).props);
+  const old = { ...evaluating, authorName: 'Earlier submitter label', scorecard: '{"dimensions":{"oldMetric":0.2}}' };
+  initial.resolve(old);
+  await settle();
+  assert.match(text(view.update(card(evaluating).props)), /oldMetric/);
+  const manual = f.btn(view.update(card(evaluating).props), '刷新结果').props.onClick();
+  assert.equal(inputs.length, 2);
+  const immediate = text(view.update(card(scored).props));
+  assert.match(immediate, /71\.5.*评分完成/);
+  assert.doesNotMatch(immediate, /oldMetric|Earlier submitter label/);
+  assert.equal(inputs.length, 3, 'a newer observation of the same attempt triggers a detail read');
+
+  // Even the latest read can hit a stale platform replica.
+  afterFinal.resolve(old);
+  refresh.resolve(old);
+  await manual;
+  await settle();
+  const settled = text(view.update(card(scored).props));
+  assert.match(settled, /71\.5.*评分完成/);
+  assert.doesNotMatch(settled, /oldMetric|Earlier submitter label/);
+  view.unmount();
+});
+
+test('[submit-race] ignores detail for A arriving after the user selects B', async (t) => {
+  const a = { ...submitFinal, challengeTitle: 'Submission A' };
+  const b = { ...submitOlder, challengeTitle: 'Submission B' };
+  const old = deferred(), latest = deferred();
+  const query = ({ attemptId }) => attemptId === a.id ? old.promise : latest.promise;
+  const f = await submitFixture(t);
+  const pane = f.openScores();
+  const card = (picked) => f.component(f.renderElement(pane, { history: { items: [a, b] }, query, picked }), 'Scorecard');
+  const view = submitRaceView(f, card(a));
+  view.update(card(a).props);
+  view.update(card(b).props);
+  latest.resolve({ ...b, authorName: 'Submitter B' });
+  await settle();
+  const writes = f.stateWrites.length;
+  old.resolve({ ...a, authorName: 'Submitter A' });
+  await settle();
+  const result = text(view.update(card(b).props));
+  assert.match(result, /Submission B.*63\.0.*Submitter B/);
+  assert.doesNotMatch(result, /Submission A|Submitter A|71\.5/);
+  assert.equal(f.stateWrites.length, writes);
+  view.unmount();
+});
+
+test('[submit-race] discards a stale confirmation reply and rejects the earlier button callback', async (t) => {
+  const older = deferred();
+  const calls = [];
+  const f = await submitFixture(t, {
+    state: { ...submitTaskState, submission: submitRisk },
+    submission: (input) => { calls.push(input); return older.promise; },
+  });
+  const workflow = f.workflow();
+  const view = submitRaceView(f, workflow);
+  const a = view.update().props.controls;
+  const confirm = f.btn(a, '知悉配额风险，继续本次提交').props.onClick;
+  const inFlight = confirm();
+  const b = { ...submitTaskState, submission: { ...submitRisk, requestId: 'second-quota' } };
+  view.update({ state: b });
+  const writes = f.stateWrites.length;
+  older.resolve({ ok: false, error: { message: 'old confirmation failed' }, submission: { ...submitRisk, status: 'dispatched' } });
+  await inFlight;
+  assert.equal(f.stateWrites.length, writes);
+  const current = view.update({ state: b });
+  assert.equal(current.props.request.requestId, b.submission.requestId);
+  assert.doesNotMatch(text(current.props.error), /old confirmation failed/);
+  await confirm();
+  assert.deepEqual(calls.map(({ requestId }) => requestId), [submitRisk.requestId]);
+  view.unmount();
+});
+
+test('[submit-race] ignores an earlier projection read failing after a fresh session is shown', async (t) => {
+  const previous = deferred(), current = deferred();
+  const f = await submitFixture(t);
+  const task = f.task();
+  const view = submitRaceView(f, task);
+  const refresh = (id) => id === f.session.id ? previous.promise : current.promise;
+  view.update({ refreshProjections: refresh });
+  const next = { ...f.session, id: 'other-task' };
+  view.update({ session: next, refreshProjections: refresh });
+  current.resolve();
+  await settle();
+  const writes = f.stateWrites.length;
+  previous.reject(new Error('previous projection failed'));
+  await settle();
+  assert.equal(view.update({ session: next, refreshProjections: refresh }).type.name, 'TaskWorkflow');
+  assert.equal(f.stateWrites.length, writes);
+  view.unmount();
 });
