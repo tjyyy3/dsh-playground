@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createPlaygroundClient } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow } from '../lib/workflow.js';
-import { credentialRecords } from './fixtures/account-credentials.mjs';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
   const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [], cleanups = [];
@@ -232,6 +233,37 @@ test('the submission-history read accepts only challengeId, limit and cursor and
   }
 });
 
+test('[review-135] one summary query reads platform history once and groups owned attempts by challenge', async () => {
+  let service, contribution;
+  const ctx = {
+    provide: (_, value) => { service = value; },
+    typert: { register: (value) => { contribution = value; } },
+  };
+  const signal = new AbortController().signal;
+  const attempt = (challengeId, attemptId, authorId = 'member') =>
+    ({ challengeId, attemptId, authorId, time: '2026-10-01T00:00:00Z' });
+  const calls = [];
+  const client = {
+    baseUrl: 'https://example.test/api',
+    currentToken: async () => 'fixture-token',
+    getCurrentUser: async () => ({ authenticated: true, user: { id: 'member' } }),
+    async getUserSubmissions(options) {
+      calls.push(options);
+      return [attempt('alpha', 1), attempt('alpha', 2), attempt('alpha', 2),
+        attempt('beta', 3), attempt('beta', 4, 'other-account'), attempt('beta', null),
+        attempt('gamma', 5), attempt('gamma', 6), attempt('gamma', 7), attempt('foreign', 8, 'other-account')];
+    },
+  };
+  registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  const result = await service.query(schema.parse({ action: 'my_attempts_summary' }), signal);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [{ signal, token: 'fixture-token' }]);
+  assert.deepEqual(Object.entries(result.byId).map(([id, history]) =>
+    [id, history.submissionCounts.lifetime, history.items.map((item) => [item.id, item.authorId]), Boolean(history.partial)]),
+  [['alpha', 2, [[2, 'member']], false], ['beta', 1, [[3, 'member']], true], ['gamma', 3, [[7, 'member']], false]]);
+});
+
 test('session-free login accepts only the account email and never a password', async () => {
   const services = new Map();
   const calls = [];
@@ -443,4 +475,69 @@ test('controller task reads can include a linked challenge while promotion uses 
     assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', includeChallengeId: 'linked' }).success, method === 'controllerTasks');
     assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', includeChallengeId: ' ' }).success, false);
   }
+});
+
+test('[home] sends all anonymous public reads to the configured platform', async (t) => {
+  const origin = 'https://configured.example.test';
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, { method, headers, credentials }) => {
+    requests.push({ url, method, authorization: headers?.authorization, credentials });
+    if (url.pathname.endsWith('/api/challenges')) return Response.json({ items: [{ id: 'fixture', title: 'Trace a ray' }] });
+    if (url.pathname === '/preview/contests') {
+      return new Response('<script type="module" src="./entry.js"></script>');
+    }
+    if (url.pathname === '/preview/entry.js') return new Response('export {};');
+    return new Response('', { status: 404 });
+  });
+  const { service, dispose } = mountAccountHost(credentialRecords(), new Set(), {
+    baseUrl: `${origin}/preview/api`, token: 'synthetic-account-token',
+  });
+  t.after(dispose);
+
+  const home = await service.query({ action: 'home' });
+  assert.equal(home.ok, true);
+  assert.deepEqual([...new Set(requests.map(({ url }) => url.origin))], [origin]);
+  assert.deepEqual(requests.map(({ url }) => url.pathname).sort(), [
+    '/preview/api/challenges', '/preview/api/challenges/facets', '/preview/api/contests', '/preview/api/feed',
+    '/preview/api/hackathon/seasons', '/preview/api/stats/participation', '/preview/api/topics',
+    '/preview/contests', '/preview/entry.js',
+  ]);
+  for (const { method, authorization, credentials } of requests) {
+    assert.equal(method, 'GET');
+    assert.equal(authorization, undefined);
+    assert.equal(credentials, 'omit');
+  }
+  assert.deepEqual(home.challenges?.map(({ id }) => id), ['fixture']);
+});
+
+test('[home] queries anonymous public sources independently and projects the fields used by home', async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push([url.pathname, options.method, options.headers.authorization, url.searchParams.get('per_page')]);
+    const fixtures = {
+      '/api/challenges/facets': { total: 27, attempts: 53, disciplines: { physics: 5, optics: 2 }, formalDisciplines: { physics: 5 } },
+      '/api/stats/participation': { total: 8, events: [{ name: 'Extra fixture data' }] },
+      '/api/topics': { topics: [{}, {}] },
+      '/api/challenges': { items: [{ id: 'fixture', title: 'Trace a ray', attempts: 3 }] },
+      '/api/feed': [{ text: '<strong>Example</strong> submitted a result', time: '2030-01-01T00:00:00Z', link: 'https://example.test/' }],
+      '/api/contests': [{ slug: 'fixture', hasPage: true, visibility: 'public', status: 'active' }],
+      '/api/hackathon/seasons': [{ id: 91, slug: 'fixture', nameEn: 'Fixture contest', status: 'active', challengeIds: ['fixture'] }],
+    };
+    if (!fixtures[url.pathname]) return new Response('', { status: 404 });
+    return Response.json(fixtures[url.pathname]);
+  });
+  let service, schema;
+  const ctx = { provide: (_, provided) => { service = provided; },
+    typert: { register: (entry) => { schema = entry.invocations[0].parameters[0].codec.create(); } } };
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test/api' });
+  registerWorkbenchQueries(ctx, {}, undefined, undefined, undefined, client);
+  const parsed = schema.safeParse({ action: 'home' });
+  assert.equal(parsed.success, true);
+  const home = await service.query(parsed.data);
+  assert.deepEqual(home.stats, { challenges: 27, attempts: 53, disciplines: 1, discussions: 2, knights: 8 });
+  assert.deepEqual(home.challenges, [{ id: 'fixture', title: 'Trace a ray', attempts: 3 }]);
+  assert.deepEqual(home.feed, [{ text: '<strong>Example</strong> submitted a result', time: '2030-01-01T00:00:00Z' }]);
+  assert.equal(home.competitions.find(({ season }) => season === 'fixture').count, 1);
+  assert.ok(requests.every(([, method, authorization]) => method === 'GET' && authorization === undefined));
+  assert.ok(requests.some(([path, , , perPage]) => path === '/api/challenges' && perPage === '6'));
 });

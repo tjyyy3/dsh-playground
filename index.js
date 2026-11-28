@@ -61,7 +61,7 @@ export function apply(ctx, config) {
     scope.on?.('subagent/end', controller.observeEnd);
     workflow = createWorkflow({ ctx: scope, client, cli, overview, presentationMeta,
       tokenStatus: resolveToken.inspect, isController: controller.owns });
-    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller, releaseQuery, installRelease));
+    scope.inject(['typert'], (queryScope) => registerWorkbenchQueries(queryScope, workflow, controller, releaseQuery, installRelease, client));
     scope.inject(['systemPrompt'], (promptScope) => {
       promptScope.systemPrompt.context({ name: 'playground-controller:current',
         order: promptScope.systemPrompt.getContextOrder('WORKING_DIRECTORY') + 1,

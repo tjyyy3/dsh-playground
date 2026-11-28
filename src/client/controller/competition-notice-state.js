@@ -1,4 +1,4 @@
-// enterNotices returns { state, items, batchIds, scope, status, kind }.
+// enterNotices returns { state, items, activityByKey, batchIds, scope, status, kind }.
 // Pass that view and the latest saved state to actOnNotices. kind is overview, new or reminder.
 const version = 2;
 const day = 86_400_000;
@@ -10,15 +10,24 @@ const isStringArray = (value) => Array.isArray(value) && value.every((entry) => 
 const unique = (values) => [...new Set(values)];
 const emptySite = () => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] });
 
-function timestamp(value) {
+export function noticeScheduleDate(value) {
   if (typeof value !== 'string') return null;
-  const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
+  const match = /^(\d{4}-\d\d-\d\d)(?:[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)(?:\s*(Z|[+-]\d\d:?\d\d))?)?$/i.exec(value.trim());
   if (!match) return null;
   const [, date, time, zone] = match;
   const calendarDay = new Date(date + 'T00:00:00Z');
   if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
-  const ms = Date.parse(date + 'T' + time + zone);
-  return Number.isFinite(ms) ? ms : null;
+  if (!time) return { date, time, zone, ms: null };
+  const ms = Date.parse(date + 'T' + time + (zone ?? 'Z'));
+  return Number.isFinite(ms) ? { date, time, zone, ms: zone ? ms : null } : null;
+}
+
+const timestamp = (value) => noticeScheduleDate(value)?.ms ?? null;
+
+export function noticeIsActive(item, now, start, end) {
+  const status = String(item.officialStatus ?? item.status ?? '').trim().toLowerCase();
+  return !endedStatuses.has(status) && (end === null || now < end) &&
+    (activeStatuses.has(status) || (start !== null && start <= now && end !== null));
 }
 
 function clockTime(value) {
@@ -66,14 +75,16 @@ function collectItems(items, sources, now) {
     const start = timestamp(item.startAt);
     const end = timestamp(item.endAt);
     const ended = endedStatuses.has(status) || (end !== null && end <= now);
-    const active = activeStatuses.has(status) || (start !== null && start <= now && end !== null && now < end);
+    const active = noticeIsActive(item, now, start, end);
     const upcoming = start !== null && start > now;
+    const schedule = { item, start, end };
     const prior = byKey.get(item.key);
     if (!prior) {
-      byKey.set(item.key, { item, sources: [item.source], endAt: end, ended, active, upcoming });
+      byKey.set(item.key, { item, sources: [item.source], schedules: [schedule], endAt: end, ended, active, upcoming });
       continue;
     }
     prior.sources.push(item.source);
+    prior.schedules.push(schedule);
     prior.ended ||= ended;
     prior.active ||= active;
     prior.upcoming ||= upcoming;
@@ -159,6 +170,7 @@ export function enterNotices(state, snapshot, time) {
     ...view,
     kind: kinds.size > 1 ? 'reminder' : ([...kinds][0] ?? 'new'),
     items: visible.map(({ key }) => current.get(key).item),
+    activityByKey: new Map(visible.map(({ key }) => [key, current.get(key).schedules])),
     state: {
       ...state,
       nextBatchId,
