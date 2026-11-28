@@ -7,29 +7,50 @@ import { needsQuotaDecision } from './submit-evidence.js';
 import { PlaygroundToolCard } from '../cards/tool.js';
 
 function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
-  const [snapshot, setSnapshot] = React.useState(null);
+  const key = JSON.stringify([sessionId, request?.requestId]);
+  const pending = React.useRef(null);
+  const [status, setStatus] = React.useState({});
+  const { snapshot, error } = status.key === key ? status : {};
   const [choices, setChoices] = React.useState({});
   const [scope, setScope] = React.useState('operation');
   const [recursive, setRecursive] = React.useState(false);
-  const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const setError = (error) => setStatus((previous) => ({
+    key, snapshot: previous.key === key ? previous.snapshot : undefined, error,
+  }));
   const refresh = async () => {
+    const read = pending.current;
+    if (read?.key !== key) return;
+    const generation = ++read.generation;
+    const isCurrent = () => pending.current === read && read.generation === generation;
     try {
       const value = await materials({ action: 'status', sessionId });
+      if (!isCurrent()) return;
       if (value.ok === false) throw new Error(value.error.message);
-      setSnapshot(value); setError('');
-    } catch (failure) { setError(failure.message); }
+      setStatus({ key, snapshot: value });
+    } catch (failure) {
+      if (isCurrent()) setError(failure.message);
+    }
   };
-  React.useEffect(() => { setScope('operation'); setRecursive(false); refresh(); }, [sessionId, request?.requestId]);
+  React.useEffect(() => {
+    pending.current = { key, generation: 0 };
+    setScope('operation');
+    setRecursive(false);
+    void refresh();
+    return () => { pending.current = null; };
+  }, [key, materials]);
   const act = async (input) => {
+    const read = pending.current;
+    if (read?.key !== key) return;
     setBusy(true); setError('');
     try {
       const result = await materials({ ...input, sessionId });
       if (result.ok === false) throw new Error(result.error.message);
       if (input.action === 'authorize') await resume(result.input);
-      await refresh();
-    } catch (failure) { setError(failure.message); }
-    finally { setBusy(false); }
+      if (pending.current === read) await refresh();
+    } catch (failure) {
+      if (pending.current === read) setError(failure.message);
+    } finally { setBusy(false); }
   };
   const scopeText = (item) => msg(`${item.kind === 'directory' ? `目录（${item.recursive ? '含子目录' : '仅直接文件'}）` : '文件'}：${item.path}`, `${item.kind === 'directory' ? `Directory (${item.recursive ? 'including subfolders' : 'direct files only'})` : 'File'}: ${item.path}`);
   if (inline) return h('aside', { className: 'pg-submit-access', 'aria-label': msg('外部材料权限', 'External material permissions') },

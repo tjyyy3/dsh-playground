@@ -6340,37 +6340,54 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline }) {
-  const [snapshot2, setSnapshot] = React14.useState(null);
+  const key2 = JSON.stringify([sessionId, request?.requestId]);
+  const pending = React14.useRef(null);
+  const [status, setStatus] = React14.useState({});
+  const { snapshot: snapshot2, error } = status.key === key2 ? status : {};
   const [choices, setChoices] = React14.useState({});
   const [scope, setScope] = React14.useState("operation");
   const [recursive, setRecursive] = React14.useState(false);
-  const [error, setError] = React14.useState("");
   const [busy, setBusy] = React14.useState(false);
+  const setError = /* @__PURE__ */ __name((error2) => setStatus((previous) => ({
+    key: key2,
+    snapshot: previous.key === key2 ? previous.snapshot : void 0,
+    error: error2
+  })), "setError");
   const refresh = /* @__PURE__ */ __name(async () => {
+    const read = pending.current;
+    if (read?.key !== key2) return;
+    const generation = ++read.generation;
+    const isCurrent = /* @__PURE__ */ __name(() => pending.current === read && read.generation === generation, "isCurrent");
     try {
       const value = await materials({ action: "status", sessionId });
+      if (!isCurrent()) return;
       if (value.ok === false) throw new Error(value.error.message);
-      setSnapshot(value);
-      setError("");
+      setStatus({ key: key2, snapshot: value });
     } catch (failure) {
-      setError(failure.message);
+      if (isCurrent()) setError(failure.message);
     }
   }, "refresh");
   React14.useEffect(() => {
+    pending.current = { key: key2, generation: 0 };
     setScope("operation");
     setRecursive(false);
-    refresh();
-  }, [sessionId, request?.requestId]);
+    void refresh();
+    return () => {
+      pending.current = null;
+    };
+  }, [key2, materials]);
   const act = /* @__PURE__ */ __name(async (input) => {
+    const read = pending.current;
+    if (read?.key !== key2) return;
     setBusy(true);
     setError("");
     try {
       const result = await materials({ ...input, sessionId });
       if (result.ok === false) throw new Error(result.error.message);
       if (input.action === "authorize") await resume(result.input);
-      await refresh();
+      if (pending.current === read) await refresh();
     } catch (failure) {
-      setError(failure.message);
+      if (pending.current === read) setError(failure.message);
     } finally {
       setBusy(false);
     }
@@ -7278,7 +7295,7 @@ var displayTime = /* @__PURE__ */ __name((value) => {
 var titleOf = /* @__PURE__ */ __name((session, task) => task?.title || session?.displayTitle?.replace(/^Playground · /, "") || msg("Playground 任务", "Playground task"), "titleOf");
 var scoreText = /* @__PURE__ */ __name((score) => Number.isFinite(score) ? Number.isInteger(score) ? score.toFixed(1) : String(score) : "—", "scoreText");
 var stateOf = /* @__PURE__ */ __name((session) => session?.projectionValues?.playgroundTask, "stateOf");
-var rowKey = /* @__PURE__ */ __name(({ id, challengeId }) => JSON.stringify([challengeId, id]), "rowKey");
+var rowKey = /* @__PURE__ */ __name(({ id, challengeId, baseUrl }) => JSON.stringify([challengeId, id, baseUrl]), "rowKey");
 var button = /* @__PURE__ */ __name((label2, onClick, props) => h("button", { type: "button", className: "pg-button", onClick, ...props }, label2), "button");
 var historyContext = /* @__PURE__ */ __name(() => msg("当前账号 · 包括在终端或其他工具中完成的提交", "Current account · Includes submissions made in the terminal and other tools"), "historyContext");
 var description = /* @__PURE__ */ __name(() => msg("按时间从新到旧 · 包括在终端和其他工具中完成的提交", "Newest first · Includes submissions made in the terminal and other tools"), "description");
@@ -7306,7 +7323,9 @@ function useHistory(query, active, scope, limit) {
       if (!Array.isArray(result?.items) || result?.ok === false) throw new Error(result?.error?.code === "authentication_required" ? msg("登录后可查看提交历史。", "Sign in to view submissions.") : safeMessage(result?.error?.message));
       const byKey = new Map((cursor ? current.items : []).map((item) => [rowKey(item), item]));
       for (const item of result.items) {
-        if (item && Number.isSafeInteger(item.id)) byKey.set(rowKey(item), { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl });
+        if (!item || !Number.isSafeInteger(item.id)) continue;
+        const attempt = { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl };
+        byKey.set(rowKey(attempt), attempt);
       }
       setData({
         key: key2,
@@ -7525,7 +7544,7 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
     pending.controller?.abort();
     const controller = new AbortController();
     pending.controller = controller;
-    setDetail((previous) => ({ ...previous, key: key2, busy: true, error: "" }));
+    setDetail((previous) => ({ key: key2, attempt: previous.key === key2 ? previous.attempt : void 0, busy: true }));
     try {
       const value2 = await query({
         action: "attempt",
@@ -7536,7 +7555,7 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
       if (controller.signal.aborted) return;
       if (value2?.ok === false || Number(value2?.id) !== attempt.id || String(value2.challengeId) !== attempt.challengeId) throw new Error();
       setDetail({ key: key2, attempt: value2 });
-      if (refresh) onRefresh({ ...attempt, ...value2 });
+      if (refresh) onRefresh({ ...attempt, ...value2, baseUrl: attempt.baseUrl });
     } catch {
       if (!controller.signal.aborted) setDetail({ key: key2, error: msg("评分详情读取失败。", "Could not load score details.") });
     }

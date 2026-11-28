@@ -8748,6 +8748,82 @@ test('[submit-page] material authorization resumes with the host ticket and keep
   ]);
 });
 
+for (const oldRead of ['resolves', 'rejects']) {
+  test(`[submit-page] keeps the newest material request actionable when an older status read ${oldRead}`, async (t) => {
+    const materialRequest = (requestId) => ({ requestId, operation: 'submit', scopes: [{ path: `/materials/${requestId}`, kind: 'file' }] });
+    const snapshot = (request) => ({ ok: true, requests: [request], grants: [] });
+    const oldRequest = materialRequest('old');
+    const newRequest = materialRequest('new');
+    const older = deferred();
+    const newer = deferred();
+    const statusReads = [
+      older.promise.then((value) => {
+        if (oldRead === 'rejects') throw new Error('Old permissions read failed');
+        return value;
+      }),
+      newer.promise,
+    ];
+    const authorizations = [];
+    const f = await submitFixture(t, {
+      state: { ...submitTaskState, materialAccess: oldRequest },
+      materials: async (input) => {
+        if (input.action === 'status') return statusReads.shift() ?? snapshot(newRequest);
+        authorizations.push(input);
+        return { ok: true, input: { action: 'request', material_request_id: input.requestId } };
+      },
+      submission: async () => ({ ok: true }),
+    });
+    const permission = f.renderElement(f.workflow()).props.permissions;
+    let cleanup;
+    const changeRequest = (request) => {
+      cleanup?.();
+      f.effects.length = 0;
+      f.renderElement(permission, { request });
+      const [effect] = f.effects.splice(0);
+      cleanup = effect();
+    };
+    changeRequest(oldRequest);
+    changeRequest(newRequest);
+    newer.resolve(snapshot(newRequest));
+    await settle();
+    assert.match(text(f.renderElement(permission, { request: newRequest })), /\/materials\/new/);
+
+    older.resolve(snapshot(oldRequest));
+    await settle();
+    const sidebar = f.renderElement(permission, { request: newRequest });
+    assert.match(text(sidebar), /\/materials\/new/);
+    assert.doesNotMatch(text(sidebar), /\/materials\/old|Old permissions read failed/);
+    await f.btn(sidebar, '允许引用并继续交接').props.onClick();
+    assert.deepEqual(authorizations, [
+      { action: 'authorize', requestId: 'new', scope: 'operation', recursive: false, sessionId: f.session.id },
+    ]);
+    cleanup?.();
+  });
+}
+
+test('[submit-page] clears a previous permission card while reading the next request', async (t) => {
+  const oldRequest = { requestId: 'old', operation: 'submit', scopes: [{ path: '/materials/old', kind: 'file' }] };
+  const newRequest = { requestId: 'new', operation: 'submit', scopes: [{ path: '/materials/new', kind: 'file' }] };
+  const newer = deferred();
+  let reads = 0;
+  const f = await submitFixture(t, {
+    state: { ...submitTaskState, materialAccess: oldRequest },
+    materials: async () => ++reads === 1 ? { ok: true, requests: [oldRequest], grants: [] } : newer.promise,
+  });
+  const permission = f.renderElement(f.workflow()).props.permissions;
+  const oldSidebar = await f.mount(permission);
+  assert.ok(f.btn(oldSidebar, '允许引用并继续交接'));
+  f.effects.length = 0;
+  const next = f.renderElement(permission, { request: newRequest });
+  const [effect] = f.effects.splice(0);
+  effect();
+  assert.doesNotMatch(text(next), /\/materials\/old/);
+  assert.equal(f.btn(f.renderElement(permission, { request: newRequest }), '允许引用并继续交接'), undefined);
+  newer.resolve({ ok: true, requests: [newRequest], grants: [] });
+  await settle();
+  assert.match(text(f.renderElement(permission, { request: newRequest })), /\/materials\/new/);
+});
+
 test('[submit-page] shows the current grants and revokes them together when no requests are pending', async (t) => {
   const calls = [];
   let grants = [{ path: '/materials/bundle.zip', kind: 'file' }];
@@ -8798,11 +8874,60 @@ test('[submit-page] computes four totals on the Beijing day boundary and leaves 
 test('[submit-page] compares two explicit final scores and omits dimensions without a scorecard', async (t) => {
   const f = await submitFixture(t);
   const pane = f.renderElement(f.openScores(), { history: { items: [submitFinal, submitOlder] },
-    compare: [JSON.stringify(['fixture', 21]), JSON.stringify(['fixture', 20])] });
+    compare: [JSON.stringify(['fixture', 21, null]), JSON.stringify(['fixture', 20, null])] });
   const scorecard = f.renderElement(f.component(pane, 'Scorecard'));
   assert.match(text(scorecard), /总分\s+\+8\.5/);
   assert.equal(findAll(scorecard, (node) => node.props?.className === 'pg-submit-dimensions').length, 0);
 });
+
+for (const switchPlatform of [false, true]) {
+  test(`[submit-page] shows the new summary during a detail read after changing ${switchPlatform ? 'platform' : 'submission'}`, async (t) => {
+    const first = { ...submitFinal, baseUrl: 'https://first.example' };
+    const next = { ...submitOlder, challengeTitle: 'New summary', ...(switchPlatform
+      ? { id: first.id, baseUrl: 'https://second.example' } : { baseUrl: first.baseUrl }) };
+    const earlier = deferred();
+    const later = deferred();
+    const inputs = [];
+    const query = (input) => {
+      inputs.push(input);
+      return inputs.length === 1 ? earlier.promise : later.promise;
+    };
+    const f = await submitFixture(t);
+    const pane = f.openScores();
+    const scorecardFrom = (attempt) => f.component(f.renderElement(pane, { history: { items: [attempt] }, active: true, query }), 'Scorecard');
+    let previousEffect;
+    let cleanup;
+    const renderScore = (attempt) => {
+      const element = scorecardFrom(attempt);
+      f.effects.length = 0;
+      const card = f.renderElement(element);
+      const [effect] = f.effects.splice(0);
+      if (!previousEffect || effect.deps.some((dep, index) => dep !== previousEffect.deps[index])) {
+        cleanup?.();
+        cleanup = effect();
+        previousEffect = effect;
+      }
+      return card;
+    };
+    renderScore(first);
+    earlier.resolve({ ...first, challengeTitle: 'Old detail', authorName: 'Old submitter',
+      scorecard: '{"dimensions":{"oldAccuracy":0.9}}', scoringState: { ...first.scoringState, displayScore: 99 } });
+    await settle();
+    assert.match(text(renderScore(first)), /Old detail.*99\.0.*oldAccuracy.*Old submitter/);
+
+    renderScore(next);
+    await settle();
+    const pending = text(renderScore(next));
+    assert.match(pending, /New summary.*63\.0/);
+    assert.doesNotMatch(pending, /Old detail|99\.0|oldAccuracy|Old submitter/);
+    assert.deepEqual(inputs.map(({ attemptId, baseUrl }) => [attemptId, baseUrl]), [[first.id, first.baseUrl], [next.id, next.baseUrl]]);
+
+    later.resolve({ ...next, challengeTitle: 'New detail' });
+    await settle();
+    assert.match(text(renderScore(next)), /New detail.*63\.0/);
+    cleanup?.();
+  });
+}
 
 test('[submit-page] shows explicitly supplied numeric dimensions and ignores narrative fields', async (t) => {
   const f = await submitFixture(t);

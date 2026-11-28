@@ -23,7 +23,7 @@ const displayTime = (value) => {
 const titleOf = (session, task) => task?.title || session?.displayTitle?.replace(/^Playground · /, '') || msg('Playground 任务', 'Playground task');
 const scoreText = (score) => Number.isFinite(score) ? Number.isInteger(score) ? score.toFixed(1) : String(score) : '—';
 const stateOf = (session) => session?.projectionValues?.playgroundTask;
-const rowKey = ({ id, challengeId }) => JSON.stringify([challengeId, id]);
+const rowKey = ({ id, challengeId, baseUrl }) => JSON.stringify([challengeId, id, baseUrl]);
 const button = (label, onClick, props) => h('button', { type: 'button', className: 'pg-button', onClick, ...props }, label);
 const historyContext = () => msg('当前账号 · 包括在终端或其他工具中完成的提交', 'Current account · Includes submissions made in the terminal and other tools');
 const description = () => msg('按时间从新到旧 · 包括在终端和其他工具中完成的提交', 'Newest first · Includes submissions made in the terminal and other tools');
@@ -48,7 +48,9 @@ function useHistory(query, active, scope, limit) {
         ? msg('登录后可查看提交历史。', 'Sign in to view submissions.') : safeMessage(result?.error?.message));
       const byKey = new Map((cursor ? current.items : []).map((item) => [rowKey(item), item]));
       for (const item of result.items) {
-        if (item && Number.isSafeInteger(item.id)) byKey.set(rowKey(item), { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl });
+        if (!item || !Number.isSafeInteger(item.id)) continue;
+        const attempt = { ...item, baseUrl: item.baseUrl ?? result.baseUrl ?? baseUrl };
+        byKey.set(rowKey(attempt), attempt);
       }
       setData({ key, items: [...byKey.values()].sort(sortSubmissionRows), nextCursor: result.nextCursor, busy: false,
         counts: result.submissionCounts, scoringTotals: result.scoringTotals, challenges: result.challenges, partial: result.partial });
@@ -183,14 +185,14 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
     pending.controller?.abort();
     const controller = new AbortController();
     pending.controller = controller;
-    setDetail((previous) => ({ ...previous, key, busy: true, error: '' }));
+    setDetail((previous) => ({ key, attempt: previous.key === key ? previous.attempt : undefined, busy: true }));
     try {
       const value = await query({ action: 'attempt', attemptId: attempt.id, challengeId: attempt.challengeId,
         ...(attempt.baseUrl ? { baseUrl: attempt.baseUrl } : {}) }, controller.signal);
       if (controller.signal.aborted) return;
       if (value?.ok === false || Number(value?.id) !== attempt.id || String(value.challengeId) !== attempt.challengeId) throw new Error();
       setDetail({ key, attempt: value });
-      if (refresh) onRefresh({ ...attempt, ...value });
+      if (refresh) onRefresh({ ...attempt, ...value, baseUrl: attempt.baseUrl });
     } catch {
       if (!controller.signal.aborted) setDetail({ key, error: msg('评分详情读取失败。', 'Could not load score details.') });
     }
