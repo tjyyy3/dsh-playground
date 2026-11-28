@@ -6,6 +6,7 @@ import { webRootOf } from '../shared/web-address.js';
 import { css } from '../shared/styles.js';
 import { AuthStatusPanel } from '../settings/auth.js';
 import { LanguageMenu } from '../settings/language.js';
+import { SettingsPage } from '../settings/page.js';
 import { ReleaseStatusPanel, ReleaseIndicator } from '../settings/releases.js';
 import { controllerMessage } from './messages.js';
 import { codexCss, ExternalCodexChats } from './codex-chats.js';
@@ -156,6 +157,29 @@ function ControllerPanel(props) {
     updateView(next);
   };
   const [releaseVisit, setReleaseVisit] = React.useState(0);
+  const [releaseAvailable, setReleaseAvailable] = React.useState(false);
+  const settingsReturn = React.useRef('home');
+  const settingsOpener = React.useRef(null);
+  const restoreSettingsFocus = React.useRef(false);
+  const openSettings = (event) => {
+    if (view !== 'settings') {
+      settingsReturn.current = view;
+      settingsOpener.current = event?.currentTarget;
+    }
+    setView('settings');
+  };
+  const closeSettings = () => {
+    restoreSettingsFocus.current = true;
+    setReleaseVisit(0);
+    setReleaseAvailable(false);
+    setView(settingsReturn.current);
+  };
+  React.useLayoutEffect(() => {
+    if (view === 'settings' || !restoreSettingsFocus.current) return;
+    restoreSettingsFocus.current = false;
+    settingsOpener.current?.focus();
+    settingsOpener.current = null;
+  }, [view]);
   const error = controllerMessage(errorMessage);
   const [dispatchState, setDispatchState] = React.useState(null);
   const [catalogNotice, setCatalogNotice] = React.useState(null);
@@ -175,15 +199,17 @@ function ControllerPanel(props) {
   const [accountName, setAccountName] = React.useState('');
   const [accountId, setAccountId] = React.useState(undefined);
   const [configuredBase, setConfiguredBase] = React.useState('');
-  const [updateAuthStatus] = React.useState(() => (status, user, baseUrl) => {
+  const [cliUpdate, setCliUpdate] = React.useState(null);
+  const [updateAuthStatus] = React.useState(() => (status, user, baseUrl, update) => {
     setAuthStatus(status);
     if (status === 'checking') return;
     setAccountName(status === 'authenticated' ? user?.name || user?.email || '' : '');
     setAccountId(status === 'authenticated' ? user?.id : undefined);
     setConfiguredBase(baseUrl || '');
+    setCliUpdate(update);
   });
   const [visited] = React.useState(() => new Set());
-  if (view === 'catalog' || view === 'submissions' || view === 'settings') visited.add(view);
+  if (view === 'catalog' || view === 'submissions') visited.add(view);
   const [preferences] = React.useState(() => {
     try { return JSON.parse(window.localStorage?.getItem('playground.controller.pane') || '{}'); } catch { return {}; }
   });
@@ -285,9 +311,9 @@ function ControllerPanel(props) {
     selectTab('controller');
     if (!homeController && !workspaceId) workspacePicker.current?.focus();
   };
-  const showVersion = () => {
+  const showVersion = (event) => {
     setReleaseVisit((visit) => visit + 1);
-    setView('settings');
+    openSettings(event);
   };
   const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? undefined : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
@@ -548,7 +574,7 @@ function ControllerPanel(props) {
   }
   return h('div', { className: 'pg-controller' }, h('style', null, css + controllerPanelCss + codexCss),
     view === 'controller' ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
-    h('header', { className: 'pg-controller-bar' }, controllerBrand(() => selectTab('home')),
+    h('header', { className: 'pg-controller-bar', style: view === 'settings' ? { display: 'none' } : undefined }, controllerBrand(() => selectTab('home')),
       h('div', { className: 'pg-controller-workspace' },
         lineIcon('M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z'),
         h('span', { className: 'pg-controller-workspace-text' },
@@ -563,10 +589,10 @@ function ControllerPanel(props) {
           } }, h('option', { value: '' }, msg('选择工作区', 'Select workspace')), workspaceOptions(workspaces.items),
           h('option', { value: '__add_workspace__', disabled: busy }, msg('添加工作区…', 'Add workspace…')))),
       h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = PRIMARY_TABS; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? ids.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length; selectTab(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
-        [['home', msg('首页', 'Home')], ['controller', msg('主控', 'Controller')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
+        [['home', msg('首页', 'Home')], ['controller', msg('主控', 'Controller')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
       h('div', { className: 'pg-controller-account' },
         h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: showVersion }), h(LanguageMenu),
-        h('button', { className: 'pg-controller-connection', title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: () => setView('settings') },
+        h('button', { className: 'pg-controller-connection', title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: openSettings },
           accountName ? h('span', { className: 'pg-controller-account-mark', title: accountName, 'aria-hidden': true }, Array.from(accountName).slice(0, 2).join('').toLocaleUpperCase()) : null,
           h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
           { checking: msg('检查中…', 'Checking…'), authenticated: msg('已登录', 'Signed in'), unauthenticated: msg('未登录', 'Signed out'), unavailable: msg('检测失败', 'Check failed') }[authStatus]),
@@ -577,7 +603,7 @@ function ControllerPanel(props) {
         inspection, controllerId: homeController, taskRows, requestTask: props.requestTask,
         handoff: { state: dispatchState, start: (challenge) => startHandoff(challenge, undefined, { webBase: configuredBase }) },
         actions: { browse, controller: showController, submissions: () => selectTab('submissions'),
-          settings: () => setView('settings'), versions: showVersion, recheck: () => setRetry(retry + 1),
+          settings: openSettings, versions: showVersion, recheck: () => setRetry(retry + 1),
           focusWorkspace: () => workspacePicker.current?.focus() } }) : null,
       h('main', { className: 'pg-controller-chat', style: { display: view === 'controller' ? 'flex' : 'none' } },
         !expectedId ? controllerHeader() : null,
@@ -598,11 +624,12 @@ function ControllerPanel(props) {
           } }),
           error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
           : renderSlot('playground.controller.session', { expectedId })),
-      h('main', { className: 'pg-workbench', style: { display: view === 'settings' ? 'block' : 'none', padding: 24, overflow: 'auto' } },
-        h('style', null, css), h('h1', null, msg('连接设置', 'Connection settings')), h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
+      h(SettingsPage, { active: view === 'settings', brand: controllerBrand(closeSettings), onBack: closeSettings,
+        checks: props.releaseChecks, configuredBase, authStatus, cliUpdate, releaseAvailable, releaseVisit },
+        h(AuthStatusPanel, { ...props, settings: true, active: view === 'settings', onStatusChange: updateAuthStatus }),
         view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
-        visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query, checks: props.releaseChecks,
-          installRelease: props.installRelease, visit: releaseVisit }) : null),
+        view === 'settings' ? h(ReleaseStatusPanel, { query: props.query, checks: props.releaseChecks,
+          installRelease: props.installRelease, visit: releaseVisit, onAvailable: setReleaseAvailable }) : null),
       ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'submissions' ? { account: authStatus === 'authenticated' ? accountId : undefined, accountName } : {}), ...(section === 'catalog' ? { handoff, catalogDestination, controllerRows: tasks?.kind === 'ready' ? tasks.rows : undefined, account: authStatus === 'authenticated' ? accountId : undefined } : {}) })) : null),
       view === 'controller' && showTasks ? h(React.Fragment, null,
         h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': msg('调整任务侧栏宽度', 'Resize task sidebar'), 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,

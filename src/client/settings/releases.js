@@ -2,29 +2,9 @@ import { msg } from '../shared/language.js';
 import * as React from 'react';
 import { openableWebUrl } from '../shared/display.js';
 import { h } from '../shared/react.js';
+import { useRequestScope } from '../shared/request-scope.js';
 
 
-
-const releaseCss = `
-  .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
-  .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
-  .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
-  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
-  .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
-  .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
-  .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
-  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--pg-muted) }.pg-release-version small { font-size:12px }
-  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--pg-text) }
-  .pg-release-arrow { color:var(--pg-muted) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
-  .pg-release-pref { min-height:54px; border-top:1px solid var(--pg-line); font-weight:600; cursor:pointer }
-  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--pg-muted); border-radius:12px; background:var(--pg-base); cursor:pointer }
-  .pg-release-pref input::before { content:""; background:var(--pg-muted); width:14px; height:14px; margin:2px; border-radius:50% }
-  .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
-  @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
-  .pg-release-details { border-top:1px solid var(--pg-line); padding:10px var(--inset); color:var(--pg-muted); font-size:13px }.pg-release-details summary { cursor:pointer }
-  .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
-  @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
-`;
 
 function icon(path, size = 16) {
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
@@ -43,29 +23,29 @@ function ReleaseIndicator({ checks, active, open }) {
     title: msg(`查看版本 ${version}`, `View version ${version}`) }, icon('M12 20V4m0 0-6 6m6-6 6 6', 14), msg('有新版本', 'Update available')) : null;
 }
 
-function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
+function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable }) {
   const { enabled } = React.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
   const heading = React.useRef(null);
   const [installState, setInstallState] = React.useState('');
-  const installing = React.useRef(false);
+  const scope = useRequestScope([query]);
   const [info, setInfo] = React.useState(null);
   const [release, setRelease] = React.useState({ status: 'loading' });
   const [copyStatus, setCopyStatus] = React.useState('');
-  const [latest] = React.useState(() => ({ controller: null }));
-  const cancel = () => { latest.controller?.abort(); latest.controller = null; };
   const load = async (check) => {
+    const request = scope.begin('release');
+    if (!request) return;
+    scope.abort('copy');
     setCopyStatus('');
-    cancel();
-    const controller = new AbortController();
-    latest.controller = controller;
+    const timeout = new AbortController();
+    const signal = AbortSignal.any([request.signal, timeout.signal]);
     setRelease({ ...release, status: check ? 'checking' : 'loading' });
-    const timer = setTimeout(() => controller.abort(new Error('release_rpc_timeout')), check ? 150000 : 10000);
+    const timer = setTimeout(() => timeout.abort(new Error('release_rpc_timeout')), check ? 150000 : 10000);
     try {
       const next = await Promise.race([
-        query({ action: 'releases', check, ...(check ? { verifyPackage: true } : {}) }, controller.signal),
-        new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })),
+        query({ action: 'releases', check, ...(check ? { verifyPackage: true } : {}) }, signal),
+        new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
       ]);
-      if (latest.controller !== controller) return;
+      if (!request.isCurrent()) return;
       if (!['ready', 'unchecked', 'unavailable'].includes(next?.status)) {
         setRelease({ ...release, status: 'unavailable', error: 'failed' });
         return;
@@ -76,23 +56,26 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
         target: next.target ?? release.target, comparison: next.comparison ?? release.comparison,
         warnings: next.warnings ?? release.warnings, registry: next.registry });
     } catch (error) {
-      if (latest.controller === controller) setRelease({ ...release, registry: undefined, status: 'unavailable',
+      if (request.isCurrent()) setRelease({ ...release, registry: undefined, status: 'unavailable',
         error: error?.message === 'release_rpc_timeout' ? check ? 'timeout' : 'info_timeout' : 'failed' });
     } finally {
       clearTimeout(timer);
+      request.finish();
     }
   };
   React.useEffect(() => {
     if (visit) heading.current?.focus();
     load(Boolean(visit));
-    return cancel;
-  }, [query, visit]);
+    return () => scope.abort('release');
+  }, [scope, visit]);
   React.useEffect(() => {
     if (release.error !== 'rate_limited' || !release.resetAt) return;
-    const timer = setTimeout(() => setRelease({ ...release, status: release.target ? 'ready' : 'unchecked',
-      error: undefined, resetAt: undefined }), Math.max(0, Date.parse(release.resetAt) - Date.now()));
+    const timer = setTimeout(() => {
+      if (scope.isCurrent()) setRelease({ ...release, status: release.target ? 'ready' : 'unchecked',
+        error: undefined, resetAt: undefined });
+    }, Math.max(0, Date.parse(release.resetAt) - Date.now()));
     return () => clearTimeout(timer);
-  }, [release.error, release.resetAt]);
+  }, [scope, release.error, release.resetAt]);
   const channelLabels = { stable: msg('正式版', 'Stable'), beta: 'Beta' };
   const { status, comparison } = release;
   const target = release.target;
@@ -119,6 +102,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     user_action_required: msg('无法核实浏览器检查操作。请重新打开 DSH 工作台。', 'Could not verify the browser request. Reopen the DSH workbench.'),
   }[release.error] || msg('无法读取发布版本。', 'Could not read releases.');
   const statusText = {
+    loading: msg('正在读取插件版本…', 'Reading plugin version…'),
     unchecked: msg('尚未检查更新。', 'Updates have not been checked yet.'),
     checking: msg('正在检查发布版本…', 'Checking releases…'),
     unavailable: errorText,
@@ -137,32 +121,37 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
 
   const showTarget = status === 'ready' && comparison === 'upgrade' && target && release.compatible !== false
     && !info?.restartRequired && (!registrySource || registryReady);
-  return h('section', { className: 'pg-guide pg-release', 'aria-label': msg('Playground 版本与更新', 'Playground version and updates') },
-    h('style', null, releaseCss),
+  const updateAvailable = status === 'ready' && comparison === 'upgrade' && Boolean(target) && !info?.restartRequired;
+  React.useEffect(() => { onAvailable?.(updateAvailable); }, [updateAvailable, onAvailable]);
+
+  return h('div', { className: 'pg-settings-release' },
     h('header', { className: 'pg-release-header' },
       h('h2', { ref: heading, tabIndex: -1 }, msg('版本与更新', 'Version and updates')),
-      h('button', { type: 'button', className: 'pg-release-check', disabled: status === 'loading' || status === 'checking' || rateLimited, onClick: () => load(true) },
-        icon('M20 10a8 8 0 1 0 0 5m0-11v6h-6', 14), status === 'checking' ? msg('正在检查…', 'Checking…') : rateLimited ? msg('等待额度恢复', 'Waiting for rate limit reset') : msg('检查更新', 'Check for updates'))),
-    h('div', { className: 'pg-release-summary' },
-      h('div', { className: 'pg-release-versions', 'aria-live': 'polite' },
-        h('div', { className: 'pg-release-version' }, h('small', null, msg('当前版本', 'Current version')),
-          h('strong', null, info?.currentVersion || (status === 'loading' ? '…' : msg('未知', 'Unknown')))),
-        showTarget || (target && status === 'unavailable') ? h(React.Fragment, null, h('span', { className: 'pg-release-arrow', 'aria-hidden': true }, '→'),
-          h('div', { className: 'pg-release-version pg-release-target' }, h('small', null, showTarget ? msg('可更新至', 'Available version') : msg('上次检查', 'Last checked')), h('strong', null, target.version))) : null),
-      h('div', { className: 'pg-release-actions' },
-        canReadNotes ? h('a', { className: 'pg-release-link', href: notesUrl, target: '_blank', rel: 'noopener noreferrer' }, msg('发布说明', 'Release notes')) : null,
-        registryUpgrade && release.canInstall
-          ? h('button', { type: 'button', className: 'pg-button pg-primary', disabled: installing.current || ['restart-required', 'applied'].includes(installState),
-            onClick: async () => {
-              if (installing.current) return;
-              installing.current = true; setInstallState('installing');
-              try {
-                const result = await installRelease(target.version);
-                setInstallState(result.status);
-                if (['restart-required', 'applied'].includes(result.status)) { checks.installed(); await load(false); }
-              } catch { setInstallState('unverified'); }
-              finally { installing.current = false; }
-            } }, msg('立即更新', 'Update now')) : null)),
+      info?.channel ? h('span', { className: 'pg-settings-release-channel' }, channelLabels[info.channel]) : null),
+    h('div', { className: 'pg-settings-release-card', 'data-status': status, 'data-tone': showTarget ? 'info' : undefined },
+      h('div', { className: 'pg-release-summary' },
+        h('div', { className: 'pg-release-versions', 'aria-live': 'polite' },
+          h('div', { className: 'pg-release-version' }, h('small', null, msg('当前版本', 'Current version')),
+            h('strong', null, info?.currentVersion || (status === 'loading' ? '…' : msg('未知', 'Unknown')))),
+          showTarget || (target && status === 'unavailable') ? h(React.Fragment, null, h('span', { className: 'pg-release-arrow', 'aria-hidden': true }, '→'),
+            h('div', { className: 'pg-release-version pg-release-target' }, h('small', null, showTarget ? msg('可更新至', 'Available version') : msg('上次检查', 'Last checked')), h('strong', null, target.version))) : null),
+        h('div', { className: 'pg-release-actions' },
+          canReadNotes ? h('a', { className: 'pg-button', href: notesUrl, target: '_blank', rel: 'noopener noreferrer' }, msg('发布说明', 'Release notes')) : null,
+          registryUpgrade && release.canInstall
+            ? h('button', { type: 'button', className: 'pg-button pg-primary', disabled: scope.pending('install') || ['restart-required', 'applied'].includes(installState),
+              onClick: async () => {
+                if (scope.pending('install')) return;
+                const request = scope.begin('install');
+                if (!request) return;
+                setInstallState('installing');
+                try {
+                  const result = await installRelease(target.version);
+                  if (!request.isCurrent()) return;
+                  setInstallState(result.status);
+                  if (['restart-required', 'applied'].includes(result.status)) { checks.installed(); await load(false); }
+                } catch { if (request.isCurrent()) setInstallState('unverified'); }
+                finally { request.finish(); }
+              } }, msg('立即更新', 'Update now')) : null)),
     statusText && !showTarget ? h('p', { role: 'status', className: status === 'unavailable' ? 'pg-release-message pg-error' : 'pg-note pg-release-message' }, statusText) : null,
     info?.restartRequired && !installState ? h('p', { className: 'pg-note pg-release-message' }, msg('新版已安装，重启 DSH 后生效。', 'Update installed. Restart DSH when ready.')) : null,
     installState ? h('p', { role: 'status', className: 'pg-note pg-release-message' }, ({
@@ -175,8 +164,22 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     })[installState] || msg('请重新检查已安装版本及可用更新。', 'Check the installed version and available updates again.')) : null,
       target && release.incomplete ? h('p', { className: 'pg-note pg-release-message' }, msg('发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。', 'The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.')) : null,
     release.warnings?.includes('prerelease_mismatch') ? h('p', { className: 'pg-note pg-release-message' }, msg('部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。', 'Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.')) : null,
-    h('label', { className: 'pg-release-pref' }, msg('自动检查更新', 'Automatically check for updates'),
-      h('input', { type: 'checkbox', role: 'switch', checked: enabled, onChange: event => checks.setEnabled(event.target.checked) })),
+    showTarget && registryReady ? h('div', { className: 'pg-release-verified' },
+      h('span', null, msg('npm 版本及公开安装包已就绪', 'npm version and public package verified')),
+      release.compatible === true ? h('span', null, msg('与当前 DSH 兼容', 'Compatible with this DSH host')) : null) : null),
+    h('div', { className: 'pg-release-pref' },
+      h('span', { className: 'pg-release-source' }, msg('安装来源', 'Installation source'), ' ',
+        h('span', { className: 'pg-release-source-value' }, ({
+          registry: 'npm · dsh-playground',
+          git_pinned: 'Git',
+          git_unpinned: 'Git',
+          file: msg('本地文件', 'Local file'),
+          link: msg('开发链接', 'Development link'),
+        })[info?.source] ?? msg('未知', 'Unknown'))),
+      h('label', null, msg('自动检查更新', 'Automatically check for updates'),
+        h('input', { type: 'checkbox', role: 'switch', checked: enabled, onChange: event => checks.setEnabled(event.target.checked) })),
+      h('button', { type: 'button', className: 'pg-button pg-release-check', disabled: status === 'loading' || status === 'checking' || rateLimited, onClick: () => load(true) },
+        icon('M20 10a8 8 0 1 0 0 5m0-11v6h-6', 14), status === 'checking' ? msg('正在检查…', 'Checking…') : rateLimited ? msg('等待额度恢复', 'Waiting for rate limit reset') : msg('检查更新', 'Check for updates'))),
     h('details', { className: 'pg-release-details' }, h('summary', null, msg('安装详情', 'Installation details')),
       h('p', { className: 'pg-note' }, msg(`更新渠道 ${channelLabels[info?.channel] || '读取中'}。在插件配置 releaseChannel 中修改。`, `Update channel: ${channelLabels[info?.channel] || 'Loading'}. Change releaseChannel in the plugin configuration.`)),
       info?.channel === 'beta' ? h('p', { className: 'pg-note' }, msg('Beta 提供抢先功能，可能不稳定。', 'Beta includes early features and may be unstable.')) : null,
@@ -192,8 +195,11 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
       installSpec ? h(React.Fragment, null,
         h('code', { className: 'pg-release-spec' }, installSpec),
         h('button', { type: 'button', className: 'pg-button', onClick: async () => {
-          try { await navigator.clipboard.writeText(installSpec); setCopyStatus('copied'); }
-          catch { setCopyStatus('failed'); }
+          const request = scope.begin('copy');
+          if (!request) return;
+          try { await navigator.clipboard.writeText(installSpec); if (request.isCurrent()) setCopyStatus('copied'); }
+          catch { if (request.isCurrent()) setCopyStatus('failed'); }
+          finally { request.finish(); }
         } }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)), h('span', { role: 'status', className: 'pg-note'  }, copyStatus === 'copied' ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === 'failed' ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : '')) : null,
       registryUpgrade && !release.canInstall ? h('p', { className: 'pg-note' }, msg('npm 版本及公开安装包已就绪。手动更新时，先在 DSH 插件管理器卸载本插件，再使用上方 npm spec 重新安装，可能提示重启。插件配置会保留。', 'The npm version and public package are ready. To update manually, remove this plugin and reinstall with the npm spec above. Restart if prompted. Your plugin settings are retained.')) : null,
       target && gitSource && !gitSpec ? h('p', { className: 'pg-note' }, msg('此 Release 未提供完整 commit SHA，无法生成固定 Git spec。', 'This release lacks a full commit SHA, so a pinned Git spec is unavailable.')) : null));

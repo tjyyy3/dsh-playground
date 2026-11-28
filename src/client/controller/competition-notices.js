@@ -89,12 +89,15 @@ function saveState(memory, state) {
 
 export function CompetitionNoticeSetting({ memory }) {
   const [enabled, setEnabled] = React.useState(() => readState(memory).enabled);
-  return h('label', { className: 'pg-field', style: { display: 'flex', alignItems: 'center', gap: 8, margin: '20px 0' } },
-    h('input', { type: 'checkbox', checked: enabled, onChange: (event) => {
+  const label = msg('新比赛提醒', 'New competition alerts');
+  return h('label', { className: 'pg-settings-preference pg-settings-notice' },
+    h('span', null, h('span', null, label), h('small', null,
+      msg('进入主控时检查新比赛和新一期；偏好保存在本机', 'Check for new competitions and editions when opening Controller. This preference is saved locally.'))),
+    h('input', { type: 'checkbox', role: 'switch', 'aria-label': label, checked: enabled, onChange: (event) => {
       const checked = event.target.checked;
       saveState(memory, actOnNotices(readState(memory), null, checked ? 'enable' : 'disable', Date.now()));
       setEnabled(checked);
-    } }), msg('新比赛提醒', 'New competition alerts'));
+    } }));
 }
 
 export function CompetitionNotices({ memory, query, onCoordinate }) {

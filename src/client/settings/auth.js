@@ -2,6 +2,8 @@ import { msg } from '../shared/language.js';
 import * as React from 'react';
 import { openableWebUrl, webRootOf } from '../shared/display.js';
 import { h } from '../shared/react.js';
+import { useRequestScope } from '../shared/request-scope.js';
+import { renderSettingsAuth } from './account-view.js';
 
 // Where the Host found the token it uses (`tokenSource` of the auth query); the value never reaches the Client.
 // `dsh_other` is a value the DSH credential store answered from an origin the Host could not confirm, so
@@ -95,14 +97,17 @@ function savedSwitchNote(attempt, current) {
   return msg(`已验证当前账号 ${target}。`, `Verified the current account as ${target}.`);
 }
 
-function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, onStatusChange }) {
+function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, onStatusChange, settings, active = true }) {
   // `state` is the last auth answer (null until the first one). It stays rendered while a re-check runs,
   // so the controls keep their place; `checking` only marks the re-check.
   const [state, setState] = React.useState(null);
   const [checking, setChecking] = React.useState(true);
-  // `seq` numbers the checks so only the latest answer is shown; `status` is the status line, which takes
-  // focus after a save, clear or login (`refocus`) because the control that was used may be gone.
-  const [latest] = React.useState(() => ({ seq: 0, status: null, refocus: false }));
+  const scope = useRequestScope([query]);
+  const page = useRequestScope([query, active]);
+  const latest = React.useRef({ query }).current;
+  const tokenId = React.useId();
+  const statusRef = React.useRef(null);
+  const verifiedTime = latest.verifiedAt;
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loginBusy, setLoginBusy] = React.useState(false);
@@ -116,53 +121,91 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   const preview = accountSwitch?.phase === 'preview' ? accountSwitch.expected : null;
   const firstSignIn = state?.reason === 'no_token' && !latest.credential
     && (!state.tokenSource || state.tokenSource === 'none');
-  const verifyFirst = editing || (!state?.authenticated && !firstSignIn);
-  const writingToken = tokenBusy && !latest.previewRequest;
+  const verifyFirst = (settings && state?.authenticated) || editing || (!state?.authenticated && !firstSignIn);
+  const writingToken = scope.pending('write');
   const check = async () => {
-    const seq = ++latest.seq;
+    const request = scope.begin('auth');
+    if (!request) return;
     setChecking(true);
     let next;
-    try { next = await query({ action: 'auth' }); } catch (failure) { next = { error: failure.message }; }
-    // A check started later is still running or has answered; its answer is the current one.
-    if (seq !== latest.seq) return;
+    try { next = await query({ action: 'auth' }, request.signal); }
+    catch (failure) { next = { error: failure.message }; }
+    if (!request.isCurrent()) return;
+    request.finish();
     if (next?.authenticated || (next?.tokenSource && next.tokenSource !== 'none') || ['rejected', 'forbidden'].includes(next?.reason)) {
       latest.credential = { user: next.authenticated ? next.user : latest.credential?.user, source: next.tokenSource || latest.credential?.source };
     }
+    if (next?.authenticated) latest.verifiedAt = Date.now();
     setState(next && typeof next === 'object' ? next : {});
     setChecking(false);
-    if (latest.refocus) { latest.refocus = false; latest.status?.focus?.(); }
   };
-  React.useEffect(() => { check(); }, [query]);
+  const cancelDraft = () => {
+    page.abort('preview');
+    if (!scope.pending('write')) setTokenBusy(false);
+    setAccountSwitch(null);
+    setToken('');
+    setTokenError('');
+  };
+  React.useLayoutEffect(() => {
+    if (active && latest.query === query) return;
+    const queryChanged = latest.query !== query;
+    latest.query = query;
+    if (queryChanged) { latest.credential = undefined; latest.verifiedAt = undefined; setLoginBusy(false); }
+    cancelDraft();
+    setEmail('');
+    setPassword('');
+    setLoginError('');
+    setLoginDone(false);
+  }, [query, active]);
+  React.useEffect(() => { check(); }, [scope]);
   React.useEffect(() => {
     onStatusChange?.(!state || checking ? 'checking' : state.authenticated ? 'authenticated'
-      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated', state?.user, state?.baseUrl);
+      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated', state?.user, state?.baseUrl, state?.cliUpdate);
   }, [state, checking, onStatusChange]);
-  const submitLogin = async () => {
-    if (latest.previewRequest) {
-      latest.previewRequest = undefined;
-      setTokenBusy(false);
-    }
-    setLoginBusy(true); setLoginError(''); setLoginDone(false); setAccountSwitch(null);
-    setToken(''); setTokenError('');
+
+  const canWrite = () => active && page.isCurrent() && !scope.pending('write');
+  const writeCredential = async (action, onSuccess, onError) => {
+    // A credential change invalidates identity reads started before that write.
+    scope.abort('auth');
+    const readAfterWrite = scope.begin('write');
+    if (!readAfterWrite) return;
     try {
-      await login(email, password);
+      await action();
+      if (!readAfterWrite.isCurrent()) return;
+      if (page.isCurrent()) onSuccess();
+      // The confirmed write also changes the identity shown by the workbench outside settings.
+      await check();
+      if (page.isCurrent() && readAfterWrite.isCurrent()) statusRef.current?.focus?.();
+    } catch (failure) {
+      if (readAfterWrite.isCurrent()) {
+        if (page.isCurrent()) onError(failure.message);
+        await check();
+      }
+    } finally {
+      readAfterWrite.finish();
+      if (scope.isCurrent()) { setLoginBusy(false); setTokenBusy(false); }
+    }
+  };
+  const submitLogin = async () => {
+    if (!canWrite()) return;
+    cancelDraft();
+    setLoginBusy(true); setLoginError(''); setLoginDone(false);
+    await writeCredential(() => login(email, password), () => {
       setPassword('');
       setLoginDone(true);
-      latest.refocus = true;
-      await check();
-    } catch (failure) { setLoginError(failure.message); }
-    finally { setLoginBusy(false); }
+    }, setLoginError);
   };
   const submitToken = async () => {
-    if (!token.trim()) { setTokenError('请先粘贴 API 令牌。'); return; }
-    const request = verifyFirst && !preview ? Symbol() : undefined;
-    latest.previewRequest = request;
-    const obsolete = () => request && request !== latest.previewRequest;
-    setTokenBusy(true); setTokenError(''); setLoginDone(false);
-    try {
-      if (request) {
+    if (!canWrite() || page.pending('preview')) return;
+    if (!token.trim()) { setTokenError(msg('请先粘贴 API 令牌。', 'Paste your API token first.')); return; }
+    setTokenError(''); setLoginDone(false);
+    if (verifyFirst && !preview) {
+      const request = page.begin('preview');
+      if (!request) return;
+      setTokenBusy(true);
+      try {
         const identity = await previewToken(token);
-        if (obsolete()) return;
+        if (!request.isCurrent()) return;
         if (!identity?.authenticated || (identity.user?.id == null && !identity.user?.email)) {
           setTokenError(['rejected', 'forbidden'].includes(identity?.reason)
             ? msg('Playground 拒绝了新令牌。请核对令牌后重试。当前 DSH 令牌未被替换。', 'Playground rejected the new token. Check the token and try again. The current DSH token was kept.')
@@ -170,30 +213,31 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
           return;
         }
         setAccountSwitch({ phase: 'preview', previous: accountSwitch?.previous ?? latest.credential?.user, expected: identity.user });
-        return;
+      } catch (failure) {
+        if (request.isCurrent()) setTokenError(failure.message);
+      } finally {
+        if (request.isCurrent()) { request.finish(); setTokenBusy(false); }
       }
-      await saveToken(token);
+      return;
+    }
+    setTokenBusy(true);
+    await writeCredential(() => saveToken(token), () => {
       setAccountSwitch(preview ? { ...accountSwitch, phase: 'saved' } : null);
       setToken('');
-      latest.refocus = true;
-      await check();
-    } catch (failure) { if (!obsolete()) setTokenError(failure.message); }
-    finally {
-      if (!obsolete()) {
-        latest.previewRequest = undefined;
-        setTokenBusy(false);
-      }
-    }
+    }, setTokenError);
   };
   const removeToken = async () => {
-    setTokenBusy(true); setTokenError(''); setLoginDone(false); setAccountSwitch(null); setToken('');
-    try {
+    if (!canWrite()) return;
+    cancelDraft();
+    setTokenBusy(true); setLoginDone(false);
+    await writeCredential(async () => {
       await clearToken();
-      latest.credential = undefined;
-      latest.refocus = true;
-      await check();
-    } catch (failure) { setTokenError(failure.message); }
-    finally { setTokenBusy(false); }
+      if (scope.isCurrent()) latest.credential = undefined;
+    }, () => {}, setTokenError);
+  };
+  const changeToken = (event) => {
+    setToken(event.target.value); setTokenError('');
+    if (preview || accountSwitch?.phase === 'saved') setAccountSwitch({ phase: 'editing', previous: latest.credential?.user });
   };
   const loading = !state;
   const current = state || {};
@@ -227,27 +271,38 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
       ? msg('粘贴目标账号的 API 令牌。核实账号后，再决定是否替换 DSH 保存的令牌。已有任务和提交记录保留原归属。', 'Paste the API token for the account you want to use. Check the account before replacing the token saved in DSH. Existing tasks and submissions keep their original owners.')
       : msg(`在${TOKEN_PAGE()}登录后生成个人令牌或 Agent 账号令牌，粘贴到这里保存。令牌只保存在 DSH 凭据存储中，不会写入对话、命令或日志；保存后自动检测登录状态。`, `Sign in to ${TOKEN_PAGE()} and generate a personal or agent account token. Paste it here to save it in DSH credentials and check sign-in automatically. The token stays out of chats, commands and logs.`)),
     pageUrl ? h('div', { className: 'pg-actions' }, h('button', { type: 'button', className: 'pg-button', onClick: () => { window.open(pageUrl, '_blank', 'noopener,noreferrer'); } }, msg('去网站生成令牌', 'Generate token on website'))) : null,
-    h('label', { className: 'pg-field' }, msg('API 令牌', 'API token'), h('input', { className: 'pg-input', type: 'password', value: token, autoComplete: 'off', spellCheck: false, disabled: tokenBusy || loginBusy, onChange: (event) => {
-      setToken(event.target.value); setTokenError('');
-      if (preview) setAccountSwitch({ phase: 'editing', previous: accountSwitch.previous });
-    } })),
+    h('label', { className: 'pg-field' }, msg('API 令牌', 'API token'), h('input', { className: 'pg-input', type: 'password', value: token, autoComplete: 'off', spellCheck: false, disabled: tokenBusy || loginBusy, onChange: changeToken })),
     preview ? h('p', { className: 'pg-note' }, msg(`新令牌属于 ${accountLabel(preview)}。`, `This token belongs to ${accountLabel(preview)}.`),
       sameAccount(accountSwitch.previous, preview) === true ? msg(' 这是当前账号。', ' This is your current account.') : null) : null,
     // Enabled while the field is empty, so a click explains what is missing instead of doing nothing.
     h('div', { className: 'pg-actions' }, h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: tokenBusy || loginBusy },
       verifyFirst && !preview ? (tokenBusy ? msg('正在验证…', 'Verifying…') : msg('验证新账号', 'Verify new account'))
         : tokenBusy ? msg('正在保存…', 'Saving…') : preview ? msg('使用此账号', 'Use this account') : msg('保存令牌', 'Save token')),
-      editing ? h('button', { type: 'button', className: 'pg-button', disabled: tokenBusy, onClick: () => { setAccountSwitch(null); setToken(''); setTokenError(''); } }, msg('取消', 'Cancel')) : null),
+      editing ? h('button', { type: 'button', className: 'pg-button', disabled: tokenBusy, onClick: cancelDraft }, msg('取消', 'Cancel')) : null),
     tokenError ? h('p', { className: 'pg-error', role: 'alert' }, tokenError === '请先粘贴 API 令牌。' ? msg(tokenError, 'Paste your API token first.') : tokenError) : null);
   const configNote = fromConfig ? h('p', { className: 'pg-note pg-auth-config' }, current.tokenSource === 'config'
     ? msg('令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌。', 'The configured plugin token takes priority over tokens saved in the workbench. Edit or remove it in the plugin configuration to change tokens.')
     : msg('上次检测到的令牌来自插件配置。请重新检测当前来源后再切换账号。', 'The last token came from plugin configuration. Check the current source again before switching accounts.')) : null;
+  const otherLogin = [
+          h('p', { className: 'pg-note' }, msg('用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。', 'Accounts registered with the Playground CLI and a password can sign in with email and password. The plugin passes the password to the installed CLI through DSH credentials and removes it after sign-in. The password stays out of the chat. Sign-in writes to the CLI credentials file. DSH credentials, environment tokens and plugin configuration take priority over that file. You can also run playground auth login before starting DSH, then select Check again.')),
+          h('form', { className: 'pg-form', onSubmit: (event) => { event.preventDefault(); if (!loginBusy && !writingToken && email.trim() && password) submitLogin(); } },
+            h('label', { className: 'pg-field' }, msg('Playground 邮箱', 'Playground email'), h('input', { className: 'pg-input', type: 'email', value: email, autoComplete: 'username', onChange: (event) => setEmail(event.target.value) })),
+            h('label', { className: 'pg-field' }, msg('Playground 密码', 'Playground password'), h('input', { className: 'pg-input', type: 'password', value: password, autoComplete: 'current-password', onChange: (event) => setPassword(event.target.value) })),
+            h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: loginBusy || writingToken || !email.trim() || !password }, loginBusy ? msg('正在登录…', 'Signing in…') : msg('登录 Playground', 'Sign in to Playground')),
+            loginError ? h('p', { className: 'pg-error', role: 'alert' }, loginError) : null)];
+  if (settings) return active ? renderSettingsAuth({
+    checking, loading, current, user, sourceLabel, verifiedTime, refused, refusedBadge, refusedText,
+    failedCheck, statusRef, note, overridden, switchNote, configNote, fromConfig, verifyFirst, token, tokenError,
+    preview, previewIsCurrent: preview && sameAccount(accountSwitch.previous, preview) === true,
+    pageUrl, loginBusy, tokenBusy, writingToken, otherLogin, changeToken, check,
+    cancelDraft, submitToken, removeToken, tokenId, agent, operator, operatorState, lastUser: latest.credential?.user,
+  }) : null;
   // Only the status line is a live region; the forms and longer notes are not re-announced on every check.
   return h('section', { className: 'pg-guide pg-auth', 'aria-label': msg('Playground 登录状态', 'Playground sign-in status'), 'aria-busy': checking || loginBusy || tokenBusy },
     h('style', null, authCss),
     h('div', { className: 'pg-head' }, h('h2', { className: 'pg-brand' }, msg('Playground 连接状态', 'Playground connection status')),
       h('button', { className: 'pg-button', disabled: checking, onClick: check }, checking ? msg('正在检测…', 'Checking…') : msg('重新检测', 'Check again'))),
-    h('div', { className: 'pg-auth-status', role: 'status', 'aria-live': 'polite', tabIndex: -1, ref: (node) => { latest.status = node; } },
+    h('div', { className: 'pg-auth-status', role: 'status', 'aria-live': 'polite', tabIndex: -1, ref: (node) => { statusRef.current = node; } },
       h('p', { className: 'pg-note' }, summary),
       !loading && checking ? h('p', { className: 'pg-note' }, msg('正在重新检测登录状态…', 'Checking sign-in status again…')) : null,
       overridden ? h('p', { className: 'pg-note pg-auth-login-note' }, badge('warning', msg('仍在使用原令牌', 'Still using the previous token')), ' ', overridden) : null,
@@ -277,13 +332,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
         clearButton ? h('div', { className: 'pg-actions' }, clearButton) : null,
         latest.credential?.user ? h('p', { className: 'pg-note' }, msg(`上次核实的账号为 ${accountLabel(latest.credential.user)}。`, `Last verified account: ${accountLabel(latest.credential.user)}.`)) : null,
         fromConfig ? configNote : tokenForm,
-        h('details', { className: 'pg-auth-other' }, h('summary', null, msg('其他登录方式', 'Other sign-in methods')),
-          h('p', { className: 'pg-note' }, msg('用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。', 'Accounts registered with the Playground CLI and a password can sign in with email and password. The plugin passes the password to the installed CLI through DSH credentials and removes it after sign-in. The password stays out of the chat. Sign-in writes to the CLI credentials file. DSH credentials, environment tokens and plugin configuration take priority over that file. You can also run playground auth login before starting DSH, then select Check again.')),
-          h('form', { className: 'pg-form', onSubmit: (event) => { event.preventDefault(); if (!loginBusy && !writingToken && email.trim() && password) submitLogin(); } },
-            h('label', { className: 'pg-field' }, msg('Playground 邮箱', 'Playground email'), h('input', { className: 'pg-input', type: 'email', value: email, autoComplete: 'username', onChange: (event) => setEmail(event.target.value) })),
-            h('label', { className: 'pg-field' }, msg('Playground 密码', 'Playground password'), h('input', { className: 'pg-input', type: 'password', value: password, autoComplete: 'current-password', onChange: (event) => setPassword(event.target.value) })),
-            h('button', { type: 'submit', className: 'pg-button pg-primary', disabled: loginBusy || writingToken || !email.trim() || !password }, loginBusy ? msg('正在登录…', 'Signing in…') : msg('登录 Playground', 'Sign in to Playground')),
-            loginError ? h('p', { className: 'pg-error', role: 'alert' }, loginError) : null))));
+        h('details', { className: 'pg-auth-other' }, h('summary', null, msg('其他登录方式', 'Other sign-in methods')), ...otherLogin)));
 }
 
 export { AuthStatusPanel };

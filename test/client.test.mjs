@@ -5108,7 +5108,7 @@ test('#25: an ordinary conversation bound with playground_bind_task appears in t
 });
 
 // #12: the API token login. `auth` is what the Host's auth query answers; every RPC and credential call is recorded.
-async function tokenPanel(t, auth, { credentials, call, language } = {}) {
+async function tokenPanel(t, auth, { credentials, call, language, settings } = {}) {
   const calls = [];
   const opened = [];
   let value = auth;
@@ -5131,7 +5131,8 @@ async function tokenPanel(t, auth, { credentials, call, language } = {}) {
     } } },
   }, { localStorage: { getItem: (key) => key === 'dsh-playground.ui-language' ? language ?? null : null } });
   globalThis.window.open = (...args) => { opened.push(args); };
-  const element = f.workbench(undefined).auth;
+  const authElement = f.workbench(undefined).auth;
+  const element = { ...authElement, props: { ...authElement.props, settings } };
   const view = { calls, opened, f, element, setAuth: (next) => { value = next; },
     tree: await f.mount(element),
     rerender: () => { view.tree = f.render(element.type, element.props); return view.tree; },
@@ -6651,9 +6652,11 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.equal(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions').props.style.display, 'flex');
   f.find(tree, (node) => node.props?.title === '连接设置').props.onClick();
   tree = f.render(Main, props);
-  assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '主控').props.tabIndex, 0);
+  assert.equal(f.find(tree, (node) => node.props?.className === 'pg-controller-bar').props.style.display, 'none');
   assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
-  f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '主控').props.onClick();
+  f.find(tree, (node) => node.type?.name === 'SettingsPage').props.onBack();
+  assert.equal(selection.view, 'submissions');
+  f.find(f.render(Main, props), (node) => node.props?.role === 'tab' && text(node) === '主控').props.onClick();
   tree = f.render(Main, props);
   assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
@@ -7454,7 +7457,7 @@ test('controller login indicator follows verified auth status and opens connecti
     assert.equal(text(indicator()).trim(), label);
   }
   indicator().props.onClick();
-  assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
+  assert.equal(f.find(f.render(Main, props), (node) => node.type?.name === 'SettingsPage').props.active, true);
 });
 
 test('the login indicator retains the account mark until a delayed recheck finishes', async (t) => {
@@ -7469,6 +7472,7 @@ test('the login indicator retains the account mark until a delayed recheck finis
   };
   const tree = () => f.render(Main, props);
   const mark = () => f.find(tree(), (node) => node.props?.className === 'pg-controller-account-mark');
+  f.find(tree(), (node) => node.props?.title === '连接设置').props.onClick();
   const auth = f.find(tree(), (node) => node.type?.name === 'AuthStatusPanel');
   const panel = await f.mount(auth);
   f.effects.at(-1)();
@@ -7549,7 +7553,7 @@ async function releasePanel(t, reply) {
   const element = panel(main());
   const render = () => f.render(element.type, element.props);
   await f.mount(element);
-  return { ...f, calls, writes, render,
+  return { ...f, calls, writes, render, element,
     checkButton: () => f.find(render(), (node) => node.type === 'button' && /检查|额度/.test(text(node))),
     check: () => f.find(render(), (node) => node.type === 'button' && /检查/.test(text(node))).props.onClick() };
 }
@@ -9165,4 +9169,161 @@ test('[submit-race] ignores an earlier projection read failing after a fresh ses
   assert.equal(view.update({ session: next, refreshProjections: refresh }).type.name, 'TaskWorkflow');
   assert.equal(f.stateWrites.length, writes);
   view.unmount();
+});
+
+async function settingsPageFixture(t, { version = null, cliUpdate, configuredBase } = {}) {
+  const f = await clientFixture(t);
+  const main = f.registrations.get('main');
+  const props = { ...main.definition.inject(), controllerSelection: { view: 'controller' },
+    useControllerTarget: (fn) => fn(null), useWorkspaces: (fn) => fn({ phase: 'ready', items: [] }),
+    useSessions: (fn) => fn({ ids: [], byId: {} }), renderSlot: () => null };
+  const root = () => f.render(main.Component, props);
+  f.find(root(), (node) => node.props?.title === '连接设置').props.onClick();
+  const page = f.find(root(), (node) => node.type?.name === 'SettingsPage');
+  const checks = { subscribe: () => () => {}, getSnapshot: () => ({ version }) };
+  return { f, props, root, page, render: () => f.render(page.type, { ...page.props, checks, cliUpdate, configuredBase }) };
+}
+
+test('[settings-page] section navigation scrolls and announces attention markers', async (t) => {
+  const h = await settingsPageFixture(t, { version: '0.7.0', cliUpdate: { current: '0.5.0', latest: '0.6.0' } });
+  const tree = h.render();
+  const nav = h.f.find(tree, (node) => node.type === 'nav');
+  const buttons = findAll(nav, (node) => node.type === 'button');
+  assert.equal(buttons.length, 5);
+  assert.equal(buttons[0].props['aria-current'], 'true');
+  assert.equal(h.f.find(buttons[1], (node) => node.props?.['data-tone'] === 'warning').props.title, 'CLI 需更新');
+  assert.equal(h.f.find(buttons[4], (node) => node.props?.['data-tone'] === 'info').props.title, '有新版本');
+  let scrolled = 0, focused = 0;
+  h.f.find(tree, (node) => node.props?.['data-section'] === 'cli').props.ref({
+    scrollIntoView: () => scrolled++, focus: () => focused++,
+  });
+  buttons[1].props.onClick();
+  assert.equal(scrolled, 1);
+  assert.equal(focused, 1);
+  assert.equal(findAll(h.render(), (node) => node.type === 'button' && node.props['aria-current'] === 'true').at(0).props['aria-controls'], buttons[1].props['aria-controls']);
+});
+
+test('[settings-page] account card distinguishes confirmed, signed out, checking and invalid credentials', async (t) => {
+  const answers = [
+    { authenticated: true, user: { name: '林研' }, tokenSource: 'dsh', baseUrl: 'https://example.test' },
+    { authenticated: false, reason: 'no_token' },
+    { authenticated: false, reason: 'rejected', tokenSource: 'dsh' },
+  ];
+  const pending = deferred();
+  const panel = await tokenPanel(t, pending.promise, { settings: true });
+  const card = () => panel.f.find(panel.rerender(), (node) => node.props?.className === 'pg-settings-account-card');
+  assert.equal(card().props['data-status'], 'checking');
+  pending.resolve(answers[0]);
+  await settle();
+  assert.match(text(card()), /林研.*已登录.*令牌来源.*身份核实.*example\.test/);
+  for (const [answer, status, label] of [[answers[1], 'signed-out', '未登录'], [answers[2], 'invalid', '令牌无效']]) {
+    panel.setAuth(answer);
+    await panel.button('重新检测').props.onClick();
+    assert.equal(card().props['data-status'], status);
+    assert.match(text(card()), new RegExp(label));
+  }
+});
+
+test('[settings-page] switch steps advance to confirmation and cancellation keeps the credential', async (t) => {
+  const auth = { authenticated: true, baseUrl: 'https://example.test', user: { id: 'old', name: 'Original' }, tokenSource: 'dsh' };
+  const preview = deferred();
+  const f = await clientFixture(t);
+  const authElement = f.workbench().auth;
+  const props = { ...authElement.props, settings: true, query: async () => auth,
+    previewToken: () => preview.promise, saveToken: () => assert.fail('preview or cancellation must not save') };
+  const render = () => f.render(authElement.type, props);
+  await f.mount({ ...authElement, props });
+  const steps = () => findAll(render(), (node) => node.type === 'li').map((node) => node.props['data-state']);
+  assert.deepEqual(steps(), ['active', 'waiting', 'waiting']);
+  const input = f.find(render(), (node) => node.type === 'input' && node.props.type === 'password');
+  input.props.onChange({ target: { value: 'pg_synthetic' } });
+  assert.deepEqual(steps(), ['done', 'active', 'waiting']);
+  const form = f.find(render(), (node) => node.type === 'form' && node.props['aria-label'] === '切换账号');
+  const checking = form.props.onSubmit({ preventDefault() {} });
+  preview.resolve({ authenticated: true, user: { id: 'new', name: 'Target' } });
+  await checking;
+  assert.deepEqual(steps(), ['done', 'done', 'confirm']);
+  buttonLabeled(f, render(), '取消').props.onClick();
+  assert.deepEqual(steps(), ['active', 'waiting', 'waiting']);
+  assert.match(text(render()), /Original.*已登录/);
+});
+
+test('[settings-page] CLI advisory uses the reported versions and the API address is read-only', async (t) => {
+  const h = await settingsPageFixture(t, { cliUpdate: { current: '0.5.0', latest: '0.6.0' }, configuredBase: 'https://example.test/api' });
+  const tree = h.render();
+  assert.match(text(tree), /Playground CLI.*CLI 需更新.*0\.5\.0.*0\.6\.0.*查看安装或更新说明/);
+  const input = h.f.find(tree, (node) => node.type === 'input' && node.props.type === 'url');
+  assert.equal(input.props.readOnly, true);
+  assert.equal(input.props.value, 'https://example.test/api');
+});
+
+test('[settings-page] version card distinguishes checking, available and failed results', async (t) => {
+  const pending = deferred();
+  let reply = pending.promise;
+  const panel = await releasePanel(t, (input) => input.check ? reply : releaseReply(input));
+  const card = () => panel.find(panel.render(), (node) => node.props?.className === 'pg-settings-release-card');
+  const checking = panel.check();
+  try {
+    assert.equal(card().props['data-status'], 'checking');
+  } finally {
+    pending.resolve(releaseReply({ check: true }, { restartRequired: false, source: 'registry',
+      target: releaseTarget('0.7.0'), comparison: 'upgrade', registry: { status: 'ready' }, compatible: true }));
+    await checking;
+  }
+  assert.equal(card().props['data-status'], 'ready');
+  assert.match(text(card()), /可更新至 0\.7\.0/);
+  reply = releaseReply({ check: true }, { status: 'unavailable', error: 'failed' });
+  await panel.check();
+  assert.equal(card().props['data-status'], 'unavailable');
+  assert.match(text(card()), /无法读取发布版本/);
+});
+
+test('[settings-page] Escape returns to the previous workbench tab', async (t) => {
+  const h = await settingsPageFixture(t);
+  const tree = h.render();
+  let prevented = false;
+  tree.props.onKeyDown({ key: 'Escape', preventDefault: () => { prevented = true; }, stopPropagation() {} });
+  assert.equal(prevented, true);
+  assert.equal(h.props.controllerSelection.view, 'controller');
+});
+
+
+test('[settings-page] discards an account preview that finishes after leaving settings', async (t) => {
+  const f = await clientFixture(t);
+  const element = f.workbench().auth;
+  const preview = deferred();
+  const props = { ...element.props, settings: true, active: true,
+    query: async () => ({ authenticated: true, user: { id: 'old', name: 'Original' }, tokenSource: 'dsh' }),
+    previewToken: () => preview.promise, saveToken: () => assert.fail('no confirmed token') };
+  const render = () => f.render(element.type, props);
+  await f.mount({ ...element, props });
+  f.find(render(), (node) => node.type === 'input' && node.props.type === 'password')
+    .props.onChange({ target: { value: 'pg_synthetic' } });
+  const form = f.find(render(), (node) => node.type === 'form' && node.props['aria-label'] === '切换账号');
+  const checking = form.props.onSubmit({ preventDefault() {} });
+  props.active = false;
+  render();
+  props.active = true;
+  render();
+  const before = f.stateWrites.length;
+  preview.resolve({ authenticated: true, user: { id: 'new', name: 'Obsolete' } });
+  await checking;
+  assert.equal(f.stateWrites.length, before);
+  assert.doesNotMatch(text(render()), /Obsolete/);
+  assert.equal(f.find(render(), (node) => node.type === 'input' && node.props.type === 'password').props.value, '');
+});
+
+test('[settings-page] aborts a release check when leaving settings and ignores its result', async (t) => {
+  const pending = deferred();
+  const panel = await releasePanel(t, (input) => input.check ? pending.promise : releaseReply(input));
+  const checking = panel.check();
+  const { signal } = panel.calls.at(-1);
+  try {
+    panel.unmount(panel.element.type);
+    assert.equal(signal.aborted, true);
+  } finally {
+    pending.resolve(releaseReply({ check: true }));
+    await checking;
+  }
+  assert.equal(panel.writes.length, 0);
 });

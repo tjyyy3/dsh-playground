@@ -490,7 +490,7 @@ __name(stateLabel, "stateLabel");
 var zhText = /* @__PURE__ */ __name((key2) => key2.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key2, "zhText");
 
 // src/client/controller/index.js
-var React11 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // src/client/shared/workspaces.js
 function workspaceOptions(items) {
@@ -622,7 +622,7 @@ var taskModalCss = instrumentCss + `
   `;
 
 // src/client/settings/auth.js
-var React2 = __toESM(require("react"), 1);
+var React3 = __toESM(require("react"), 1);
 
 // src/client/shared/display.js
 function statusTone(state) {
@@ -670,6 +670,308 @@ function openWebButton(value, title, { label: label2 = msg("在网页中打开",
   }, label2);
 }
 __name(openWebButton, "openWebButton");
+
+// src/client/shared/request-scope.js
+var React2 = __toESM(require("react"), 1);
+function useRequestScope(dependencies) {
+  const scope = React2.useMemo(() => {
+    const requests = /* @__PURE__ */ new Map();
+    const scope2 = {
+      mounted: false,
+      isCurrent: /* @__PURE__ */ __name(() => scope2.mounted, "isCurrent"),
+      pending: /* @__PURE__ */ __name((channel) => requests.has(channel), "pending"),
+      abort: /* @__PURE__ */ __name((channel) => {
+        requests.get(channel)?.abort();
+        requests.delete(channel);
+      }, "abort"),
+      begin(channel) {
+        if (!scope2.isCurrent()) return;
+        scope2.abort(channel);
+        const controller = new AbortController();
+        requests.set(channel, controller);
+        return {
+          signal: controller.signal,
+          isCurrent: /* @__PURE__ */ __name(() => scope2.isCurrent() && requests.get(channel) === controller, "isCurrent"),
+          finish: /* @__PURE__ */ __name(() => {
+            if (requests.get(channel) === controller) scope2.abort(channel);
+          }, "finish")
+        };
+      },
+      close() {
+        scope2.mounted = false;
+        for (const channel of requests.keys()) scope2.abort(channel);
+      }
+    };
+    return scope2;
+  }, dependencies);
+  React2.useLayoutEffect(() => {
+    scope.mounted = true;
+    return () => scope.close();
+  }, [scope]);
+  return scope;
+}
+__name(useRequestScope, "useRequestScope");
+
+// src/client/settings/account-view.js
+var button = /* @__PURE__ */ __name((label2, props) => h("button", { type: "button", className: "pg-button", ...props }, label2), "button");
+function accountCard({
+  current,
+  user,
+  sourceLabel,
+  verifiedTime,
+  refused,
+  refusedBadge,
+  failedCheck,
+  checking,
+  statusRef,
+  tokenBusy,
+  loginBusy,
+  check,
+  cancelDraft,
+  removeToken
+}) {
+  const name = user.name || user.email;
+  const status = checking ? "checking" : current.authenticated ? "signed-in" : refused ? "invalid" : failedCheck || current.error ? "error" : "signed-out";
+  const host = openableWebUrl(current.baseUrl);
+  const platform = host ? new URL(host).host : "";
+  const time = current.authenticated && verifiedTime !== void 0 ? new Intl.DateTimeFormat(void 0, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(verifiedTime) : "";
+  const summary = {
+    checking: msg("正在检测…", "Checking…"),
+    "signed-in": msg("已登录 · 这是当前账号", "Signed in · Current account"),
+    "signed-out": msg("未登录", "Signed out"),
+    invalid: refusedBadge,
+    error: msg("检测失败", "Check failed")
+  };
+  const actionsBusy = tokenBusy || loginBusy;
+  return h(
+    "div",
+    { className: "pg-settings-account-card", "data-status": status },
+    h("span", { className: "pg-settings-avatar", "aria-hidden": true }, name ? Array.from(name).slice(0, 2).join("").toLocaleUpperCase() : "—"),
+    h(
+      "div",
+      { className: "pg-settings-account-info", role: "status", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+        statusRef.current = node;
+      }, "ref") },
+      h(
+        "div",
+        { className: "pg-settings-account-name" },
+        current.authenticated ? h("strong", null, name || msg("Playground 用户", "Playground user")) : null,
+        h("span", { className: "pg-settings-account-state" }, summary[status])
+      ),
+      sourceLabel ? h("span", null, msg(
+        `令牌来源：${current.tokenSource === "dsh" ? "DSH 凭据中保存的令牌" : sourceLabel}`,
+        `Token source: ${current.tokenSource === "dsh" ? "Saved in DSH credentials" : sourceLabel}`
+      )) : null,
+      time || platform ? h(
+        "span",
+        { className: "pg-settings-verification" },
+        time ? msg(`身份核实于 ${time}`, `Verified at ${time}`) : null,
+        time && platform ? " · " : null,
+        platform
+      ) : null
+    ),
+    h(
+      "div",
+      { className: "pg-settings-actions" },
+      button(checking ? msg("正在检测…", "Checking…") : msg("重新检测", "Check again"), {
+        disabled: checking || actionsBusy,
+        onClick: /* @__PURE__ */ __name(() => {
+          cancelDraft();
+          return check();
+        }, "onClick")
+      }),
+      current.tokenSource === "dsh" ? button(msg("清除令牌", "Clear token"), {
+        className: "pg-button pg-settings-clear",
+        disabled: actionsBusy,
+        onClick: removeToken
+      }) : null
+    )
+  );
+}
+__name(accountCard, "accountCard");
+function switchSteps(token, preview, applying) {
+  const labels = [
+    msg("粘贴目标账号令牌", "Paste the target account token"),
+    msg("验证新账号", "Verify new account"),
+    msg("使用此账号", "Use this account")
+  ];
+  const states = preview ? ["done", "done", applying ? "active" : "confirm"] : token.trim() ? ["done", "active", "waiting"] : ["active", "waiting", "waiting"];
+  const status = {
+    active: msg("进行中", "In progress"),
+    done: msg("完成", "Done"),
+    waiting: msg("待开始", "Waiting"),
+    confirm: msg("待确认", "Confirm")
+  };
+  return h(
+    "ol",
+    { className: "pg-settings-steps" },
+    labels.map((label2, index) => h(
+      "li",
+      {
+        key: index,
+        "data-state": states[index],
+        "aria-current": ["active", "confirm"].includes(states[index]) ? "step" : void 0
+      },
+      h("small", null, "0" + (index + 1), " · ", status[states[index]]),
+      h("span", null, label2)
+    ))
+  );
+}
+__name(switchSteps, "switchSteps");
+function tokenForm({
+  verifyFirst,
+  preview,
+  previewIsCurrent,
+  token,
+  tokenError,
+  pageUrl,
+  loginBusy,
+  tokenBusy,
+  writingToken,
+  changeToken,
+  cancelDraft,
+  submitToken,
+  tokenId
+}) {
+  const title = verifyFirst ? msg("切换账号", "Switch account") : msg("API 令牌登录", "Sign in with an API token");
+  const disabled = loginBusy || tokenBusy;
+  const submit = /* @__PURE__ */ __name((label2) => button(label2, { type: "submit", className: "pg-button pg-primary", disabled }), "submit");
+  const cancel = button(msg("取消", "Cancel"), { disabled: writingToken || loginBusy, onClick: cancelDraft });
+  const verifyLabel = tokenBusy ? msg("正在验证…", "Verifying…") : msg("验证新账号", "Verify new account");
+  return h(
+    "form",
+    { className: "pg-settings-switch", "aria-label": title, onSubmit: /* @__PURE__ */ __name((event) => {
+      event.preventDefault();
+      if (!disabled) return submitToken();
+    }, "onSubmit") },
+    h(
+      "div",
+      { className: "pg-settings-switch-head" },
+      h("h3", null, title),
+      verifyFirst ? h("span", { className: "pg-settings-switch-note" }, msg(
+        "只影响之后的操作，已有任务和提交记录保留原归属",
+        "Applies to future operations. Existing tasks and submissions keep their original owners."
+      )) : null
+    ),
+    verifyFirst ? switchSteps(token, preview, writingToken) : null,
+    h(
+      "div",
+      { className: "pg-settings-field" },
+      h("label", { htmlFor: tokenId }, verifyFirst ? msg("目标账号的 API 令牌", "Target account API token") : msg("API 令牌", "API token")),
+      h(
+        "div",
+        { className: "pg-settings-token-row" },
+        h("input", { id: tokenId, className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled, onChange: changeToken }),
+        pageUrl ? h(
+          "a",
+          { className: "pg-button", href: pageUrl, target: "_blank", rel: "noopener noreferrer" },
+          msg("去网站生成令牌", "Generate token on website")
+        ) : null
+      )
+    ),
+    preview ? h(
+      "div",
+      { className: "pg-settings-confirm" },
+      h("span", { className: "pg-settings-switch-note" }, msg("将切换为", "Switch to")),
+      h("strong", null, preview.name || preview.email || msg("账号", "Account")),
+      h(
+        "code",
+        null,
+        typeof preview.userType === "string" && preview.userType.trim().toLowerCase() === "agent" ? msg("Agent 账号", "Agent account") : msg("Playground 用户", "Playground user"),
+        preview.id != null ? " · #" + preview.id : "",
+        previewIsCurrent ? msg(" · 当前账号", " · Current account") : null
+      ),
+      cancel,
+      submit(writingToken ? msg("正在保存…", "Saving…") : msg("使用此账号", "Use this account"))
+    ) : h(
+      "div",
+      { className: "pg-settings-actions" },
+      token.trim() ? cancel : null,
+      submit(verifyFirst ? verifyLabel : writingToken ? msg("正在保存…", "Saving…") : msg("保存令牌", "Save token"))
+    ),
+    h("p", { className: "pg-settings-switch-note" }, verifyFirst ? msg(
+      "确认后工作台会再次验证实际生效的身份。当前 DSH 令牌在确认前不会被替换。",
+      "The workbench verifies the active identity again after confirmation. Your current DSH token stays active until you confirm."
+    ) : msg("令牌保存在 DSH 凭据中，保存后会检测登录状态。", "The workbench saves the token in DSH credentials and then checks sign-in.")),
+    tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError) : null
+  );
+}
+__name(tokenForm, "tokenForm");
+function renderSettingsAuth(props) {
+  const {
+    loading,
+    current,
+    user,
+    refusedText,
+    failedCheck,
+    note,
+    overridden,
+    switchNote,
+    fromConfig,
+    configNote,
+    tokenError,
+    otherLogin,
+    lastUser,
+    agent,
+    operator,
+    operatorState
+  } = props;
+  const detail = refusedText || (failedCheck ? msg("暂时无法确认登录状态。请检查连接后点击“重新检测”。", "Could not verify sign-in. Check the connection and select Check again.") : current.error);
+  return h(
+    "section",
+    { className: "pg-settings-auth", "aria-label": msg("Playground 登录状态", "Playground sign-in status") },
+    accountCard(props),
+    detail ? h("p", { className: "pg-error", role: "alert" }, detail) : null,
+    lastUser && !current.authenticated && !loading ? h(
+      "p",
+      { className: "pg-note" },
+      msg(`上次核实的账号为 ${lastUser.name || lastUser.email || lastUser.id}。`, `Last verified account: ${lastUser.name || lastUser.email || lastUser.id}.`)
+    ) : null,
+    overridden || switchNote ? h("p", { className: "pg-note", role: "status" }, overridden || switchNote) : null,
+    current.tokenSource === "dsh" && (current.cliFileToken || current.envToken) ? h("p", { className: "pg-note" }, note) : null,
+    !loading ? fromConfig ? configNote : tokenForm(props) : null,
+    (loading || fromConfig) && tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError) : null,
+    !loading ? h(
+      "details",
+      { className: "pg-settings-other" },
+      h(
+        "summary",
+        null,
+        h(
+          "svg",
+          { width: 10, height: 10, viewBox: "0 0 10 10", fill: "none", "aria-hidden": true },
+          h("path", { d: "M3.5 2 6.5 5l-3 3", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" })
+        ),
+        msg("其他登录方式", "Other sign-in methods"),
+        h("span", { className: "pg-settings-other-caption" }, msg("邮箱和密码，通过 Playground CLI", "Email and password via Playground CLI"))
+      ),
+      h(
+        "div",
+        { className: "pg-settings-other-body" },
+        current.authenticated && agent ? h(
+          "p",
+          { className: "pg-note" },
+          msg(`当前身份：Agent 账号。提交会记在此身份名下。`, "Current identity: Agent account. Submissions are attributed to this identity.")
+        ) : null,
+        current.authenticated && user.id != null ? h("p", { className: "pg-note" }, msg(`账号 ID：${user.id}`, `Account ID: ${user.id}`)) : null,
+        current.authenticated && user.email ? h("p", { className: "pg-note" }, user.email) : null,
+        current.authenticated && agent && operator ? h(
+          "p",
+          { className: "pg-note" },
+          msg(`操作人：${operator}${operatorState}`, `Operator: ${operator}${operatorState}`)
+        ) : null,
+        current.authenticated && agent && user.agentFramework ? h(
+          "p",
+          { className: "pg-note" },
+          msg(`Agent 框架：${user.agentFramework}`, `Agent framework: ${user.agentFramework}`)
+        ) : null,
+        note && !current.envToken && !current.cliFileToken ? h("p", { className: "pg-note" }, note) : null,
+        ...otherLogin
+      )
+    ) : null
+  );
+}
+__name(renderSettingsAuth, "renderSettingsAuth");
 
 // src/client/settings/auth.js
 var TOKEN_SOURCES = /* @__PURE__ */ __name(() => ({ dsh: msg("DSH 凭据", "DSH credentials"), dsh_other: msg("DSH 凭据（来源未确认）", "DSH credentials (source unconfirmed)"), cli_file: msg("CLI 凭据文件", "CLI credentials file"), env: msg("环境变量", "Environment variable"), config: msg("插件配置", "Plugin configuration") }), "TOKEN_SOURCES");
@@ -734,126 +1036,163 @@ function savedSwitchNote(attempt, current) {
   return msg(`已验证当前账号 ${target}。`, `Verified the current account as ${target}.`);
 }
 __name(savedSwitchNote, "savedSwitchNote");
-function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, onStatusChange }) {
-  const [state, setState] = React2.useState(null);
-  const [checking, setChecking] = React2.useState(true);
-  const [latest] = React2.useState(() => ({ seq: 0, status: null, refocus: false }));
-  const [email, setEmail] = React2.useState("");
-  const [password, setPassword] = React2.useState("");
-  const [loginBusy, setLoginBusy] = React2.useState(false);
-  const [loginError, setLoginError] = React2.useState("");
-  const [loginDone, setLoginDone] = React2.useState(false);
-  const [token, setToken] = React2.useState("");
-  const [tokenBusy, setTokenBusy] = React2.useState(false);
-  const [tokenError, setTokenError] = React2.useState("");
-  const [accountSwitch, setAccountSwitch] = React2.useState(null);
+function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, onStatusChange, settings, active = true }) {
+  const [state, setState] = React3.useState(null);
+  const [checking, setChecking] = React3.useState(true);
+  const scope = useRequestScope([query]);
+  const page = useRequestScope([query, active]);
+  const latest = React3.useRef({ query }).current;
+  const tokenId = React3.useId();
+  const statusRef = React3.useRef(null);
+  const verifiedTime = latest.verifiedAt;
+  const [email, setEmail] = React3.useState("");
+  const [password, setPassword] = React3.useState("");
+  const [loginBusy, setLoginBusy] = React3.useState(false);
+  const [loginError, setLoginError] = React3.useState("");
+  const [loginDone, setLoginDone] = React3.useState(false);
+  const [token, setToken] = React3.useState("");
+  const [tokenBusy, setTokenBusy] = React3.useState(false);
+  const [tokenError, setTokenError] = React3.useState("");
+  const [accountSwitch, setAccountSwitch] = React3.useState(null);
   const editing = accountSwitch?.phase === "editing" || accountSwitch?.phase === "preview";
   const preview = accountSwitch?.phase === "preview" ? accountSwitch.expected : null;
   const firstSignIn = state?.reason === "no_token" && !latest.credential && (!state.tokenSource || state.tokenSource === "none");
-  const verifyFirst = editing || !state?.authenticated && !firstSignIn;
-  const writingToken = tokenBusy && !latest.previewRequest;
+  const verifyFirst = settings && state?.authenticated || editing || !state?.authenticated && !firstSignIn;
+  const writingToken = scope.pending("write");
   const check = /* @__PURE__ */ __name(async () => {
-    const seq = ++latest.seq;
+    const request = scope.begin("auth");
+    if (!request) return;
     setChecking(true);
     let next;
     try {
-      next = await query({ action: "auth" });
+      next = await query({ action: "auth" }, request.signal);
     } catch (failure) {
       next = { error: failure.message };
     }
-    if (seq !== latest.seq) return;
+    if (!request.isCurrent()) return;
+    request.finish();
     if (next?.authenticated || next?.tokenSource && next.tokenSource !== "none" || ["rejected", "forbidden"].includes(next?.reason)) {
       latest.credential = { user: next.authenticated ? next.user : latest.credential?.user, source: next.tokenSource || latest.credential?.source };
     }
+    if (next?.authenticated) latest.verifiedAt = Date.now();
     setState(next && typeof next === "object" ? next : {});
     setChecking(false);
-    if (latest.refocus) {
-      latest.refocus = false;
-      latest.status?.focus?.();
-    }
   }, "check");
-  React2.useEffect(() => {
-    check();
-  }, [query]);
-  React2.useEffect(() => {
-    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user, state?.baseUrl);
-  }, [state, checking, onStatusChange]);
-  const submitLogin = /* @__PURE__ */ __name(async () => {
-    if (latest.previewRequest) {
-      latest.previewRequest = void 0;
-      setTokenBusy(false);
-    }
-    setLoginBusy(true);
-    setLoginError("");
-    setLoginDone(false);
+  const cancelDraft = /* @__PURE__ */ __name(() => {
+    page.abort("preview");
+    if (!scope.pending("write")) setTokenBusy(false);
     setAccountSwitch(null);
     setToken("");
     setTokenError("");
-    try {
-      await login(email, password);
-      setPassword("");
-      setLoginDone(true);
-      latest.refocus = true;
-      await check();
-    } catch (failure) {
-      setLoginError(failure.message);
-    } finally {
+  }, "cancelDraft");
+  React3.useLayoutEffect(() => {
+    if (active && latest.query === query) return;
+    const queryChanged = latest.query !== query;
+    latest.query = query;
+    if (queryChanged) {
+      latest.credential = void 0;
+      latest.verifiedAt = void 0;
       setLoginBusy(false);
     }
+    cancelDraft();
+    setEmail("");
+    setPassword("");
+    setLoginError("");
+    setLoginDone(false);
+  }, [query, active]);
+  React3.useEffect(() => {
+    check();
+  }, [scope]);
+  React3.useEffect(() => {
+    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user, state?.baseUrl, state?.cliUpdate);
+  }, [state, checking, onStatusChange]);
+  const canWrite = /* @__PURE__ */ __name(() => active && page.isCurrent() && !scope.pending("write"), "canWrite");
+  const writeCredential = /* @__PURE__ */ __name(async (action, onSuccess, onError) => {
+    scope.abort("auth");
+    const readAfterWrite = scope.begin("write");
+    if (!readAfterWrite) return;
+    try {
+      await action();
+      if (!readAfterWrite.isCurrent()) return;
+      if (page.isCurrent()) onSuccess();
+      await check();
+      if (page.isCurrent() && readAfterWrite.isCurrent()) statusRef.current?.focus?.();
+    } catch (failure) {
+      if (readAfterWrite.isCurrent()) {
+        if (page.isCurrent()) onError(failure.message);
+        await check();
+      }
+    } finally {
+      readAfterWrite.finish();
+      if (scope.isCurrent()) {
+        setLoginBusy(false);
+        setTokenBusy(false);
+      }
+    }
+  }, "writeCredential");
+  const submitLogin = /* @__PURE__ */ __name(async () => {
+    if (!canWrite()) return;
+    cancelDraft();
+    setLoginBusy(true);
+    setLoginError("");
+    setLoginDone(false);
+    await writeCredential(() => login(email, password), () => {
+      setPassword("");
+      setLoginDone(true);
+    }, setLoginError);
   }, "submitLogin");
   const submitToken = /* @__PURE__ */ __name(async () => {
+    if (!canWrite() || page.pending("preview")) return;
     if (!token.trim()) {
-      setTokenError("请先粘贴 API 令牌。");
+      setTokenError(msg("请先粘贴 API 令牌。", "Paste your API token first."));
       return;
     }
-    const request = verifyFirst && !preview ? /* @__PURE__ */ Symbol() : void 0;
-    latest.previewRequest = request;
-    const obsolete = /* @__PURE__ */ __name(() => request && request !== latest.previewRequest, "obsolete");
-    setTokenBusy(true);
     setTokenError("");
     setLoginDone(false);
-    try {
-      if (request) {
+    if (verifyFirst && !preview) {
+      const request = page.begin("preview");
+      if (!request) return;
+      setTokenBusy(true);
+      try {
         const identity = await previewToken(token);
-        if (obsolete()) return;
+        if (!request.isCurrent()) return;
         if (!identity?.authenticated || identity.user?.id == null && !identity.user?.email) {
           setTokenError(["rejected", "forbidden"].includes(identity?.reason) ? msg("Playground 拒绝了新令牌。请核对令牌后重试。当前 DSH 令牌未被替换。", "Playground rejected the new token. Check the token and try again. The current DSH token was kept.") : msg("暂时无法核实新令牌的账号。请稍后重试。当前 DSH 令牌未被替换。", "Could not verify the account for the new token. Try again later. The current DSH token was kept."));
           return;
         }
         setAccountSwitch({ phase: "preview", previous: accountSwitch?.previous ?? latest.credential?.user, expected: identity.user });
-        return;
+      } catch (failure) {
+        if (request.isCurrent()) setTokenError(failure.message);
+      } finally {
+        if (request.isCurrent()) {
+          request.finish();
+          setTokenBusy(false);
+        }
       }
-      await saveToken(token);
+      return;
+    }
+    setTokenBusy(true);
+    await writeCredential(() => saveToken(token), () => {
       setAccountSwitch(preview ? { ...accountSwitch, phase: "saved" } : null);
       setToken("");
-      latest.refocus = true;
-      await check();
-    } catch (failure) {
-      if (!obsolete()) setTokenError(failure.message);
-    } finally {
-      if (!obsolete()) {
-        latest.previewRequest = void 0;
-        setTokenBusy(false);
-      }
-    }
+    }, setTokenError);
   }, "submitToken");
   const removeToken = /* @__PURE__ */ __name(async () => {
+    if (!canWrite()) return;
+    cancelDraft();
     setTokenBusy(true);
-    setTokenError("");
     setLoginDone(false);
-    setAccountSwitch(null);
-    setToken("");
-    try {
+    await writeCredential(async () => {
       await clearToken();
-      latest.credential = void 0;
-      latest.refocus = true;
-      await check();
-    } catch (failure) {
-      setTokenError(failure.message);
-    } finally {
-      setTokenBusy(false);
-    }
+      if (scope.isCurrent()) latest.credential = void 0;
+    }, () => {
+    }, setTokenError);
   }, "removeToken");
+  const changeToken = /* @__PURE__ */ __name((event) => {
+    setToken(event.target.value);
+    setTokenError("");
+    if (preview || accountSwitch?.phase === "saved") setAccountSwitch({ phase: "editing", previous: latest.credential?.user });
+  }, "changeToken");
   const loading = !state;
   const current = state || {};
   const user = current.user || {};
@@ -872,9 +1211,9 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   const switchNote = accountSwitch?.phase !== "saved" ? "" : tokenBusy || checking ? msg(`正在核实工作台是否已使用 ${accountLabel(accountSwitch.expected)}…`, `Checking whether the workbench is using ${accountLabel(accountSwitch.expected)}…`) : savedSwitchNote(accountSwitch, current);
   const badge = /* @__PURE__ */ __name((tone, label2) => h("span", { className: "pg-badge", "data-tone": tone }, label2), "badge");
   const sourceTail = sourceLabel ? msg(` 令牌来源：${sourceLabel}`, ` Token source: ${sourceLabel}`) : "";
-  const summary = loading ? msg("正在检查当前 DSH 是否已配置 Playground 凭据…", "Checking DSH for Playground credentials…") : current.authenticated ? h(React2.Fragment, null, badge("success", msg("已登录", "Signed in")), " ", user.name || user.email || msg("Playground 用户", "Playground user")) : refused ? h(React2.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React2.Fragment, null, badge("error", msg("检测失败", "Check failed")), sourceTail) : h(React2.Fragment, null, badge(current.error ? "error" : "warning", current.error ? msg("检测失败", "Check failed") : msg("未登录", "Signed out")), msg(" 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。", " You can browse public challenges. Sign in to view your submissions and upload evaluation packages."));
+  const summary = loading ? msg("正在检查当前 DSH 是否已配置 Playground 凭据…", "Checking DSH for Playground credentials…") : current.authenticated ? h(React3.Fragment, null, badge("success", msg("已登录", "Signed in")), " ", user.name || user.email || msg("Playground 用户", "Playground user")) : refused ? h(React3.Fragment, null, badge("error", refusedBadge), sourceTail) : failedCheck ? h(React3.Fragment, null, badge("error", msg("检测失败", "Check failed")), sourceTail) : h(React3.Fragment, null, badge(current.error ? "error" : "warning", current.error ? msg("检测失败", "Check failed") : msg("未登录", "Signed out")), msg(" 公开赛题仍可浏览；查询个人提交和上传评测包需要登录。", " You can browse public challenges. Sign in to view your submissions and upload evaluation packages."));
   const clearButton = stored ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy || loginBusy, onClick: removeToken }, msg("清除令牌", "Clear token")) : null;
-  const tokenForm = h(
+  const tokenForm2 = h(
     "form",
     { className: "pg-form pg-auth-token", "aria-label": verifyFirst ? msg("切换账号", "Switch account") : msg("API 令牌登录", "Sign in with an API token"), onSubmit: /* @__PURE__ */ __name((event) => {
       event.preventDefault();
@@ -884,11 +1223,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     pageUrl ? h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(() => {
       window.open(pageUrl, "_blank", "noopener,noreferrer");
     }, "onClick") }, msg("去网站生成令牌", "Generate token on website"))) : null,
-    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled: tokenBusy || loginBusy, onChange: /* @__PURE__ */ __name((event) => {
-      setToken(event.target.value);
-      setTokenError("");
-      if (preview) setAccountSwitch({ phase: "editing", previous: accountSwitch.previous });
-    }, "onChange") })),
+    h("label", { className: "pg-field" }, msg("API 令牌", "API token"), h("input", { className: "pg-input", type: "password", value: token, autoComplete: "off", spellCheck: false, disabled: tokenBusy || loginBusy, onChange: changeToken })),
     preview ? h(
       "p",
       { className: "pg-note" },
@@ -904,15 +1239,63 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
         { type: "submit", className: "pg-button pg-primary", disabled: tokenBusy || loginBusy },
         verifyFirst && !preview ? tokenBusy ? msg("正在验证…", "Verifying…") : msg("验证新账号", "Verify new account") : tokenBusy ? msg("正在保存…", "Saving…") : preview ? msg("使用此账号", "Use this account") : msg("保存令牌", "Save token")
       ),
-      editing ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: /* @__PURE__ */ __name(() => {
-        setAccountSwitch(null);
-        setToken("");
-        setTokenError("");
-      }, "onClick") }, msg("取消", "Cancel")) : null
+      editing ? h("button", { type: "button", className: "pg-button", disabled: tokenBusy, onClick: cancelDraft }, msg("取消", "Cancel")) : null
     ),
     tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError === "请先粘贴 API 令牌。" ? msg(tokenError, "Paste your API token first.") : tokenError) : null
   );
   const configNote = fromConfig ? h("p", { className: "pg-note pg-auth-config" }, current.tokenSource === "config" ? msg("令牌来自插件配置，它优先于在工作台保存的令牌，所以这里不提供保存或更换令牌。如需更换，请修改或删除插件配置中的令牌。", "The configured plugin token takes priority over tokens saved in the workbench. Edit or remove it in the plugin configuration to change tokens.") : msg("上次检测到的令牌来自插件配置。请重新检测当前来源后再切换账号。", "The last token came from plugin configuration. Check the current source again before switching accounts.")) : null;
+  const otherLogin = [
+    h("p", { className: "pg-note" }, msg("用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。", "Accounts registered with the Playground CLI and a password can sign in with email and password. The plugin passes the password to the installed CLI through DSH credentials and removes it after sign-in. The password stays out of the chat. Sign-in writes to the CLI credentials file. DSH credentials, environment tokens and plugin configuration take priority over that file. You can also run playground auth login before starting DSH, then select Check again.")),
+    h(
+      "form",
+      { className: "pg-form", onSubmit: /* @__PURE__ */ __name((event) => {
+        event.preventDefault();
+        if (!loginBusy && !writingToken && email.trim() && password) submitLogin();
+      }, "onSubmit") },
+      h("label", { className: "pg-field" }, msg("Playground 邮箱", "Playground email"), h("input", { className: "pg-input", type: "email", value: email, autoComplete: "username", onChange: /* @__PURE__ */ __name((event) => setEmail(event.target.value), "onChange") })),
+      h("label", { className: "pg-field" }, msg("Playground 密码", "Playground password"), h("input", { className: "pg-input", type: "password", value: password, autoComplete: "current-password", onChange: /* @__PURE__ */ __name((event) => setPassword(event.target.value), "onChange") })),
+      h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || writingToken || !email.trim() || !password }, loginBusy ? msg("正在登录…", "Signing in…") : msg("登录 Playground", "Sign in to Playground")),
+      loginError ? h("p", { className: "pg-error", role: "alert" }, loginError) : null
+    )
+  ];
+  if (settings) return active ? renderSettingsAuth({
+    checking,
+    loading,
+    current,
+    user,
+    sourceLabel,
+    verifiedTime,
+    refused,
+    refusedBadge,
+    refusedText,
+    failedCheck,
+    statusRef,
+    note,
+    overridden,
+    switchNote,
+    configNote,
+    fromConfig,
+    verifyFirst,
+    token,
+    tokenError,
+    preview,
+    previewIsCurrent: preview && sameAccount(accountSwitch.previous, preview) === true,
+    pageUrl,
+    loginBusy,
+    tokenBusy,
+    writingToken,
+    otherLogin,
+    changeToken,
+    check,
+    cancelDraft,
+    submitToken,
+    removeToken,
+    tokenId,
+    agent,
+    operator,
+    operatorState,
+    lastUser: latest.credential?.user
+  }) : null;
   return h(
     "section",
     { className: "pg-guide pg-auth", "aria-label": msg("Playground 登录状态", "Playground sign-in status"), "aria-busy": checking || loginBusy || tokenBusy },
@@ -926,7 +1309,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     h(
       "div",
       { className: "pg-auth-status", role: "status", "aria-live": "polite", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-        latest.status = node;
+        statusRef.current = node;
       }, "ref") },
       h("p", { className: "pg-note" }, summary),
       !loading && checking ? h("p", { className: "pg-note" }, msg("正在重新检测登录状态…", "Checking sign-in status again…")) : null,
@@ -935,7 +1318,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     ),
     !loading && current.cliUpdate?.warning ? h("p", { className: "pg-note pg-cli-update" }, badge("warning", msg("CLI 需更新", "CLI update needed")), " ", msg(current.cliUpdate.warning, `Playground CLI ${current.cliUpdate.current} is outdated. Version ${current.cliUpdate.latest} is available. This may affect scoring. Update using the official script at https://play.bohrium.com/install.sh. On Windows, download the .tgz linked in the script, verify its SHA-256, then run npm install -g <file>.`)) : null,
     loading ? null : current.authenticated ? h(
-      React2.Fragment,
+      React3.Fragment,
       null,
       h("p", { className: "pg-note pg-auth-identity" }, msg(`当前身份：${agent ? "Agent 账号" : "本人"}。提交会记在这个身份名下。`, `Current identity: ${agent ? "Agent account" : "Personal account"}. Submissions are attributed to this identity.`)),
       user.id != null ? h("p", { className: "pg-note" }, msg(`账号 ID：${user.id}`, `Account ID: ${user.id}`)) : null,
@@ -952,52 +1335,36 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
         setLoginDone(false);
       }, "onClick") }, msg("切换账号", "Switch account")), clearButton) : null,
       !editing && tokenError ? h("p", { className: "pg-error", role: "alert" }, tokenError) : null,
-      fromConfig ? configNote : editing ? h(React2.Fragment, null, h("h3", null, msg("切换账号", "Switch account")), tokenForm) : null
+      fromConfig ? configNote : editing ? h(React3.Fragment, null, h("h3", null, msg("切换账号", "Switch account")), tokenForm2) : null
     ) : h(
-      React2.Fragment,
+      React3.Fragment,
       null,
       refused ? h("p", { className: "pg-error", role: "alert" }, refusedText) : failedCheck ? h("p", { className: "pg-error", role: "alert" }, current.reason === "network" ? msg("无法连接 Playground 平台，暂时无法确认登录状态。请检查网络后点击“重新检测”。", "Could not connect to Playground to verify sign-in. Check the network and select Check again.") : msg("Playground 平台暂时无法确认登录状态，请稍后点击“重新检测”。", "Playground could not verify sign-in. Select Check again later.")) : current.error ? h("p", { className: "pg-error", role: "alert" }, current.error) : null,
       note ? h("p", { className: "pg-note pg-auth-file" }, note) : null,
       clearButton ? h("div", { className: "pg-actions" }, clearButton) : null,
       latest.credential?.user ? h("p", { className: "pg-note" }, msg(`上次核实的账号为 ${accountLabel(latest.credential.user)}。`, `Last verified account: ${accountLabel(latest.credential.user)}.`)) : null,
-      fromConfig ? configNote : tokenForm,
-      h(
-        "details",
-        { className: "pg-auth-other" },
-        h("summary", null, msg("其他登录方式", "Other sign-in methods")),
-        h("p", { className: "pg-note" }, msg("用 Playground CLI 注册、设有密码的账号可以用邮箱和密码登录。插件会调用已安装的 Playground CLI；密码只通过 DSH 凭据通道传给 CLI，不会写入对话，登录结束后即从 DSH 凭据中删除。登录写入 CLI 凭据文件，而 DSH 凭据、DSH 环境变量或插件配置中的令牌都优先于这个文件。也可以在 DSH 启动前完成 playground auth login，再点击“重新检测”。", "Accounts registered with the Playground CLI and a password can sign in with email and password. The plugin passes the password to the installed CLI through DSH credentials and removes it after sign-in. The password stays out of the chat. Sign-in writes to the CLI credentials file. DSH credentials, environment tokens and plugin configuration take priority over that file. You can also run playground auth login before starting DSH, then select Check again.")),
-        h(
-          "form",
-          { className: "pg-form", onSubmit: /* @__PURE__ */ __name((event) => {
-            event.preventDefault();
-            if (!loginBusy && !writingToken && email.trim() && password) submitLogin();
-          }, "onSubmit") },
-          h("label", { className: "pg-field" }, msg("Playground 邮箱", "Playground email"), h("input", { className: "pg-input", type: "email", value: email, autoComplete: "username", onChange: /* @__PURE__ */ __name((event) => setEmail(event.target.value), "onChange") })),
-          h("label", { className: "pg-field" }, msg("Playground 密码", "Playground password"), h("input", { className: "pg-input", type: "password", value: password, autoComplete: "current-password", onChange: /* @__PURE__ */ __name((event) => setPassword(event.target.value), "onChange") })),
-          h("button", { type: "submit", className: "pg-button pg-primary", disabled: loginBusy || writingToken || !email.trim() || !password }, loginBusy ? msg("正在登录…", "Signing in…") : msg("登录 Playground", "Sign in to Playground")),
-          loginError ? h("p", { className: "pg-error", role: "alert" }, loginError) : null
-        )
-      )
+      fromConfig ? configNote : tokenForm2,
+      h("details", { className: "pg-auth-other" }, h("summary", null, msg("其他登录方式", "Other sign-in methods")), ...otherLogin)
     )
   );
 }
 __name(AuthStatusPanel, "AuthStatusPanel");
 
 // src/client/settings/language.js
-var import_react5 = require("react");
+var import_react6 = require("react");
 function LanguageMenu() {
   usePluginLanguage();
-  const id = (0, import_react5.useId)();
-  const root = (0, import_react5.useRef)(null);
-  const trigger = (0, import_react5.useRef)(null);
-  const menu = (0, import_react5.useRef)(null);
-  const [open, setOpen] = (0, import_react5.useState)(false);
+  const id = (0, import_react6.useId)();
+  const root = (0, import_react6.useRef)(null);
+  const trigger = (0, import_react6.useRef)(null);
+  const menu = (0, import_react6.useRef)(null);
+  const [open, setOpen] = (0, import_react6.useState)(false);
   const preference2 = languagePreference();
   const label2 = msg("界面语言", "Interface language");
   const follow = msg("跟随 DSH", "Follow DSH") + " · " + (currentHostLanguage() === "en" ? "English" : "中文");
   const options = [[null, follow], ["zh", "中文"], ["en", "English"]];
   const selected = options.findIndex(([value]) => value === preference2);
-  (0, import_react5.useEffect)(() => {
+  (0, import_react6.useEffect)(() => {
     if (!open) return;
     const node = root.current;
     menu.current?.querySelector("[aria-checked=true]")?.focus();
@@ -1089,28 +1456,309 @@ function LanguageMenu() {
 }
 __name(LanguageMenu, "LanguageMenu");
 
-// src/client/settings/releases.js
-var React3 = __toESM(require("react"), 1);
-var releaseCss = `
-  .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
-  .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
-  .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
-  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
-  .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
-  .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
-  .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
-  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--pg-muted) }.pg-release-version small { font-size:12px }
-  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--pg-text) }
-  .pg-release-arrow { color:var(--pg-muted) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
-  .pg-release-pref { min-height:54px; border-top:1px solid var(--pg-line); font-weight:600; cursor:pointer }
-  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--pg-muted); border-radius:12px; background:var(--pg-base); cursor:pointer }
-  .pg-release-pref input::before { content:""; background:var(--pg-muted); width:14px; height:14px; margin:2px; border-radius:50% }
-  .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
-  @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
-  .pg-release-details { border-top:1px solid var(--pg-line); padding:10px var(--inset); color:var(--pg-muted); font-size:13px }.pg-release-details summary { cursor:pointer }
-  .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
-  @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
+// src/client/settings/page.js
+var React4 = __toESM(require("react"), 1);
+
+// src/client/settings/styles.js
+var settingsCss = `
+  .pg-settings-page { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); font:14px/1.55 var(--pg-font-title); container-type:inline-size }
+  .pg-settings-page[hidden] { display:none }
+  .pg-settings-page *, .pg-settings-page *::before, .pg-settings-page *::after { box-sizing:border-box }
+  .pg-settings-page :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:2px }
+  .pg-settings-page h1,.pg-settings-page h2,.pg-settings-page h3 { margin:0; font-family:var(--pg-font-title); font-weight:600 }
+  .pg-settings-page h1,.pg-settings-page h3 { font-size:15px }
+  .pg-settings-page h2 { font-size:18px }
+  .pg-settings-page p { margin:0 }
+  .pg-settings-page .pg-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:0 12px; border-radius:var(--pg-r6); font-size:12.5px; text-decoration:none }
+  .pg-settings-page .pg-primary:not(:disabled) { padding:0 14px; border-color:transparent }
+  .pg-settings-page .pg-input { min-width:0; width:100%; height:38px; padding:0 12px; background:var(--pg-ink); border-color:var(--pg-control-line); border-radius:var(--pg-r6); font:12.5px/1.55 var(--pg-font-mono) }
+  .pg-settings-page .pg-input::placeholder { color:var(--pg-label) }
+  .pg-settings-header { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; min-height:56px; padding:0 16px; border-bottom:1px solid var(--pg-line); background:#0B0D10 }
+  .pg-settings-header .pg-settings-back { min-height:34px; border-color:var(--pg-control-line) }
+  .pg-settings-escape { margin-left:auto; color:var(--pg-label); font:11px/1.55 var(--pg-font-mono) }
+  .pg-settings-scroll { flex:1; min-height:0; display:flex; overflow:auto; scrollbar-color:var(--pg-control-line) var(--pg-base) }
+  .pg-settings-nav { position:sticky; top:0; flex:0 0 221px; align-self:flex-start; min-height:100%; display:flex; flex-direction:column; gap:2px; padding:22px 12px; border-right:1px solid #1A1F27; background:#0B0D10 }
+  .pg-settings-nav button { display:flex; align-items:center; gap:10px; min-height:38px; padding:0 12px; border:0; border-radius:var(--pg-r6); background:transparent; color:var(--pg-muted); font:inherit; font-size:13.5px; text-align:start; cursor:pointer }
+  .pg-settings-nav button:hover { background:var(--pg-hover); color:var(--pg-text) }
+  .pg-settings-nav button[aria-current=true] { background:#161B22; color:var(--pg-text) }
+  .pg-settings-dot { width:7px; height:7px; flex:none; margin-left:auto; border-radius:50%; background:currentColor }
+  .pg-settings-dot[data-tone=warning] { color:var(--pg-warning) }
+  .pg-settings-dot[data-tone=info] { color:var(--pg-info) }
+  .pg-settings-main { flex:1; min-width:0 }
+  .pg-settings-content { display:flex; flex-direction:column; gap:28px; max-width:860px; padding:26px 32px 60px }
+  .pg-settings-section { display:flex; flex-direction:column; gap:12px; min-width:0; scroll-margin-block-start:16px }
+  .pg-settings-section:focus { outline:none }
+  .pg-settings-section[data-section=account],.pg-settings-auth { display:grid; gap:14px }
+  .pg-settings-section[data-section=api] { gap:10px }
+  .pg-settings-field { display:grid; gap:6px; color:var(--pg-muted); font-size:12.5px }
+  .pg-settings-account-card { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:18px; border:1px solid var(--pg-control-line); border-radius:12px; background:var(--pg-panel) }
+  .pg-settings-avatar { flex:none; display:grid; place-items:center; width:48px; height:48px; border-radius:var(--pg-r10); background:var(--pg-accent-soft); border:1px solid #2E3A1E; color:var(--pg-accent); font:15px/1 var(--pg-font-mono) }
+  .pg-settings-account-card:not([data-status=signed-in]) .pg-settings-avatar { background:var(--pg-control); border-color:var(--pg-control-line); color:var(--pg-muted) }
+  .pg-settings-account-info { flex:1 1 220px; display:grid; gap:3px; min-width:0; overflow-wrap:anywhere; color:var(--pg-muted); font-size:12.5px }
+  .pg-settings-account-name { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
+  .pg-settings-account-name strong { color:var(--pg-text); font-size:16px; font-weight:600 }
+  .pg-settings-account-state,.pg-settings-cli-state { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font-size:12px }
+  .pg-settings-account-state::before,.pg-settings-cli[data-tone=warning] .pg-settings-cli-state::before { content:""; width:7px; height:7px; flex:none; border-radius:50%; background:currentColor }
+  .pg-settings-account-card[data-status=signed-in] .pg-settings-account-state { color:var(--pg-accent) }
+  .pg-settings-account-card:is([data-status=invalid],[data-status=error]) .pg-settings-account-state,.pg-settings-page .pg-settings-clear { color:var(--pg-error) }
+  .pg-settings-verification { color:var(--pg-label); font:11px/1.55 var(--pg-font-mono) }
+  .pg-settings-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
+  .pg-settings-switch { display:grid; gap:16px; padding:18px; border:1px solid var(--pg-line); border-radius:12px; background:#0B0E12 }
+  .pg-settings-switch-head { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px }
+  .pg-settings-switch-note,.pg-settings-other-caption { color:var(--pg-label); font-size:12px }
+  .pg-settings-steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:10px; margin:0; padding:0; list-style:none }
+  .pg-settings-steps li { display:grid; gap:4px; padding:10px 12px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r8); background:var(--pg-panel); font-size:13px }
+  .pg-settings-steps small { color:var(--pg-label); font:11px/1.55 var(--pg-font-mono) }
+  .pg-settings-steps li[data-state=done] { border-color:#2E3A1E; background:#10140B }
+  .pg-settings-steps li[data-state=done] small { color:var(--pg-accent) }
+  .pg-settings-steps li:is([data-state=active],[data-state=confirm]) { border-color:#6E8A2A }
+  .pg-settings-steps li:is([data-state=active],[data-state=confirm]) small { color:var(--pg-text) }
+  .pg-settings-token-row { display:flex; gap:8px }
+  .pg-settings-token-row .pg-button { flex:none; min-height:38px }
+  .pg-settings-confirm { display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:12px 14px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r8); background:var(--pg-ink) }
+  .pg-settings-confirm strong { font-weight:600; overflow-wrap:anywhere }
+  .pg-settings-confirm code { flex:1; color:var(--pg-muted); font:11.5px/1.55 var(--pg-font-mono) }
+  .pg-settings-other { margin:0; border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:#0B0E12 }
+  .pg-settings-other summary { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 14px; list-style:none; cursor:pointer; font-size:13px }
+  .pg-settings-other summary::-webkit-details-marker { display:none }
+  .pg-settings-other summary svg { color:var(--pg-label) }
+  .pg-settings-other[open] summary svg { transform:rotate(90deg) }
+  .pg-settings-other-body { display:grid; gap:8px; padding:0 14px 14px }
+  .pg-settings-other-body form { display:grid; gap:8px; justify-items:start }
+  .pg-settings-other-body label { display:grid; gap:4px; width:100%; max-width:360px; color:var(--pg-muted); font-size:12.5px }
+  .pg-settings-cli,.pg-settings-preference { display:flex; flex-wrap:wrap; align-items:center; gap:12px 14px; padding:14px 16px; border:1px solid var(--pg-line); border-radius:var(--pg-r10) }
+  .pg-settings-cli .pg-button { margin-left:auto; min-height:34px }
+  .pg-settings-cli[data-tone=warning] { background:#120F09; border-color:#4A3A1A }
+  .pg-settings-cli[data-tone=warning] .pg-settings-cli-state { color:var(--pg-warning); font-size:12.5px }
+  .pg-settings-cli[data-tone=warning] .pg-button { border-color:#3A2F18 }
+  .pg-settings-cli[data-tone=warning] :is(code,.pg-button) { color:#E8D7BC }
+  .pg-settings-cli code { font:12px/1.55 var(--pg-font-mono) }
+  .pg-settings-preference > :first-child { display:grid; flex:1 1 200px }
+  .pg-settings-preference small { color:var(--pg-label); font-size:12px }
+  .pg-settings-segmented { display:flex; padding:2px; border:1px solid #222833; border-radius:var(--pg-r6); background:var(--pg-control) }
+  .pg-settings-segmented button { min-height:30px; padding:0 12px; border:0; border-radius:var(--pg-r4); background:transparent; color:var(--pg-muted); font:inherit; font-size:12.5px; cursor:pointer }
+  .pg-settings-segmented button[aria-pressed=true] { background:#1E242D; color:var(--pg-text) }
+  .pg-settings-notice input { appearance:none; display:grid; align-items:center; width:42px; height:24px; margin:0; border-radius:12px; background:var(--pg-control-line); cursor:pointer }
+  .pg-settings-notice input::before { content:""; width:18px; height:18px; margin:0 3px; border-radius:50%; background:var(--pg-muted) }
+  .pg-settings-notice input:checked { background:var(--pg-accent) }
+  .pg-settings-notice input:checked::before { justify-self:end; background:var(--pg-ink) }
+  @media(forced-colors:active) { .pg-settings-notice input { appearance:auto } }
+  @container(max-width:700px) {
+    .pg-settings-scroll { flex-direction:column }
+    .pg-settings-nav { position:static; flex:0 0 auto; align-self:stretch; flex-direction:row; flex-wrap:wrap; min-height:auto; padding:8px 12px; border-right:0; border-bottom:1px solid var(--pg-line) }
+    .pg-settings-content { padding:20px 16px 44px }
+  }
+  @container(max-width:420px) {
+    .pg-settings-header { padding-block:8px }
+    .pg-settings-token-row { flex-wrap:wrap }
+  }
 `;
+var releaseSettingsCss = `
+  .pg-settings-release { display:grid; gap:12px; min-width:0; overflow-wrap:anywhere }
+  .pg-release-header,.pg-release-summary,.pg-release-versions,.pg-release-actions,.pg-release-pref { display:flex; flex-wrap:wrap; align-items:center; gap:12px }
+  .pg-release-header,.pg-release-summary { justify-content:space-between }
+  .pg-settings-release-channel { padding:4px 12px; border:1px solid var(--pg-line); border-radius:var(--pg-r6); color:var(--pg-muted); background:var(--pg-control); font-size:12.5px }
+  .pg-settings-release-card { display:grid; gap:14px; padding:18px; border:1px solid var(--pg-control-line); border-radius:12px; background:var(--pg-panel) }
+  .pg-settings-release-card[data-tone=info] { border-color:#23364A; background:#0B1118 }
+  .pg-release-versions { gap:16px }
+  .pg-release-version { display:grid; gap:2px; font-family:var(--pg-font-mono) }
+  .pg-release-version small { color:var(--pg-label); font-size:10.5px; letter-spacing:.1em }
+  .pg-release-version strong { font-size:22px; font-weight:400 }
+  .pg-release-arrow,.pg-settings-release-card[data-tone=info] .pg-release-target :is(small,strong) { color:var(--pg-info) }
+  .pg-release-verified { display:flex; flex-wrap:wrap; gap:8px; color:#C9DDF2; font-size:12px }
+  .pg-release-verified span { flex:1 1 170px; padding:8px 10px; border:1px solid #1B2A3A; border-radius:var(--pg-r6) }
+  .pg-release-verified span::before { content:"✓"; margin-right:8px; color:var(--pg-accent) }
+  .pg-release-pref { padding:12px 16px; border:1px solid var(--pg-line); border-radius:var(--pg-r10); font-size:12.5px }
+  .pg-release-pref label { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
+  .pg-release-pref input { width:16px; height:16px; margin:0; accent-color:var(--pg-accent) }
+  .pg-release-source { flex:1 1 180px; color:var(--pg-muted) }
+  .pg-release-source-value { color:var(--pg-text); font-family:var(--pg-font-mono) }
+  .pg-release-pref .pg-release-check { min-height:32px }
+  .pg-release-details { padding:12px 14px; border:1px solid var(--pg-line); border-radius:var(--pg-r10); color:var(--pg-muted); font-size:13px }
+  .pg-release-details summary { cursor:pointer }
+  .pg-settings-page .pg-release-details p { margin-block:8px }
+  .pg-release-spec { display:block; margin:8px 0; user-select:all }
+`;
+
+// src/client/settings/page.js
+var cliGuide = "https://github.com/tjyyy3/dsh-playground/blob/main/guide/reference.md#install-or-update-the-playground-cli";
+function LanguageSetting() {
+  const selected = languagePreference();
+  const label2 = msg("界面语言", "Interface language");
+  return h(
+    "div",
+    { className: "pg-settings-preference" },
+    h("div", null, h("span", null, label2), h(
+      "small",
+      null,
+      msg("题面正文、聊天记录和你的输入保留原文", "Challenge text, chats, and your input keep their original language")
+    )),
+    h(
+      "div",
+      { className: "pg-settings-segmented", role: "group", "aria-label": label2 },
+      [[null, msg("跟随 DSH", "Follow DSH")], ["zh", "中文"], ["en", "English"]].map(([value, label3]) => h("button", {
+        key: value ?? "follow",
+        type: "button",
+        lang: value ?? void 0,
+        "aria-pressed": selected === value,
+        onClick: /* @__PURE__ */ __name(() => setLanguage(value), "onClick")
+      }, label3))
+    )
+  );
+}
+__name(LanguageSetting, "LanguageSetting");
+function SettingsPage({ active, brand, onBack, checks, cliUpdate, configuredBase, authStatus, releaseAvailable, releaseVisit, children }) {
+  const id = React4.useId();
+  const root = React4.useRef(null);
+  const back = React4.useRef(null);
+  const sections = React4.useRef(/* @__PURE__ */ new Map());
+  const [selected, setSelected] = React4.useState("account");
+  const { version: version2 } = React4.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
+  const [auth, notices, release] = children;
+  const cliWarning = Boolean(cliUpdate?.current && cliUpdate?.latest);
+  const labels = {
+    account: msg("账号与令牌", "Account and token"),
+    cli: msg("Playground CLI", "Playground CLI"),
+    api: msg("API 地址", "API address"),
+    prefs: msg("语言与提醒", "Language and alerts"),
+    updates: msg("版本与更新", "Version and updates")
+  };
+  const attention = {
+    cli: cliWarning ? ["warning", msg("CLI 需更新", "CLI update needed")] : null,
+    updates: releaseAvailable || version2 ? ["info", msg("有新版本", "Update available")] : null
+  };
+  React4.useLayoutEffect(() => {
+    if (!active) {
+      setSelected("account");
+      return;
+    }
+    if (releaseVisit) setSelected("updates");
+    else back.current?.focus({ preventScroll: true });
+  }, [active, releaseVisit]);
+  const closeOnEscape = /* @__PURE__ */ __name((event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.nativeEvent?.isComposing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onBack();
+  }, "closeOnEscape");
+  React4.useEffect(() => {
+    if (!active || !globalThis.document) return;
+    const onBodyKey = /* @__PURE__ */ __name((event) => {
+      if (event.target === document.body && root.current?.getClientRects().length) closeOnEscape(event);
+    }, "onBodyKey");
+    document.addEventListener("keydown", onBodyKey);
+    return () => document.removeEventListener("keydown", onBodyKey);
+  }, [active, onBack]);
+  const section = /* @__PURE__ */ __name((key2, ...content) => h("section", {
+    id: id + "-" + key2,
+    "data-section": key2,
+    className: "pg-settings-section",
+    tabIndex: -1,
+    "aria-labelledby": key2 === "updates" ? void 0 : id + "-" + key2 + "-heading",
+    "aria-label": key2 === "updates" ? labels[key2] : void 0,
+    ref: /* @__PURE__ */ __name((node) => {
+      if (node) sections.current.set(key2, node);
+      else sections.current.delete(key2);
+    }, "ref")
+  }, key2 !== "updates" ? h("h2", { id: id + "-" + key2 + "-heading" }, labels[key2]) : null, ...content), "section");
+  return h(
+    "div",
+    { className: "pg-settings-page", ref: root, hidden: !active, onKeyDown: closeOnEscape },
+    h("style", null, settingsCss + releaseSettingsCss),
+    active ? h(
+      "header",
+      { className: "pg-settings-header" },
+      brand,
+      h(
+        "button",
+        { type: "button", className: "pg-button pg-settings-back", ref: back, onClick: onBack },
+        h(
+          "svg",
+          { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", "aria-hidden": true },
+          h("path", { d: "M7.5 2.5 4 6l3.5 3.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" })
+        ),
+        msg("返回工作台", "Back to workbench")
+      ),
+      h("h1", null, msg("连接设置", "Connection settings")),
+      h("span", { className: "pg-settings-escape" }, msg("Esc 返回", "Esc to go back"))
+    ) : null,
+    h(
+      "div",
+      { className: "pg-settings-scroll" },
+      active ? h(
+        "nav",
+        { className: "pg-settings-nav", "aria-label": msg("设置分区", "Settings sections") },
+        Object.entries(labels).map(([key2, label2]) => h("button", {
+          key: key2,
+          type: "button",
+          "aria-controls": id + "-" + key2,
+          "aria-current": key2 === selected ? "true" : void 0,
+          onClick: /* @__PURE__ */ __name(() => {
+            const target = sections.current.get(key2);
+            if (!target) return;
+            setSelected(key2);
+            target.focus({ preventScroll: true });
+            target.scrollIntoView({ block: "start" });
+          }, "onClick")
+        }, label2, attention[key2] ? h("span", {
+          className: "pg-settings-dot",
+          "data-tone": attention[key2][0],
+          title: attention[key2][1],
+          role: "img",
+          "aria-label": attention[key2][1]
+        }) : null))
+      ) : null,
+      h(
+        "main",
+        { className: "pg-settings-main" },
+        h(
+          "div",
+          { className: "pg-settings-content" },
+          section("account", auth),
+          active ? h(
+            React4.Fragment,
+            null,
+            section(
+              "cli",
+              h(
+                "div",
+                { className: "pg-settings-cli", "data-tone": cliWarning ? "warning" : void 0 },
+                h("span", { className: "pg-settings-cli-state" }, cliWarning ? msg("CLI 需更新", "CLI update needed") : authStatus === "checking" ? msg("正在检测…", "Checking…") : msg("暂无 CLI 版本信息", "CLI version not reported")),
+                cliWarning ? h("code", null, cliUpdate.current, " → ", cliUpdate.latest) : null,
+                h(
+                  "a",
+                  { className: "pg-button", href: cliGuide, target: "_blank", rel: "noopener noreferrer" },
+                  msg("查看安装或更新说明", "Installation and update instructions")
+                )
+              )
+            ),
+            section(
+              "api",
+              h(
+                "label",
+                { className: "pg-settings-field" },
+                msg("远程 API 必须使用 HTTPS；本机 HTTP 仅用于调试。", "Remote APIs require HTTPS. Local HTTP is for debugging."),
+                h("input", {
+                  className: "pg-input",
+                  type: "url",
+                  value: configuredBase ?? "",
+                  readOnly: true,
+                  placeholder: msg("地址暂不可用", "Address unavailable")
+                })
+              )
+            ),
+            section("prefs", h(LanguageSetting), notices),
+            section("updates", release)
+          ) : null
+        )
+      )
+    )
+  );
+}
+__name(SettingsPage, "SettingsPage");
+
+// src/client/settings/releases.js
+var React5 = __toESM(require("react"), 1);
 function icon(path, size = 16) {
   return h("svg", {
     width: size,
@@ -1126,8 +1774,8 @@ function icon(path, size = 16) {
 }
 __name(icon, "icon");
 function ReleaseIndicator({ checks, active, open }) {
-  const { version: version2 } = React3.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
-  React3.useEffect(() => {
+  const { version: version2 } = React5.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
+  React5.useEffect(() => {
     if (!active) return;
     void checks.check();
     window.addEventListener?.("focus", checks.check);
@@ -1141,32 +1789,29 @@ function ReleaseIndicator({ checks, active, open }) {
   }, icon("M12 20V4m0 0-6 6m6-6 6 6", 14), msg("有新版本", "Update available")) : null;
 }
 __name(ReleaseIndicator, "ReleaseIndicator");
-function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
-  const { enabled } = React3.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
-  const heading = React3.useRef(null);
-  const [installState, setInstallState] = React3.useState("");
-  const installing = React3.useRef(false);
-  const [info, setInfo] = React3.useState(null);
-  const [release, setRelease] = React3.useState({ status: "loading" });
-  const [copyStatus, setCopyStatus] = React3.useState("");
-  const [latest] = React3.useState(() => ({ controller: null }));
-  const cancel = /* @__PURE__ */ __name(() => {
-    latest.controller?.abort();
-    latest.controller = null;
-  }, "cancel");
+function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable }) {
+  const { enabled } = React5.useSyncExternalStore(checks.subscribe, checks.getSnapshot);
+  const heading = React5.useRef(null);
+  const [installState, setInstallState] = React5.useState("");
+  const scope = useRequestScope([query]);
+  const [info, setInfo] = React5.useState(null);
+  const [release, setRelease] = React5.useState({ status: "loading" });
+  const [copyStatus, setCopyStatus] = React5.useState("");
   const load = /* @__PURE__ */ __name(async (check) => {
+    const request = scope.begin("release");
+    if (!request) return;
+    scope.abort("copy");
     setCopyStatus("");
-    cancel();
-    const controller = new AbortController();
-    latest.controller = controller;
+    const timeout = new AbortController();
+    const signal = AbortSignal.any([request.signal, timeout.signal]);
     setRelease({ ...release, status: check ? "checking" : "loading" });
-    const timer = setTimeout(() => controller.abort(new Error("release_rpc_timeout")), check ? 15e4 : 1e4);
+    const timer = setTimeout(() => timeout.abort(new Error("release_rpc_timeout")), check ? 15e4 : 1e4);
     try {
       const next = await Promise.race([
-        query({ action: "releases", check, ...check ? { verifyPackage: true } : {} }, controller.signal),
-        new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))
+        query({ action: "releases", check, ...check ? { verifyPackage: true } : {} }, signal),
+        new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))
       ]);
-      if (latest.controller !== controller) return;
+      if (!request.isCurrent()) return;
       if (!["ready", "unchecked", "unavailable"].includes(next?.status)) {
         setRelease({ ...release, status: "unavailable", error: "failed" });
         return;
@@ -1182,7 +1827,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
         registry: next.registry
       });
     } catch (error) {
-      if (latest.controller === controller) setRelease({
+      if (request.isCurrent()) setRelease({
         ...release,
         registry: void 0,
         status: "unavailable",
@@ -1190,23 +1835,26 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
       });
     } finally {
       clearTimeout(timer);
+      request.finish();
     }
   }, "load");
-  React3.useEffect(() => {
+  React5.useEffect(() => {
     if (visit) heading.current?.focus();
     load(Boolean(visit));
-    return cancel;
-  }, [query, visit]);
-  React3.useEffect(() => {
+    return () => scope.abort("release");
+  }, [scope, visit]);
+  React5.useEffect(() => {
     if (release.error !== "rate_limited" || !release.resetAt) return;
-    const timer = setTimeout(() => setRelease({
-      ...release,
-      status: release.target ? "ready" : "unchecked",
-      error: void 0,
-      resetAt: void 0
-    }), Math.max(0, Date.parse(release.resetAt) - Date.now()));
+    const timer = setTimeout(() => {
+      if (scope.isCurrent()) setRelease({
+        ...release,
+        status: release.target ? "ready" : "unchecked",
+        error: void 0,
+        resetAt: void 0
+      });
+    }, Math.max(0, Date.parse(release.resetAt) - Date.now()));
     return () => clearTimeout(timer);
-  }, [release.error, release.resetAt]);
+  }, [scope, release.error, release.resetAt]);
   const channelLabels = { stable: msg("正式版", "Stable"), beta: "Beta" };
   const { status, comparison } = release;
   const target = release.target;
@@ -1232,6 +1880,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     user_action_required: msg("无法核实浏览器检查操作。请重新打开 DSH 工作台。", "Could not verify the browser request. Reopen the DSH workbench.")
   }[release.error] || msg("无法读取发布版本。", "Could not read releases.");
   const statusText = {
+    loading: msg("正在读取插件版本…", "Reading plugin version…"),
     unchecked: msg("尚未检查更新。", "Updates have not been checked yet."),
     checking: msg("正在检查发布版本…", "Checking releases…"),
     unavailable: errorText,
@@ -1242,85 +1891,118 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
     }[comparison] || msg(`已发布 ${targetLabel}。`, `${targetLabel} has been released.`) : info?.channel === "beta" ? msg("Beta 渠道暂无发布。", "No releases on the beta channel yet.") : msg("暂无稳定版发布。", "No stable release yet.")
   }[status];
   const showTarget = status === "ready" && comparison === "upgrade" && target && release.compatible !== false && !info?.restartRequired && (!registrySource || registryReady);
+  const updateAvailable = status === "ready" && comparison === "upgrade" && Boolean(target) && !info?.restartRequired;
+  React5.useEffect(() => {
+    onAvailable?.(updateAvailable);
+  }, [updateAvailable, onAvailable]);
   return h(
-    "section",
-    { className: "pg-guide pg-release", "aria-label": msg("Playground 版本与更新", "Playground version and updates") },
-    h("style", null, releaseCss),
+    "div",
+    { className: "pg-settings-release" },
     h(
       "header",
       { className: "pg-release-header" },
       h("h2", { ref: heading, tabIndex: -1 }, msg("版本与更新", "Version and updates")),
-      h(
-        "button",
-        { type: "button", className: "pg-release-check", disabled: status === "loading" || status === "checking" || rateLimited, onClick: /* @__PURE__ */ __name(() => load(true), "onClick") },
-        icon("M20 10a8 8 0 1 0 0 5m0-11v6h-6", 14),
-        status === "checking" ? msg("正在检查…", "Checking…") : rateLimited ? msg("等待额度恢复", "Waiting for rate limit reset") : msg("检查更新", "Check for updates")
-      )
+      info?.channel ? h("span", { className: "pg-settings-release-channel" }, channelLabels[info.channel]) : null
     ),
     h(
       "div",
-      { className: "pg-release-summary" },
+      { className: "pg-settings-release-card", "data-status": status, "data-tone": showTarget ? "info" : void 0 },
       h(
         "div",
-        { className: "pg-release-versions", "aria-live": "polite" },
+        { className: "pg-release-summary" },
         h(
           "div",
-          { className: "pg-release-version" },
-          h("small", null, msg("当前版本", "Current version")),
-          h("strong", null, info?.currentVersion || (status === "loading" ? "…" : msg("未知", "Unknown")))
+          { className: "pg-release-versions", "aria-live": "polite" },
+          h(
+            "div",
+            { className: "pg-release-version" },
+            h("small", null, msg("当前版本", "Current version")),
+            h("strong", null, info?.currentVersion || (status === "loading" ? "…" : msg("未知", "Unknown")))
+          ),
+          showTarget || target && status === "unavailable" ? h(
+            React5.Fragment,
+            null,
+            h("span", { className: "pg-release-arrow", "aria-hidden": true }, "→"),
+            h("div", { className: "pg-release-version pg-release-target" }, h("small", null, showTarget ? msg("可更新至", "Available version") : msg("上次检查", "Last checked")), h("strong", null, target.version))
+          ) : null
         ),
-        showTarget || target && status === "unavailable" ? h(
-          React3.Fragment,
-          null,
-          h("span", { className: "pg-release-arrow", "aria-hidden": true }, "→"),
-          h("div", { className: "pg-release-version pg-release-target" }, h("small", null, showTarget ? msg("可更新至", "Available version") : msg("上次检查", "Last checked")), h("strong", null, target.version))
-        ) : null
+        h(
+          "div",
+          { className: "pg-release-actions" },
+          canReadNotes ? h("a", { className: "pg-button", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
+          registryUpgrade && release.canInstall ? h("button", {
+            type: "button",
+            className: "pg-button pg-primary",
+            disabled: scope.pending("install") || ["restart-required", "applied"].includes(installState),
+            onClick: /* @__PURE__ */ __name(async () => {
+              if (scope.pending("install")) return;
+              const request = scope.begin("install");
+              if (!request) return;
+              setInstallState("installing");
+              try {
+                const result = await installRelease(target.version);
+                if (!request.isCurrent()) return;
+                setInstallState(result.status);
+                if (["restart-required", "applied"].includes(result.status)) {
+                  checks.installed();
+                  await load(false);
+                }
+              } catch {
+                if (request.isCurrent()) setInstallState("unverified");
+              } finally {
+                request.finish();
+              }
+            }, "onClick")
+          }, msg("立即更新", "Update now")) : null
+        )
+      ),
+      statusText && !showTarget ? h("p", { role: "status", className: status === "unavailable" ? "pg-release-message pg-error" : "pg-note pg-release-message" }, statusText) : null,
+      info?.restartRequired && !installState ? h("p", { className: "pg-note pg-release-message" }, msg("新版已安装，重启 DSH 后生效。", "Update installed. Restart DSH when ready.")) : null,
+      installState ? h("p", { role: "status", className: "pg-note pg-release-message" }, {
+        installing: msg("DSH 正在安装更新…", "DSH is installing the update…"),
+        "restart-required": msg("新版已安装，下次重启 DSH 时生效。", "Update installed. Restart DSH when ready."),
+        applied: msg("新版已生效。", "Update applied."),
+        busy: msg("已有更新正在进行。", "An update is already in progress."),
+        restored: msg("升级失败，DSH 已恢复旧版本。", "The update failed. DSH restored the previous version."),
+        failed: msg("DSH 未能完成升级。请在插件管理器核对已安装版本。", "DSH could not finish the update. Check the installed version in the plugin manager.")
+      }[installState] || msg("请重新检查已安装版本及可用更新。", "Check the installed version and available updates again.")) : null,
+      target && release.incomplete ? h("p", { className: "pg-note pg-release-message" }, msg("发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。", "The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.")) : null,
+      release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note pg-release-message" }, msg("部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。", "Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.")) : null,
+      showTarget && registryReady ? h(
+        "div",
+        { className: "pg-release-verified" },
+        h("span", null, msg("npm 版本及公开安装包已就绪", "npm version and public package verified")),
+        release.compatible === true ? h("span", null, msg("与当前 DSH 兼容", "Compatible with this DSH host")) : null
+      ) : null
+    ),
+    h(
+      "div",
+      { className: "pg-release-pref" },
+      h(
+        "span",
+        { className: "pg-release-source" },
+        msg("安装来源", "Installation source"),
+        " ",
+        h("span", { className: "pg-release-source-value" }, {
+          registry: "npm · dsh-playground",
+          git_pinned: "Git",
+          git_unpinned: "Git",
+          file: msg("本地文件", "Local file"),
+          link: msg("开发链接", "Development link")
+        }[info?.source] ?? msg("未知", "Unknown"))
       ),
       h(
-        "div",
-        { className: "pg-release-actions" },
-        canReadNotes ? h("a", { className: "pg-release-link", href: notesUrl, target: "_blank", rel: "noopener noreferrer" }, msg("发布说明", "Release notes")) : null,
-        registryUpgrade && release.canInstall ? h("button", {
-          type: "button",
-          className: "pg-button pg-primary",
-          disabled: installing.current || ["restart-required", "applied"].includes(installState),
-          onClick: /* @__PURE__ */ __name(async () => {
-            if (installing.current) return;
-            installing.current = true;
-            setInstallState("installing");
-            try {
-              const result = await installRelease(target.version);
-              setInstallState(result.status);
-              if (["restart-required", "applied"].includes(result.status)) {
-                checks.installed();
-                await load(false);
-              }
-            } catch {
-              setInstallState("unverified");
-            } finally {
-              installing.current = false;
-            }
-          }, "onClick")
-        }, msg("立即更新", "Update now")) : null
+        "label",
+        null,
+        msg("自动检查更新", "Automatically check for updates"),
+        h("input", { type: "checkbox", role: "switch", checked: enabled, onChange: /* @__PURE__ */ __name((event) => checks.setEnabled(event.target.checked), "onChange") })
+      ),
+      h(
+        "button",
+        { type: "button", className: "pg-button pg-release-check", disabled: status === "loading" || status === "checking" || rateLimited, onClick: /* @__PURE__ */ __name(() => load(true), "onClick") },
+        icon("M20 10a8 8 0 1 0 0 5m0-11v6h-6", 14),
+        status === "checking" ? msg("正在检查…", "Checking…") : rateLimited ? msg("等待额度恢复", "Waiting for rate limit reset") : msg("检查更新", "Check for updates")
       )
-    ),
-    statusText && !showTarget ? h("p", { role: "status", className: status === "unavailable" ? "pg-release-message pg-error" : "pg-note pg-release-message" }, statusText) : null,
-    info?.restartRequired && !installState ? h("p", { className: "pg-note pg-release-message" }, msg("新版已安装，重启 DSH 后生效。", "Update installed. Restart DSH when ready.")) : null,
-    installState ? h("p", { role: "status", className: "pg-note pg-release-message" }, {
-      installing: msg("DSH 正在安装更新…", "DSH is installing the update…"),
-      "restart-required": msg("新版已安装，下次重启 DSH 时生效。", "Update installed. Restart DSH when ready."),
-      applied: msg("新版已生效。", "Update applied."),
-      busy: msg("已有更新正在进行。", "An update is already in progress."),
-      restored: msg("升级失败，DSH 已恢复旧版本。", "The update failed. DSH restored the previous version."),
-      failed: msg("DSH 未能完成升级。请在插件管理器核对已安装版本。", "DSH could not finish the update. Check the installed version in the plugin manager.")
-    }[installState] || msg("请重新检查已安装版本及可用更新。", "Check the installed version and available updates again.")) : null,
-    target && release.incomplete ? h("p", { className: "pg-note pg-release-message" }, msg("发布列表超过读取上限，以上为已读取发布中的最高版本。请在 GitHub Releases 核对完整列表。", "The release list exceeded the lookup limit. This is the newest version found. Check GitHub Releases for the full list.")) : null,
-    release.warnings?.includes("prerelease_mismatch") ? h("p", { className: "pg-note pg-release-message" }, msg("部分 Release 的预发布标志与 tag 不一致，已跳过。请在 GitHub Releases 核对。", "Some releases were skipped because their prerelease flag and tag disagree. Check GitHub Releases.")) : null,
-    h(
-      "label",
-      { className: "pg-release-pref" },
-      msg("自动检查更新", "Automatically check for updates"),
-      h("input", { type: "checkbox", role: "switch", checked: enabled, onChange: /* @__PURE__ */ __name((event) => checks.setEnabled(event.target.checked), "onChange") })
     ),
     h(
       "details",
@@ -1338,15 +2020,19 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
         unknown: "Installation source unknown. Check the source in the DSH plugin manager before installing or updating."
       }[info.source] || info.sourceHint)) : null,
       installSpec ? h(
-        React3.Fragment,
+        React5.Fragment,
         null,
         h("code", { className: "pg-release-spec" }, installSpec),
         h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(async () => {
+          const request = scope.begin("copy");
+          if (!request) return;
           try {
             await navigator.clipboard.writeText(installSpec);
-            setCopyStatus("copied");
+            if (request.isCurrent()) setCopyStatus("copied");
           } catch {
-            setCopyStatus("failed");
+            if (request.isCurrent()) setCopyStatus("failed");
+          } finally {
+            request.finish();
           }
         }, "onClick") }, msg(`复制 ${specLabel}`, `Copy ${specLabel}`)),
         h("span", { role: "status", className: "pg-note" }, copyStatus === "copied" ? msg(`已复制 ${specLabel}`, `Copied ${specLabel}`) : copyStatus === "failed" ? msg(`无法复制，请选择上方 ${specLabel} 后复制。`, `Could not copy. Select the ${specLabel} above and copy it manually.`) : "")
@@ -1420,7 +2106,7 @@ function controllerMessage(value) {
 __name(controllerMessage, "controllerMessage");
 
 // src/client/controller/codex-chats.js
-var React4 = __toESM(require("react"), 1);
+var React6 = __toESM(require("react"), 1);
 var codexCss = `
   .pg-controller-external-chats { margin-top:6px; border:1px solid #1A1F27; border-radius:var(--pg-r10); background:#0A0D10; }
   .pg-controller-external-chats > summary { display:flex; align-items:center; gap:var(--pg-s8); padding:10px var(--pg-s12); border-radius:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
@@ -1459,10 +2145,10 @@ __name(soleChatId, "soleChatId");
 var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
 var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
 function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
-  const [detection, setDetection] = React4.useState(null);
-  const [open, setOpen] = React4.useState(false);
-  const [hasOpened, setHasOpened] = React4.useState(false);
-  React4.useEffect(() => {
+  const [detection, setDetection] = React6.useState(null);
+  const [open, setOpen] = React6.useState(false);
+  const [hasOpened, setHasOpened] = React6.useState(false);
+  React6.useEffect(() => {
     const abort = new AbortController();
     async function detect() {
       try {
@@ -1512,24 +2198,24 @@ function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
 }
 __name(ExternalCodexChats, "ExternalCodexChats");
 function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
-  const [data, setData] = React4.useState(initial || null);
-  const [selected, select] = React4.useState(null);
-  const [target, setTarget] = React4.useState("");
-  const [draft, setDraft] = React4.useState(initial?.message || "");
-  const [draftThreadId, setDraftThreadId] = React4.useState(null);
-  const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
-  const [response, setResponse] = React4.useState(null);
-  const [busy, setBusy] = React4.useState(false);
-  const [copied, setCopied] = React4.useState(false);
-  const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
-  React4.useEffect(() => {
+  const [data, setData] = React6.useState(initial || null);
+  const [selected, select] = React6.useState(null);
+  const [target, setTarget] = React6.useState("");
+  const [draft, setDraft] = React6.useState(initial?.message || "");
+  const [draftThreadId, setDraftThreadId] = React6.useState(null);
+  const [choices, setChoices] = React6.useState(initial?.kind === "choose" ? initial.rows : null);
+  const [response, setResponse] = React6.useState(null);
+  const [busy, setBusy] = React6.useState(false);
+  const [copied, setCopied] = React6.useState(false);
+  const [control] = React6.useState(() => ({ active: true, writing: false, read: null }));
+  React6.useEffect(() => {
     control.active = true;
     return () => {
       control.active = false;
       control.read?.abort();
     };
   }, [query]);
-  React4.useEffect(() => {
+  React6.useEffect(() => {
     if (initial || listRefresh === null) return;
     void read("list");
     const abort = control.read;
@@ -1712,7 +2398,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
 __name(CodexChats, "CodexChats");
 
 // src/client/controller/handoff.js
-var React5 = __toESM(require("react"), 1);
+var React7 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/client/controller/dialog-styles.js
@@ -1921,16 +2607,16 @@ function ControllerHandoffDialog({
   action,
   close
 }) {
-  const [picker] = React5.useState(() => ({ pending: false }));
-  const [adding, setAdding] = React5.useState(false);
-  const [addError, setAddError] = React5.useState("");
+  const [picker] = React7.useState(() => ({ pending: false }));
+  const [adding, setAdding] = React7.useState(false);
+  const [addError, setAddError] = React7.useState("");
   const title = msg("交给工作区主控", "Hand off to workspace controller");
-  const groupName = React5.useId();
-  const [others, setOthers] = React5.useState(null);
-  const [platformCheck, setPlatformCheck] = React5.useState(null);
+  const groupName = React7.useId();
+  const [others, setOthers] = React7.useState(null);
+  const [platformCheck, setPlatformCheck] = React7.useState(null);
   const activeId = workspace?.workspaceId;
   const challengeId = state.challenge.id;
-  React5.useEffect(() => {
+  React7.useEffect(() => {
     setOthers(null);
     if (workspaces.phase !== "ready") return;
     const abort = new AbortController();
@@ -1941,7 +2627,7 @@ function ControllerHandoffDialog({
     }
     return () => abort.abort();
   }, [workspaces.phase, workspaces.items, activeId, inspectController, checkAttempt]);
-  React5.useEffect(() => {
+  React7.useEffect(() => {
     setPlatformCheck(null);
     const abort = new AbortController();
     void query({ action: "challenge", challengeId }, abort.signal).then((detail) => {
@@ -2110,7 +2796,7 @@ function ControllerHandoffDialog({
 __name(ControllerHandoffDialog, "ControllerHandoffDialog");
 
 // src/client/controller/competition-notices.js
-var React6 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // src/client/controller/competition-notice-state.js
@@ -2425,26 +3111,31 @@ function saveState(memory, state) {
 }
 __name(saveState, "saveState");
 function CompetitionNoticeSetting({ memory }) {
-  const [enabled, setEnabled] = React6.useState(() => readState(memory).enabled);
+  const [enabled, setEnabled] = React8.useState(() => readState(memory).enabled);
+  const label2 = msg("新比赛提醒", "New competition alerts");
   return h(
     "label",
-    { className: "pg-field", style: { display: "flex", alignItems: "center", gap: 8, margin: "20px 0" } },
-    h("input", { type: "checkbox", checked: enabled, onChange: /* @__PURE__ */ __name((event) => {
+    { className: "pg-settings-preference pg-settings-notice" },
+    h("span", null, h("span", null, label2), h(
+      "small",
+      null,
+      msg("进入主控时检查新比赛和新一期；偏好保存在本机", "Check for new competitions and editions when opening Controller. This preference is saved locally.")
+    )),
+    h("input", { type: "checkbox", role: "switch", "aria-label": label2, checked: enabled, onChange: /* @__PURE__ */ __name((event) => {
       const checked = event.target.checked;
       saveState(memory, actOnNotices(readState(memory), null, checked ? "enable" : "disable", Date.now()));
       setEnabled(checked);
-    }, "onChange") }),
-    msg("新比赛提醒", "New competition alerts")
+    }, "onChange") })
   );
 }
 __name(CompetitionNoticeSetting, "CompetitionNoticeSetting");
 function CompetitionNotices({ memory, query, onCoordinate }) {
-  const [view, setView] = React6.useState(null);
-  const [now, setNow] = React6.useState(Date.now);
-  const [readingKey, setReadingKey] = React6.useState("");
-  const reading = React6.useRef(null);
-  const hintId = React6.useId();
-  React6.useEffect(() => {
+  const [view, setView] = React8.useState(null);
+  const [now, setNow] = React8.useState(Date.now);
+  const [readingKey, setReadingKey] = React8.useState("");
+  const reading = React8.useRef(null);
+  const hintId = React8.useId();
+  React8.useEffect(() => {
     if (!readState(memory).enabled) return;
     const abort = new AbortController();
     async function check() {
@@ -2470,7 +3161,7 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       reading.current?.abort();
     };
   }, [memory, query]);
-  React6.useEffect(() => {
+  React8.useEffect(() => {
     if (!view?.items.length) return;
     const boundaries = [...view.activityByKey.values()].flatMap((schedules) => schedules.flatMap(({ start, end }) => [start, end]).filter((time) => time !== null));
     let timer;
@@ -2755,13 +3446,13 @@ var controllerPanelCss = `
 `;
 
 // src/client/home/index.js
-var React10 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 
 // src/client/catalog/detail.js
-var React8 = __toESM(require("react"), 1);
+var React10 = __toESM(require("react"), 1);
 
 // src/client/shared/drawer.js
-var React7 = __toESM(require("react"), 1);
+var React9 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
   return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => node.tabIndex !== -1 && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0));
@@ -2770,7 +3461,7 @@ __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
 var DOCUMENT_POSITION_FOLLOWING = 4;
 function useDrawerFocus(fallback) {
-  const [focus] = React7.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
+  const [focus] = React9.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
   }, "dismiss") }));
   focus.fallback = fallback;
   focus.restore = () => {
@@ -2779,7 +3470,7 @@ function useDrawerFocus(fallback) {
     const body = typeof document === "undefined" ? void 0 : document.body;
     [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
   };
-  React7.useEffect(() => {
+  React9.useEffect(() => {
     focus.restored = false;
     focus.title?.focus?.();
     const inForeignDialog = /* @__PURE__ */ __name((target) => {
@@ -3183,15 +3874,15 @@ function challengeOverview(detail, progress) {
 }
 __name(challengeOverview, "challengeOverview");
 function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competition, group, progress, close, focusFallback }) {
-  const [detail, setDetail] = React8.useState(null);
-  const [busy, setBusy] = React8.useState(false);
-  const [failed, setFailed] = React8.useState(false);
-  const [expanded, setExpanded] = React8.useState(false);
-  const [tab, setTab] = React8.useState("overview");
-  const [copyStatus, setCopyStatus] = React8.useState("");
-  const tabId = React8.useId();
-  const [status, setStatus] = React8.useState(null);
-  const [latest] = React8.useState(() => ({ controller: null, closed: false }));
+  const [detail, setDetail] = React10.useState(null);
+  const [busy, setBusy] = React10.useState(false);
+  const [failed, setFailed] = React10.useState(false);
+  const [expanded, setExpanded] = React10.useState(false);
+  const [tab, setTab] = React10.useState("overview");
+  const [copyStatus, setCopyStatus] = React10.useState("");
+  const tabId = React10.useId();
+  const [status, setStatus] = React10.useState(null);
+  const [latest] = React10.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
   const load = /* @__PURE__ */ __name(async () => {
     latest.controller?.abort();
@@ -3231,7 +3922,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competi
     close();
   }, "dismiss");
   focus.dismiss = dismiss;
-  React8.useEffect(() => {
+  React10.useEffect(() => {
     latest.closed = false;
     load();
     return () => {
@@ -3400,7 +4091,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competi
 __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
 
 // src/client/catalog/index.js
-var React9 = __toESM(require("react"), 1);
+var React11 = __toESM(require("react"), 1);
 
 // src/client/catalog/progress.js
 var samePlatform = /* @__PURE__ */ __name((base, other) => Boolean(base && other && webRootOf(base) === webRootOf(other)), "samePlatform");
@@ -3529,28 +4220,28 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
   const noticeCompetition = target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : "";
-  const [gatedIds] = React9.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
-  const [search, setSearch] = React9.useState("");
-  const [season, setSeason] = React9.useState(noticeCompetition || destination?.value || "");
-  const [period, setPeriod] = React9.useState(target?.period ?? destination?.period ?? "");
-  const [group, setGroup] = React9.useState(target?.group ?? "");
-  const [origin, setOrigin] = React9.useState("");
-  const [disciplineChoice, setDisciplineChoice] = React9.useState("");
-  const [otherDiscipline, setOtherDiscipline] = React9.useState("");
-  const [appliedOther, setAppliedOther] = React9.useState(null);
-  const [sort, setSort] = React9.useState("newest");
-  const [openOnly, setOpenOnly] = React9.useState(false);
-  const [competitionTable, setCompetitionTable] = React9.useState(null);
-  const [list, setList] = React9.useState(null);
-  const [facets, setFacets] = React9.useState(null);
-  const [busy, setBusy] = React9.useState("");
-  const [failure, setFailure] = React9.useState(null);
-  const [status, setStatus] = React9.useState(null);
-  const [notice, setNotice] = React9.useState(null);
-  const [latest] = React9.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
-  const [detail, setDetail] = React9.useState(null);
-  const [catalogHistory, setCatalogHistory] = React9.useState(null);
-  const [detailHistory, setDetailHistory] = React9.useState(null);
+  const [gatedIds] = React11.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
+  const [search, setSearch] = React11.useState("");
+  const [season, setSeason] = React11.useState(noticeCompetition || destination?.value || "");
+  const [period, setPeriod] = React11.useState(target?.period ?? destination?.period ?? "");
+  const [group, setGroup] = React11.useState(target?.group ?? "");
+  const [origin, setOrigin] = React11.useState("");
+  const [disciplineChoice, setDisciplineChoice] = React11.useState("");
+  const [otherDiscipline, setOtherDiscipline] = React11.useState("");
+  const [appliedOther, setAppliedOther] = React11.useState(null);
+  const [sort, setSort] = React11.useState("newest");
+  const [openOnly, setOpenOnly] = React11.useState(false);
+  const [competitionTable, setCompetitionTable] = React11.useState(null);
+  const [list, setList] = React11.useState(null);
+  const [facets, setFacets] = React11.useState(null);
+  const [busy, setBusy] = React11.useState("");
+  const [failure, setFailure] = React11.useState(null);
+  const [status, setStatus] = React11.useState(null);
+  const [notice, setNotice] = React11.useState(null);
+  const [latest] = React11.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [detail, setDetail] = React11.useState(null);
+  const [catalogHistory, setCatalogHistory] = React11.useState(null);
+  const [detailHistory, setDetailHistory] = React11.useState(null);
   const openDetail = /* @__PURE__ */ __name((item) => setDetail({ ...item }), "openDetail");
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
@@ -3680,14 +4371,14 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     }
   }, "loadMore");
   const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
-  React9.useEffect(() => {
+  React11.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
       latest.controller = null;
     };
   }, [query]);
-  React9.useEffect(() => {
+  React11.useEffect(() => {
     const ids = latest.refocus;
     if (!ids) return;
     latest.refocus = null;
@@ -3722,7 +4413,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   }));
   const trackedIds = JSON.stringify(loaded.map(({ id }) => String(id)).filter((id) => tracked.has(id)));
   const signedIn = account != null && account !== "";
-  React9.useEffect(() => {
+  React11.useEffect(() => {
     if (!signedIn) {
       setCatalogHistory(null);
       return;
@@ -3736,7 +4427,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     void read();
     return () => abort.abort();
   }, [active, account, webBase, query, shownList, trackedIds]);
-  React9.useEffect(() => {
+  React11.useEffect(() => {
     if (!signedIn) {
       setDetailHistory(null);
       return;
@@ -4588,7 +5279,7 @@ function myWork({ workspace, inspection, controllerId, taskRows, authStatus, lat
     { className: "pg-home-work" },
     h("h2", null, msg("我的工作", "My work")),
     controllerId ? h(
-      React10.Fragment,
+      React12.Fragment,
       null,
       h(
         "dl",
@@ -4665,12 +5356,12 @@ function latestAttempt(result, account) {
 }
 __name(latestAttempt, "latestAttempt");
 function HomePanel({ query, account, authStatus, workspace, inspection, controllerId, taskRows, actions, handoff, requestTask }) {
-  const [snapshot2, setSnapshot] = React10.useState(null);
-  const [attempt, setAttempt] = React10.useState(null);
-  const [detail, setDetail] = React10.useState(null);
-  const heading = React10.useRef(null);
-  const entries = React10.useRef(/* @__PURE__ */ new Map());
-  React10.useEffect(() => {
+  const [snapshot2, setSnapshot] = React12.useState(null);
+  const [attempt, setAttempt] = React12.useState(null);
+  const [detail, setDetail] = React12.useState(null);
+  const heading = React12.useRef(null);
+  const entries = React12.useRef(/* @__PURE__ */ new Map());
+  React12.useEffect(() => {
     const abort = new AbortController();
     let running = false;
     const refresh = /* @__PURE__ */ __name(async () => {
@@ -4692,7 +5383,7 @@ function HomePanel({ query, account, authStatus, workspace, inspection, controll
       abort.abort();
     };
   }, [query]);
-  React10.useEffect(() => {
+  React12.useEffect(() => {
     setAttempt(null);
     if (!controllerId || authStatus !== "authenticated" || account == null) return;
     const abort = new AbortController();
@@ -4984,14 +5675,14 @@ function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useCo
   usePluginLanguage();
   const trajectoryAvailable = useControllerTrajectory((value) => value);
   const viewRequest = useStore?.((value) => value.viewRequest);
-  const [traceSessionId, setTraceSessionId] = React11.useState(null);
+  const [traceSessionId, setTraceSessionId] = React13.useState(null);
   const showViewSwitch = trajectoryAvailable && canSwitchView;
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
   }, [sessionId, showViewSwitch, viewRequest]);
   const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
   return h(
-    React11.Fragment,
+    React13.Fragment,
     null,
     controllerHeader(sessionId, showViewSwitch ? h(
       "div",
@@ -5017,22 +5708,45 @@ function ControllerPanel(props) {
   const controllerTarget = useControllerTarget((value) => value);
   const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
   const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-  const [workspaceId, setWorkspaceId] = React11.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
-  const [inspection, setInspection] = React11.useState(null);
-  const [expectedId, setExpectedId] = React11.useState("");
-  const [busy, setBusy] = React11.useState(false);
-  const [errorMessage, setError] = React11.useState("");
-  const [view, updateView] = React11.useState(() => props.controllerSelection.view || "home");
+  const [workspaceId, setWorkspaceId] = React13.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
+  const [inspection, setInspection] = React13.useState(null);
+  const [expectedId, setExpectedId] = React13.useState("");
+  const [busy, setBusy] = React13.useState(false);
+  const [errorMessage, setError] = React13.useState("");
+  const [view, updateView] = React13.useState(() => props.controllerSelection.view || "home");
   const setView = /* @__PURE__ */ __name((next) => {
     props.controllerSelection.view = next;
     updateView(next);
   }, "setView");
-  const [releaseVisit, setReleaseVisit] = React11.useState(0);
+  const [releaseVisit, setReleaseVisit] = React13.useState(0);
+  const [releaseAvailable, setReleaseAvailable] = React13.useState(false);
+  const settingsReturn = React13.useRef("home");
+  const settingsOpener = React13.useRef(null);
+  const restoreSettingsFocus = React13.useRef(false);
+  const openSettings = /* @__PURE__ */ __name((event) => {
+    if (view !== "settings") {
+      settingsReturn.current = view;
+      settingsOpener.current = event?.currentTarget;
+    }
+    setView("settings");
+  }, "openSettings");
+  const closeSettings = /* @__PURE__ */ __name(() => {
+    restoreSettingsFocus.current = true;
+    setReleaseVisit(0);
+    setReleaseAvailable(false);
+    setView(settingsReturn.current);
+  }, "closeSettings");
+  React13.useLayoutEffect(() => {
+    if (view === "settings" || !restoreSettingsFocus.current) return;
+    restoreSettingsFocus.current = false;
+    settingsOpener.current?.focus();
+    settingsOpener.current = null;
+  }, [view]);
   const error = controllerMessage(errorMessage);
-  const [dispatchState, setDispatchState] = React11.useState(null);
-  const [catalogNotice, setCatalogNotice] = React11.useState(null);
-  const [catalogDestination, setCatalogDestination] = React11.useState(null);
-  const workspacePicker = React11.useRef(null);
+  const [dispatchState, setDispatchState] = React13.useState(null);
+  const [catalogNotice, setCatalogNotice] = React13.useState(null);
+  const [catalogDestination, setCatalogDestination] = React13.useState(null);
+  const workspacePicker = React13.useRef(null);
   const selectTab = /* @__PURE__ */ __name((tab) => {
     if (tab === "catalog" && view !== "catalog") setCatalogNotice(null);
     setView(tab);
@@ -5042,33 +5756,35 @@ function ControllerPanel(props) {
     setCatalogDestination((previous) => ({ ...destination, visit: (previous?.visit ?? 0) + 1 }));
     setView("catalog");
   }, "browse");
-  const [dispatchControls] = React11.useState(() => ({ busy: false }));
-  const [authStatus, setAuthStatus] = React11.useState("checking");
-  const [accountName, setAccountName] = React11.useState("");
-  const [accountId, setAccountId] = React11.useState(void 0);
-  const [configuredBase, setConfiguredBase] = React11.useState("");
-  const [updateAuthStatus] = React11.useState(() => (status, user, baseUrl) => {
+  const [dispatchControls] = React13.useState(() => ({ busy: false }));
+  const [authStatus, setAuthStatus] = React13.useState("checking");
+  const [accountName, setAccountName] = React13.useState("");
+  const [accountId, setAccountId] = React13.useState(void 0);
+  const [configuredBase, setConfiguredBase] = React13.useState("");
+  const [cliUpdate, setCliUpdate] = React13.useState(null);
+  const [updateAuthStatus] = React13.useState(() => (status, user, baseUrl, update) => {
     setAuthStatus(status);
     if (status === "checking") return;
     setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
     setAccountId(status === "authenticated" ? user?.id : void 0);
     setConfiguredBase(baseUrl || "");
+    setCliUpdate(update);
   });
-  const [visited] = React11.useState(() => /* @__PURE__ */ new Set());
-  if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
-  const [preferences] = React11.useState(() => {
+  const [visited] = React13.useState(() => /* @__PURE__ */ new Set());
+  if (view === "catalog" || view === "submissions") visited.add(view);
+  const [preferences] = React13.useState(() => {
     try {
       return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
     } catch {
       return {};
     }
   });
-  const [showTasks, setShowTasks] = React11.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
-  const [taskWidth, setTaskWidth] = React11.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
-  const [selectedTask, setSelectedTask] = React11.useState("");
-  const [groupOpen, setGroupOpen] = React11.useState(() => /* @__PURE__ */ new Map());
-  const [taskActionStatus, setTaskActionStatus] = React11.useState("");
-  const [pane] = React11.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
+  const [showTasks, setShowTasks] = React13.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
+  const [taskWidth, setTaskWidth] = React13.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+  const [selectedTask, setSelectedTask] = React13.useState("");
+  const [groupOpen, setGroupOpen] = React13.useState(() => /* @__PURE__ */ new Map());
+  const [taskActionStatus, setTaskActionStatus] = React13.useState("");
+  const [pane] = React13.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
     Object.assign(preferences, change);
     try {
@@ -5088,17 +5804,17 @@ function ControllerPanel(props) {
     savePane({ open: !showTasks });
     setShowTasks(!showTasks);
   }, "toggleTasks");
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     if (pane.focus === "heading") pane.heading?.focus();
     else if (pane.focus === "back") pane.back?.focus();
     else if (pane.focus) pane.rows.get(pane.focus)?.focus();
     pane.focus = "";
   }, [selectedTask, showTasks]);
-  const [taskSnapshot, setTaskSnapshot] = React11.useState(null);
-  const [includeChallengeId, setIncludeChallengeId] = React11.useState("");
+  const [taskSnapshot, setTaskSnapshot] = React13.useState(null);
+  const [includeChallengeId, setIncludeChallengeId] = React13.useState("");
   const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
-  const [retry, setRetry] = React11.useState(0);
-  const [taskRetry, setTaskRetry] = React11.useState(0);
+  const [retry, setRetry] = React13.useState(0);
+  const [taskRetry, setTaskRetry] = React13.useState(0);
   const selectWorkspace = /* @__PURE__ */ __name((id) => {
     if (id === workspaceId) return;
     props.controllerSelection.workspaceId = id;
@@ -5113,14 +5829,14 @@ function ControllerPanel(props) {
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     if (!targetWorkspaceId) return;
     setView("controller");
     if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
     else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
     props.clearControllerTarget(controllerTarget);
   }, [controllerTarget, targetWorkspaceId]);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     const media = window.matchMedia?.("(max-width: 600px)");
     if (!media) return;
     const changed = /* @__PURE__ */ __name((event) => {
@@ -5130,13 +5846,13 @@ function ControllerPanel(props) {
     media.addEventListener("change", changed);
     return () => media.removeEventListener("change", changed);
   }, []);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
       props.controllerSelection.workspaceId = selectedMarker.workspaceId;
       setWorkspaceId(selectedMarker.workspaceId);
     }
   }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     setExpectedId("");
     setInspection(null);
     setError("");
@@ -5160,10 +5876,10 @@ function ControllerPanel(props) {
     });
     return () => abort.abort();
   }, [workspaceId, retry]);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     setTaskSnapshot(null);
   }, [workspaceId, expectedId]);
-  React11.useEffect(() => {
+  React13.useEffect(() => {
     if (!workspaceId || !expectedId || !controllerTasks) return;
     const abort = new AbortController();
     let inFlight = false;
@@ -5212,9 +5928,9 @@ function ControllerPanel(props) {
     selectTab("controller");
     if (!homeController && !workspaceId) workspacePicker.current?.focus();
   }, "showController");
-  const showVersion = /* @__PURE__ */ __name(() => {
+  const showVersion = /* @__PURE__ */ __name((event) => {
     setReleaseVisit((visit) => visit + 1);
-    setView("settings");
+    openSettings(event);
   }, "showVersion");
   const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? void 0 : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === "existing" && !inspection.archived ? inspection.sessionId : "";
@@ -5392,8 +6108,8 @@ function ControllerPanel(props) {
   }
   const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
   const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : "";
-  const [handoffTasks, setHandoffTasks] = React11.useState(null);
-  React11.useEffect(() => {
+  const [handoffTasks, setHandoffTasks] = React13.useState(null);
+  React13.useEffect(() => {
     setHandoffTasks(null);
     if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
     const abort = new AbortController();
@@ -5533,7 +6249,7 @@ function ControllerPanel(props) {
     view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
     h(
       "header",
-      { className: "pg-controller-bar" },
+      { className: "pg-controller-bar", style: view === "settings" ? { display: "none" } : void 0 },
       controllerBrand(() => selectTab("home")),
       h(
         "div",
@@ -5587,7 +6303,7 @@ function ControllerPanel(props) {
           selectTab(ids[next]);
           event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
         }, "onKeyDown") },
-        [["home", msg("首页", "Home")], ["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
+        [["home", msg("首页", "Home")], ["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
       ),
       h(
         "div",
@@ -5596,7 +6312,7 @@ function ControllerPanel(props) {
         h(LanguageMenu),
         h(
           "button",
-          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
+          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: openSettings },
           accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
           h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
           { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
@@ -5629,7 +6345,7 @@ function ControllerPanel(props) {
           browse,
           controller: showController,
           submissions: /* @__PURE__ */ __name(() => selectTab("submissions"), "submissions"),
-          settings: /* @__PURE__ */ __name(() => setView("settings"), "settings"),
+          settings: openSettings,
           versions: showVersion,
           recheck: /* @__PURE__ */ __name(() => setRetry(retry + 1), "recheck"),
           focusWorkspace: /* @__PURE__ */ __name(() => workspacePicker.current?.focus(), "focusWorkspace")
@@ -5664,22 +6380,31 @@ function ControllerPanel(props) {
         ) : renderSlot("playground.controller.session", { expectedId })
       ),
       h(
-        "main",
-        { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
-        h("style", null, css),
-        h("h1", null, msg("连接设置", "Connection settings")),
-        h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
+        SettingsPage,
+        {
+          active: view === "settings",
+          brand: controllerBrand(closeSettings),
+          onBack: closeSettings,
+          checks: props.releaseChecks,
+          configuredBase,
+          authStatus,
+          cliUpdate,
+          releaseAvailable,
+          releaseVisit
+        },
+        h(AuthStatusPanel, { ...props, settings: true, active: view === "settings", onStatusChange: updateAuthStatus }),
         view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
-        visited.has("settings") ? h(ReleaseStatusPanel, {
+        view === "settings" ? h(ReleaseStatusPanel, {
           query: props.query,
           checks: props.releaseChecks,
           installRelease: props.installRelease,
-          visit: releaseVisit
+          visit: releaseVisit,
+          onAvailable: setReleaseAvailable
         }) : null
       ),
       ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "submissions" ? { account: authStatus === "authenticated" ? accountId : void 0, accountName } : {}, ...section === "catalog" ? { handoff, catalogDestination, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
       view === "controller" && showTasks ? h(
-        React11.Fragment,
+        React13.Fragment,
         null,
         h("div", {
           className: "pg-controller-resize",
@@ -5833,7 +6558,7 @@ function ControllerPanel(props) {
               taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
               row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
             ) : h(
-              React11.Fragment,
+              React13.Fragment,
               null,
               [...challengeGroups].map(([key2, group]) => taskGroup(
                 key2,
@@ -5885,57 +6610,16 @@ function ControllerPanel(props) {
 __name(ControllerPanel, "ControllerPanel");
 
 // src/client/workbench.js
-var React18 = __toESM(require("react"), 1);
-
-// src/client/shared/request-scope.js
-var React12 = __toESM(require("react"), 1);
-function useRequestScope(dependencies) {
-  const scope = React12.useMemo(() => {
-    const requests = /* @__PURE__ */ new Map();
-    const scope2 = {
-      mounted: false,
-      isCurrent: /* @__PURE__ */ __name(() => scope2.mounted, "isCurrent"),
-      pending: /* @__PURE__ */ __name((channel) => requests.has(channel), "pending"),
-      abort: /* @__PURE__ */ __name((channel) => {
-        requests.get(channel)?.abort();
-        requests.delete(channel);
-      }, "abort"),
-      begin(channel) {
-        if (!scope2.isCurrent()) return;
-        scope2.abort(channel);
-        const controller = new AbortController();
-        requests.set(channel, controller);
-        return {
-          signal: controller.signal,
-          isCurrent: /* @__PURE__ */ __name(() => scope2.isCurrent() && requests.get(channel) === controller, "isCurrent"),
-          finish: /* @__PURE__ */ __name(() => {
-            if (requests.get(channel) === controller) scope2.abort(channel);
-          }, "finish")
-        };
-      },
-      close() {
-        scope2.mounted = false;
-        for (const channel of requests.keys()) scope2.abort(channel);
-      }
-    };
-    return scope2;
-  }, dependencies);
-  React12.useLayoutEffect(() => {
-    scope.mounted = true;
-    return () => scope.close();
-  }, [scope]);
-  return scope;
-}
-__name(useRequestScope, "useRequestScope");
+var React19 = __toESM(require("react"), 1);
 
 // src/client/tasks/submit-page.js
-var React17 = __toESM(require("react"), 1);
+var React18 = __toESM(require("react"), 1);
 
 // src/client/tasks/list.js
-var React16 = __toESM(require("react"), 1);
+var React17 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React15 = __toESM(require("react"), 1);
+var React16 = __toESM(require("react"), 1);
 
 // src/client/tasks/submit-evidence.js
 var needsQuotaDecision = /* @__PURE__ */ __name((request) => request?.status === "awaiting_user" && request.policy?.askFirst !== false, "needsQuotaDecision");
@@ -6010,10 +6694,10 @@ function attributedAttempt(state, attempt) {
 __name(attributedAttempt, "attributedAttempt");
 
 // src/client/cards/tool.js
-var React14 = __toESM(require("react"), 1);
+var React15 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false, primary = false }) {
   return h(
@@ -6036,18 +6720,18 @@ function TaskStartOverlay(props) {
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React13.useState("");
-  const [busy, setBusy] = React13.useState(false);
-  const [adding, setAdding] = React13.useState(false);
-  const [error, setError] = React13.useState("");
-  const [recovery, setRecovery] = React13.useState(null);
-  const [inspection, setInspection] = React13.useState(null);
+  const [selectedId, setSelectedId] = React14.useState("");
+  const [busy, setBusy] = React14.useState(false);
+  const [adding, setAdding] = React14.useState(false);
+  const [error, setError] = React14.useState("");
+  const [recovery, setRecovery] = React14.useState(null);
+  const [inspection, setInspection] = React14.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
   const snapshot2 = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
   const checking = Boolean(inspectId && !snapshot2);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -6331,7 +7015,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
     ) : null,
     data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, msg("打开工作台", "Open workbench")) : null,
     data ? h(
-      React14.Fragment,
+      React15.Fragment,
       null,
       h(
         "div",
@@ -6369,7 +7053,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React14.Fragment,
+        React15.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -6396,11 +7080,11 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled, inline, owner, activeView }) {
   const scope = useRequestScope([sessionId, request?.requestId, request?.operation, materials, owner]);
-  const [status, setStatus] = React15.useState({});
+  const [status, setStatus] = React16.useState({});
   const { snapshot: snapshot2, error } = status.scope === scope ? status : {};
   const view = useRequestScope([scope, JSON.stringify(snapshot2?.requests.map(({ requestId }) => requestId))]);
   const controls = useRequestScope([view, disabled]);
-  const [selection, setSelection] = React15.useState({});
+  const [selection, setSelection] = React16.useState({});
   const choices = selection.scope === scope ? selection.choices : {};
   const choose = /* @__PURE__ */ __name((requestId, change) => {
     if (!controls.isCurrent() || disabled || scope.pending("action")) return;
@@ -6410,7 +7094,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
     });
   }, "choose");
   const defaults = { scope: "operation", recursive: false };
-  const [busyView, setBusyView] = React15.useState(null);
+  const [busyView, setBusyView] = React16.useState(null);
   const busy = busyView === view;
   const setError = /* @__PURE__ */ __name((error2) => setStatus((previous) => ({
     scope,
@@ -6433,7 +7117,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       read.finish();
     }
   }, "refresh");
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     void refresh();
     return () => {
       scope.abort("status");
@@ -6592,7 +7276,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       }, item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording"))
     )),
     snapshot2?.grants?.length ? h(
-      React15.Fragment,
+      React16.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("本次任务已允许的范围", "Access granted for this task")),
       ...snapshot2.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
@@ -6612,14 +7296,14 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const projection = JSON.stringify([state?.submission, state?.materialAccess]);
   const operation = useRequestScope([identity, projection, allowed, run, submission]);
   const materialFields = JSON.stringify(state?.materials);
-  const [draft, setDraft] = React15.useState({});
+  const [draft, setDraft] = React16.useState({});
   const files = draft.identity === identity && draft.revision === materialFields ? draft.files : state?.materials || {};
-  const [local, setLocal] = React15.useState({});
+  const [local, setLocal] = React16.useState({});
   const current = local.operation === operation ? local : {};
   const { busy, error } = current;
   const request = current.request ?? state?.submission;
   const accessRequest = current.accessRequest ?? state?.materialAccess;
-  const [accessVisibility, setAccessVisibility] = React15.useState({});
+  const [accessVisibility, setAccessVisibility] = React16.useState({});
   const showAccess = accessVisibility.operation === operation ? accessVisibility.visible : Boolean(accessRequest);
   const controlsScope = useRequestScope([
     operation,
@@ -6765,7 +7449,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
-      React15.Fragment,
+      React16.Fragment,
       null,
       h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => {
         if (controlsScope.isCurrent()) setAccessVisibility({ operation, visible: !showAccess });
@@ -6773,13 +7457,13 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled, owner: permissionsOwner, activeView }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React15.Fragment,
+      React16.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("出题模式目前只支持本地准备。", "Authoring mode currently supports local preparation only.")),
       h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation"))
     ) : null,
     task && task.mode !== "author" ? h(
-      React15.Fragment,
+      React16.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent submits through the official CLI or API according to the challenge requirements. It records the submission ID and tracks the result.")),
       h(
@@ -6809,7 +7493,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React15.Fragment,
+        React16.Fragment,
         null,
         h(
           "p",
@@ -6840,9 +7524,9 @@ __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
   const scope = useRequestScope([session.id, props.account, props.activeView, refreshProjections]);
-  const [failure, setFailure] = React15.useState({});
+  const [failure, setFailure] = React16.useState({});
   const error = failure.scope === scope ? failure.message : "";
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     if (props.activeView === false) return;
     const read = scope.begin("projection");
     if (!read) return;
@@ -6915,13 +7599,13 @@ function taskAttemptIds2(state) {
 __name(taskAttemptIds2, "taskAttemptIds");
 function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
   const scope = useRequestScope([baseUrl, challengeId, query]);
-  const [history, setHistory] = React16.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React16.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React16.useState(false);
-  const [error, setError] = React16.useState("");
-  const [signedOut, setSignedOut] = React16.useState(false);
-  const [status, setStatus] = React16.useState(null);
-  const [latest] = React16.useState(() => ({ list: null, heading: null, refocus: false }));
+  const [history, setHistory] = React17.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React17.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React17.useState(false);
+  const [error, setError] = React17.useState("");
+  const [signedOut, setSignedOut] = React17.useState(false);
+  const [status, setStatus] = React17.useState(null);
+  const [latest] = React17.useState(() => ({ list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -6976,7 +7660,7 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       read.finish();
     }
   }, "load");
-  React16.useEffect(() => {
+  React17.useEffect(() => {
     load();
     return () => scope.abort("history");
   }, [scope]);
@@ -7393,13 +8077,13 @@ var titleOf = /* @__PURE__ */ __name((session, task) => task?.title || session?.
 var scoreText = /* @__PURE__ */ __name((score) => Number.isFinite(score) ? Number.isInteger(score) ? score.toFixed(1) : String(score) : "—", "scoreText");
 var stateOf = /* @__PURE__ */ __name((session) => session?.projectionValues?.playgroundTask, "stateOf");
 var rowKey = /* @__PURE__ */ __name(({ id, challengeId, baseUrl }) => JSON.stringify([challengeId, id, baseUrl]), "rowKey");
-var button = /* @__PURE__ */ __name((label2, onClick, props) => h("button", { type: "button", className: "pg-button", onClick, ...props }, label2), "button");
+var button2 = /* @__PURE__ */ __name((label2, onClick, props) => h("button", { type: "button", className: "pg-button", onClick, ...props }, label2), "button");
 var historyContext = /* @__PURE__ */ __name(() => msg("当前账号 · 包括在终端或其他工具中完成的提交", "Current account · Includes submissions made in the terminal and other tools"), "historyContext");
 var description = /* @__PURE__ */ __name(() => msg("按时间从新到旧 · 包括在终端和其他工具中完成的提交", "Newest first · Includes submissions made in the terminal and other tools"), "description");
 function useHistory(query, active, context, limit) {
   const { account, challengeId, baseUrl, stamp, sessionId } = context;
   const scope = useRequestScope([query, active, account, sessionId, challengeId, baseUrl, stamp, limit]);
-  const [data, setData] = React17.useState({});
+  const [data, setData] = React18.useState({});
   const current = data.scope === scope ? data : {};
   const load = /* @__PURE__ */ __name(async (cursor) => {
     if (!query || !active) return;
@@ -7439,7 +8123,7 @@ function useHistory(query, active, context, limit) {
       read.finish();
     }
   }, "load");
-  React17.useEffect(() => {
+  React18.useEffect(() => {
     void load();
     return () => scope.abort("history");
   }, [scope]);
@@ -7534,9 +8218,9 @@ function Lifecycle({ session, state, request }) {
 __name(Lifecycle, "Lifecycle");
 function HistoryNotice({ history }) {
   return h(
-    React17.Fragment,
+    React18.Fragment,
     null,
-    history.error ? h("p", { className: "pg-error", role: "alert" }, history.error, " ", button(msg("重试", "Retry"), history.reload)) : null,
+    history.error ? h("p", { className: "pg-error", role: "alert" }, history.error, " ", button2(msg("重试", "Retry"), history.reload)) : null,
     history.partial ? h("p", { className: "pg-note", role: "status" }, msg("平台记录不完整，仅显示可核实的提交。", "Platform history is incomplete. Showing verified submissions.")) : null,
     history.busy && !history.items ? h("p", { className: "pg-note", role: "status" }, msg("正在读取提交历史…", "Loading submission history…")) : null,
     history.items?.length === 0 ? h("p", { className: "pg-note" }, msg("暂无提交记录。", "No submissions yet.")) : null
@@ -7563,19 +8247,19 @@ function TaskHistory({ scope, attemptId, stamp, sessionId, account, query, activ
       null,
       h("h2", null, msg("本题提交历史", "Challenge submission history")),
       h("small", null, historyContext()),
-      recent ? button(msg("查看评分详情", "View score details"), () => pick(recent.attempt), { className: "pg-submit-link" }) : null
+      recent ? button2(msg("查看评分详情", "View score details"), () => pick(recent.attempt), { className: "pg-submit-link" }) : null
     ),
     h(HistoryNotice, { history }),
     ...rows.map((row) => h(
       "div",
       { key: rowKey(row.attempt), className: "pg-submit-history-row" },
-      button(`#${row.attempt.id}`, () => pick(row.attempt), { className: "pg-submit-link" }),
+      button2(`#${row.attempt.id}`, () => pick(row.attempt), { className: "pg-submit-link" }),
       statusBadge(row),
       h("span", null, relationOf(row)),
       h("time", null, displayTime(row.attempt.createdAt)),
       h("strong", null, scoreText(attemptScore(row.attempt).finalScore))
     )),
-    history.nextCursor ? button(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy }) : null
+    history.nextCursor ? button2(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy }) : null
   );
 }
 __name(TaskHistory, "TaskHistory");
@@ -7589,9 +8273,9 @@ function TaskRail({ taskSessions, archivedTasks, showArchived, setShowArchived, 
       const steps = lifecycle(session, state, state?.submission, receipt);
       const status = submissionStatus(receipt);
       const [label2, tone] = steps[2].current && state.submission?.status === "awaiting_user" ? [msg("等待配额答复", "Waiting for quota decision"), "warning"] : session.running ? [msg("Agent 执行中", "Agent running"), "active"] : state?.submission?.status === "unknown" ? [msg("状态未知 · 先核对已有提交", "Unknown · Reconcile existing attempts"), "neutral"] : status.key === "evaluating" && platformReceivedBundle(receipt) ? [msg("评测中 · 平台已接收", "Evaluating · Received"), status.tone] : [status.label, status.tone];
-      return button(
+      return button2(
         h(
-          React17.Fragment,
+          React18.Fragment,
           null,
           h("strong", null, titleOf(session, state?.task)),
           h(
@@ -7606,9 +8290,9 @@ function TaskRail({ taskSessions, archivedTasks, showArchived, setShowArchived, 
       );
     }),
     archive && archivedTasks.length ? h(
-      React17.Fragment,
+      React18.Fragment,
       null,
-      button(msg(`已归档 ${archivedTasks.length} 个`, `Archived (${archivedTasks.length})`), () => setShowArchived(!showArchived), {
+      button2(msg(`已归档 ${archivedTasks.length} 个`, `Archived (${archivedTasks.length})`), () => setShowArchived(!showArchived), {
         className: "pg-archived-toggle",
         "aria-expanded": showArchived,
         "aria-controls": "pg-submit-archived",
@@ -7626,7 +8310,7 @@ function TaskPane({ session, archive, archiveError, openConversation, openError,
   const context = [task?.competitionName, task?.periodName, task?.categoryName].filter(Boolean);
   const meta = [session.modelName || session.modelId, task?.cwd || session.cwd || workspaceOf(session, task)?.path].filter(Boolean);
   return h(
-    React17.Fragment,
+    React18.Fragment,
     null,
     h(
       "article",
@@ -7649,7 +8333,7 @@ function TaskPane({ session, archive, archiveError, openConversation, openError,
           h(
             "div",
             { className: "pg-submit-task-actions" },
-            archived ? null : button(msg("打开任务对话", "Open task chat"), () => openConversation(session.id)),
+            archived ? null : button2(msg("打开任务对话", "Open task chat"), () => openConversation(session.id)),
             h(TaskArchiveControl, { session, archive: archive && { ...archive, archived, error: archiveError.id === session.id ? archiveError.message : "" } })
           )
         ),
@@ -7672,7 +8356,7 @@ __name(TaskPane, "TaskPane");
 function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
   const attempt = row.attempt;
   const scope = useRequestScope([rowKey(attempt), row.observation, active, query, row.session?.id]);
-  const [detail, setDetail] = React17.useState({});
+  const [detail, setDetail] = React18.useState({});
   const load = /* @__PURE__ */ __name(async (refresh = false) => {
     if (!query || !active) return;
     const read = scope.begin("detail");
@@ -7699,7 +8383,7 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
       read.finish();
     }
   }, "load");
-  React17.useEffect(() => {
+  React18.useEffect(() => {
     void load();
     return () => scope.abort("detail");
   }, [scope]);
@@ -7751,8 +8435,8 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
     h(
       "div",
       { className: "pg-actions" },
-      button(msg("刷新结果", "Refresh result"), () => load(true), { disabled: detail.scope === scope && detail.busy }),
-      row.session ? button(msg("打开参赛任务", "Open participation task"), () => {
+      button2(msg("刷新结果", "Refresh result"), () => load(true), { disabled: detail.scope === scope && detail.busy }),
+      row.session ? button2(msg("打开参赛任务", "Open participation task"), () => {
         if (active && scope.isCurrent()) openTask(row.session.id);
       }) : null
     )
@@ -7761,7 +8445,7 @@ function Scorecard({ row, compared, query, active, openTask, onRefresh }) {
 __name(Scorecard, "Scorecard");
 function ScoringPane({ history, account, challenge, status, query, attempts, tasks, openTask, active, picked, setPicked, compare, setCompare }) {
   const scope = useRequestScope([account, query, active]);
-  const [updates, setUpdates] = React17.useState({});
+  const [updates, setUpdates] = React18.useState({});
   const observedRow = /* @__PURE__ */ __name((item) => {
     const row = relatedRow(item, tasks, attempts);
     const update = updates.scope === scope ? updates.items[rowKey(item)] : void 0;
@@ -7843,7 +8527,7 @@ function ScoringPane({ history, account, challenge, status, query, attempts, tas
                 onChange: /* @__PURE__ */ __name(() => toggle(key2), "onChange"),
                 "aria-label": msg(`对比提交 #${attempt.id}`, `Compare submission #${attempt.id}`)
               })),
-              h("td", null, button(`#${attempt.id}`, () => pick(attempt), { className: "pg-submit-link", "aria-pressed": selected })),
+              h("td", null, button2(`#${attempt.id}`, () => pick(attempt), { className: "pg-submit-link", "aria-pressed": selected })),
               h("td", null, attempt.challengeTitle || attempt.challengeId),
               h("td", null, statusBadge(row)),
               h("td", null, relationOf(row)),
@@ -7857,7 +8541,7 @@ function ScoringPane({ history, account, challenge, status, query, attempts, tas
           }))
         )),
         loaded?.length && !filtered.length ? h("p", { className: "pg-note" }, msg("已加载记录中没有匹配的提交。", "No matching submissions in the loaded history.")) : null,
-        history.nextCursor ? h("footer", null, button(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy })) : null
+        history.nextCursor ? h("footer", null, button2(msg("加载更多", "Load more"), history.loadMore, { disabled: history.busy })) : null
       ),
       focused ? h(Scorecard, {
         row: focused,
@@ -7907,10 +8591,10 @@ function SubmitPage({
   t,
   taskFeedback
 }) {
-  const [view, setView] = React17.useState("tasks");
-  const [picked, setPicked] = React17.useState(null);
-  const [comparison, setComparison] = React17.useState({});
-  const [filtersByAccount, setFilters] = React17.useState({});
+  const [view, setView] = React18.useState("tasks");
+  const [picked, setPicked] = React18.useState(null);
+  const [comparison, setComparison] = React18.useState({});
+  const [filtersByAccount, setFilters] = React18.useState({});
   const accountScope = useRequestScope([account, query]);
   const scoreActive = active && view === "scores";
   const taskActive = active && view === "tasks";
@@ -7966,7 +8650,7 @@ function SubmitPage({
     { className: "pg-submit-task-grid" },
     h(TaskRail, { taskSessions, archivedTasks, showArchived, setShowArchived: toggleArchiveList, archive: taskArchive, selected, select: selectTask, attempts: store.attempts, workspaceOf, nav, refInto }),
     archived || projection?.state !== "ready" ? h(
-      React17.Fragment,
+      React18.Fragment,
       null,
       pane({ state, request: state.submission }),
       !archived ? h(SelectedTask, { key: session.id, session, projection, useSessionAccess, refreshProjections, attempts: store.attempts, run, submission, materials, t, account, activeView: taskActive }) : null
@@ -8034,10 +8718,10 @@ function SubmitPage({
       h(
         "div",
         { role: "group", "aria-label": msg("提交视图", "Submission view"), className: "pg-submit-tabs" },
-        button(h(React17.Fragment, null, msg("参赛任务", "Participation tasks"), h("small", null, taskSessions.length)), () => {
+        button2(h(React18.Fragment, null, msg("参赛任务", "Participation tasks"), h("small", null, taskSessions.length)), () => {
           if (active && viewScope.isCurrent()) setView("tasks");
         }, { "aria-pressed": view === "tasks" }),
-        button(msg("提交记录与评分", "Submissions and scores"), () => {
+        button2(msg("提交记录与评分", "Submissions and scores"), () => {
           if (active && viewScope.isCurrent()) setView("scores");
         }, { "aria-pressed": view === "scores" })
       ),
@@ -8080,25 +8764,25 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React18.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React18.useState(false);
-  const [archiveStatus, setArchiveStatus] = React18.useState({});
+  const [selected, setSelected] = React19.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React19.useState(false);
+  const [archiveStatus, setArchiveStatus] = React19.useState({});
   const clearArchiveError = /* @__PURE__ */ __name(() => setArchiveStatus((previous) => ({ ...previous, error: void 0 })), "clearArchiveError");
-  const [split, setSplit] = React18.useState(50);
-  const [notice, setNotice] = React18.useState({});
+  const [split, setSplit] = React19.useState(50);
+  const [notice, setNotice] = React19.useState({});
   const setAnnouncement = /* @__PURE__ */ __name((text, owner) => setNotice({ text, owner, scope: actions }), "setAnnouncement");
-  const [drawerOpen, setDrawerOpen] = React18.useState(false);
-  const [nav] = React18.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [drawerOpen, setDrawerOpen] = React19.useState(false);
+  const [nav] = React19.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React18.useState("");
-  const [openFailure, setOpenFailure] = React18.useState({});
+  const [webBase, setWebBase] = React19.useState("");
+  const [openFailure, setOpenFailure] = React19.useState({});
   const clearOpenError = /* @__PURE__ */ __name(() => setOpenFailure({}), "clearOpenError");
-  const [, setVersion] = React18.useState(0);
+  const [, setVersion] = React19.useState(0);
   const polling = useRequestScope([active, section, account, query]);
-  const store = React18.useMemo(() => {
+  const store = React19.useMemo(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -8128,7 +8812,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;
-  React18.useLayoutEffect(() => {
+  React19.useLayoutEffect(() => {
     store.query = query;
     store.taskKeys = [...receipts.keys()];
     store.pendingKeys = [...pendingKeys];
@@ -8136,11 +8820,11 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   });
   const refresh = /* @__PURE__ */ __name((keys) => refreshAttempts(store, keys, polling), "refresh");
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React18.useEffect(() => {
+  React19.useEffect(() => {
     if (active && pageVisible() && section !== "catalog") refresh(store.pendingKeys);
     return () => polling.abort("attempts");
   }, [polling]);
-  React18.useEffect(() => {
+  React19.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refresh(store.pendingKeys);
@@ -8157,13 +8841,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [polling, anyPending]);
   const refreshing = polling.pending("attempts");
-  React18.useEffect(() => {
+  React19.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React18.useEffect(() => {
+  React19.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (!isVisible(pending)) {

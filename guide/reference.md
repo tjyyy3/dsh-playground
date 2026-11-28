@@ -609,10 +609,9 @@ The plugin only runs `playground`; it never calls `bohr`. The official script
 also installs `@dptech-corp/bohr-cli`, which the plugin does not need, so the
 Windows steps above leave it out.
 
-When the CLI reports that it is outdated ("Playground CLI x is outdated; latest
-is y"), the workbench login area shows
-"Playground CLI 版本过旧（x，最新 y），可能影响评分" with these update steps.
-The login area learns this from `playground update-check`, which makes one
+When the CLI reports an older installed version, the Playground CLI section in
+Connection settings shows the installed and available versions and links to these
+update steps. The sign-in check learns this from `playground update-check`, which makes one
 release-notice request (the CLI caches the answer in its own file). The plugin
 runs it at most once an hour, and the login check waits for it for at most 1.5
 seconds. A normal answer (about a second) is in the first workbench load after a
@@ -664,8 +663,8 @@ blocker instead of silently switching accounts or asking for credentials in chat
 
 ### Log in with an API token
 
-The login area in the workbench's **Playground 连接状态** card uses an API
-token as its main login:
+Open **连接设置 → 账号与令牌** (Connection settings → Account and token)
+in the workbench to sign in with an API token:
 
 1. Click **去网站生成令牌**. It opens `<site root>/#dashboard/api` (我的面板 →
    API 与 Agent) in the system browser, on the site the plugin talks to.
