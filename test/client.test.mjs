@@ -2492,7 +2492,7 @@ test('only the newest submission-history request updates the list', async (t) =>
   assert.doesNotMatch(content, /提交 #1/);
 });
 
-const isOpenWeb = (node) => node.type === 'button' && (node.props.children || []).includes('在网页中打开');
+const isOpenWeb = (node) => node.type === 'button' && /^在网页中打开(?:：|$)/.test(node.props['aria-label'] || '');
 
 test('catalog cards open the challenge web page in a new noopener window', async (t) => {
   const f = await clientFixture(t, { connection: { rpc: { call: async () => ({ ok: true, value: { webBase: 'https://play.bohrium.com',
@@ -2685,6 +2685,38 @@ async function challengeDrawerHarness(t) {
   return { f, reads, listeners, handoffs, open, view, catalog, drawerElement, unmountDrawer, respond, escape: () => [...listeners].forEach((listener) => listener({ key: 'Escape' })) };
 }
 
+function selectChallengeTab(harness, label) {
+  const tab = harness.f.find(harness.view(), (node) => node.props?.role === 'tab' && text(node) === label);
+  tab.props.onClick();
+  return harness.view();
+}
+
+test('catalog progress uses linked controller rows and confirmed current-account history', async () => {
+  const { challengeProgress, progressSummary } = await import('../src/client/catalog/progress.js');
+  const zh = (text) => text;
+  const base = 'https://play.example.test';
+  const rows = [
+    { challenge: { id: 'c', baseUrl: base + '/api' }, state: 'running' },
+    { challenge: { id: 'c', baseUrl: base }, state: 'ended' },
+    { challenge: { id: 'other', baseUrl: base }, state: 'running' },
+    { challenge: { id: 'c', baseUrl: 'https://other.example.test' }, state: 'running' },
+  ];
+  const sessions = [
+    { projectionValues: { playgroundTask: { task: { challengeId: 'c', baseUrl: base } } } },
+    { projectionValues: { playgroundTask: { task: { challengeId: 'c', baseUrl: base, mode: 'author' } } } },
+  ];
+  const item = { challengeId: 'c', scoringState: { displayScore: 0, scoreIsFinal: true } };
+  const history = { items: [item], nextCursor: '3', submissionCounts: { lifetime: 2 } };
+  const progress = challengeProgress('c', rows, sessions, history, base);
+  assert.deepEqual(progress, { controllers: 2, running: 1, unknown: false, submissions: 2, partial: false, score: 0, participation: 1 });
+  assert.deepEqual(progressSummary(progress, zh), { text: '主控任务 2 个 · 1 个运行中', tone: 'running' });
+  assert.equal(progressSummary(challengeProgress('c', [], [], history, base), zh).text, '已提交 2 次 · 最近 0 分（最终）');
+  const partial = { items: [{ ...item, scoringState: { displayScore: 71.5, scoreIsFinal: false } }], partial: { reasons: ['history_incomplete'] } };
+  assert.equal(progressSummary(challengeProgress('c', [], [], partial, base), zh).text, '至少已提交 1 次');
+  assert.equal(progressSummary(challengeProgress('c', [], [], { items: [], nextCursor: null }, base), zh), undefined);
+  assert.equal(challengeProgress('c', rows, sessions, undefined, 'https://other.example.test').participation, 0);
+});
+
 test('"查看详情" opens a challenge drawer that reads the detail once and shows facts, tags, resources and the web button', async (t) => {
   const h = await challengeDrawerHarness(t);
   const opened = [];
@@ -2703,9 +2735,14 @@ test('"查看详情" opens a challenge drawer that reads the detail once and sho
   assert.match(text(tree), /合成赛题[\s\S]*正在读取赛题详情/);
   await h.respond(0, challengeDetail());
   tree = h.view();
-  const content = text(tree);
-  for (const expected of ['题目编号：a b/c', '方向', 'physics', '来源', 'github', '难度', '3', '状态', '提交次数', '12', 'optics', 'fitting',
-    'data.csv', 'dataset', 'input', 'Input table', '来源：https://example.test/data.csv']) assert.ok(content.includes(expected), expected);
+  assert.ok(h.f.find(tree, (node) => node.props?.['aria-label'] === '题目编号：a b/c'));
+  for (const expected of ['开放', 'physics', '来源 · github', '难度 3 / 5', '提交 12', 'optics', 'fitting']) {
+    assert.ok(text(tree).includes(expected), expected);
+  }
+  tree = selectChallengeTab(h, '资源 · 1');
+  for (const expected of ['data.csv', 'dataset', 'input', 'Input table', '来源：https://example.test/data.csv']) {
+    assert.ok(text(tree).includes(expected), expected);
+  }
   // A resource source is text only: the drawer renders no link at all.
   assert.equal(findAll(tree, (node) => node.type === 'a' || node.props?.href !== undefined).length, 0);
   // Rendering again does not read again.
@@ -2715,12 +2752,42 @@ test('"查看详情" opens a challenge drawer that reads the detail once and sho
   assert.deepEqual(opened, [['https://play.bohrium.com/challenge/a%20b%2Fc', '_blank', 'noopener,noreferrer']]);
 });
 
+test('challenge overview identifies missing scoring and artifact limits and has no discussion tab', async (t) => {
+  const harness = await challengeDrawerHarness(t);
+  harness.open();
+  await harness.respond(0, challengeDetail());
+  const tree = harness.view();
+  const tabs = findAll(tree, (node) => node.props?.role === 'tab');
+  assert.deepEqual(tabs.map((node) => text(node)), ['概览', '题面全文', '资源 · 1']);
+  for (const section of ['评分构成', '提交物限制', '提交次数上限']) {
+    const panel = harness.f.find(tree, (node) => node.props?.['aria-label'] === section);
+    assert.ok(panel, section);
+    assert.match(text(panel), /未查到/);
+    assert.doesNotMatch(text(panel), /\d/);
+  }
+});
+
+test('the detail drawer labels a stated daily limit and opens the existing participation confirmation', async (t) => {
+  const h = await challengeDrawerHarness(t);
+  h.open();
+  await h.respond(0, challengeDetail({ content: '每人每天最多提交 3 次。' }));
+  const tree = h.view();
+  const panel = h.f.find(tree, (node) => node.props?.['aria-label'] === '提交次数上限');
+  assert.match(text(panel), /题面写明每天最多提交 3 次/);
+  h.f.find(tree, buttonLabelled('开始参赛任务')).props.onClick();
+  assert.equal(h.drawerElement(), undefined);
+  const overlay = h.f.registrations.get('playground.task-start');
+  const { taskRequest } = overlay.definition.inject().hooks;
+  assert.deepEqual(taskRequest.getSnapshot(), { id: 'a b/c', title: '合成赛题', mode: 'participate' });
+  assert.equal(h.handoffs.length, 0);
+});
+
 test('the challenge statement is collapsed until "展开题面" and then shows plain text with its line breaks', async (t) => {
   const h = await challengeDrawerHarness(t);
   h.open();
   // The note's number is the Host's `contentLimit`, not a number written into the Client.
   await h.respond(0, challengeDetail({ content: '# Heading\n\n**bold** line 2', truncated: true, contentLimit: 1234 }));
-  let tree = h.view();
+  let tree = selectChallengeTab(h, '题面全文');
   assert.equal(h.f.find(tree, (node) => node.type === 'pre'), undefined);
   assert.doesNotMatch(text(tree), /Heading/);
   const toggle = h.f.find(tree, buttonLabelled('展开题面'));
@@ -2743,7 +2810,7 @@ test('a truncated statement without a usable contentLimit names no number', asyn
     const h = await challengeDrawerHarness(t);
     h.open();
     await h.respond(0, challengeDetail({ truncated: true, ...(contentLimit === undefined ? {} : { contentLimit }) }));
-    h.f.find(h.view(), buttonLabelled('展开题面')).props.onClick();
+    h.f.find(selectChallengeTab(h, '题面全文'), buttonLabelled('展开题面')).props.onClick();
     const content = text(h.view());
     assert.match(content, /题面过长，这里只显示前一部分；完整题面请在网页中查看。/, String(contentLimit));
     assert.doesNotMatch(content, /题面超过/, String(contentLimit));
@@ -2781,7 +2848,7 @@ test('a gated challenge statement asks the user to read it on the web', async (t
   const h = await challengeDrawerHarness(t);
   h.open();
   await h.respond(0, challengeDetail({ contentGated: true, content: '' }));
-  const tree = h.view();
+  const tree = selectChallengeTab(h, '题面全文');
   assert.match(text(tree), /题面需要权限，请在网页中查看/);
   assert.equal(h.f.find(tree, buttonLabelled('展开题面')), undefined);
   assert.equal(findAll(tree, isOpenWeb).length, 1);
@@ -2856,7 +2923,7 @@ test('a failed challenge read shows a fixed message and "重试" without tokens 
   await h.respond(3, challengeDetail());
   tree = h.view();
   assert.equal(h.f.find(tree, (node) => node.props?.role === 'alert'), undefined);
-  assert.match(text(tree), /data\.csv/);
+  assert.match(text(selectChallengeTab(h, '资源 · 1')), /data\.csv/);
 });
 
 test('the drawer handoff closes the drawer and sends the same catalog challenge', async (t) => {
@@ -3316,7 +3383,8 @@ test('a competition with periods gets a period choice that starts on the default
     ['', '全部期'], ['1', '第一期 · 已结束 · 2026.10.21 16:00 — 2026.11.03 24:00'], ['2', '第二期 · 进行中 · 2026.11.04 16:00 — 2026.11.11 16:00']]);
   // The row shows the period's status and time, not the whole competition's rounds.
   const note = squash(text(f.find(info, (node) => node.type === 'p')));
-  assert.equal(note, '进行中 第二期 时间：2026.11.04 16:00 — 2026.11.11 16:00');
+  assert.equal(note, '第二期 · 2026.11.04 16:00 — 2026.11.11 16:00');
+  assert.equal(text(f.find(info, (node) => node.props?.className === 'pg-badge')), '进行中');
   const [open] = findAll(info, isOpenWeb);
   assert.equal(open.props['aria-label'], '在网页中打开：玻尔产品周赛 · 第二期');
   open.props.onClick();
@@ -3447,7 +3515,7 @@ test('changing the period reads page 1 again with the other controls, and 全部
   assert.deepEqual(pending[4].input, { action: 'catalog', search: '', competition: 'bohr-product', period: '1', sort: 'attempts', per_page: 20 });
   assert.deepEqual(cardIds(view()), []);
   assert.match(text(view()), /正在读取所选比赛的赛题/);
-  assert.equal(squash(text(f.find(infoRow(view()), (node) => node.type === 'p'))), '已结束 第一期 时间：2026.10.21 16:00 — 2026.11.03 24:00');
+  assert.equal(squash(text(f.find(infoRow(view()), (node) => node.type === 'p'))), '第一期 · 2026.10.21 16:00 — 2026.11.03 24:00');
   pending[4].resolve(catalogPage(['p1', 'p2', 'p3'], { total: 3, hasMore: false }));
   await settle();
   assert.deepEqual(cardIds(view()), ['p1', 'p2', 'p3']);
@@ -3465,7 +3533,7 @@ test('changing the period reads page 1 again with the other controls, and 全部
   pending[6].resolve(catalogPage(['p1', 'q1'], { total: 2 }));
   await settle();
   const info = infoRow(view());
-  assert.equal(squash(text(f.find(info, (node) => node.type === 'p'))), '进行中 时间：2026.10.21 16:00 起 · 轮次：第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
+  assert.equal(squash(text(f.find(info, (node) => node.type === 'p'))), '时间：2026.10.21 16:00 起 · 轮次：第一期 10.21 16:00 — 11.03 24:00 · 第二期 11.04 16:00 — 11.11 16:00');
   const [open] = findAll(info, isOpenWeb);
   assert.equal(open.props['aria-label'], '在网页中打开：玻尔产品周赛');
   open.props.onClick();
@@ -3507,7 +3575,7 @@ test('a period answer that arrives after another period was chosen is dropped', 
   const panel = view();
   assert.equal(control('选择分期').props.value, '2');
   assert.deepEqual(cardIds(panel), ['p2a', 'p2b']);
-  assert.equal(squash(text(f.find(infoRow(panel), (node) => node.type === 'p'))), '进行中 第二期 时间：2026.11.04 16:00 — 2026.11.11 16:00');
+  assert.equal(squash(text(f.find(infoRow(panel), (node) => node.type === 'p'))), '第二期 · 2026.11.04 16:00 — 2026.11.11 16:00');
   assert.doesNotMatch(text(panel), /读取失败，列表不完整/);
 });
 
@@ -3692,7 +3760,7 @@ test('while a newly chosen competition loads, or after its read fails, the previ
   pending[2].resolve({ ok: false, error: { code: 'gateway/internal', message: 'upstream returned 503' } });
   await settle();
   panel = view();
-  assert.match(text(infoRow(panel)), /第二期 时间：2026\.11\.04 16:00/);
+  assert.match(text(infoRow(panel)), /第二期 · 2026\.11\.04 16:00/);
   assert.equal(text(f.find(panel, (node) => node.props?.role === 'alert')), '赛题目录读取失败。');
   assert.doesNotMatch(text(panel), /upstream returned 503/);
   assert.deepEqual(cardIds(panel), []);
@@ -3805,7 +3873,7 @@ test('an older competition answer that arrives after a newer selection is droppe
   await settle();
   let panel = view();
   assert.equal(f.find(panel, (node) => node.type === 'select').props.value, 'competition:bohr-product');
-  assert.match(text(infoRow(panel)), /第二期 时间：2026\.11\.04 16:00/);
+  assert.match(text(infoRow(panel)), /第二期 · 2026\.11\.04 16:00/);
   assert.deepEqual(cardIds(panel), ['bohr-1']);
   // The late answer was never kept for knight-s4: choosing it again waits for its own read.
   choose('competition:knight-s4');
@@ -3907,11 +3975,11 @@ test('the filter bar names every control and wraps on narrow columns', async (t)
   const bar = f.find(view(), (node) => node.props?.['aria-label'] === '筛选赛题');
   assert.equal(bar.props.role, 'group');
   const selects = findAll(bar, (node) => node.type === 'select');
-  assert.deepEqual(selects.map((node) => node.props['aria-label']), ['按来源筛选', '按学科筛选', '排序方式']);
+  assert.deepEqual(selects.map((node) => node.props['aria-label']), ['按学科筛选', '按来源筛选', '排序方式']);
   const options = (node) => findAll(node, (child) => child.type === 'option').map((child) => [child.props.value, text(child)]);
-  assert.deepEqual(options(selects[0]), [['', '全部来源'], ['community', '社区'], ['benchmark', '基准'], ['hackathon', '黑客松'], ['arena', '竞技场']]);
+  assert.deepEqual(options(selects[1]), [['', '全部来源'], ['community', '社区'], ['benchmark', '基准'], ['hackathon', '黑客松'], ['arena', '竞技场']]);
   assert.deepEqual(options(selects[2]), [['newest', '最新'], ['attempts', '提交最多']]);
-  assert.deepEqual(findAll(bar, (node) => node.type === 'label').map((node) => text(node.props.children[0])).slice(0, 3), ['来源', '学科', '排序']);
+  assert.deepEqual(findAll(bar, (node) => node.type === 'label').map((node) => text(node.props.children[0])).slice(0, 3), ['学科', '来源', '排序']);
   const checkbox = f.find(bar, (node) => node.type === 'input' && node.props.type === 'checkbox');
   assert.equal(checkbox.props.checked, false, '只看开放 starts unchecked');
   // The note is part of the checkbox's own label.
@@ -4211,7 +4279,7 @@ test('while 其他 waits for a key, earlier failures cannot be retried', async (
 // Official groups of a period: the 分类 row and the list identity it joins.
 const groupRow = (panel) => findAll(panel, (node) => node.props?.['aria-label'] === '按分类筛选')[0];
 const groupChips = (panel) => findAll(groupRow(panel) ?? {}, (node) => node.type === 'button')
-  .map((node) => [squash(text(node)), node.props['aria-pressed']]);
+  .map((node) => [node.props.children[0] === '全部' ? '全部' : squash(text(node)), node.props['aria-pressed']]);
 const chooseGroupChip = (panel, label) => findAll(groupRow(panel), (node) => node.type === 'button' && squash(text(node)).startsWith(label))[0].props.onClick();
 
 // Period 4 of the weekly contest as the website groups it (77 challenges, the live counts); the ids are made up.
@@ -4407,6 +4475,7 @@ test('the 分类 row lists a period\'s official groups and a chosen group reads 
   assert.equal(control('选择分期').props.value, '4');
   assert.deepEqual(groupChips(view()), [['全部', true], ...FOURTH_TRACKS.map(([, label, total]) => [`${label} ${total}`, false])]);
   assert.equal(count(), '共 77 道 · 已显示 20 道');
+  assert.equal(squash(text(findAll(groupRow(view()), (node) => node.type === 'button')[0])), '全部 77');
   assert.equal(cardIds(view()).some((id) => id.startsWith('p4-graphics')), false, 'the plotting challenges sit past the first page of the period');
 
   const firstIds = cardIds(view());
@@ -6618,7 +6687,7 @@ for (const single of [false, true]) {
     assert.equal(button.props.disabled, true);
     button.props.onClick();
     assert.equal(h.modal(), undefined);
-    h.f.find(shown, buttonLabelled('关闭')).props.onClick();
+    h.f.find(shown, (node) => node.props?.['aria-label'] === '关闭赛题详情').props.onClick();
     assert.equal(h.cardButton().props.disabled, true);
     oldButton.props.onClick();
     assert.equal(h.modal(), undefined);

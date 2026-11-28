@@ -657,13 +657,12 @@ function taskWebUrl(task, webBase) {
   return root ? `${root}/challenge/${encodeURIComponent(id)}` : void 0;
 }
 __name(taskWebUrl, "taskWebUrl");
-function openWebButton(value, title) {
+function openWebButton(value, title, { label: label2 = msg("在网页中打开", "Open in browser"), className = "" } = {}) {
   const url = openableWebUrl(value);
   if (!url) return null;
-  const label2 = msg("在网页中打开", "Open in browser");
   return h("button", {
     type: "button",
-    className: "pg-button",
+    className: className ? `pg-button ${className}` : "pg-button",
     "aria-label": title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label2,
     onClick: /* @__PURE__ */ __name(() => {
       window.open(url, "_blank", "noopener,noreferrer");
@@ -2588,11 +2587,13 @@ function ControllerPanel(props) {
   const [dispatchControls] = React7.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React7.useState("checking");
   const [accountName, setAccountName] = React7.useState("");
+  const [accountId, setAccountId] = React7.useState(void 0);
   const [configuredBase, setConfiguredBase] = React7.useState("");
   const [updateAuthStatus] = React7.useState(() => (status, user, baseUrl) => {
     setAuthStatus(status);
     if (status === "checking") return;
     setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
+    setAccountId(status === "authenticated" ? user?.id : void 0);
     setConfiguredBase(baseUrl || "");
   });
   const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
@@ -3134,7 +3135,7 @@ function ControllerPanel(props) {
           visit: releaseVisit
         }) : null
       ),
-      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
+      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
       view === "controller" && showTasks ? h(
         React7.Fragment,
         null,
@@ -3630,7 +3631,7 @@ var React9 = __toESM(require("react"), 1);
 var React8 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
-  return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => typeof node.getClientRects !== "function" || node.getClientRects().length > 0);
+  return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => node.tabIndex !== -1 && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0));
 }
 __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
@@ -3682,24 +3683,260 @@ function useDrawerFocus(fallback) {
 }
 __name(useDrawerFocus, "useDrawerFocus");
 
+// src/client/catalog/styles.js
+var catalogCss = `
+  .pg-workbench.pg-workbench-catalog{padding:0;overflow:hidden}
+  .pg-workbench-catalog .pg-workbench-inner,.pg-workbench-catalog .pg-workbench-grid,.pg-workbench-catalog .pg-workbench-column{height:100%;max-width:none;margin:0;min-height:0}
+  .pg-workbench-catalog .pg-workbench-grid{align-items:stretch}
+  .pg-workbench .pg-guide.pg-catalog{container-type:inline-size;display:grid;grid-template-columns:minmax(0,248px) minmax(0,1fr);margin:0;padding:0;border:0;border-radius:0;background:var(--pg-base);height:100%;min-height:0}
+  .pg-catalog-sidebar,.pg-catalog-main{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-line) transparent;min-width:0}
+  .pg-catalog-sidebar{padding:18px 12px;background:#0B0D10;border-right:1px solid var(--pg-line)}
+  .pg-catalog-caption{margin:0 10px 12px;font:10.5px/1.5 var(--pg-font-mono);color:var(--pg-label);letter-spacing:.08em}
+  .pg-catalog-competitions{display:grid;gap:4px}
+  .pg-catalog-mobile-select{display:none}
+  .pg-catalog-competition{display:flex;align-items:center;gap:10px;min-width:0;padding:9px 10px;min-height:52px;border:1px solid transparent;border-radius:var(--pg-r6);background:none;color:var(--pg-text);font:inherit;text-align:start;cursor:pointer}
+  .pg-catalog-competition:hover,.pg-catalog-competition[aria-pressed=true]{background:var(--pg-hover);border-color:var(--pg-control-line)}
+  .pg-catalog-competition:focus-visible{outline:2px solid var(--pg-accent);outline-offset:-2px}
+  .pg-catalog-competition strong,.pg-catalog-competition small{display:block;line-height:1.3;overflow-wrap:anywhere}
+  .pg-catalog-competition strong{font-size:13px;font-weight:500}
+  .pg-catalog-competition small{color:var(--pg-label);font-size:11.5px}
+  .pg-catalog-dot{box-sizing:border-box;width:7px;height:7px;flex:none;border:1px solid var(--pg-label);border-radius:100%}
+  .pg-catalog-dot[data-state=live]{background:var(--pg-accent);border-color:var(--pg-accent)}
+  .pg-catalog-dot[data-state=upcoming]{background:var(--pg-info);border-color:var(--pg-info)}
+  .pg-catalog-main{box-sizing:border-box;width:100%;max-width:1192px;margin:0 auto;padding:22px 44px 40px}
+  .pg-catalog .pg-competition-info{gap:14px 24px;margin:0 0 18px;padding:18px 20px;min-height:57px;border:1px solid var(--pg-line);border-radius:12px;background:var(--pg-panel)}
+  .pg-competition-summary{flex:1 1 250px;min-width:0}
+  .pg-competition-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pg-competition-title h2{font-size:22px;letter-spacing:-.01em}
+  .pg-competition-title .pg-badge{border:0;padding:0;font-size:12px}
+  .pg-competition-title .pg-badge[data-tone=success]::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .pg-catalog .pg-competition-time{margin:3px 0 0;font:12px/1.5 var(--pg-font-mono)}
+  .pg-catalog-period-select{min-width:0;max-width:100%}
+  .pg-catalog-periods{display:flex;flex-wrap:wrap;padding:2px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base)}
+  .pg-catalog-periods .pg-button{min-height:var(--pg-h30);padding:0 12px;border:0;border-radius:var(--pg-r4);color:var(--pg-muted);font-size:12.5px}
+  .pg-catalog-periods .pg-button[aria-pressed=true]{background:var(--pg-control-line);color:var(--pg-text)}
+  .pg-catalog-deadline{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--pg-muted)}
+  .pg-catalog-deadline strong{font-family:var(--pg-font-mono);font-size:26px;font-weight:500;color:var(--pg-accent)}
+  .pg-catalog-incomplete{display:flex;flex:1 0 100%;align-items:center;gap:8px}
+  .pg-catalog-open.pg-button{min-height:34px;padding:4px 12px;border-radius:var(--pg-r6);font-size:12.5px}
+  .pg-catalog-open::after,.pg-detail-web::after{content:' ↗'}
+  .pg-catalog-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin-bottom:18px}
+  .pg-catalog-search{position:relative;flex:1 1 300px;min-width:0}
+  .pg-catalog-search::before{content:"";position:absolute;left:14px;top:14px;width:8px;height:8px;border:1px solid var(--pg-label);border-radius:50%;pointer-events:none}
+  .pg-catalog-search::after{content:"";position:absolute;left:22px;top:23px;width:5px;height:1px;background:var(--pg-label);transform:rotate(45deg);pointer-events:none}
+  .pg-catalog-search .pg-input{width:100%;min-height:40px;padding-inline-start:36px;font-size:14px}
+  .pg-catalog .pg-catalog-filters{margin:0;gap:10px;flex:0 1 auto}
+  .pg-catalog .pg-filter{position:relative;flex:0 0 auto;min-width:0;display:flex;align-items:center}
+  .pg-catalog .pg-filter:has(select)>span{position:absolute;left:12px;pointer-events:none}
+  .pg-catalog .pg-filter select{min-height:40px;min-width:132px;padding-inline-start:47px;font-size:12.5px}
+  .pg-catalog .pg-filter-discipline select{min-width:184px;max-width:220px}
+  .pg-catalog .pg-filter-other{display:grid;flex:1 0 100%;order:1}
+  .pg-catalog .pg-filter-check{min-height:38px;flex:0 0 auto;padding:0 12px;gap:8px;background:var(--pg-control);border:1px solid var(--pg-control-line);border-radius:var(--pg-r8);cursor:pointer}
+  .pg-catalog .pg-filter-check input{appearance:none;position:relative;width:28px;height:16px;margin:0;background:var(--pg-control-line);border-radius:999px;cursor:pointer}
+  .pg-catalog .pg-filter-check input::before{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:100%;background:var(--pg-muted)}
+  .pg-catalog .pg-filter-check input:checked{background:var(--pg-accent)}
+  .pg-catalog .pg-filter-check input:checked::before{left:14px;background:var(--pg-ink)}
+  .pg-catalog .pg-filter-check input:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}
+  .pg-catalog .pg-catalog-groups{margin:0;gap:6px}
+  .pg-catalog .pg-group-chip{min-height:30px;border-radius:var(--pg-r6);background:var(--pg-control);color:var(--pg-muted);padding:4px 11px;font-size:12.5px}
+  .pg-catalog .pg-group-chip[aria-pressed=true]{background:var(--pg-accent);color:var(--pg-ink)}
+  .pg-catalog .pg-group-count{font-family:var(--pg-font-mono);font-size:10.5px}
+  .pg-catalog-stats{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0 18px;color:var(--pg-label);font:11px/1.5 var(--pg-font-mono)}
+  .pg-catalog .pg-catalog-count{margin:0;font:inherit;color:inherit}
+  .pg-catalog-stats-line{flex:1;border-top:1px solid var(--pg-line)}
+  .pg-catalog .pg-catalog-refresh{min-height:20px;padding:1px 6px;font-size:11px;color:var(--pg-muted)}
+  .pg-catalog .pg-challenge-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  .pg-catalog .pg-challenge{min-width:0;min-height:240px;display:flex;flex-direction:column;margin:0;padding:16px}
+  .pg-catalog .pg-challenge h3{font-size:16px;margin:10px 0 0}
+  .pg-challenge-id{overflow-wrap:anywhere;color:var(--pg-label);font:11px/1.5 var(--pg-font-mono)}
+  .pg-challenge-id .pg-button{min-height:0;padding:0;border:0;font:inherit;color:inherit;overflow-wrap:anywhere;text-align:start}
+  .pg-catalog .pg-challenge-meta{margin:2px 0 10px;font-size:12.5px;color:var(--pg-muted)}
+  .pg-challenge-facts,.pg-challenge-facts>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .pg-challenge-facts{gap:16px;font-size:12px;color:var(--pg-muted)}
+  .pg-challenge-facts strong{font-weight:500;color:var(--pg-text)}
+  .pg-challenge-meter{display:flex;gap:2px}
+  .pg-challenge-meter i{width:5px;height:12px;border-radius:1px;background:var(--pg-control-line)}
+  .pg-challenge-meter i[data-filled=true]{background:var(--pg-text)}
+  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-challenge-progress::before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--pg-label)}
+  .pg-challenge-progress[data-tone=running]::before{background:var(--pg-accent)}
+  .pg-challenge-progress[data-tone=result]::before{background:var(--pg-text)}
+  .pg-catalog .pg-challenge .pg-actions{margin-top:auto;padding-top:6px}
+  .pg-catalog .pg-actions .pg-button{min-height:34px;padding:4px 12px;border-radius:var(--pg-r6);font-size:12.5px}
+  .pg-catalog .pg-badge[data-tone=open]{border-color:#2E3A1E}
+  @container (max-width:1230px){
+    .pg-catalog-main{padding-inline:24px}
+    .pg-catalog .pg-challenge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @container (max-width:790px){
+    .pg-catalog-sidebar{padding:12px 8px}
+    .pg-catalog .pg-challenge-grid{grid-template-columns:1fr}
+    .pg-catalog-main{padding-inline:16px}
+  }
+  @media(max-width:760px){
+    .pg-workbench .pg-guide.pg-catalog{display:block;overflow:auto;height:100%}
+    .pg-catalog .pg-catalog-main{overflow:visible}
+    .pg-catalog-sidebar{border:0;border-bottom:1px solid var(--pg-line)}
+    .pg-catalog-caption,.pg-catalog-competitions,.pg-catalog-periods{display:none}
+    .pg-catalog-mobile-select{display:block;max-width:100%}
+    .pg-catalog .pg-catalog-filters{flex-wrap:wrap}
+  }
+`;
+var challengeDetailCss = `
+  .pg-drawer-backdrop[data-drawer=challenge]{background:rgba(4,5,7,.66);padding:8px}
+  .pg-challenge-drawer.pg-drawer{width:min(640px,100%);height:100%;padding:0;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--pg-line-strong);border-radius:var(--pg-r14);background:var(--pg-control);box-shadow:-12px 0 42px #0006}
+  .pg-detail-top{display:flex;flex:none;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--pg-line)}
+  .pg-detail-id,.pg-detail-copy-status{font:12px/1.5 var(--pg-font-mono);color:var(--pg-muted);overflow-wrap:anywhere}
+  .pg-detail-copy-status{flex:1}
+  .pg-detail-copy.pg-button{min-height:28px;width:28px;padding:0;border-color:transparent;color:var(--pg-label)}
+  .pg-detail-copy-icon{display:inline-block;position:relative;width:8px;height:8px;border:1px solid currentColor;border-radius:2px}
+  .pg-detail-copy-icon::before{content:"";position:absolute;top:-4px;left:-4px;width:7px;height:7px;border:solid currentColor;border-width:1px 0 0 1px;border-radius:2px}
+  .pg-challenge-drawer .pg-drawer-close{min-width:66px;min-height:32px;font-size:12.5px;flex:none}
+  .pg-detail-heading{display:grid;gap:12px;padding:18px 22px 0}
+  .pg-challenge-drawer .pg-drawer-title{font-size:24px;font-weight:600;letter-spacing:-.015em;line-height:1.3}
+  .pg-detail-facts,.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px}
+  .pg-detail-facts .pg-badge{min-height:22px;padding:0 8px;font-size:12px}
+  .pg-detail-facts .pg-badge[data-tone=open]{border-color:#2E3A1E}
+  .pg-detail-tabs{display:flex;gap:2px;flex:none;margin-top:15px;padding:0 14px;overflow-x:auto;border-bottom:1px solid var(--pg-line)}
+  .pg-detail-tabs .pg-button{min-height:40px;padding:0 10px;border:0;border-bottom:2px solid transparent;border-radius:0;white-space:nowrap;color:var(--pg-muted)}
+  .pg-detail-tabs .pg-button[aria-selected=true]{border-color:var(--pg-accent);color:var(--pg-text);font-weight:600}
+  .pg-detail-tabs .pg-button:focus-visible{outline-offset:-3px}
+  .pg-detail-body{box-sizing:border-box;flex:1;min-height:0;overflow:auto;padding:18px 22px 22px;scrollbar-width:thin;scrollbar-color:var(--pg-line) transparent}
+  .pg-detail-body:focus-visible{outline:2px solid var(--pg-accent);outline-offset:-3px}
+  .pg-challenge-drawer .pg-detail-summary{margin:0 0 18px;color:var(--pg-text);font-size:14.5px;line-height:1.55}
+  .pg-detail-section{margin:0 0 18px}
+  .pg-detail-rule{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--pg-label);font:10.5px/1.5 var(--pg-font-mono);letter-spacing:.08em}
+  .pg-detail-rule::after{content:"";flex:1;border-top:1px solid var(--pg-line)}
+  .pg-detail-note{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;padding:10px 12px;border:1px dashed var(--pg-line-strong);border-radius:var(--pg-r8);color:var(--pg-muted);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+  .pg-detail-note>span{color:var(--pg-label)}
+  .pg-detail-progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0}
+  .pg-detail-progress>div{display:flex;flex-direction:column;gap:3px;padding:12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8)}
+  .pg-detail-progress dt{order:1;color:var(--pg-muted);font-size:12px}
+  .pg-detail-progress dd{margin:0;font:20px/1.35 var(--pg-font-mono)}
+  .pg-detail-tags,.pg-detail-resources{margin:0;padding:0;list-style:none}
+  .pg-detail-resources{display:grid;gap:8px}
+  .pg-detail-resources li{padding:10px 12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8);font-size:13px;overflow-wrap:anywhere}
+  .pg-statement{box-sizing:border-box;margin:8px 0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8);white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}
+  .pg-detail-footer{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--pg-line);background:var(--pg-panel)}
+  .pg-detail-footer .pg-button{min-height:var(--pg-h42);white-space:normal}
+  .pg-detail-footer .pg-primary{flex:1 1 200px}
+  .pg-detail-dispatch:not(:is(:disabled,[aria-disabled=true]))::after{content:' →'}
+  .pg-detail-footer .pg-detail-web{min-width:122px;border-color:transparent}
+  .pg-detail-footer .pg-button:last-child:not(.pg-primary){color:var(--pg-muted)}
+  @media(max-width:600px){
+    .pg-detail-body,.pg-detail-heading{padding-inline:16px}
+    .pg-detail-progress{gap:6px}
+    .pg-detail-progress>div{padding:8px}
+  }
+`;
+
+// lib/submission/policy.js
+var BEIJING_OFFSET_MS = 8 * 60 * 60 * 1e3;
+var CN_SCOPE = "(每人每天|每人每日|每个账号每天|每天|每日|每人|每个账号|每位参赛者|每支队伍)";
+var dayOrTotal = /* @__PURE__ */ __name((match) => /[天日]/u.test(match[1]) ? "day" : "total", "dayOrTotal");
+var STATEMENT_LIMIT_PATTERNS = [
+  // 每天最多可以提交 3 次 / 每人每天限 3 次 / 每天可提交 3 次 / 每人限 3 次
+  [new RegExp(`${CN_SCOPE}\\s*(?:可以|可|只能|仅能)?\\s*(?:最多|至多|仅限|限|不超过|可以|可)\\s*(?:可以|可|只能)?\\s*(?:提交|评测)?\\s*(\\d{1,3})\\s*次`, "u"), dayOrTotal, 2],
+  // 每日提交上限为 5 次 / 每天提交次数上限 5 次
+  [new RegExp(`${CN_SCOPE}\\s*(?:的)?\\s*(?:提交|评测)(?:次数)?\\s*(?:上限|最多)\\s*(?:为|是)?\\s*(\\d{1,3})\\s*次`, "u"), dayOrTotal, 2],
+  // at most 5 submissions per day / up to 5 submissions per participant / at most 5 submissions (no period)
+  [
+    /\b(?:at most|no more than|a maximum of|maximum of|up to|limited to)\s+(\d{1,3})\s+submissions?\b(?:\s+(?:per|each|a)\s+(day|24 hours|participant|user|account|team))?/i,
+    (match) => !match[2] ? "unspecified" : /day|hours/i.test(match[2]) ? "day" : "total",
+    1,
+    (match) => Boolean(match[2]) || !/^up to/i.test(match[0])
+  ],
+  // 5 submissions per day
+  [
+    /\b(\d{1,3})\s+submissions?\s+(?:per|each|a)\s+(day|24 hours|participant|user|account|team)\b/i,
+    (match) => /day|hours/i.test(match[2]) ? "day" : "total",
+    1
+  ],
+  // daily limit of 5 (submissions)
+  [/\bdaily (?:submission )?limit (?:of|is)\s+(\d{1,3})\b/i, () => "day", 1]
+];
+var excerptOf = /* @__PURE__ */ __name((content, index, length) => {
+  const start = Math.max(0, index - 20);
+  const text = content.slice(start, index + length + 40).replace(/[`*_#>|[\]]/g, "").replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  const chars = Array.from(text);
+  return chars.length > 80 ? `${chars.slice(0, 79).join("")}…` : text;
+}, "excerptOf");
+function detectStatementLimit(content) {
+  if (typeof content !== "string" || !content) return void 0;
+  for (const [pattern, periodOf, group, accept = /* @__PURE__ */ __name(() => true, "accept")] of STATEMENT_LIMIT_PATTERNS) {
+    const match = pattern.exec(content);
+    const limit = Number(match?.[group]);
+    if (match && accept(match) && Number.isSafeInteger(limit) && limit > 0) {
+      return { limit, period: periodOf(match), source: "statement", excerpt: excerptOf(content, match.index, match[0].length) };
+    }
+  }
+  return void 0;
+}
+__name(detectStatementLimit, "detectStatementLimit");
+
 // src/client/catalog/detail.js
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ["sending", "initializing", "opening"].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h("button", { type: "button", className: primary ? "pg-button pg-primary" : "pg-button pg-list-action", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
+  return h("button", { type: "button", className: primary ? "pg-button pg-primary pg-detail-dispatch" : "pg-button pg-list-action", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
     if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
     handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
-  }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
+  }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge?.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
-var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--pg-muted)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--pg-line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
-function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
+function overviewSection(title, children) {
+  return h(
+    "section",
+    { className: "pg-detail-section", "aria-label": title },
+    h("h3", { className: "pg-detail-rule" }, title),
+    children
+  );
+}
+__name(overviewSection, "overviewSection");
+function missingDetail(text) {
+  return h("p", { className: "pg-detail-note" }, h("span", { "aria-hidden": true }, "ⓘ"), text);
+}
+__name(missingDetail, "missingDetail");
+function challengeOverview(detail, progress) {
+  const content = !detail.contentGated && typeof detail.content === "string" ? detail.content : "";
+  const firstParagraph = content.trim().split(/\r?\n\s*\r?\n/, 1)[0] || "";
+  const excerpt = Array.from(firstParagraph);
+  const summary = !detail.contentGated && excerpt.length ? excerpt.length > 240 ? `${excerpt.slice(0, 240).join("")}…` : firstParagraph : "";
+  const { controllers, running, unknown, submissions, partial, participation } = progress || {};
+  const controllerLabel = running ? msg(`主控任务 · ${running} 个运行中`, `Controller tasks · ${running} running`) : unknown ? msg("主控任务 · 状态未知", "Controller tasks · Status unknown") : msg("主控任务", "Controller tasks");
+  const limit = detectStatementLimit(content);
+  const scope = limit?.period === "day" ? msg("每天", " per day") : limit?.period === "total" ? msg("每人", " per participant") : "";
+  const metrics = [
+    [controllers || "—", controllerLabel],
+    [partial && submissions !== void 0 ? `≥ ${submissions}` : submissions ?? "—", msg("累计提交", "Lifetime submissions")],
+    [participation || "—", participation ? msg("参赛任务", "Participation tasks") : msg("参赛任务尚未创建", "No participation task")]
+  ];
+  return [
+    summary ? h("p", { key: "summary", className: "pg-detail-summary", "aria-label": msg("摘要", "Summary") }, summary) : null,
+    h("div", { key: "scoring" }, overviewSection(msg("评分构成", "Scoring breakdown"), missingDetail(
+      msg("未查到评分构成。题面写明或平台返回后，这里会标出来源。", "No scoring breakdown was found. Its source will be shown once available in the statement or from the platform.")
+    ))),
+    h("div", { key: "limits" }, overviewSection(msg("提交物限制", "Artifact limits"), missingDetail(
+      msg("未查到提交物限制。题面写明或平台返回后，这里会标出来源。", "No artifact limits were found. Their source will be shown once available in the statement or from the platform.")
+    ))),
+    h("div", { key: "quota", "aria-label": msg("提交次数上限", "Submission limit") }, missingDetail(limit ? msg(`题面写明${scope}最多提交 ${limit.limit} 次。`, `The statement specifies a limit of ${limit.limit} submissions${scope}.`) : msg("未查到提交次数上限。题面写明或平台返回上限后，这里会标出来源。", "No submission limit was found. Its source will be shown once available in the statement or from the platform."))),
+    h("div", { key: "progress" }, overviewSection(
+      msg("我的进度 · 当前账号", "My progress · Current account"),
+      h("dl", { className: "pg-detail-progress" }, metrics.map(([value, label2]) => h("div", { key: label2 }, h("dt", null, label2), h("dd", null, value))))
+    ))
+  ];
+}
+__name(challengeOverview, "challengeOverview");
+function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competition, group, progress, close, focusFallback }) {
   const [detail, setDetail] = React9.useState(null);
   const [busy, setBusy] = React9.useState(false);
   const [failed, setFailed] = React9.useState(false);
   const [expanded, setExpanded] = React9.useState(false);
+  const [tab, setTab] = React9.useState("overview");
+  const [copyStatus, setCopyStatus] = React9.useState("");
+  const tabId = React9.useId();
   const [status, setStatus] = React9.useState(null);
   const [latest] = React9.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
@@ -3752,84 +3989,200 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
   }, [query, challengeId]);
   const shown = detail || challenge;
   const title = msg(shown.titleZh || shown.title, shown.title || shown.titleZh) || challengeId;
+  const statusLabel = shown.status && (locales[currentLanguage()].states[shown.status] || shown.status);
+  const source = {
+    benchmark: msg("基准", "Benchmark"),
+    community: msg("社区", "Community"),
+    hackathon: msg("黑客松", "Hackathon"),
+    arena: msg("竞技场", "Arena")
+  };
   const facts = [
-    [msg("方向", "Discipline"), shown.discipline],
-    [msg("来源", "Source"), shown.origin],
-    [msg("难度", "Difficulty"), shown.difficulty],
-    [msg("状态", "Status"), shown.status ? locales[currentLanguage()].states[shown.status] || shown.status : void 0],
-    [msg("提交次数", "Submissions"), shown.attempts]
-  ].filter(([, value]) => value !== void 0 && value !== null && value !== "");
+    competition,
+    group || shown.discipline,
+    shown.origin && msg(
+      `来源 · ${Object.hasOwn(source, shown.origin) ? source[shown.origin] : shown.origin}`,
+      `Source · ${Object.hasOwn(source, shown.origin) ? source[shown.origin] : shown.origin}`
+    ),
+    Number.isFinite(shown.difficulty) && msg(`难度 ${shown.difficulty} / 5`, `Difficulty ${shown.difficulty} / 5`),
+    Number.isFinite(shown.attempts) && msg(`提交 ${shown.attempts}`, `Submissions ${shown.attempts}`)
+  ].filter(Boolean);
   const tags = Array.isArray(shown.tags) ? [...new Set(shown.tags.filter((tag) => typeof tag === "string" && tag))] : [];
   const resources = Array.isArray(detail?.resources) ? detail.resources.filter((item) => item && typeof item === "object") : [];
   const content = typeof detail?.content === "string" ? detail.content : "";
+  const tabs = [
+    ["overview", msg("概览", "Overview")],
+    ["statement", msg("题面全文", "Full statement")],
+    ["resources", detail ? msg(`资源 · ${resources.length}`, `Resources · ${resources.length}`) : msg("资源", "Resources")]
+  ];
+  const useTabKeys = /* @__PURE__ */ __name((event, index) => {
+    const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    setTab(tabs[next][0]);
+    event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[next]?.focus();
+  }, "useTabKeys");
+  const copyId = /* @__PURE__ */ __name(async () => {
+    try {
+      await navigator.clipboard.writeText(challengeId);
+      setCopyStatus(msg("已复制题目编号", "Challenge ID copied"));
+    } catch {
+      setCopyStatus(msg("复制失败，请选中编号后复制。", "Copy failed. Select the ID to copy it."));
+    }
+  }, "copyId");
+  const renderStatement = /* @__PURE__ */ __name(() => {
+    if (detail.contentGated) return h("p", { className: "pg-note" }, msg("题面需要权限，请在网页中查看", "Access is required. Open the statement on the web."));
+    if (!content) return h("p", { className: "pg-note" }, msg("这道题没有题面文字。", "No statement text is available."));
+    return [
+      h(
+        "button",
+        { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") },
+        expanded ? msg("收起题面", "Collapse statement") : msg("展开题面", "Expand statement")
+      ),
+      expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": msg("题面全文", "Full challenge statement") }, content) : null,
+      expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-detail-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? msg(`题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`, `Showing the first ${detail.contentLimit} characters. Open the challenge on the web to read the full statement.`) : msg("题面过长，这里只显示前一部分；完整题面请在网页中查看。", "Only the beginning of the statement is shown. Open the challenge on the web to read the rest.")) : null
+    ];
+  }, "renderStatement");
+  const renderResources = /* @__PURE__ */ __name(() => resources.length ? h("ul", { className: "pg-detail-resources" }, resources.map((item, index) => h(
+    "li",
+    { key: `${index}:${item.name || ""}` },
+    h("strong", null, item.name || msg("未命名资源", "Unnamed resource")),
+    [item.kind, item.role].filter(Boolean).length ? h("span", { className: "pg-note" }, ` · ${[item.kind, item.role].filter(Boolean).join(" · ")}`) : null,
+    item.description ? h("p", { className: "pg-note" }, item.description) : null,
+    item.source ? h("p", { className: "pg-note pg-path" }, msg(`来源：${item.source}`, `Source: ${item.source}`)) : null
+  ))) : h("p", { className: "pg-note" }, msg("这道题没有列出资源。", "No resources are listed for this challenge.")), "renderResources");
   return h(
     "div",
-    { className: "pg-drawer-backdrop", onMouseDown: dismiss },
+    { className: "pg-drawer-backdrop", "data-drawer": "challenge", onMouseDown: dismiss },
     h(
       "aside",
-      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 赛题详情`, `Challenge details: ${title}`), "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
+      { className: "pg-drawer pg-challenge-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 赛题详情`, `Challenge details: ${title}`), "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
         focus.dialog = node;
       }, "ref") },
       h("style", null, challengeDetailCss),
       h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
       h(
         "div",
-        { className: "pg-drawer-header" },
-        h("div", { className: "pg-drawer-heading" }, h("h2", { className: "pg-drawer-title", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-          focus.title = node;
-        }, "ref") }, title)),
+        { className: "pg-detail-top" },
+        h("span", { className: "pg-detail-id", "aria-label": msg(`题目编号：${challengeId}`, `Challenge ID: ${challengeId}`) }, challengeId),
         h(
-          "div",
-          { className: "pg-drawer-actions" },
-          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭赛题详情", "Close challenge details") }, msg("关闭", "Close"))
+          "button",
+          { className: "pg-button pg-detail-copy", type: "button", "aria-label": msg("复制题目编号", "Copy challenge ID"), onClick: copyId },
+          h("span", { className: "pg-detail-copy-icon", "aria-hidden": true })
+        ),
+        h("span", { className: "pg-detail-copy-status", role: "status" }, copyStatus),
+        h(
+          "button",
+          { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭赛题详情", "Close challenge details") },
+          h("span", { "aria-hidden": true }, "× "),
+          msg("关闭", "Close")
         )
       ),
-      h("p", { className: "pg-note pg-path" }, msg(`题目编号：${challengeId}`, `Challenge ID: ${challengeId}`)),
-      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label2, value]) => [h("dt", { key: `${label2}-t` }, label2), h("dd", { key: `${label2}-d` }, String(value))])) : null,
-      tags.length ? h("ul", { className: "pg-detail-tags", "aria-label": msg("标签", "Tags") }, tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))) : null,
       h(
         "div",
-        { className: "pg-actions" },
-        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss, primary: true }) : null,
-        openWebButton(detail?.webUrl || challenge.webUrl, title)
+        { className: "pg-detail-heading" },
+        h("h2", { className: "pg-drawer-title", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+          focus.title = node;
+        }, "ref") }, title),
+        h(
+          "div",
+          { className: "pg-detail-facts" },
+          statusLabel ? h("span", { className: "pg-badge", "data-tone": statusTone(shown.status) }, statusLabel) : null,
+          facts.map((fact, index) => h("span", { key: index, className: "pg-badge" }, fact))
+        )
       ),
-      failed ? h(
+      h(
         "div",
-        { className: "pg-detail-section" },
-        h("p", { className: "pg-error", role: "alert" }, msg("赛题详情读取失败，请稍后重试，或在网页中查看。", "Could not load challenge details. Try again later or open the challenge on the web.")),
-        h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(), "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry")))
-      ) : null,
-      busy && !detail && !failed ? h("p", { className: "pg-note" }, msg("正在读取赛题详情…", "Loading challenge details…")) : null,
-      detail ? h(
-        "section",
-        { className: "pg-detail-section", "aria-label": msg("资源", "Resources") },
-        h("h3", null, msg("资源", "Resources")),
-        resources.length ? h("ul", { className: "pg-detail-resources" }, resources.map((item, index) => h(
-          "li",
-          { key: `${index}:${item.name || ""}` },
-          h("strong", null, item.name || msg("未命名资源", "Unnamed resource")),
-          [item.kind, item.role].filter(Boolean).length ? h("span", { className: "pg-note" }, ` · ${[item.kind, item.role].filter(Boolean).join(" · ")}`) : null,
-          item.description ? h("p", { className: "pg-note" }, item.description) : null,
-          // Platform text, shown as text only: never a link.
-          item.source ? h("p", { className: "pg-note pg-path" }, msg(`来源：${item.source}`, `Source: ${item.source}`)) : null
-        ))) : h("p", { className: "pg-note" }, msg("这道题没有列出资源。", "No resources are listed for this challenge."))
-      ) : null,
-      detail ? h(
-        "section",
-        { className: "pg-detail-section", "aria-label": msg("题面", "Challenge statement") },
-        h("h3", null, msg("题面", "Challenge statement")),
-        detail.contentGated ? h("p", { className: "pg-note" }, msg("题面需要权限，请在网页中查看", "Access is required. Open the statement on the web.")) : !content ? h("p", { className: "pg-note" }, msg("这道题没有题面文字。", "No statement text is available.")) : [
-          h("button", { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") }, expanded ? msg("收起题面", "Collapse statement") : msg("展开题面", "Expand statement")),
-          // Plain text with its line breaks kept; the plugin has no markdown renderer.
-          expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": msg("题面全文", "Full challenge statement") }, content) : null,
-          // The number comes from the Host's cap (`contentLimit`); without it the note names no number.
-          expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? msg(`题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`, `Showing the first ${detail.contentLimit} characters. Open the challenge on the web to read the full statement.`) : msg("题面过长，这里只显示前一部分；完整题面请在网页中查看。", "Only the beginning of the statement is shown. Open the challenge on the web to read the rest.")) : null
-        ]
-      ) : null
+        { className: "pg-detail-tabs", role: "tablist", "aria-label": msg("赛题详情分区", "Challenge detail sections") },
+        tabs.map(([id, label2], index) => h("button", {
+          type: "button",
+          className: "pg-button",
+          key: id,
+          id: `${tabId}-${id}`,
+          role: "tab",
+          "aria-selected": tab === id,
+          "aria-controls": `${tabId}-panel-${id}`,
+          tabIndex: tab === id ? 0 : -1,
+          onClick: /* @__PURE__ */ __name(() => setTab(id), "onClick"),
+          onKeyDown: /* @__PURE__ */ __name((event) => useTabKeys(event, index), "onKeyDown")
+        }, label2))
+      ),
+      h(
+        "div",
+        { className: "pg-detail-body", role: "tabpanel", id: `${tabId}-panel-${tab}`, "aria-labelledby": `${tabId}-${tab}`, tabIndex: 0 },
+        failed ? h(
+          "div",
+          { className: "pg-detail-section" },
+          h("p", { className: "pg-error", role: "alert" }, msg("赛题详情读取失败，请稍后重试，或在网页中查看。", "Could not load challenge details. Try again later or open the challenge on the web.")),
+          h("button", { type: "button", className: "pg-button", disabled: busy, onClick: load }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry"))
+        ) : null,
+        busy && !detail && !failed ? h("p", { className: "pg-note" }, msg("正在读取赛题详情…", "Loading challenge details…")) : null,
+        detail && tab === "overview" ? challengeOverview(detail, progress) : null,
+        detail && tab === "statement" ? renderStatement() : null,
+        detail && tab === "resources" ? renderResources() : null,
+        tab === "overview" && tags.length ? h(
+          "ul",
+          { className: "pg-detail-tags", "aria-label": msg("标签", "Tags") },
+          tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))
+        ) : null
+      ),
+      h(
+        "footer",
+        { className: "pg-detail-footer" },
+        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss, primary: true }) : null,
+        requestTask ? h("button", {
+          type: "button",
+          className: "pg-button",
+          disabled: detail?.contentGated === true || handoff?.gatedIds?.has(challengeId) || void 0,
+          onClick: /* @__PURE__ */ __name(() => {
+            dismiss();
+            requestTask({ id: challengeId, title, mode: "participate" });
+          }, "onClick")
+        }, msg("开始参赛任务", "Start participation task")) : null,
+        openWebButton(detail?.webUrl || challenge.webUrl, title, { label: msg("在网页中查看", "View on the web"), className: "pg-detail-web" })
+      )
     )
   );
 }
 __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
+
+// src/client/catalog/progress.js
+var samePlatform = /* @__PURE__ */ __name((base, other) => Boolean(base && other && webRootOf(base) === webRootOf(other)), "samePlatform");
+function challengeProgress(challengeId, controllerRows = [], sessions = [], history, webBase) {
+  const id = String(challengeId);
+  const linked = controllerRows.filter((row) => String(row?.challenge?.id) === id && samePlatform(row.challenge.baseUrl, webBase));
+  const running = linked.filter((row) => row.state === "running").length;
+  const unknown = linked.some((row) => row.state === "unknown");
+  const participating = sessions.filter((session) => {
+    const task = session.projectionValues?.playgroundTask?.task;
+    return task && String(task.challengeId) === id && (!task.mode || task.mode === "participate") && samePlatform(task.baseUrl, webBase);
+  });
+  const items = Array.isArray(history?.items) ? history.items.filter((item) => String(item?.challengeId) === id) : [];
+  const lifetime = history?.submissionCounts?.lifetime;
+  const submissions = Number.isSafeInteger(lifetime) && lifetime >= items.length ? lifetime : Array.isArray(history?.items) && !history.nextCursor ? items.length : void 0;
+  const scoring = items[0]?.scoringState;
+  const score = scoring?.scoreIsFinal === true && Number.isFinite(scoring.displayScore) ? scoring.displayScore : void 0;
+  const partial = Boolean(history?.partial || history?.submissionCounts?.partialReasons?.includes("history_incomplete"));
+  return { controllers: linked.length, running, unknown, submissions, partial, score, participation: participating.length };
+}
+__name(challengeProgress, "challengeProgress");
+function progressSummary(progress, msg2) {
+  const { controllers, running, unknown, submissions, partial, score } = progress;
+  if (controllers && (running || !(submissions > 0))) {
+    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
+    return {
+      text: msg2(`主控任务 ${controllers} 个`, `${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
+      tone: running ? "running" : "neutral"
+    };
+  }
+  if (submissions > 0) {
+    const count = partial ? msg2(`至少已提交 ${submissions} 次`, `At least ${submissions} submissions`) : msg2(`已提交 ${submissions} 次`, `${submissions} ${submissions === 1 ? "submission" : "submissions"}`);
+    const latest = score === void 0 ? "" : msg2(` · 最近 ${score} 分（最终）`, ` · Latest score ${score} (final)`);
+    return { text: count + latest, tone: "result" };
+  }
+  return void 0;
+}
+__name(progressSummary, "progressSummary");
 
 // src/client/catalog/index.js
 var competitionGroups = /* @__PURE__ */ __name(() => [["live", msg("进行中", "Live")], ["upcoming", msg("即将开始", "Upcoming")], ["ended", msg("已结束", "Ended")]], "competitionGroups");
@@ -3910,7 +4263,7 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
-function CatalogPanel({ query, handoff, onWebBase }) {
+function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, active = true, taskSessions = [], webBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
@@ -3935,6 +4288,8 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [notice, setNotice] = React10.useState(null);
   const [latest] = React10.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React10.useState(null);
+  const [history, setHistory] = React10.useState(null);
+  const [historyRefresh, setHistoryRefresh] = React10.useState(0);
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
   const filters = { search, season, period, group, origin, sort, discipline };
@@ -3980,6 +4335,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     const controller = new AbortController();
     latest.controller = controller;
     latest.metadataOnly = false;
+    if (refresh) setHistoryRefresh((version2) => version2 + 1);
     setBusy("load");
     setFailure(null);
     setNotice(nextNotice);
@@ -4002,7 +4358,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       if (typeof result?.webBase === "string") onWebBase?.(result.webBase);
       if (latest.metadataOnly) return;
       const facts = pageFacts(result?.challenges);
-      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), updatedAt: Date.now(), periodTotal: result?.periodCounts?.count, ...facts });
       if (next.season && table && !table.some((item) => item && typeof item === "object" && competitionValue(item) === next.season)) {
         setSeason("");
         setPeriod("");
@@ -4046,6 +4402,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         ...shown,
         page,
         items: [...shown.items, ...added],
+        updatedAt: Date.now(),
         ...facts,
         total: facts.total ?? shown.total,
         missing: Math.max(shown.missing, facts.missing),
@@ -4094,6 +4451,56 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   }, "start") } : handoff;
   const challenges = openOnly ? loaded.filter((item) => item.status === "open") : loaded;
   const total = shownList?.total;
+  const tracked = new Set(taskSessions.flatMap((session) => {
+    const state = session.projectionValues?.playgroundTask;
+    return state?.task && (state.receipt?.attemptId || state.attemptIds?.length) && samePlatform(state.task.baseUrl, webBase) ? [String(state.task.challengeId)] : [];
+  }));
+  const historyIds = JSON.stringify([.../* @__PURE__ */ new Set([
+    ...detail ? [String(detail.id)] : [],
+    ...challenges.map((challenge) => String(challenge.id)).filter((id) => tracked.has(id))
+  ])]);
+  React10.useEffect(() => {
+    if (!active || account === void 0 || account === null || !webBase || historyIds === "[]") return;
+    const abort = new AbortController();
+    const read = /* @__PURE__ */ __name(async () => {
+      for (const challengeId of JSON.parse(historyIds)) {
+        if (abort.signal.aborted) return;
+        const result = await Promise.resolve().then(() => query({ action: "my_attempts", challengeId, limit: 1 }, abort.signal)).catch(() => void 0);
+        if (abort.signal.aborted) return;
+        setHistory((previous) => ({
+          account,
+          webBase,
+          query,
+          byId: {
+            ...previous?.account === account && previous.webBase === webBase && previous.query === query ? previous.byId : {},
+            [challengeId]: result?.ok === true ? result : void 0
+          }
+        }));
+      }
+    }, "read");
+    void read();
+    return () => abort.abort();
+  }, [active, account, webBase, query, historyIds, historyRefresh]);
+  const accountHistory = history && history.account === account && history.webBase === webBase && history.query === query ? history.byId : void 0;
+  const progressFor = /* @__PURE__ */ __name((item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase), "progressFor");
+  const groupFor = /* @__PURE__ */ __name((item) => {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || entry.labelZh && tags.includes(entry.labelZh)).map(groupLabel).join(" · ");
+  }, "groupFor");
+  const chooseCompetition = /* @__PURE__ */ __name((value) => {
+    if (value === season) return;
+    const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
+    setSeason(value);
+    setPeriod(nextPeriod);
+    setGroup("");
+    load({ season: value, period: nextPeriod, group: "" });
+  }, "chooseCompetition");
+  const choosePeriod = /* @__PURE__ */ __name((value) => {
+    if (value === period) return;
+    setPeriod(value);
+    setGroup("");
+    load({ period: value, group: "" });
+  }, "choosePeriod");
   const missing = shownList?.missing || 0;
   const countLine = shownList ? [
     total !== void 0 ? msg(`共 ${total} 道`, `${total} total`) : "",
@@ -4103,8 +4510,17 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const infoStatus = selectedPeriod ? selectedPeriod.status : selectedCompetition?.status;
   const schedule = selectedPeriod || selectedCompetition;
   const time = scheduleText(schedule?.timeText || schedule?.dateText) || msg("日期待定", "Dates to be announced");
-  const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} 时间：${time}`, `${periodName(selectedPeriod)} dates: ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
+  const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} · ${time}`, `${periodName(selectedPeriod)} · ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
   const infoName = [competitionName(selectedCompetition), periodName(selectedPeriod)].filter(Boolean).join(" · ");
+  const endAt = schedule?.endAt;
+  const endTime = typeof endAt === "string" && /T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(endAt) ? Date.parse(endAt) : NaN;
+  const daysLeft = Math.ceil((endTime - Date.now()) / 864e5);
+  const periodTotal = selectedPeriod?.count ?? shownList?.periodTotal ?? (!group && !search.trim() && !origin && !discipline ? total : void 0);
+  const lastRead = shownList && new Intl.DateTimeFormat(currentLanguage() === "zh" ? "zh-CN" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(shownList.updatedAt);
   const failureText = failure?.kind === "changed" ? msg(
     failure.message,
     (failure.message || "").replace("赛题列表已变化。", "The challenge list has changed. ").replace(/有 (\d+) 道赛题读取失败，列表不完整。/, "Failed to load $1 challenges. ").replace("请从第一页重新读取。", "Reload from the first page.")
@@ -4121,256 +4537,347 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     "section",
     { className: "pg-guide pg-catalog", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog"), "aria-busy": Boolean(busy) },
     h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
+    h("style", null, catalogCss),
     h(
-      "div",
-      { className: "pg-head" },
-      h("h2", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-        latest.heading = node;
-      }, "ref") }, msg("选择比赛或赛题", "Choose a competition or challenge")),
-      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog"))
-    ),
-    catalogNotice ? h(
-      "p",
-      { className: "pg-note" },
-      msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
-      catalogNotice.webUrl ? h("a", { href: catalogNotice.webUrl, target: "_blank", rel: "noopener noreferrer", style: { marginInlineStart: 8 } }, msg("查看比赛", "View competition")) : null
-    ) : null,
-    h(
-      "div",
-      { className: "pg-search" },
-      h("input", { className: "pg-input", "aria-label": msg("搜索 Playground 赛题", "Search Playground challenges"), placeholder: msg("按题目名称、方向或关键词搜索", "Search by title, discipline, or keyword"), value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
-        if (event.key === "Enter") load();
-      }, "onKeyDown") }),
+      "nav",
+      { className: "pg-catalog-sidebar", "aria-label": msg("比赛", "Competitions") },
+      h("div", { className: "pg-catalog-caption" }, msg(`比赛 · ${competitions.length + 1}`, `Competitions · ${competitions.length + 1}`)),
       h(
         "select",
-        { className: "pg-input", "aria-label": msg("选择比赛", "Choose a competition"), value: season, onChange: /* @__PURE__ */ __name((event) => {
-          const value = event.target.value;
-          const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
-          setSeason(value);
-          setPeriod(nextPeriod);
-          setGroup("");
-          load({ season: value, period: nextPeriod, group: "" });
-        }, "onChange") },
+        { className: "pg-input pg-catalog-mobile-select", "aria-label": msg("选择比赛", "Choose a competition"), value: season, onChange: /* @__PURE__ */ __name((event) => chooseCompetition(event.target.value), "onChange") },
         h("option", { value: "" }, msg("全部比赛", "All competitions")),
-        // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        competitionGroups().map(([group2, label2]) => {
-          const members = competitions.filter((item) => item.status === group2);
-          return members.length ? h("optgroup", { key: group2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+        competitionGroups().map(([key2, label2]) => {
+          const members = competitions.filter((item) => item.status === key2);
+          return members.length ? h("optgroup", { key: key2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
+      ),
+      h(
+        "div",
+        { className: "pg-catalog-competitions" },
+        competitions.map((item) => {
+          const value = competitionValue(item);
+          const current = value === season;
+          const edition = current && selectedPeriod ? selectedPeriod : competitionPeriods(item).find((entry) => entry.slug === item.defaultPeriod);
+          const meta = edition ? [periodName(edition), current && periodTotal !== void 0 ? msg(`${periodTotal} 道`, `${periodTotal} challenges`) : competitionStatusText(edition.status)].filter(Boolean).join(" · ") : scheduleText(item.dateText) || competitionStatusText(item.status);
+          return h(
+            "button",
+            { type: "button", key: value, "aria-pressed": current, className: "pg-catalog-competition", onClick: /* @__PURE__ */ __name(() => chooseCompetition(value), "onClick") },
+            h("span", { className: "pg-catalog-dot", "data-state": item.status }),
+            h("span", null, h("strong", null, competitionName(item)), meta ? h("small", null, meta) : null)
+          );
+        }),
+        h(
+          "button",
+          { type: "button", "aria-pressed": !season, className: "pg-catalog-competition", onClick: /* @__PURE__ */ __name(() => chooseCompetition(""), "onClick") },
+          h("span", { className: "pg-catalog-dot" }),
+          h("span", null, h("strong", null, msg("全部赛题", "All challenges")), h("small", null, msg("不限比赛", "Any competition")))
+        )
       )
     ),
-    // Each change reads page 1 again, combined with the competition and the search box; 只看开放 reads nothing.
     h(
       "div",
-      { className: "pg-catalog-filters", role: "group", "aria-label": msg("筛选赛题", "Filter challenges") },
+      { className: "pg-catalog-main" },
       h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("来源", "Source")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("按来源筛选", "Filter by source"), value: origin, onChange: /* @__PURE__ */ __name((event) => {
-            setOrigin(event.target.value);
-            load({ origin: event.target.value });
-          }, "onChange") },
-          originOptions().map(([value, label2]) => h("option", { key: value || "all", value }, label2))
-        )
-      ),
-      h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("学科", "Discipline")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
-            const value = event.target.value;
-            setDisciplineChoice(value);
-            const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
-            if (nextDiscipline === null) waitForDiscipline();
-            else load({}, { discipline: nextDiscipline });
-          }, "onChange") },
-          h("option", { value: "" }, msg("全部学科", "All disciplines")),
-          disciplineOptions.map((key2) => h("option", { key: key2, value: key2 }, key2)),
-          activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
-          h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
-        )
-      ),
-      disciplineChoice === OTHER_DISCIPLINE ? h(
         "div",
-        { className: "pg-filter pg-filter-other" },
-        h("label", { htmlFor: "pg-other-discipline" }, msg("其他学科（英文学科名，精确匹配）", "Other discipline (exact English name)")),
+        { className: "pg-competition-info", role: selectedCompetition ? "group" : void 0, "aria-label": selectedCompetition ? msg("比赛信息", "Competition details") : void 0 },
         h(
           "div",
-          { className: "pg-filter-row" },
-          h("input", {
-            id: "pg-other-discipline",
-            className: "pg-input",
-            value: otherDiscipline,
-            maxLength: 100,
-            placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
-            ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
-            onChange: /* @__PURE__ */ __name((event) => {
-              const value = event.target.value;
-              setOtherDiscipline(value);
-              if (appliedOther !== null && value.trim() !== appliedOther) {
-                setAppliedOther(null);
-                waitForDiscipline();
-              }
-            }, "onChange"),
-            onKeyDown: /* @__PURE__ */ __name((event) => {
-              if (event.key === "Enter") applyOther();
-            }, "onKeyDown")
-          }),
-          h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
+          { className: "pg-competition-summary" },
+          h(
+            "div",
+            { className: "pg-competition-title" },
+            h(
+              "h2",
+              { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+                latest.heading = node;
+              }, "ref") },
+              competitionName(selectedCompetition) || msg("选择比赛或赛题", "Choose a competition or challenge")
+            ),
+            infoStatus ? h("span", { className: "pg-badge", "data-tone": COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)) : null
+          ),
+          selectedCompetition ? h(
+            "p",
+            { className: "pg-note pg-competition-time" },
+            infoTime,
+            !selectedPeriod && selectedCompetition.rounds ? msg(` · 轮次：${selectedCompetition.rounds}`, ` · Rounds: ${scheduleText(selectedCompetition.rounds)}`) : ""
+          ) : null
         ),
-        facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key2) => h("option", { key: key2, value: key2 }))) : null
-      ) : null,
-      h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("排序", "Sort")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("排序方式", "Sort order"), value: sort, onChange: /* @__PURE__ */ __name((event) => {
-            setSort(event.target.value);
-            load({ sort: event.target.value });
-          }, "onChange") },
-          sortOptions().map(([value, label2]) => h("option", { key: value, value }, label2))
-        )
+        periods.length ? h(
+          "div",
+          { className: "pg-catalog-period-select" },
+          h(
+            "select",
+            { className: "pg-input pg-catalog-mobile-select", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => choosePeriod(event.target.value), "onChange") },
+            h("option", { value: "" }, msg("全部期", "All periods")),
+            periods.map((item) => h(
+              "option",
+              { key: item.slug, value: item.slug },
+              [periodName(item), competitionStatusText(item.status), scheduleText(item.timeText || item.dateText)].filter(Boolean).join(" · ")
+            ))
+          ),
+          h(
+            "div",
+            { className: "pg-catalog-periods", role: "group", "aria-label": msg("分期", "Periods") },
+            [...periods, null].map((item) => {
+              const value = item?.slug || "";
+              return h(
+                "button",
+                { type: "button", key: value, className: "pg-button", "aria-pressed": period === value, onClick: /* @__PURE__ */ __name(() => choosePeriod(value), "onClick") },
+                item ? periodName(item) : msg("全部期", "All periods")
+              );
+            })
+          )
+        ) : null,
+        daysLeft > 0 ? h(
+          "div",
+          { className: "pg-catalog-deadline" },
+          h("strong", null, daysLeft),
+          h("span", null, msg("天后截止", daysLeft === 1 ? "day until deadline" : "days until deadline"))
+        ) : null,
+        openWebButton(schedule?.webUrl, infoName, { label: msg("查看比赛", "View competition"), className: "pg-catalog-open" }),
+        missing ? h(
+          "div",
+          { className: "pg-catalog-incomplete" },
+          h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)),
+          !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
+        ) : null
       ),
-      h(
-        "label",
-        { className: "pg-filter-check" },
-        h("input", { type: "checkbox", checked: openOnly, onChange: /* @__PURE__ */ __name((event) => setOpenOnly(event.target.checked), "onChange") }),
-        msg("只看开放", "Open only"),
-        h("span", { className: "pg-note" }, msg("（仅筛选已加载的赛题）", "(loaded challenges only)"))
-      )
-    ),
-    selectedCompetition ? h(
-      "div",
-      { className: "pg-competition-info", role: "group", "aria-label": msg("比赛信息", "Competition details") },
-      // Changing the period reads page 1 again with the other controls.
-      periods.length ? h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("分期", "Period")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => {
-            setPeriod(event.target.value);
-            setGroup("");
-            load({ period: event.target.value, group: "" });
-          }, "onChange") },
-          h("option", { value: "" }, msg("全部期", "All periods")),
-          periods.map((item) => h(
-            "option",
-            { key: item.slug, value: item.slug },
-            [periodName(item), competitionStatusText(item.status), scheduleText(item.timeText || item.dateText)].filter(Boolean).join(" · ")
-          ))
-        )
-      ) : null,
-      h(
+      catalogNotice ? h(
         "p",
         { className: "pg-note" },
-        h("span", { className: "pg-badge", "data-tone": COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)),
-        ` ${infoTime}`,
-        !selectedPeriod && selectedCompetition.rounds ? msg(` · 轮次：${selectedCompetition.rounds}`, ` · Rounds: ${scheduleText(selectedCompetition.rounds)}`) : ""
-      ),
-      openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
-      selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
-      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
-      // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
-      // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
-      // one is left out.
-      missing ? h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)) : null,
-      missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
-    ) : null,
-    // Wraps onto further lines in a narrow column, so every group stays reachable.
-    groups.length ? h(
-      "div",
-      { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
-      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, msg("分类", "Group")),
-      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, msg("全部", "All")),
-      groups.map((item) => {
-        const label2 = groupLabel(item);
-        return h(
-          "button",
-          {
-            key: item.key,
-            type: "button",
-            className: "pg-group-chip",
-            "aria-pressed": group === item.key,
-            "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
-            onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
-          },
-          label2,
-          h("span", { className: "pg-group-count" }, item.count)
-        );
-      })
-    ) : null,
-    notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
-    failure ? h(
-      "div",
-      { className: "pg-catalog-failure" },
-      h("p", { className: "pg-error", role: "alert" }, failureText),
-      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
-    ) : null,
-    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
-    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
-    shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
-    shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
-    otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
-    countLine ? h("p", { className: "pg-note pg-catalog-count", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-      latest.count = node;
-    }, "ref") }, countLine) : null,
-    h("div", { className: "pg-challenge-grid" }, challenges.map((item) => h(
-      "article",
-      {
-        className: "pg-card pg-challenge",
-        key: item.id,
-        onClick: /* @__PURE__ */ __name((event) => {
-          if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) setDetail(item);
-        }, "onClick")
-      },
-      h("div", { className: "pg-head" }, h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id), item.status ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, locales[currentLanguage()].states[item.status] || item.status) : null),
-      h("p", { className: "pg-note pg-path" }, [item.discipline, item.origin, item.difficulty !== void 0 ? msg(`难度 ${item.difficulty}`, `Difficulty ${item.difficulty}`) : null].filter(Boolean).join(" · ") || msg("Playground 赛题", "Playground challenge")),
-      h("p", { className: "pg-note" }, msg(`题目编号：${item.id}${item.attempts !== void 0 ? ` · 已有 ${item.attempts} 次提交` : ""}`, `Challenge ID: ${item.id}${item.attempts !== void 0 ? ` · Submissions: ${item.attempts}` : ""}`)),
+        msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
+        catalogNotice.webUrl ? h("a", { href: catalogNotice.webUrl, target: "_blank", rel: "noopener noreferrer", style: { marginInlineStart: 8 } }, msg("查看比赛", "View competition")) : null
+      ) : null,
       h(
         "div",
-        { className: "pg-actions" },
-        handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null,
-        h("button", {
-          type: "button",
-          className: "pg-button pg-challenge-detail",
-          "aria-haspopup": "dialog",
-          "aria-label": msg(`查看详情：${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`, `View details: ${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`),
-          onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick"),
-          ref: /* @__PURE__ */ __name((node) => {
-            if (node) latest.details.set(String(item.id), node);
-            else latest.details.delete(String(item.id));
-          }, "ref")
-        }, msg("查看详情", "View details")),
-        openWebButton(item.webUrl, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id)
-      )
-    ))),
-    // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
-    // itself ignores a press while any read is running.
-    canLoadMore ? h("button", {
-      type: "button",
-      className: "pg-button pg-load-more",
-      "aria-disabled": busy ? true : void 0,
-      "aria-busy": busy === "more",
-      onClick: loadMore,
-      ref: /* @__PURE__ */ __name((node) => {
-        latest.more = node;
-      }, "ref")
-    }, busy === "more" ? msg("正在加载…", "Loading…") : msg("加载更多", "Load more")) : null,
+        { className: "pg-catalog-toolbar" },
+        h(
+          "div",
+          { className: "pg-catalog-search" },
+          h("input", { className: "pg-input", type: "search", "aria-label": msg("搜索 Playground 赛题", "Search Playground challenges"), placeholder: msg("按题目名称、方向或关键词搜索", "Search by title, discipline, or keyword"), value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
+            if (event.key === "Enter") load();
+          }, "onKeyDown") })
+        ),
+        // Each change reads page 1 with the current competition and search. The open-only filter reads nothing.
+        h(
+          "div",
+          { className: "pg-catalog-filters", role: "group", "aria-label": msg("筛选赛题", "Filter challenges") },
+          h(
+            "label",
+            { className: "pg-filter pg-filter-discipline" },
+            h("span", null, msg("学科", "Discipline")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
+                const value = event.target.value;
+                setDisciplineChoice(value);
+                const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
+                if (nextDiscipline === null) waitForDiscipline();
+                else load({}, { discipline: nextDiscipline });
+              }, "onChange") },
+              h("option", { value: "" }, msg("全部学科", "All disciplines")),
+              disciplineOptions.map((key2) => h("option", { key: key2, value: key2 }, key2)),
+              activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
+              h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
+            )
+          ),
+          h(
+            "label",
+            { className: "pg-filter" },
+            h("span", null, msg("来源", "Source")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("按来源筛选", "Filter by source"), value: origin, onChange: /* @__PURE__ */ __name((event) => {
+                setOrigin(event.target.value);
+                load({ origin: event.target.value });
+              }, "onChange") },
+              originOptions().map(([value, label2]) => h("option", { key: value || "all", value }, label2))
+            )
+          ),
+          disciplineChoice === OTHER_DISCIPLINE ? h(
+            "div",
+            { className: "pg-filter pg-filter-other" },
+            h("label", { htmlFor: "pg-other-discipline" }, msg("其他学科（英文学科名，精确匹配）", "Other discipline (exact English name)")),
+            h(
+              "div",
+              { className: "pg-filter-row" },
+              h("input", {
+                id: "pg-other-discipline",
+                className: "pg-input",
+                value: otherDiscipline,
+                maxLength: 100,
+                placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
+                ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
+                onChange: /* @__PURE__ */ __name((event) => {
+                  const value = event.target.value;
+                  setOtherDiscipline(value);
+                  if (appliedOther !== null && value.trim() !== appliedOther) {
+                    setAppliedOther(null);
+                    waitForDiscipline();
+                  }
+                }, "onChange"),
+                onKeyDown: /* @__PURE__ */ __name((event) => {
+                  if (event.key === "Enter") applyOther();
+                }, "onKeyDown")
+              }),
+              h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
+            ),
+            facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key2) => h("option", { key: key2, value: key2 }))) : null
+          ) : null,
+          h(
+            "label",
+            { className: "pg-filter" },
+            h("span", null, msg("排序", "Sort")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("排序方式", "Sort order"), value: sort, onChange: /* @__PURE__ */ __name((event) => {
+                setSort(event.target.value);
+                load({ sort: event.target.value });
+              }, "onChange") },
+              sortOptions().map(([value, label2]) => h("option", { key: value, value }, label2))
+            )
+          ),
+          h(
+            "label",
+            { className: "pg-filter-check", title: msg("仅筛选已加载的赛题", "Filters loaded challenges only") },
+            h("input", { type: "checkbox", checked: openOnly, onChange: /* @__PURE__ */ __name((event) => setOpenOnly(event.target.checked), "onChange") }),
+            msg("只看开放", "Open only"),
+            h("span", { className: "pg-sr-only" }, msg("（仅筛选已加载的赛题）", "(loaded challenges only)"))
+          )
+        )
+      ),
+      selectedCompetition?.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
+      selectedCompetition?.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
+      // Wraps onto further lines in a narrow column, so every group stays reachable.
+      groups.length ? h(
+        "div",
+        { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
+        h(
+          "button",
+          { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") },
+          msg("全部", "All"),
+          periodTotal !== void 0 ? h("span", { className: "pg-group-count", "aria-hidden": true }, periodTotal) : null
+        ),
+        groups.map((item) => {
+          const label2 = groupLabel(item);
+          return h(
+            "button",
+            {
+              key: item.key,
+              type: "button",
+              className: "pg-group-chip",
+              "aria-pressed": group === item.key,
+              "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
+              onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
+            },
+            label2,
+            h("span", { className: "pg-group-count" }, item.count)
+          );
+        })
+      ) : null,
+      notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
+      failure ? h(
+        "div",
+        { className: "pg-catalog-failure" },
+        h("p", { className: "pg-error", role: "alert" }, failureText),
+        h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
+      ) : null,
+      busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
+      busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
+      shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
+      shownList && loaded.length > 0 && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
+      otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
+      h(
+        "div",
+        { className: "pg-catalog-stats" },
+        countLine ? h("p", { className: "pg-note pg-catalog-count", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+          latest.count = node;
+        }, "ref") }, countLine) : null,
+        h("span", { className: "pg-catalog-stats-line", "aria-hidden": true }),
+        lastRead ? h("span", null, msg(`目录更新于 ${lastRead}`, `Catalog updated at ${lastRead}`)) : null,
+        h(
+          "button",
+          { className: "pg-button pg-catalog-refresh", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") },
+          busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog")
+        )
+      ),
+      h("div", { className: "pg-challenge-grid" }, challenges.map((item) => {
+        const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
+        const summary = progressSummary(progressFor(item), msg);
+        const itemGroup = groupFor(item);
+        const status2 = item.status && (locales[currentLanguage()].states[item.status] || item.status);
+        const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : void 0;
+        const attempts = Number.isFinite(item.attempts) ? item.attempts : void 0;
+        return h(
+          "article",
+          {
+            className: "pg-card pg-challenge",
+            key: item.id,
+            onClick: /* @__PURE__ */ __name((event) => {
+              if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) setDetail(item);
+            }, "onClick")
+          },
+          h(
+            "div",
+            { className: "pg-head" },
+            h("span", { className: "pg-challenge-id" }, openWebButton(item.webUrl, title, { label: String(item.id) }) || item.id),
+            status2 ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, status2) : null
+          ),
+          h("h3", null, title),
+          h("p", { className: "pg-note pg-challenge-meta" }, [itemGroup, item.discipline || item.origin].filter(Boolean).join(" · ") || msg("Playground 赛题", "Playground challenge")),
+          difficulty !== void 0 || attempts !== void 0 ? h(
+            "div",
+            { className: "pg-challenge-facts" },
+            difficulty !== void 0 ? h(
+              "span",
+              { "aria-label": msg(`难度 ${difficulty}`, `Difficulty ${difficulty}`) },
+              msg("难度", "Difficulty"),
+              h("span", { className: "pg-challenge-meter", "aria-hidden": true }, [1, 2, 3, 4, 5].map((step) => h("i", { key: step, "data-filled": step <= difficulty })))
+            ) : null,
+            attempts !== void 0 ? h("span", null, msg("提交", "Submissions"), " ", h("strong", null, attempts)) : null
+          ) : null,
+          summary ? h("p", { className: "pg-challenge-progress", "data-tone": summary.tone }, summary.text) : null,
+          h(
+            "div",
+            { className: "pg-actions" },
+            h("button", {
+              type: "button",
+              className: "pg-button pg-challenge-detail",
+              "aria-haspopup": "dialog",
+              "aria-label": msg(`查看详情：${title}`, `View details: ${title}`),
+              onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick"),
+              ref: /* @__PURE__ */ __name((node) => {
+                if (node) latest.details.set(String(item.id), node);
+                else latest.details.delete(String(item.id));
+              }, "ref")
+            }, msg("查看详情", "View details")),
+            handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null
+          )
+        );
+      })),
+      // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
+      // itself ignores a press while any read is running.
+      canLoadMore ? h("button", {
+        type: "button",
+        className: "pg-button pg-load-more",
+        "aria-disabled": busy ? true : void 0,
+        "aria-busy": busy === "more",
+        onClick: loadMore,
+        ref: /* @__PURE__ */ __name((node) => {
+          latest.more = node;
+        }, "ref")
+      }, busy === "more" ? msg("正在加载…", "Loading…") : msg("加载更多", "Load more")) : null
+    ),
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
     detail ? h(ChallengeDetailDrawer, {
       key: String(detail.id),
       challenge: detail,
       query,
       handoff: catalogHandoff,
+      requestTask,
+      competition: infoName,
+      group: groupFor(detail),
+      progress: progressFor(detail),
       close: /* @__PURE__ */ __name(() => setDetail(null), "close"),
       focusFallback: /* @__PURE__ */ __name(() => [latest.details.get(String(detail.id)), latest.heading], "focusFallback")
     }) : null
@@ -5308,7 +5815,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
 __name(TaskDetailDrawer, "TaskDetailDrawer");
 
 // src/client/workbench.js
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
@@ -5455,7 +5962,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   }, "openConversation");
   return h(
     "main",
-    { className: "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
+    { className: section === "catalog" ? "pg-workbench pg-workbench-catalog" : "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
     h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--pg-text);background:var(--pg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--pg-muted)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--pg-muted)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--pg-line);border-radius:999px;background:var(--pg-base);color:var(--pg-text);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--pg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--pg-muted);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--pg-line);border-radius:10px;color:var(--pg-muted);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--pg-line-strong)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--pg-line);border-radius:10px;background:var(--pg-panel);color:var(--pg-text)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--pg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--pg-hover)}.pg-task-row.is-selected{background:var(--pg-hover)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--pg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-family:var(--pg-font-mono);font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-family:var(--pg-font-mono);font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--pg-muted);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--pg-base);color:var(--pg-text);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--pg-muted);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--pg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pg-muted)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--pg-muted)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
@@ -5482,8 +5989,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         section === "submissions" ? null : h(
           "section",
           { className: "pg-workbench-column", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog") },
-          h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
-          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, onWebBase: setWebBase })
+          section === "catalog" ? null : h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
+          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, requestTask, controllerRows, account, active, taskSessions, webBase, onWebBase: setWebBase })
         ),
         section === "catalog" ? null : h(
           "section",

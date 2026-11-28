@@ -150,11 +150,13 @@ function ControllerPanel(props) {
   const [dispatchControls] = React.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React.useState('checking');
   const [accountName, setAccountName] = React.useState('');
+  const [accountId, setAccountId] = React.useState(undefined);
   const [configuredBase, setConfiguredBase] = React.useState('');
   const [updateAuthStatus] = React.useState(() => (status, user, baseUrl) => {
     setAuthStatus(status);
     if (status === 'checking') return;
     setAccountName(status === 'authenticated' ? user?.name || user?.email || '' : '');
+    setAccountId(status === 'authenticated' ? user?.id : undefined);
     setConfiguredBase(baseUrl || '');
   });
   const [visited] = React.useState(() => new Set());
@@ -515,7 +517,7 @@ function ControllerPanel(props) {
         view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query, checks: props.releaseChecks,
           installRelease: props.installRelease, visit: releaseVisit }) : null),
-      ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff } : {}) })) : null),
+      ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff, controllerRows: tasks?.kind === 'ready' ? tasks.rows : undefined, account: authStatus === 'authenticated' ? accountId : undefined } : {}) })) : null),
       view === 'controller' && showTasks ? h(React.Fragment, null,
         h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': msg('调整任务侧栏宽度', 'Resize task sidebar'), 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,
           onKeyDown: (event) => { const next = { ArrowLeft: taskWidth + 10, ArrowRight: taskWidth - 10, Home: 300, End: 520 }[event.key]; if (next !== undefined) { event.preventDefault(); resize(next); } },

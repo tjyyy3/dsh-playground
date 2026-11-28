@@ -36,11 +36,10 @@ function taskWebUrl(task, webBase) {
 }
 
 // DSH desktop hands https windows to the system browser.
-function openWebButton(value, title) {
+function openWebButton(value, title, { label = msg('在网页中打开', 'Open in browser'), className = '' } = {}) {
   const url = openableWebUrl(value);
   if (!url) return null;
-  const label = msg('在网页中打开', 'Open in browser');
-  return h('button', { type: 'button', className: 'pg-button', 'aria-label': title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label,
+  return h('button', { type: 'button', className: className ? `pg-button ${className}` : 'pg-button', 'aria-label': title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label,
     onClick: () => { window.open(url, '_blank', 'noopener,noreferrer'); } }, label);
 }
 
