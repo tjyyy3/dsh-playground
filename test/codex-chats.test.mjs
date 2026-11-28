@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { realpath } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createCodexChats } from '../lib/controller/codex-chats.js';
+import * as codexRpc from '../lib/controller/codex-rpc.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 
 const cwd = await realpath('.');
@@ -42,9 +44,49 @@ function fixture(threads, options = {}) {
     workspaceRegistry: { resolveByPath: async () => options.workspace || workspace } }, markerOf: () => marker,
     inspect: async () => options.snapshot || { kind: 'existing', sessionId: marker.sessionId },
     getService: () => ({ listChildren: async () => options.children || [] }),
-    connect: async (callback) => callback(rpc) });
+    findExecutable: options.findExecutable,
+    connect: options.connect || (async (callback) => callback(rpc)) });
   return { calls, run: (input) => chats({ ...marker, ...input }) };
 }
+
+test('detect checks for the executable without connecting to the Codex server', async (t) => {
+  const connect = t.mock.fn();
+  const findExecutable = t.mock.fn(async () => join(cwd, 'codex'));
+  const { run } = fixture([], { connect, findExecutable });
+  const missing = fixture([], { connect, findExecutable: async () => { throw Error('codex_unavailable'); } });
+  const wrongWorkspace = fixture([], { connect, findExecutable, workspace: { ...workspace, id: 'other' } });
+
+  assert.deepEqual(await run({ action: 'detect' }), { kind: 'available' });
+  assert.deepEqual(await missing.run({ action: 'detect' }), { kind: 'unavailable', code: 'codex_unavailable' });
+  assert.deepEqual(await wrongWorkspace.run({ action: 'detect' }), { kind: 'unavailable', code: 'controller_changed' });
+  assert.equal(findExecutable.mock.callCount(), 1);
+  assert.equal(connect.mock.callCount(), 0);
+});
+
+test('findCodex skips directories named like the executable and finds a regular executable', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'codex-path-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const binary = process.platform === 'win32' ? 'codex.exe' : 'codex';
+  const directoryBin = join(root, 'directory-bin');
+  const regularBin = join(root, 'regular-bin');
+  const executable = join(regularBin, binary);
+  await mkdir(join(directoryBin, binary), { recursive: true });
+  await mkdir(regularBin);
+  await writeFile(executable, '', { mode: 0o755 });
+
+  const { PATH, SystemRoot } = process.env;
+  t.after(() => {
+    if (PATH === undefined) delete process.env.PATH;
+    else process.env.PATH = PATH;
+    if (SystemRoot !== undefined) process.env.SystemRoot = SystemRoot;
+  });
+  delete process.env.SystemRoot;
+  process.env.PATH = directoryBin;
+  assert.equal(typeof codexRpc.findCodex, 'function');
+  await assert.rejects(codexRpc.findCodex(), /codex_unavailable/);
+  process.env.PATH = [directoryBin, regularBin].join(delimiter);
+  assert.equal(await codexRpc.findCodex(), executable);
+});
 
 test('discover only interactive roots in the exact registered workspace and exclude DSH children', async () => {
   const mine = thread('A');
@@ -140,6 +182,7 @@ test('only the authenticated browser peer can invoke Codex RPCs', async () => {
   let count = 0;
   registerWorkbenchQueries(ctx, {}, { codexChats: async () => { count++; return { kind: 'sent' }; } });
   const original = '  preserve indentation\n';
+  assert.deepEqual(schema.parse({ ...marker, action: 'detect' }), { ...marker, action: 'detect' });
   const input = schema.parse({ ...marker, action: 'send', threadId: randomUUID(), message: original });
   assert.equal(input.message, original);
   assert.equal(schema.safeParse({ ...input, message: '   \n' }).success, false);

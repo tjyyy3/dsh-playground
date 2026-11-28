@@ -277,7 +277,7 @@ var locales = {
       playground_check_materials: "提交前检查",
       playground_task: "任务状态",
       playground_open_controller: "打开工作区主控",
-      playground_controller_codex_chats: "工作区 Codex 对话",
+      playground_controller_codex_chats: "外部 Codex 对话",
       playground_submit: "提交到 Playground"
     },
     preparing: "正在准备参数…",
@@ -374,7 +374,7 @@ var locales = {
       playground_check_materials: "Submission checks",
       playground_task: "Task status",
       playground_open_controller: "Open workspace controller",
-      playground_controller_codex_chats: "Workspace Codex chats",
+      playground_controller_codex_chats: "External Codex chats",
       playground_submit: "Submit to Playground"
     },
     preparing: "Preparing arguments…",
@@ -498,53 +498,7 @@ function workspaceOptions(items) {
 }
 __name(workspaceOptions, "workspaceOptions");
 
-// src/client/shared/styles.js
-var css = `
-  .pg-guide,.pg-card{--pg-accent:#007f86;--pg-accent-strong:#00656b;--pg-accent-soft:#e7f7f6;--pg-success:#18794e;--pg-warning:#936b00;--pg-error:#b42318;box-sizing:border-box;max-width:100%;font:inherit;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);padding:12px 14px}.pg-guide{margin:4px 0 8px}.pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}.pg-column-heading h2{margin:0}.pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}.pg-mark{color:var(--pg-accent);font-weight:700}.pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary);margin:8px 0}.pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.pg-button{min-height:40px;font:inherit;font-size:12px;line-height:1.4;padding:8px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);cursor:pointer}.pg-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-button:disabled,.pg-button[aria-disabled="true"]{opacity:.55;cursor:default}.pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--dsw-alias-label-secondary)}.pg-card h3{font:inherit;font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}.pg-badge{font-size:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.pg-badge[data-tone=success]{color:var(--pg-success);border-color:var(--pg-success);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=warning]{color:var(--pg-warning);border-color:var(--pg-warning);background:var(--dsw-alias-bg-layer-1)}.pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}.pg-badge[data-tone=error]{border-color:var(--pg-error);background:var(--dsw-alias-bg-layer-1)}.pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-score{font-size:15px;font-weight:600;margin:12px 0 8px}.pg-list{list-style:none;padding:0;margin:10px 0 0}.pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--dsw-alias-border-l1);font-size:12px}.pg-row .pg-badge{align-self:start}.pg-row-main{min-width:0;overflow-wrap:anywhere}.pg-row-sub{margin-top:4px;color:var(--dsw-alias-label-secondary)}.pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}.pg-metric{padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}.pg-metric dt{font-size:11px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}.pg-raw{font-size:12px;margin-top:10px;color:var(--dsw-alias-label-secondary)}.pg-raw summary{cursor:pointer}.pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}.pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}.pg-card footer{margin-top:10px;font-size:11px;color:var(--dsw-alias-label-secondary)}.pg-primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground);font-weight:600}.pg-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}.pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-`;
-var taskModalCss = `
-    .pg-task-modal{--pg-task-accent:#007f86;--pg-task-text:var(--dsw-alias-label-primary,#24282e);--pg-task-secondary:var(--dsw-alias-label-secondary,#68717c);--pg-task-base:var(--dsw-alias-bg-base,#fff);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--dsw-alias-border-l2,#d4dbe1);--pg-task-error:var(--dsw-alias-state-error-primary,#b42318);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:16px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;overflow:hidden}
-    .pg-task-modal *{box-sizing:border-box}.pg-task-modal ::selection{background:color-mix(in srgb,var(--pg-task-accent) 25%,var(--pg-task-base));color:var(--pg-task-text)}
-    .pg-task-modal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
-    .pg-task-header{position:relative;flex:none;padding:24px 24px 0}.pg-task-header h2{padding-right:36px;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.2px}.pg-task-subtitle{margin:6px 0 0;color:var(--pg-task-secondary);font-size:13px;line-height:20px}
-    .pg-task-close{position:absolute;top:20px;right:20px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--pg-task-secondary);cursor:pointer}.pg-task-close:hover:not(:disabled){background:var(--pg-task-subtle);color:var(--pg-task-text)}
-    .pg-task-body{display:grid;gap:24px;min-height:0;padding:24px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-task-border) transparent}
-    .pg-task-summary{padding:16px;border-radius:10px;background:var(--pg-task-subtle)}.pg-task-summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.pg-task-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;margin:0;font-size:16px;line-height:25px;font-weight:500}.pg-task-mode{flex:none;margin-top:2px;padding:1px 7px;border:1px solid var(--pg-task-border);border-radius:5px;color:var(--pg-task-secondary);font-size:11px;line-height:18px;white-space:nowrap}.pg-task-id{margin:7px 0 0;color:var(--pg-task-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-    .pg-task-field{display:grid;gap:8px}.pg-task-field label{font-size:14px;font-weight:500;line-height:21px}.pg-task-select-wrap{position:relative;min-width:0}.pg-task-select-wrap>svg{position:absolute;top:13px;left:13px;pointer-events:none;color:var(--pg-task-secondary)}.pg-task-select-wrap>.pg-task-chevron{top:14px;right:13px;left:auto;width:15px;height:15px}
-    .pg-task-select{appearance:none;display:block;width:100%;height:44px;padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--pg-task-error)}
-    .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1,#e9ecf0);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
-    .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--pg-task-error);font-size:12px;line-height:20px;overflow-wrap:anywhere}
-    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--dsw-alias-border-l1,#eceff2)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
-    .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:42px;padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}.pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-create{min-width:144px;border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover);border-color:transparent}.pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--dsw-alias-label-tertiary,#7d8791)}.pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}.pg-task-create[data-busy=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}.pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
-    .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent);outline-offset:2px}
-    @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
-    @media(max-width:600px){.pg-task-header{padding:22px 20px 0}.pg-task-header h2{font-size:19px}.pg-task-body{padding:20px;gap:20px}.pg-task-footer{padding:16px 20px 20px}.pg-task-summary{padding:14px}}
-  `;
-
-// src/client/settings/auth.js
-var React2 = __toESM(require("react"), 1);
-
-// src/client/shared/display.js
-function statusTone(state) {
-  if (["failed", "incomplete", "rejected"].includes(state)) return "error";
-  if (["queued", "evaluating", "scoring", "pending_review", "awaiting_bundle", "awaiting_review", "active"].includes(state)) return "warning";
-  if (["submitted", "scored", "late_scored", "final", "ready", "open"].includes(state)) return "success";
-  return "neutral";
-}
-__name(statusTone, "statusTone");
-function openableWebUrl(value) {
-  if (typeof value !== "string" || !value) return void 0;
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return void 0;
-  }
-  if (url.username || url.password) return void 0;
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  return url.protocol === "https:" || url.protocol === "http:" && local ? url.href : void 0;
-}
-__name(openableWebUrl, "openableWebUrl");
+// src/client/shared/web-address.js
 function webRootOf(apiBase) {
   let root = String(apiBase || "");
   try {
@@ -560,6 +514,141 @@ function webRootOf(apiBase) {
   return root.replace(/\/+$/, "").replace(/\/api$/i, "").replace(/\/+$/, "");
 }
 __name(webRootOf, "webRootOf");
+
+// src/client/shared/styles.js
+var instrumentCss = `
+  :where(.pg-controller,.pg-workbench,.pg-guide,.pg-card,.pg-task-modal,.pg-codex-chats) {
+    --pg-base:#090B0E; --pg-panel:#0D1014; --pg-hover:#141920;
+    --pg-line:#1E232C; --pg-line-strong:#2C3340;
+    --pg-accent:#C6F24E; --pg-accent-hover:#DAFF73;
+    --pg-info:#7CC0FF; --pg-warning:#FFB04A; --pg-error:#FF8E7A;
+    --pg-text:#E6EAF0; --pg-muted:#A3ADBB; --pg-label:#808B9B; --pg-ink:#0A0C0F;
+    --pg-accent-strong:var(--pg-accent); --pg-accent-soft:#12170C;
+    --pg-control:#0F1216; --pg-control-line:#262C36;
+    --pg-r4:4px; --pg-r6:6px; --pg-r8:8px; --pg-r10:10px; --pg-r14:14px;
+    --pg-s4:4px; --pg-s8:8px; --pg-s12:12px; --pg-s16:16px; --pg-s24:24px;
+    --pg-h30:30px; --pg-h36:36px; --pg-h42:42px;
+    --pg-font-body:"Noto Sans SC",system-ui,sans-serif;
+    --pg-font-title:"Space Grotesk",var(--pg-font-body);
+    --pg-font-mono:"JetBrains Mono",ui-monospace,monospace;
+    --pg-grid:radial-gradient(rgba(230,234,240,0.05) 1px,transparent 1px) 0 0 / 22px 22px;
+    color:var(--pg-text);
+    font-family:var(--pg-font-body);
+  }
+  :where(.pg-controller-brand,.pg-controller-chat-head,.pg-controller-tasks,.pg-workbench,.pg-guide,.pg-card,.pg-task-modal) :is(h1,h2,h3) {
+    font-family:var(--pg-font-title);
+  }
+`;
+var css = instrumentCss + `
+
+  .pg-guide,.pg-card{box-sizing:border-box;max-width:100%;line-height:1.55;color:var(--pg-text);border:1px solid var(--pg-line);border-radius:var(--pg-r10);background:var(--pg-panel);padding:12px 14px}
+  .pg-guide{margin:4px 0 8px}
+  .pg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .pg-brand{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px;line-height:1.4;margin:0}
+  .pg-column-heading h2{margin:0}
+  .pg-confirm-title{margin:0;font:inherit;font-size:14px;line-height:1.4}
+  .pg-mark{color:var(--pg-accent);font-weight:700}
+  .pg-guide p,.pg-note{font-size:12px;line-height:1.6;color:var(--pg-muted);margin:8px 0}
+  .pg-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .pg-button{min-height:var(--pg-h36);font:inherit;font-size:13px;line-height:1.4;padding:6px 14px;border-radius:var(--pg-r8);border:1px solid var(--pg-line-strong);background:transparent;color:var(--pg-text);cursor:pointer}
+  .pg-button:hover:not(:disabled){background:var(--pg-hover);border-color:#353D4A}
+  .pg-button:focus-visible,.pg-input:focus-visible,.pg-session-picker:focus-visible,.pg-split-control input:focus-visible,.pg-raw summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}
+  .pg-button:is(:disabled,[aria-disabled="true"]){background:var(--pg-hover);border-color:var(--pg-control-line);color:var(--pg-label);cursor:default}
+  .pg-toggle{border:0;background:transparent;padding:3px 0;color:var(--pg-muted)}
+  .pg-card h3{font-family:var(--pg-font-title);font-weight:600;font-size:14px;line-height:1.5;margin:0;overflow-wrap:anywhere}
+  .pg-badge{display:inline-flex;align-items:center;gap:6px;min-height:20px;font-size:11.5px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r4);padding:0 6px;color:var(--pg-muted);white-space:nowrap}
+  .pg-badge:is([data-tone=running],[data-tone=result],[data-tone=evaluating],[data-tone=warning],[data-tone=scored],[data-tone=error],[data-tone=unknown])::before {content:"";width:7px;height:7px;box-sizing:border-box;border-radius:50%;background:currentColor;flex:none}
+  .pg-badge:is([data-tone=running],[data-tone=open],[data-tone=success]){color:var(--pg-accent)}
+  .pg-badge:is([data-tone=result],[data-tone=scored]){color:var(--pg-text)}
+  .pg-badge[data-tone=scored]::before{border-radius:0}
+  .pg-badge[data-tone=evaluating]{color:var(--pg-info)}
+  .pg-badge[data-tone=warning]{color:var(--pg-warning)}
+  .pg-badge[data-tone=error],.pg-error{color:var(--pg-error)}
+  .pg-badge[data-tone=error]::before{border:1.5px solid currentColor;background:none}
+  .pg-badge[data-tone=unknown]::before{width:9px;height:9px;border:1px solid var(--pg-label);border-radius:2px;background:repeating-linear-gradient(135deg,var(--pg-label) 0 1.5px,transparent 1.5px 3.5px)}
+  .pg-badge[data-tone=running]::before{animation:pg-signal-pulse 1.8s ease-out infinite}
+  @keyframes pg-signal-pulse{0%{box-shadow:0 0 0 0 rgba(198,242,78,.55)}70%,100%{box-shadow:0 0 0 6px rgba(198,242,78,0)}}
+  @media(prefers-reduced-motion:reduce){.pg-badge[data-tone=running]::before{animation:none}}
+  .pg-facts{display:flex;gap:8px 16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--pg-muted)}
+  .pg-score{font-family:var(--pg-font-mono);font-size:15px;font-weight:600;margin:12px 0 8px}
+  .pg-list{list-style:none;padding:0;margin:10px 0 0}
+  .pg-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:9px 0;border-top:1px solid var(--pg-line);font-size:12px}
+  .pg-row .pg-badge{align-self:start}
+  .pg-row-main{min-width:0;overflow-wrap:anywhere}
+  .pg-row-sub{margin-top:4px;color:var(--pg-muted)}
+  .pg-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px;margin:8px 0}
+  .pg-metric{padding:8px 10px;border:1px solid var(--pg-line);border-radius:8px}
+  .pg-metric dt{font-size:11px;color:var(--pg-muted);overflow-wrap:anywhere}
+  .pg-metric dd{margin:5px 0 0;font-size:17px;font-weight:600}
+  .pg-raw{font-size:12px;margin-top:10px;color:var(--pg-muted)}
+  .pg-raw summary{cursor:pointer}
+  .pg-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font:inherit;font-size:12px;line-height:1.6}
+  .pg-error{font-size:12px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}
+  .pg-card footer{margin-top:10px;font-size:11px;color:var(--pg-muted)}
+  .pg-primary{background:var(--pg-accent);border-color:transparent;color:var(--pg-ink);font-weight:600}
+  .pg-primary:hover:not(:disabled):not([aria-disabled="true"]){background:var(--pg-accent-hover);border-color:transparent}
+  .pg-list-action{background:var(--pg-accent-soft);border-color:#6E8A2A;color:var(--pg-accent);font-weight:600}
+  .pg-risk{background:var(--pg-warning);border-color:transparent;color:#1A1208;font-weight:600}
+  .pg-risk:hover:not(:disabled){background:#FFC276;border-color:transparent}
+  .pg-input{box-sizing:border-box;min-height:var(--pg-h36);padding:6px 10px;font:inherit;color:var(--pg-text);color-scheme:dark;background:var(--pg-control);border:1px solid var(--pg-control-line);border-radius:var(--pg-r8)}
+  .pg-input:disabled{background:var(--pg-hover);color:var(--pg-label)}
+  .pg-input::placeholder,.pg-codex-chats textarea::placeholder{color:var(--pg-label)}
+  .pg-confirm-impact{display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px;border:1px solid var(--pg-warning);border-radius:8px;color:var(--pg-warning);font-size:12px;line-height:1.5}.pg-readonly{box-sizing:border-box;padding:8px 10px;border:1px solid var(--pg-line);border-radius:7px;background:var(--pg-panel);color:var(--pg-muted);font-size:12px}.pg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+`;
+var taskModalCss = instrumentCss + `
+    .pg-task-modal{--pg-task-accent:var(--pg-accent);--pg-task-text:var(--pg-text);--pg-task-secondary:var(--pg-muted);--pg-task-base:var(--pg-base);--pg-task-subtle:color-mix(in srgb,var(--pg-task-text) 3%,var(--pg-task-base));--pg-task-border:var(--pg-line);--pg-task-error:var(--pg-error);box-sizing:border-box;width:544px;max-width:100%;max-height:calc(100dvh - 96px);gap:0;padding:0;border-radius:var(--pg-r14);background:var(--pg-task-base);color:var(--pg-task-text);font-size:14px;overflow:hidden}
+    .pg-task-modal *{box-sizing:border-box}.pg-task-modal ::selection{background:color-mix(in srgb,var(--pg-task-accent) 25%,var(--pg-task-base));color:var(--pg-task-text)}
+    .pg-task-modal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+    .pg-task-header{position:relative;flex:none;padding:24px 24px 0}.pg-task-header h2{padding-right:36px;margin:0;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.2px}.pg-task-subtitle{margin:6px 0 0;color:var(--pg-task-secondary);font-size:13px;line-height:20px}
+    .pg-task-close{position:absolute;top:20px;right:20px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--pg-task-secondary);cursor:pointer}.pg-task-close:hover:not(:disabled){background:var(--pg-task-subtle);color:var(--pg-task-text)}
+    .pg-task-body{display:grid;gap:24px;min-height:0;padding:24px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-task-border) transparent}
+    .pg-task-summary{padding:16px;border-radius:10px;background:var(--pg-task-subtle)}.pg-task-summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.pg-task-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;margin:0;font-size:16px;line-height:25px;font-weight:500}.pg-task-mode{flex:none;margin-top:2px;padding:1px 7px;border:1px solid var(--pg-task-border);border-radius:5px;color:var(--pg-task-secondary);font-size:11px;line-height:18px;white-space:nowrap}.pg-task-id{margin:7px 0 0;color:var(--pg-task-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+    .pg-task-field{display:grid;gap:8px}.pg-task-field label{font-size:14px;font-weight:500;line-height:21px}.pg-task-select-wrap{position:relative;min-width:0}.pg-task-select-wrap>svg{position:absolute;top:13px;left:13px;pointer-events:none;color:var(--pg-task-secondary)}.pg-task-select-wrap>.pg-task-chevron{top:14px;right:13px;left:auto;width:15px;height:15px}
+    .pg-task-select{appearance:none;display:block;width:100%;height:var(--pg-h42);padding:0 40px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;line-height:22px}.pg-task-select[data-empty=true]{color:var(--pg-task-secondary)}.pg-task-select:hover:not(:disabled){border-color:var(--pg-task-secondary)}.pg-task-select:disabled{background:var(--pg-task-subtle);color:var(--pg-task-secondary)}.pg-task-select[aria-invalid=true]{border-color:var(--pg-task-error)}
+    .pg-task-path{margin:0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:7px;background:var(--pg-task-subtle);color:var(--pg-task-secondary);font-size:12px;line-height:20px;overflow-wrap:anywhere;white-space:pre-wrap}.pg-task-hint{margin:0;color:var(--pg-task-secondary);font-size:12px;line-height:19px}
+    .pg-task-add{justify-self:start;display:flex;align-items:center;gap:7px;height:36px;margin-top:4px;padding:0 10px 0 8px;border:1px solid var(--pg-task-border);border-radius:7px;background:var(--pg-task-base);color:var(--pg-task-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-task-add svg{width:15px;height:15px}.pg-task-add:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}.pg-task-error{margin:2px 0 0;color:var(--pg-task-error);font-size:12px;line-height:20px;overflow-wrap:anywhere}
+    .pg-task-footer{flex:none;padding:16px 24px 20px;border-top:1px solid var(--pg-line)}.pg-task-footer p{margin:0 0 16px;color:var(--pg-task-secondary);font-size:12px;line-height:19px}.pg-task-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+    .pg-task-button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:76px;height:var(--pg-h42);padding:0 16px;border:1px solid var(--pg-task-border);border-radius:8px;background:var(--pg-task-base);color:var(--pg-task-text);font:inherit;font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}
+    .pg-task-button:hover:not(:disabled){background:var(--pg-task-subtle);border-color:var(--pg-task-secondary)}
+    .pg-task-create{min-width:144px;border-color:transparent;background:var(--pg-accent);color:var(--pg-ink)}
+    .pg-task-create:hover:not(:disabled){background:var(--pg-accent-hover);border-color:transparent}
+    .pg-task-button:disabled,.pg-task-add:disabled,.pg-task-close:disabled{cursor:default;color:var(--pg-label)}
+    .pg-task-create:disabled{border-color:transparent;background:color-mix(in srgb,var(--pg-task-text) 8%,var(--pg-task-base))}
+    .pg-task-create[data-busy=true]{background:var(--pg-accent);color:var(--pg-ink)}
+    .pg-task-create svg{width:15px;height:15px;animation:pg-task-spin 1s linear infinite}
+    .pg-task-modal button:focus-visible,.pg-task-select:focus-visible{outline:2px solid var(--pg-task-accent);outline-offset:3px}.pg-task-select:focus-visible{border-color:var(--pg-task-accent);outline-offset:2px}
+    @keyframes pg-task-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.pg-task-create svg{animation:none}}
+    @media(max-width:600px){.pg-task-header{padding:22px 20px 0}.pg-task-header h2{font-size:19px}.pg-task-body{padding:20px;gap:20px}.pg-task-footer{padding:16px 20px 20px}.pg-task-summary{padding:14px}}
+  `;
+
+// src/client/settings/auth.js
+var React2 = __toESM(require("react"), 1);
+
+// src/client/shared/display.js
+function statusTone(state) {
+  if (["failed", "incomplete", "rejected"].includes(state)) return "error";
+  if (["queued", "evaluating", "scoring", "provisional"].includes(state)) return "evaluating";
+  if (["pending_review", "awaiting_bundle", "awaiting_review", "awaiting_confirmation"].includes(state)) return "warning";
+  if (["scored", "late_scored", "final"].includes(state)) return "scored";
+  if (state === "open") return "open";
+  if (["active", "running"].includes(state)) return "running";
+  if (["ready", "submitted"].includes(state)) return "result";
+  return state === "unknown" ? "unknown" : "neutral";
+}
+__name(statusTone, "statusTone");
+function openableWebUrl(value) {
+  if (typeof value !== "string" || !value) return void 0;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return void 0;
+  }
+  if (url.username || url.password) return void 0;
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  return url.protocol === "https:" || url.protocol === "http:" && local ? url.href : void 0;
+}
+__name(openableWebUrl, "openableWebUrl");
 function taskWebUrl(task, webBase) {
   if (typeof task?.webUrl === "string" && task.webUrl) return task.webUrl;
   const id = task?.challengeId;
@@ -568,13 +657,12 @@ function taskWebUrl(task, webBase) {
   return root ? `${root}/challenge/${encodeURIComponent(id)}` : void 0;
 }
 __name(taskWebUrl, "taskWebUrl");
-function openWebButton(value, title) {
+function openWebButton(value, title, { label: label2 = msg("在网页中打开", "Open in browser"), className = "" } = {}) {
   const url = openableWebUrl(value);
   if (!url) return null;
-  const label2 = msg("在网页中打开", "Open in browser");
   return h("button", {
     type: "button",
-    className: "pg-button",
+    className: className ? `pg-button ${className}` : "pg-button",
     "aria-label": title ? msg(`在网页中打开：${title}`, `Open in browser: ${title}`) : label2,
     onClick: /* @__PURE__ */ __name(() => {
       window.open(url, "_blank", "noopener,noreferrer");
@@ -593,7 +681,7 @@ function tokenPageUrl(apiBase) {
   return root ? openableWebUrl(`${root}/#dashboard/api`) : void 0;
 }
 __name(tokenPageUrl, "tokenPageUrl");
-var authCss = ".pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}";
+var authCss = ".pg-auth .pg-form{display:grid;gap:8px;margin-top:10px}.pg-auth .pg-field{display:grid;gap:4px;font-size:12px}.pg-auth .pg-input{width:100%}.pg-auth-other{margin-top:12px;font-size:12px;color:var(--pg-muted)}.pg-auth-other summary{cursor:pointer}.pg-auth-other summary:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}";
 function tokenProblem(state) {
   const source = state.tokenSource;
   const fromFile = state.cliFilePath ? msg(`CLI 凭据文件 ${state.cliFilePath}`, `CLI credentials file ${state.cliFilePath}`) : msg("CLI 凭据文件", "the CLI credentials file");
@@ -688,7 +776,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     check();
   }, [query]);
   React2.useEffect(() => {
-    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated");
+    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user, state?.baseUrl);
   }, [state, checking, onStatusChange]);
   const submitLogin = /* @__PURE__ */ __name(async () => {
     if (latest.previewRequest) {
@@ -1007,19 +1095,19 @@ var releaseCss = `
   .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
   .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
   .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
-  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--dsw-alias-label-secondary); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
+  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
   .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
   .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
   .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
-  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--dsw-alias-label-secondary) }.pg-release-version small { font-size:12px }
-  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--dsw-alias-label-primary) }
-  .pg-release-arrow { color:var(--dsw-alias-label-secondary) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
-  .pg-release-pref { min-height:54px; border-top:1px solid var(--dsw-alias-border-l2); font-weight:600; cursor:pointer }
-  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--dsw-alias-label-secondary); border-radius:12px; background:var(--dsw-alias-bg-base); cursor:pointer }
-  .pg-release-pref input::before { content:""; background:var(--dsw-alias-label-secondary); width:14px; height:14px; margin:2px; border-radius:50% }
+  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--pg-muted) }.pg-release-version small { font-size:12px }
+  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--pg-text) }
+  .pg-release-arrow { color:var(--pg-muted) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
+  .pg-release-pref { min-height:54px; border-top:1px solid var(--pg-line); font-weight:600; cursor:pointer }
+  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--pg-muted); border-radius:12px; background:var(--pg-base); cursor:pointer }
+  .pg-release-pref input::before { content:""; background:var(--pg-muted); width:14px; height:14px; margin:2px; border-radius:50% }
   .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
   @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
-  .pg-release-details { border-top:1px solid var(--dsw-alias-border-l2); padding:10px var(--inset); color:var(--dsw-alias-label-secondary); font-size:13px }.pg-release-details summary { cursor:pointer }
+  .pg-release-details { border-top:1px solid var(--pg-line); padding:10px var(--inset); color:var(--pg-muted); font-size:13px }.pg-release-details summary { cursor:pointer }
   .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
   @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
 `;
@@ -1050,7 +1138,7 @@ function ReleaseIndicator({ checks, active, open }) {
     className: "pg-release-indicator",
     onClick: open,
     title: msg(`查看版本 ${version2}`, `View version ${version2}`)
-  }, icon("M4 10a8 8 0 0 1 13-4l3 3m0-5v5h-5M20 14a8 8 0 0 1-13 4l-3-3m0 5v-5h5"), msg("有新版本", "Update available")) : null;
+  }, icon("M12 20V4m0 0-6 6m6-6 6 6", 14), msg("有新版本", "Update available")) : null;
 }
 __name(ReleaseIndicator, "ReleaseIndicator");
 function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
@@ -1333,6 +1421,21 @@ __name(controllerMessage, "controllerMessage");
 
 // src/client/controller/codex-chats.js
 var React4 = __toESM(require("react"), 1);
+var codexCss = `
+  .pg-controller-external-chats { margin-top:6px; border:1px solid #1A1F27; border-radius:var(--pg-r10); background:#0A0D10; }
+  .pg-controller-external-chats > summary { display:flex; align-items:center; gap:var(--pg-s8); padding:10px var(--pg-s12); border-radius:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .pg-controller-external-chats > summary svg { color:var(--pg-muted); }
+  .pg-controller-external-chats[open] > summary { border-bottom:1px solid #161B22; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .pg-codex-chats { display:grid; gap:var(--pg-s8); padding:var(--pg-s12); border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-panel); overflow-wrap:anywhere; }
+  .pg-controller-external-chats .pg-codex-chats { border:0; background:transparent; }
+  .pg-codex-chats h3,.pg-codex-chats p { margin:0; }
+  .pg-codex-chats label { display:grid; gap:var(--pg-s4); margin:6px 0; }
+  .pg-codex-chats .pg-input { width:100%; }
+  .pg-codex-chats .pg-controller-row { display:grid; gap:4px; width:100%; padding:8px 0; border:0; border-bottom:1px solid var(--pg-line); border-radius:var(--pg-r4); background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+  .pg-codex-chats .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
+  .pg-codex-chats .pg-controller-row span { color:var(--pg-label); font:10.5px/1.4 var(--pg-font-mono); }
+  .pg-codex-chats .pg-button { justify-self:start; }
+`;
 var reasons = /* @__PURE__ */ __name(() => ({
   controller_changed: msg("主控或工作区已变更，请重新打开。", "The controller or workspace changed. Reopen it to continue."),
   target_missing: msg("找不到此对话，请刷新并核对编号。", "Chat not found. Refresh and check the ID."),
@@ -1343,13 +1446,77 @@ var reasons = /* @__PURE__ */ __name(() => ({
   user_action_required: msg("请从主控工作台发起操作。", "Start this action from the controller workbench."),
   interaction_required: msg("此轮需要在原 Codex 对话中处理交互。", "This turn needs your input in the original Codex chat.")
 }), "reasons");
+function matchingChats(data, target) {
+  const rows = data?.rows || [];
+  return target ? rows.filter((item) => item.threadId === target || item.title === target) : rows;
+}
+__name(matchingChats, "matchingChats");
+function soleChatId(data, target) {
+  const matches = matchingChats(data, target);
+  return matches.length === 1 && (target || !data.partial) ? matches[0].threadId : null;
+}
+__name(soleChatId, "soleChatId");
 var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
 var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
-function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
+  const [detection, setDetection] = React4.useState(null);
+  const [open, setOpen] = React4.useState(false);
+  const [hasOpened, setHasOpened] = React4.useState(false);
+  React4.useEffect(() => {
+    const abort = new AbortController();
+    async function detect() {
+      try {
+        const result = await query({ action: "detect", workspaceId, sessionId }, abort.signal);
+        if (!abort.signal.aborted) setDetection({ query, refresh, available: result?.kind === "available" });
+      } catch {
+        if (!abort.signal.aborted) setDetection(null);
+      }
+    }
+    __name(detect, "detect");
+    void detect();
+    return () => abort.abort();
+  }, [workspaceId, sessionId, query, refresh]);
+  const available = detection?.available === true && detection.query === query && detection.refresh === refresh;
+  if (!available && !hasOpened) return null;
+  return h(
+    "details",
+    {
+      className: "pg-controller-external-chats",
+      hidden: !available,
+      open,
+      onToggle: /* @__PURE__ */ __name((event) => {
+        const expanded = event.currentTarget.open;
+        setOpen(expanded);
+        if (expanded) setHasOpened(true);
+      }, "onToggle")
+    },
+    available ? h(
+      "summary",
+      null,
+      h(
+        "svg",
+        { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+        h("path", { d: "M2.5 4.5 6 8l-3.5 3.5M8 12h5.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" })
+      ),
+      msg("外部 Codex 对话", "External Codex chats")
+    ) : null,
+    hasOpened ? h(CodexChats, {
+      workspaceId,
+      sessionId,
+      query,
+      showHeading: false,
+      visible: available,
+      listRefresh: available && open ? refresh : null
+    }) : null
+  );
+}
+__name(ExternalCodexChats, "ExternalCodexChats");
+function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
   const [data, setData] = React4.useState(initial || null);
   const [selected, select] = React4.useState(null);
   const [target, setTarget] = React4.useState("");
   const [draft, setDraft] = React4.useState(initial?.message || "");
+  const [draftThreadId, setDraftThreadId] = React4.useState(null);
   const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
   const [response, setResponse] = React4.useState(null);
   const [busy, setBusy] = React4.useState(false);
@@ -1357,12 +1524,17 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
   const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
   React4.useEffect(() => {
     control.active = true;
-    if (!initial) read("list");
     return () => {
       control.active = false;
       control.read?.abort();
     };
-  }, [refresh, query]);
+  }, [query]);
+  React4.useEffect(() => {
+    if (initial || listRefresh === null) return;
+    void read("list");
+    const abort = control.read;
+    return () => abort.abort();
+  }, [query, listRefresh]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -1379,16 +1551,20 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     if (!draft.trim() || control.writing) return;
     const rows2 = data?.rows || [];
     const named = target.trim();
-    let displayed;
-    if (!source) {
-      const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
-      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
-        setChoices(matches);
-        setResponse(null);
-        return;
-      }
-      [displayed] = matches;
+    const boundId = source?.threadId ?? draftThreadId;
+    const checkSelection = source && source === selected && !initial && data?.kind === "ready" && !data.partial;
+    if (boundId && (!source || checkSelection) && !rows2.some((item) => item.threadId === boundId)) {
+      setResponse({ kind: "unavailable", code: "target_changed" });
+      return;
     }
+    const matches = matchingChats(data, named);
+    if (!boundId && (matches.length > 1 || !named && (matches.length !== 1 || data?.partial))) {
+      setChoices(matches);
+      setResponse(null);
+      return;
+    }
+    const matchedId = matches[0]?.threadId;
+    const destination = source || !named || boundId && (matches.length !== 1 || matchedId !== boundId) ? { threadId: boundId ?? matchedId } : { target: named, ...matchedId ? { expectedThreadId: matchedId } : {} };
     control.writing = true;
     setBusy(true);
     setResponse(null);
@@ -1399,11 +1575,12 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         sessionId,
         action: "send",
         message: draft,
-        ...source ? { threadId: source.threadId } : named ? { target: named, ...displayed ? { expectedThreadId: displayed.threadId } : {} } : { threadId: displayed.threadId }
+        ...destination
       });
       if (!control.active) return;
       if (result.kind === "choose") {
-        setChoices(result.rows);
+        if (boundId) setResponse({ kind: "unavailable", code: "target_changed" });
+        else setChoices(result.rows);
         return;
       }
       setResponse(result);
@@ -1424,11 +1601,14 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     }
   }
   __name(send, "send");
+  if (!visible) return null;
   const rows = data?.rows || [];
+  const hasFollowUp = rows.length > 0 || selected || !initial && (target || draft);
   return h(
     "section",
-    { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
-    h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")),
+    { className: "pg-codex-chats", "aria-label": msg("外部 Codex 对话", "External Codex chats") },
+    showHeading ? h("style", null, css + codexCss) : null,
+    showHeading ? h("h3", null, msg("外部 Codex 对话", "External Codex chats")) : null,
     !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
     rows.map((source) => h(
       "div",
@@ -1453,34 +1633,48 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     data?.partial ? h("p", null, msg("仅显示最近的部分对话。可通过完整会话编号指定目标。", "Showing recent chats only. Enter the full chat ID to select another.")) : null,
     rows.length > 0 && data.kind !== "summary" ? h("button", {
       type: "button",
-      className: "pg-controller-action",
+      className: "pg-button",
       disabled: busy,
       onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
     }, msg("汇总最近结果", "Summarize recent results")) : null,
-    rows.length || selected ? h(
+    hasFollowUp ? h(
       "div",
       null,
       selected ? h("p", null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h("button", {
         type: "button",
+        className: "pg-button",
         disabled: busy,
         onClick: /* @__PURE__ */ __name(() => {
           select(null);
           setChoices(null);
         }, "onClick")
       }, msg("更换目标", "Change target"))) : h("label", null, msg("目标会话", "Target chat"), h("input", {
+        className: "pg-input",
         value: target,
         disabled: busy,
         placeholder: msg("完整编号或标题", "Full ID or title"),
         onChange: /* @__PURE__ */ __name((event) => {
-          setTarget(event.target.value);
+          const value = event.target.value;
+          if (value.trim() !== target.trim()) {
+            setDraftThreadId(soleChatId(data, value.trim()));
+            setResponse(null);
+          }
+          setTarget(value);
           setChoices(null);
         }, "onChange")
       })),
       h("label", null, msg("追问内容", "Follow-up message"), h("textarea", {
+        className: "pg-input",
         value: draft,
         disabled: busy,
         maxLength: 8e3,
-        onChange: /* @__PURE__ */ __name((event) => setDraft(event.target.value), "onChange")
+        onChange: /* @__PURE__ */ __name((event) => {
+          const value = event.target.value;
+          if (!selected && !draftThreadId && !draft.trim() && value.trim()) {
+            setDraftThreadId(soleChatId(data, target.trim()));
+          }
+          setDraft(value);
+        }, "onChange")
       })),
       choices ? h("div", null, h("p", null, msg("选择接收这条追问的原会话。", "Choose the original chat to receive this follow-up.")), choices.map((source) => h("button", {
         key: source.threadId,
@@ -1490,7 +1684,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         onClick: /* @__PURE__ */ __name(() => send(source), "onClick")
       }, msg(`发送给 ${label(source)}`, `Send to ${label(source)}`)))) : h(
         "button",
-        { type: "button", className: "pg-controller-action", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
+        { type: "button", className: "pg-button", disabled: busy || !draft.trim(), onClick: /* @__PURE__ */ __name(() => send(selected), "onClick") },
         busy ? msg("等待原会话回复…", "Waiting for a reply from the original chat…") : msg("发送追问", "Send follow-up")
       )
     ) : null,
@@ -1504,7 +1698,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } },
         response.kind === "sent" ? response.text || msg("暂无最终回复。", "No final reply yet.") : response.kind === "unknown" && response.code === "interaction_required" ? msg("该轮需要权限或用户输入，请在原 Codex 会话查看。", "This turn needs permission or input. Open the original Codex chat.") : response.kind === "unknown" ? msg("发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。", "Delivery is unconfirmed. Check the turn in the original Codex chat before resending.") : reasons()[response.code] || msg("无法连接可接收追问的本机 Codex 服务。请在原会话继续。", "Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.")
       ),
-      response.kind === "unavailable" && draft ? h("button", { type: "button", onClick: /* @__PURE__ */ __name(async () => {
+      response.kind === "unavailable" && draft ? h("button", { type: "button", className: "pg-button", onClick: /* @__PURE__ */ __name(async () => {
         try {
           await navigator.clipboard.writeText(draft);
           setCopied(true);
@@ -1520,6 +1714,171 @@ __name(CodexChats, "CodexChats");
 // src/client/controller/handoff.js
 var React5 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/client/controller/dialog-styles.js
+var controllerDialogCss = `
+  .pg-task-modal.pg-controller-dialog {
+    --pg-dialog-bg:#0E1115; --pg-dialog-card:#0B0E12; --pg-dialog-rule:#1A1F27; --pg-dialog-selected:#6E8A2A;
+    display:flex; flex-direction:column; width:min(var(--pg-dialog-width),calc(100dvw - 32px)); max-width:none;
+    max-height:calc(100dvh - var(--pg-dialog-inset)); padding:0; border:1px solid #2A313C; border-radius:var(--pg-r14);
+    background:var(--pg-dialog-bg); box-shadow:0 40px 100px rgba(0,0,0,.6); line-height:1.55;
+    font-family:var(--pg-font-title);
+  }
+  .pg-controller-dialog .pg-task-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 22px;
+    border-bottom:1px solid var(--pg-dialog-rule);
+  }
+  .pg-controller-dialog .pg-task-header h2 { min-width:0; margin:0; padding:0; font-size:19px; line-height:1.55; letter-spacing:normal; overflow-wrap:anywhere }
+  .pg-controller-dialog .pg-task-close {
+    position:static; flex:none; width:34px; height:34px; border:1px solid var(--pg-control-line);
+    border-radius:var(--pg-r8); background:transparent; color:var(--pg-muted);
+  }
+  .pg-controller-dialog .pg-task-close svg { width:13px; height:13px; stroke-width:1.5 }
+  .pg-controller-dialog .pg-task-body { display:flex; flex:1 1 auto; flex-direction:column; min-height:0; gap:18px; padding:18px 22px }
+  .pg-controller-dialog .pg-task-body > * { flex-shrink:0 }
+  .pg-controller-dialog .pg-task-footer {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:14px 22px;
+    border-color:var(--pg-dialog-rule); background:var(--pg-dialog-card); border-radius:0 0 var(--pg-r14) var(--pg-r14);
+  }
+  .pg-controller-dialog .pg-task-button {
+    min-width:0; height:auto; min-height:38px; padding:6px 14px; border-color:var(--pg-line-strong);
+    background:transparent; font-size:13px; font-weight:400; white-space:normal; text-align:center; text-decoration:none;
+  }
+  .pg-controller-dialog .pg-task-button:hover:not(:disabled), .pg-controller-dialog .pg-task-close:hover:not(:disabled) {
+    background:#1B2028; border-color:#353D4A; color:var(--pg-text);
+  }
+  .pg-controller-dialog .pg-task-create {
+    padding-inline:16px; border-color:transparent; background:var(--pg-accent); color:var(--pg-ink); font-weight:600;
+  }
+  .pg-controller-dialog .pg-task-create:hover:not(:disabled) { background:var(--pg-accent-hover); border-color:transparent; color:var(--pg-ink) }
+  .pg-controller-dialog .pg-task-create:disabled:not([data-busy=true]) { background:var(--pg-hover); color:var(--pg-label) }
+  .pg-controller-dialog a:focus-visible { outline:2px solid var(--pg-accent); outline-offset:2px }
+  .pg-controller-dialog h2[data-modal-autofocus]:focus { outline:none }
+  .pg-dialog-label { font:10.5px/1.55 var(--pg-font-mono); letter-spacing:.1em; color:var(--pg-label) }
+  .pg-controller-dialog [data-tone=ready] { color:var(--pg-accent) }
+  .pg-controller-dialog [data-tone=warning] { color:var(--pg-warning) }
+  .pg-controller-dialog [data-tone=error] { color:var(--pg-error) }
+  .pg-controller-dialog [data-tone=muted] { color:var(--pg-muted) }
+  @media(max-width:600px) {
+    .pg-task-modal.pg-controller-dialog { --pg-dialog-inset:32px }
+    .pg-controller-dialog :is(.pg-task-header,.pg-task-body,.pg-task-footer) { padding-inline:16px }
+  }
+`;
+var handoffCss = `
+  .pg-controller-dialog.pg-handoff-dialog { --pg-dialog-width:620px; --pg-dialog-inset:48px }
+  .pg-handoff-dialog .pg-handoff-section { display:flex; min-width:0; flex-direction:column; gap:8px; margin:0; padding:0; border:0 }
+  .pg-handoff-dialog legend { padding:0 0 8px }
+  .pg-handoff-target,.pg-handoff-option {
+    display:flex; align-items:center; gap:14px; padding:12px 14px;
+    border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-dialog-card); line-height:1.35;
+  }
+  .pg-handoff-icon {
+    flex:none; display:grid; place-items:center; width:36px; height:36px; border:1px solid #2E3A1E;
+    border-radius:var(--pg-r8); background:var(--pg-accent-soft); color:var(--pg-accent);
+  }
+  .pg-handoff-icon svg { width:16px; height:16px; stroke-width:1.3 }
+  .pg-handoff-target div { min-width:0; overflow-wrap:anywhere }
+  .pg-handoff-target h3 { margin:0; font-size:15px; font-weight:600 }
+  .pg-handoff-target p,.pg-handoff-path { margin:0; color:var(--pg-label); font:11.5px/1.35 var(--pg-font-mono) }
+  .pg-handoff-option { align-items:flex-start; gap:12px; cursor:pointer }
+  .pg-handoff-option:hover:not(:has(:disabled)) { border-color:#353D4A }
+  .pg-handoff-option[data-selected=true],.pg-handoff-option[data-selected=true]:hover { border-color:var(--pg-dialog-selected); background:#10140B }
+  .pg-handoff-option:has(:disabled) { cursor:default }
+  .pg-handoff-option input { position:absolute; width:1px; height:1px; padding:0; margin:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap }
+  .pg-handoff-option input:focus-visible + span { outline:2px solid var(--pg-accent); outline-offset:3px }
+  .pg-handoff-radio { display:grid; place-items:center; flex:none; width:16px; height:16px; margin-top:3px; border:1.5px solid #4A5361; border-radius:50% }
+  .pg-handoff-option[data-selected=true] .pg-handoff-radio { border-color:var(--pg-accent) }
+  .pg-handoff-option[data-selected=true] .pg-handoff-radio::after { content:""; width:8px; height:8px; background:var(--pg-accent); border-radius:50% }
+  .pg-handoff-option-body { display:flex; flex-direction:column; min-width:0; gap:3px }
+  .pg-handoff-workspace { display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 8px; font-weight:500; overflow-wrap:anywhere }
+  .pg-handoff-path { font-size:11px }
+  .pg-handoff-status { display:flex; gap:6px; font-size:12px; overflow-wrap:anywhere }
+  .pg-handoff-status::before { content:""; flex:none; width:6px; height:6px; margin-top:5px; border-radius:50%; background:currentColor }
+  .pg-handoff-dialog .pg-task-add {
+    width:100%; height:40px; margin:0; padding:0 14px; border:1px dashed var(--pg-line-strong);
+    border-radius:var(--pg-r10); background:transparent; font-size:13px;
+  }
+  .pg-handoff-dialog .pg-task-add svg { width:14px; height:14px }
+  .pg-handoff-checks { border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:#0A0D10; overflow:hidden }
+  .pg-handoff-checks ol { margin:0; padding:0; list-style:none; counter-reset:pg-handoff-check }
+  .pg-handoff-checks li {
+    display:flex; align-items:baseline; gap:12px; padding:9px 14px; border-bottom:1px solid #13171D;
+    color:#D3D9E1; font-size:12.5px; counter-increment:pg-handoff-check;
+  }
+  .pg-handoff-checks li::before { content:counter(pg-handoff-check,decimal-leading-zero); color:var(--pg-label) }
+  .pg-handoff-checks li::before,.pg-handoff-checks li strong { font:11px/1.55 var(--pg-font-mono) }
+  .pg-handoff-checks li strong { flex:1; text-align:right; overflow-wrap:anywhere }
+  .pg-handoff-checks p { margin:0; padding:12px 14px; font-size:13px; overflow-wrap:anywhere }
+  .pg-handoff-codex { display:flex; align-items:flex-start; gap:10px; margin:0; color:var(--pg-muted); font-size:12.5px }
+  .pg-handoff-codex svg { width:15px; height:15px; margin-top:2px }
+  .pg-handoff-dialog .pg-task-footer p { flex:1 1 200px; margin:0; color:var(--pg-label) }
+`;
+var noticeCss = `
+  .pg-controller-dialog.pg-contest-notice { --pg-dialog-width:840px; --pg-dialog-inset:64px }
+  .pg-contest-notice .pg-task-header { align-items:flex-start; gap:16px; padding-block:20px 16px }
+  .pg-notice-heading { display:flex; flex-direction:column; gap:6px; min-width:0 }
+  .pg-contest-notice .pg-task-header h2 { font-size:22px; letter-spacing:-.01em }
+  .pg-contest-notice .pg-task-header p { margin:0; color:var(--pg-muted); font-size:13px }
+  .pg-contest-notice .pg-task-close { width:36px; height:36px }
+  .pg-contest-notice .pg-task-body { padding-block:16px; gap:12px; overscroll-behavior:contain }
+  .pg-notice-entry {
+    display:flex; flex-direction:column; gap:14px; min-width:0; padding:16px;
+    border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-dialog-card); overflow-wrap:anywhere;
+  }
+  .pg-notice-entry-header,.pg-notice-entry-actions,.pg-notice-groups { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px }
+  .pg-notice-entry h3 { flex:1 1 auto; min-width:0; font-size:17px; font-weight:600; margin:0 }
+  .pg-notice-badge { padding:2px 7px; border-radius:var(--pg-r4); background:var(--pg-control-line); font:10.5px/1.55 var(--pg-font-mono); letter-spacing:.06em }
+  .pg-notice-badge[data-kind=period] { background:var(--pg-accent); color:var(--pg-ink) }
+  .pg-notice-badge[data-kind=competition] { background:var(--pg-info); color:var(--pg-ink) }
+  .pg-notice-live { display:inline-flex; align-items:center; gap:6px; margin-inline-start:auto; font-size:12px; color:var(--pg-accent) }
+  .pg-notice-live::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; animation:pg-notice-pulse 1.8s ease-out infinite }
+  @keyframes pg-notice-pulse { from { box-shadow:0 0 0 0 rgba(198,242,78,.55) } 70%,to { box-shadow:0 0 0 6px transparent } }
+  @media(prefers-reduced-motion:reduce) { .pg-notice-live::before { animation:none } }
+  .pg-notice-schedule { display:grid; gap:6px }
+  .pg-notice-track { position:relative; height:6px; border-radius:3px; background:var(--pg-dialog-rule) }
+  .pg-notice-track span { display:block; height:100%; margin:0; border-radius:inherit; background:var(--pg-accent) }
+  .pg-notice-track span::after { content:""; position:absolute; top:-4px; left:clamp(0px,var(--pg-notice-progress),calc(100% - 2px)); width:2px; height:14px; background:var(--pg-text) }
+  .pg-notice-times { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 16px; font:11.5px/1.55 var(--pg-font-mono); color:var(--pg-muted) }
+  .pg-notice-remaining { color:var(--pg-text) }
+  .pg-notice-entry dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:10px 16px; margin:0; font-size:12.5px }
+  .pg-notice-entry dl > div { display:grid; align-content:start; gap:2px; min-width:0 }
+  .pg-notice-entry dt { color:var(--pg-label); font-size:11.5px }
+  .pg-notice-entry dd { margin:0; white-space:pre-line }
+  .pg-notice-entry :is(p,dd[data-field=reward]) { color:var(--pg-muted) }
+  .pg-notice-entry p { margin:0; font-size:12.5px; white-space:pre-line }
+  .pg-notice-groups { gap:6px; margin:0; padding:0; list-style:none }
+  .pg-notice-groups li { display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border:1px solid #222833; border-radius:var(--pg-r4); color:var(--pg-muted); font-size:12px }
+  .pg-notice-entry-actions { gap:8px; padding-top:12px; border-top:1px solid #161B22 }
+  .pg-notice-entry-actions span { color:var(--pg-label); font-size:12px }
+  .pg-contest-notice .pg-task-button { min-height:36px; border-radius:var(--pg-r6) }
+  .pg-contest-notice .pg-notice-coordinate { border-color:var(--pg-dialog-selected); background:var(--pg-accent-soft); color:var(--pg-accent); font-weight:600 }
+  .pg-contest-notice .pg-notice-coordinate:hover:not(:disabled) { background:#1A2210; border-color:var(--pg-dialog-selected); color:var(--pg-accent) }
+  .pg-contest-notice .pg-notice-coordinate svg { width:13px; height:13px; stroke-width:1.5 }
+  .pg-contest-notice .pg-task-footer { gap:10px 12px }
+  .pg-contest-notice .pg-task-footer p { flex-basis:100%; margin:0; color:var(--pg-label); font-size:11.5px; line-height:1.55 }
+  .pg-notice-disable { min-height:36px; padding:0 4px; margin-inline-end:auto; border:0; background:transparent; color:var(--pg-muted); font:inherit; font-size:12.5px; cursor:pointer }
+  .pg-notice-disable:hover { color:var(--pg-text); text-decoration:underline }
+  .pg-contest-notice .pg-notice-ack { padding-inline:16px; border-color:var(--pg-text); background:var(--pg-text); color:var(--pg-ink); font-weight:600 }
+  .pg-contest-notice .pg-notice-ack:hover:not(:disabled) { border-color:#fff; background:#fff; color:var(--pg-ink) }
+`;
+
+// src/client/controller/handoff-status.js
+function workspaceControllerStatus(inspection, taskCount, msg2) {
+  if (!inspection) return { label: msg2("正在核对主控…", "Checking controller…"), tone: "muted", check: msg2("核对中", "Checking") };
+  if (inspection.archived) return { label: msg2("主控已归档", "Controller archived"), tone: "warning", check: msg2("已归档", "Archived") };
+  if (inspection.kind === "existing") {
+    const id = inspection.sessionId;
+    const session = id.length > 13 ? id.slice(0, 8) + "…" + id.slice(-4) : id;
+    const count = taskCount > 0 ? msg2(` · 此题已有 ${taskCount} 个主控任务`, ` · ${taskCount} existing controller ${taskCount === 1 ? "task" : "tasks"} for this challenge`) : "";
+    return { label: msg2(`主控 ${session} · 已初始化`, `Controller ${session} · Initialized`) + count, tone: "ready", check: session };
+  }
+  if (inspection.kind === "incomplete") return { label: msg2("主控尚未初始化", "Controller setup required"), tone: "warning", check: msg2("未初始化", "Setup required") };
+  if (inspection.kind === "absent") return { label: msg2("还没有主控", "No controller yet"), tone: "muted", check: msg2("无", "None") };
+  return { label: msg2("无法核对主控", "Controller check unavailable"), tone: "warning", check: msg2("无法核对", "Unavailable") };
+}
+__name(workspaceControllerStatus, "workspaceControllerStatus");
+
+// src/client/controller/handoff.js
 function noticeHandoffCopy(inspection, workspace, notice) {
   const name = workspace.title || workspace.workspaceId;
   if (inspection.kind === "absent") return {
@@ -1536,20 +1895,64 @@ function noticeHandoffCopy(inspection, workspace, notice) {
   return {
     label: msg("确认交给主控", "Confirm handoff"),
     message: !notice ? msg(
-      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。提交评测需另行授权。`,
-      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge. Submission requires a separate request.`
+      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge.`
     ) : msg(
-      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。提交评测需另行授权。`,
-      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work. Submission requires a separate request.`
+      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work.`
     )
   };
 }
 __name(noticeHandoffCopy, "noticeHandoffCopy");
-function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
+function ControllerHandoffDialog({
+  state,
+  workspaces,
+  workspace,
+  inspection,
+  inspectionFailed,
+  inspectController,
+  taskCount,
+  query,
+  checkAttempt,
+  busy,
+  selectWorkspace,
+  addTaskWorkspace,
+  message,
+  action,
+  close
+}) {
   const [picker] = React5.useState(() => ({ pending: false }));
   const [adding, setAdding] = React5.useState(false);
   const [addError, setAddError] = React5.useState("");
   const title = msg("交给工作区主控", "Hand off to workspace controller");
+  const groupName = React5.useId();
+  const [others, setOthers] = React5.useState(null);
+  const [platformCheck, setPlatformCheck] = React5.useState(null);
+  const activeId = workspace?.workspaceId;
+  const challengeId = state.challenge.id;
+  React5.useEffect(() => {
+    setOthers(null);
+    if (workspaces.phase !== "ready") return;
+    const abort = new AbortController();
+    for (const { workspaceId } of workspaces.items.filter((item) => item.workspaceId !== activeId)) {
+      void inspectController({ workspaceId }, abort.signal).catch(() => ({ kind: "blocked" })).then((result) => {
+        if (!abort.signal.aborted) setOthers((previous) => new Map(previous).set(workspaceId, result));
+      });
+    }
+    return () => abort.abort();
+  }, [workspaces.phase, workspaces.items, activeId, inspectController, checkAttempt]);
+  React5.useEffect(() => {
+    setPlatformCheck(null);
+    const abort = new AbortController();
+    void query({ action: "challenge", challengeId }, abort.signal).then((detail) => {
+      if (abort.signal.aborted) return;
+      const checked = detail?.ok && String(detail.id) === challengeId && typeof detail.contentGated === "boolean";
+      setPlatformCheck({ challengeId, kind: checked ? detail.contentGated ? "gated" : "readable" : "unavailable" });
+    }).catch(() => {
+      if (!abort.signal.aborted) setPlatformCheck({ challengeId, kind: "unavailable" });
+    });
+    return () => abort.abort();
+  }, [challengeId, query, checkAttempt]);
   const accepted = state.phase === "accepted" || state.phase === "opening";
   const canAdd = workspaces.phase === "ready" && !accepted;
   const canSelect = canAdd && workspaces.items.length > 0 && !busy && !adding;
@@ -1572,10 +1975,35 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       setAdding(false);
     }
   }, "addWorkspace");
+  const controllerStatus = /* @__PURE__ */ __name((item) => {
+    const selected2 = item.workspaceId === activeId;
+    const status = selected2 ? inspection ?? (inspectionFailed ? { kind: "blocked" } : null) : others?.get(item.workspaceId);
+    return workspaceControllerStatus(status, selected2 ? taskCount : void 0, msg);
+  }, "controllerStatus");
+  const workspaceCheck = workspaces.state === "error" || ["workspace_missing", "directory_missing"].includes(inspection?.code) ? [msg("无法读取", "Unavailable"), "error"] : workspace ? [msg("已注册", "Registered"), "ready"] : [msg("等待选择", "Choose a workspace"), "muted"];
+  const selected = workspace && controllerStatus(workspace);
+  const platformKind = platformCheck?.challengeId === challengeId && platformCheck.kind;
+  const platformResult = {
+    readable: [msg("可查看题面", "Statement available"), "ready"],
+    gated: [msg("需要访问权限", "Access required"), "warning"],
+    unavailable: [msg("无法核实", "Could not verify"), "warning"]
+  };
+  const checks = [
+    [msg("读取 DSH 工作区", "Read DSH workspace"), ...workspaceCheck],
+    [msg("核对主控对话", "Verify controller chat"), selected?.check ?? msg("等待选择", "Choose a workspace"), selected?.tone ?? "muted"],
+    [msg("向平台核实赛题", "Verify challenge on Playground"), ...platformResult[platformKind] ?? [msg("核实中", "Checking"), "muted"]]
+  ];
+  const codexHint = inspection?.codex === "registered" ? msg(
+    "已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体，在独立对话中执行。",
+    "Codex subagents detected. If Codex is unavailable, the controller can use a DSH subagent in a separate chat."
+  ) : inspection?.codex === "unavailable" ? msg(
+    "未检测到 Codex 子智能体。主控可以改用 DSH 子智能体，在独立对话中执行。",
+    "No Codex subagent detected. The controller can use a DSH subagent in a separate chat."
+  ) : msg("Codex 子智能体可用性待核对。", "Codex subagent availability is unverified.");
   return h(
     import_dsh_client_ui_primitives.Modal,
-    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal", title, onClose: dismiss },
-    h("style", null, taskModalCss),
+    { open: true, headless: true, backdropBlur: true, className: "pg-task-modal pg-controller-dialog pg-handoff-dialog", title, onClose: dismiss },
+    h("style", null, taskModalCss + controllerDialogCss + handoffCss),
     h(
       "header",
       { className: "pg-task-header" },
@@ -1583,7 +2011,7 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       h(
         "button",
         { type: "button", className: "pg-task-close", "aria-label": msg("关闭交接弹窗", "Close handoff dialog"), disabled: busy || adding, onClick: dismiss },
-        h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
+        h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "m3 3 8 8M11 3l-8 8" }))
       )
     ),
     h(
@@ -1591,61 +2019,91 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       { className: "pg-task-body" },
       h(
         "section",
-        { className: "pg-task-summary", "aria-label": msg("目标赛题", "Target challenge") },
-        h("h3", { className: "pg-task-title", title: state.challenge.title }, state.challenge.title),
-        h("p", { className: "pg-task-id" }, state.challenge.id)
-      ),
-      h(
-        "div",
-        { className: "pg-task-field" },
-        h("label", { htmlFor: "pg-handoff-workspace" }, msg("目标工作区", "Target workspace")),
+        { className: "pg-handoff-section", "aria-label": msg("目标赛题", "Target challenge") },
+        h("span", { className: "pg-dialog-label" }, msg("目标赛题", "Target challenge")),
         h(
           "div",
-          { className: "pg-task-select-wrap" },
-          h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18" })),
+          { className: "pg-handoff-target" },
           h(
-            "select",
-            {
-              id: "pg-handoff-workspace",
-              className: "pg-task-select",
-              value: workspace?.workspaceId || "",
-              disabled: !canSelect,
-              "data-empty": !workspace,
-              "aria-describedby": message ? "pg-handoff-status" : void 0,
-              onChange: /* @__PURE__ */ __name((event) => {
-                setAddError("");
-                selectWorkspace(event.target.value);
-              }, "onChange")
-            },
-            h("option", { value: "" }, msg("请选择工作区", "Choose a workspace")),
-            workspaceOptions(workspaces.items)
+            "span",
+            { className: "pg-handoff-icon" },
+            h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M3 2.5h7.5L13 5v8.5H3zM5.5 8h5m-5 2.5H9" }))
           ),
-          h("svg", { className: "pg-task-chevron", viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 9 6 6 6-6" }))
-        ),
-        message ? h("p", { id: "pg-handoff-status", className: failed ? "pg-task-error" : "pg-task-hint", role: failed ? "alert" : "status" }, message) : null,
-        addError ? h("p", { className: "pg-task-error", role: "alert" }, msg("无法添加工作区，请重试。", "Could not add the workspace. Try again.")) : null,
+          h(
+            "div",
+            null,
+            h("h3", null, state.challenge.title),
+            h("p", null, [challengeId, state.context?.competition, state.context?.period].filter(Boolean).join(" · "))
+          )
+        )
+      ),
+      h(
+        "fieldset",
+        { className: "pg-handoff-section", "aria-describedby": message ? groupName + "-status" : void 0 },
+        h("legend", { className: "pg-dialog-label" }, msg("目标工作区", "Target workspace")),
+        workspaces.items.map((item) => {
+          const checked = item.workspaceId === activeId;
+          const status = controllerStatus(item);
+          return h(
+            "label",
+            { key: item.workspaceId, className: "pg-handoff-option", "data-selected": checked },
+            h("input", {
+              type: "radio",
+              name: groupName,
+              value: item.workspaceId,
+              checked,
+              disabled: !canSelect,
+              onChange: /* @__PURE__ */ __name(() => {
+                setAddError("");
+                selectWorkspace(item.workspaceId);
+              }, "onChange")
+            }),
+            h("span", { className: "pg-handoff-radio", "aria-hidden": true }),
+            h(
+              "span",
+              { className: "pg-handoff-option-body" },
+              h(
+                "span",
+                { className: "pg-handoff-workspace" },
+                item.title || item.workspaceId,
+                item.path ? h("span", { className: "pg-handoff-path" }, item.path) : null
+              ),
+              h("span", { className: "pg-handoff-status", "data-tone": status.tone }, status.label)
+            )
+          );
+        }),
         canAdd ? h(
           "button",
           { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: addWorkspace },
-          h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M12 5v14M5 12h14" })),
+          h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M8 3v10M3 8h10" })),
           adding ? msg("正在选择目录…", "Choosing folder…") : msg("添加工作区…", "Add workspace…")
-        ) : null
+        ) : null,
+        addError ? h("p", { className: "pg-task-error", role: "alert" }, msg("无法添加工作区，请重试。", "Could not add the workspace. Try again.")) : null
+      ),
+      h(
+        "section",
+        { className: "pg-handoff-checks", "aria-label": msg("核对结果", "Verification results") },
+        h("ol", null, checks.map(([label2, result, tone]) => h("li", { key: label2 }, label2, h("strong", { "data-tone": tone }, result)))),
+        message ? h("p", { id: groupName + "-status", "data-tone": failed ? "error" : void 0, role: failed ? "alert" : "status" }, message) : null
+      ),
+      h(
+        "p",
+        { className: "pg-handoff-codex" },
+        h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M2.5 4.5 6 8l-3.5 3.5M8 12h5.5" })),
+        codexHint
       )
     ),
     h(
       "footer",
       { className: "pg-task-footer" },
-      h(
-        "div",
-        { className: "pg-task-actions" },
-        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? msg("关闭", "Close") : msg("取消", "Cancel")),
-        action || busy ? h(
-          "button",
-          { type: "button", className: "pg-task-button pg-task-create", disabled: busy || adding, "data-busy": busy, onClick: action?.run },
-          busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? state.phase === "opening" ? msg("正在打开…", "Opening…") : state.phase === "initializing" ? msg("正在初始化…", "Setting up…") : msg("正在交接…", "Handing off…") : action.label
-        ) : null
-      )
+      h("p", null, msg("提交评测需在参赛任务中另行请求。", "Request evaluation separately in the participation task.")),
+      h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? msg("关闭", "Close") : msg("取消", "Cancel")),
+      action || busy ? h(
+        "button",
+        { type: "button", className: "pg-task-button pg-task-create", disabled: busy || adding, "data-busy": busy, onClick: action?.run },
+        busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
+        busy ? state.phase === "opening" ? msg("正在打开…", "Opening…") : state.phase === "initializing" ? msg("正在初始化…", "Setting up…") : msg("正在交接…", "Handing off…") : action.label
+      ) : null
     )
   );
 }
@@ -1665,17 +2123,24 @@ var isObject = /* @__PURE__ */ __name((value) => value !== null && typeof value 
 var isStringArray = /* @__PURE__ */ __name((value) => Array.isArray(value) && value.every((entry) => typeof entry === "string"), "isStringArray");
 var unique = /* @__PURE__ */ __name((values) => [...new Set(values)], "unique");
 var emptySite = /* @__PURE__ */ __name(() => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] }), "emptySite");
-function timestamp(value) {
+function noticeScheduleDate(value) {
   if (typeof value !== "string") return null;
-  const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
+  const match = /^(\d{4}-\d\d-\d\d)(?:[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)(?:\s*(Z|[+-]\d\d:?\d\d))?)?$/i.exec(value.trim());
   if (!match) return null;
   const [, date, time, zone] = match;
   const calendarDay = /* @__PURE__ */ new Date(date + "T00:00:00Z");
   if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
-  const ms = Date.parse(date + "T" + time + zone);
-  return Number.isFinite(ms) ? ms : null;
+  if (!time) return { date, time, zone, ms: null };
+  const ms = Date.parse(date + "T" + time + (zone ?? "Z"));
+  return Number.isFinite(ms) ? { date, time, zone, ms: zone ? ms : null } : null;
 }
-__name(timestamp, "timestamp");
+__name(noticeScheduleDate, "noticeScheduleDate");
+var timestamp = /* @__PURE__ */ __name((value) => noticeScheduleDate(value)?.ms ?? null, "timestamp");
+function noticeIsActive(item, now, start, end) {
+  const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
+  return !endedStatuses.has(status) && (end === null || now < end) && (activeStatuses.has(status) || start !== null && start <= now && end !== null);
+}
+__name(noticeIsActive, "noticeIsActive");
 function clockTime(value) {
   const ms = typeof value === "number" ? value : value instanceof Date ? value.getTime() : timestamp(value);
   if (!Number.isFinite(ms)) throw new TypeError("Pass an explicit time to the notice state.");
@@ -1711,14 +2176,16 @@ function collectItems(items, sources, now) {
     const start = timestamp(item.startAt);
     const end = timestamp(item.endAt);
     const ended = endedStatuses.has(status) || end !== null && end <= now;
-    const active = activeStatuses.has(status) || start !== null && start <= now && end !== null && now < end;
+    const active = noticeIsActive(item, now, start, end);
     const upcoming = start !== null && start > now;
+    const schedule = { item, start, end };
     const prior = byKey.get(item.key);
     if (!prior) {
-      byKey.set(item.key, { item, sources: [item.source], endAt: end, ended, active, upcoming });
+      byKey.set(item.key, { item, sources: [item.source], schedules: [schedule], endAt: end, ended, active, upcoming });
       continue;
     }
     prior.sources.push(item.source);
+    prior.schedules.push(schedule);
     prior.ended ||= ended;
     prior.active ||= active;
     prior.upcoming ||= upcoming;
@@ -1797,6 +2264,7 @@ function enterNotices(state, snapshot2, time) {
     ...view,
     kind: kinds.size > 1 ? "reminder" : [...kinds][0] ?? "new",
     items: visible.map(({ key: key2 }) => current.get(key2).item),
+    activityByKey: new Map(visible.map(({ key: key2 }) => [key2, current.get(key2).schedules])),
     state: {
       ...state,
       nextBatchId,
@@ -1860,15 +2328,75 @@ __name(actOnNotices, "actOnNotices");
 // src/client/controller/competition-notices.js
 var storageKey2 = "dsh-playground.competition-notices.v2";
 var legacyStorageKey = "dsh-playground.competition-notices.v1";
-function timeLabel(value) {
-  if (!value) return void 0;
-  const timestamp2 = /^(\d{4}-\d{2}-\d{2})[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(Z|[+-]\d\d:\d\d)?$/.exec(value);
-  if (!timestamp2) return value;
-  const [, date, time, seconds, offset] = timestamp2;
-  const zone = offset === "Z" ? "UTC" : offset ? "UTC" + offset : msg("时区未注明", "time zone unspecified");
-  return `${date} ${time}${seconds && seconds !== "00" ? ":" + seconds : ""} (${zone})`;
+function timeLabel(value, scheduleDate) {
+  if (!scheduleDate) return value;
+  const { date, time } = scheduleDate;
+  const day3 = date.slice(5).replace("-", ".");
+  return time ? day3 + " " + time.split(".")[0].replace(/^(\d\d:\d\d):00$/, "$1") : day3;
 }
 __name(timeLabel, "timeLabel");
+function zoneLabel(zone) {
+  const normalized = zone.toUpperCase().replace(/^([+-]\d\d)(\d\d)$/, "$1:$2");
+  if (normalized === "Z") return "UTC";
+  if (normalized === "+08:00") return msg("北京时间 UTC+8", "Beijing time UTC+8");
+  return "UTC" + normalized;
+}
+__name(zoneLabel, "zoneLabel");
+function remainingLabel(ms) {
+  if (ms <= 0) return msg("截止时间已过", "Deadline passed");
+  const hours = Math.floor(ms / 36e5);
+  if (!hours) return msg("剩余不足 1 小时", "Less than 1 hour left");
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return days ? msg(`剩余 ${days} 天 ${rest} 小时`, `${days}d ${rest}h left`) : msg(`剩余 ${hours} 小时`, `${hours}h left`);
+}
+__name(remainingLabel, "remainingLabel");
+function noticeGroups(item) {
+  for (const summary of msg([item.summaryZh, item.summary], [item.summary, item.summaryZh])) {
+    const list = /^(?:本期赛题分组[：:]|Challenge groups:)\s*(.+)$/i.exec(summary ?? "")?.[1];
+    if (list) return list.split(" · ").map((label2) => label2.trim()).filter(Boolean);
+  }
+  return [];
+}
+__name(noticeGroups, "noticeGroups");
+function noticeBadge(item) {
+  if (item.parentKey && item.source === "seasons") return ["round", msg("新一轮", "New round")];
+  if (item.parentKey || item.target?.period) return ["period", msg("新一期", "New period")];
+  return ["competition", msg("新比赛", "New competition")];
+}
+__name(noticeBadge, "noticeBadge");
+function noticeSchedule(item, start, end, startZone, now, unknown) {
+  const progress = start?.zone && end?.zone && start.ms < end.ms ? Math.min(100, Math.max(0, 100 * (now - start.ms) / (end.ms - start.ms))) : null;
+  return h(
+    "div",
+    { className: "pg-notice-schedule" },
+    progress === null ? null : h(
+      "div",
+      {
+        className: "pg-notice-track",
+        role: "progressbar",
+        "aria-label": msg("赛程进度", "Competition progress"),
+        "aria-valuenow": Math.round(progress)
+      },
+      h("span", { style: { width: progress + "%", "--pg-notice-progress": progress + "%" } })
+    ),
+    h(
+      "div",
+      { className: "pg-notice-times" },
+      h(
+        "span",
+        null,
+        msg("开始", "Starts"),
+        " ",
+        timeLabel(item.startAt, start) || unknown,
+        startZone ? " (" + startZone + ")" : null
+      ),
+      end?.zone ? h("span", { className: "pg-notice-remaining" }, remainingLabel(end.ms - now)) : null,
+      h("span", null, msg("截止", "Deadline"), " ", timeLabel(item.endAt, end) || unknown)
+    )
+  );
+}
+__name(noticeSchedule, "noticeSchedule");
 function noticeDetail(zh, en, keywords) {
   const published = /* @__PURE__ */ __name((value2) => value2?.trim().replace(/^(?:暂未公布|尚未公布|待公布|未公布|无|not announced|to be announced|none|TBA|TBD)[。.!！]?$/i, ""), "published");
   const chinese = published(zh);
@@ -1910,27 +2438,9 @@ function CompetitionNoticeSetting({ memory }) {
   );
 }
 __name(CompetitionNoticeSetting, "CompetitionNoticeSetting");
-var noticeCss = `
-  .pg-task-modal.pg-contest-notice { width:590px; border:1px solid var(--pg-task-border); box-shadow:0 12px 48px rgba(0,0,0,.16) }
-  .pg-notice-entries { overflow-y:auto; overscroll-behavior:contain; min-height:0; gap:16px }
-  .pg-notice-entry { min-width:0 }
-  .pg-notice-entry + .pg-notice-entry { border-top:1px solid var(--pg-task-border); padding-top:16px }
-  .pg-notice-entry h3 { font-size:19px; line-height:1.35; font-weight:700; margin:0; overflow-wrap:anywhere }
-  .pg-notice-entry p { color:var(--pg-task-secondary); line-height:1.6; margin:6px 0 12px; overflow-wrap:anywhere }
-  .pg-notice-entry dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 16px; margin:0 0 12px; line-height:1.5 }
-  .pg-notice-entry dt, .pg-notice-entry dd strong { font-weight:700 }
-  .pg-notice-entry dd { margin:0; font-weight:400; overflow-wrap:anywhere; white-space:pre-line }
-  .pg-notice-entry a { color:var(--pg-task-accent); font-weight:600; text-underline-offset:3px }
-  .pg-notice-entry-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap }
-  .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px }
-  .pg-notice-batch { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
-  .pg-contest-notice h2:focus-visible { outline:2px solid var(--pg-task-accent); outline-offset:3px; border-radius:4px }
-  .pg-notice-actions .pg-task-create { min-width:90px; background:var(--dsw-alias-button-primary-fill,var(--pg-task-accent)); color:var(--dsw-alias-label-primary-foreground,#fff) }
-  .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
-  .pg-notice-disable:hover { text-decoration:underline }
-`;
 function CompetitionNotices({ memory, query, onCoordinate }) {
   const [view, setView] = React6.useState(null);
+  const [now, setNow] = React6.useState(Date.now);
   const [readingKey, setReadingKey] = React6.useState("");
   const reading = React6.useRef(null);
   const hintId = React6.useId();
@@ -1947,8 +2457,10 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       if (abort.signal.aborted || !snapshot2?.ok) return;
       const state = readState(memory);
       if (!state.enabled) return;
-      const next = enterNotices(state, snapshot2, Date.now());
+      const current = Date.now();
+      const next = enterNotices(state, snapshot2, current);
       if (next.state !== state) saveState(memory, next.state);
+      setNow(current);
       setView(next);
     }
     __name(check, "check");
@@ -1958,6 +2470,19 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       reading.current?.abort();
     };
   }, [memory, query]);
+  React6.useEffect(() => {
+    if (!view?.items.length) return;
+    const boundaries = [...view.activityByKey.values()].flatMap((schedules) => schedules.flatMap(({ start, end }) => [start, end]).filter((time) => time !== null));
+    let timer;
+    const tick = /* @__PURE__ */ __name(() => {
+      const current = Date.now();
+      setNow(current);
+      const next = boundaries.reduce((delay, time) => time > current ? Math.min(delay, time - current) : delay, Infinity);
+      if (Number.isFinite(next)) timer = setTimeout(tick, Math.min(next, 6e4));
+    }, "tick");
+    tick();
+    return () => clearTimeout(timer);
+  }, [view]);
   if (!view?.items.length) return null;
   function dismiss(action) {
     reading.current?.abort();
@@ -1993,116 +2518,323 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
   __name(coordinate, "coordinate");
   const unknown = msg("暂未公布", "Not announced");
   const title = view.kind === "overview" ? msg("正在进行的比赛", "Ongoing competitions") : view.kind === "reminder" ? msg("赛事提醒", "Competition reminders") : msg("新比赛提醒", "New competition alerts");
+  const count = view.items.length;
   return h(
     import_dsh_client_ui_primitives2.Modal,
-    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
-    h("style", null, taskModalCss + noticeCss),
-    h("header", { className: "pg-task-header" }, h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title)),
-    h("div", { className: "pg-task-body pg-notice-entries" }, view.items.map((item) => {
+    { open: true, headless: true, backdropBlur: true, className: "pg-task-modal pg-controller-dialog pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
+    h("style", null, taskModalCss + controllerDialogCss + noticeCss),
+    h(
+      "header",
+      { className: "pg-task-header" },
+      h(
+        "div",
+        { className: "pg-notice-heading" },
+        h("span", { className: "pg-dialog-label" }, msg(`EVENTS · ${count} 条 · 按最近截止排序`, `EVENTS · ${count} · Earliest deadlines first`)),
+        h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title),
+        h("p", null, view.kind === "overview" ? msg("只列出能由官方状态或带时区赛程确认正在进行的比赛和赛期。", "Ongoing competitions and rounds are verified by official status or a schedule with a time zone.") : msg("查看比赛和赛期。进行中状态来自官方状态或带时区赛程。", "Explore competitions and rounds. Ongoing status comes from official status or a schedule with a time zone."))
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          className: "pg-task-close",
+          "aria-label": msg("关闭新比赛提醒弹窗", "Close competition alerts dialog"),
+          onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick")
+        },
+        h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "m3 3 8 8M11 3l-8 8" }))
+      )
+    ),
+    h("div", { className: "pg-task-body" }, view.items.map((item) => {
       const link = openableWebUrl(item.webUrl);
+      const start = noticeScheduleDate(item.startAt);
+      const end = noticeScheduleDate(item.endAt);
+      const deadlineZone = end?.zone && zoneLabel(end.zone);
+      const startZone = start?.zone ? zoneLabel(start.zone) : start?.time && msg("时区未注明", "Time zone unspecified");
+      const separateStartZone = Boolean(startZone && startZone !== deadlineZone);
+      const active = (!deadlineZone || now < end.ms) && view.activityByKey.get(item.key).some(({ item: item2, start: start2, end: end2 }) => noticeIsActive(item2, now, start2, end2));
+      const [kind, badge] = noticeBadge(item);
+      const groups = noticeGroups(item);
+      const singleChallenge = item.target?.kind === "challenge";
+      const scope = singleChallenge ? msg("1 道已确认赛题", "1 confirmed challenge") : groups.length ? msg(`${groups.length} 个分组`, `${groups.length} ${groups.length === 1 ? "group" : "groups"}`) : unknown;
+      const summary = groups.length ? null : msg(item.summaryZh || item.summary, item.summary || item.summaryZh);
+      const reward = noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i);
+      const resources = noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i);
       return h(
         "article",
         { key: item.key, className: "pg-notice-entry" },
-        h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
-        h("p", null, msg(item.summaryZh || item.summary, item.summary || item.summaryZh) || msg("比赛简介暂未公布", "Competition summary not announced")),
-        h("dl", null, [
-          [msg("开始", "Starts"), timeLabel(item.startAt)],
-          [msg("截止", "Deadline"), timeLabel(item.endAt) || unknown],
-          [msg("奖励", "Rewards"), noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i)],
-          [msg("参赛资源", "Resources"), noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i)]
-        ].filter(([, value]) => value).map(([label2, value]) => h(React6.Fragment, { key: label2 }, h("dt", null, label2), h("dd", null, value)))),
+        h(
+          "div",
+          { className: "pg-notice-entry-header" },
+          h("span", { className: "pg-notice-badge", "data-kind": kind }, badge),
+          h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
+          active ? h("span", { className: "pg-notice-live" }, msg("进行中", "Ongoing")) : null
+        ),
+        noticeSchedule(item, start, end, separateStartZone ? startZone : "", now, unknown),
+        h(
+          "dl",
+          null,
+          h("div", null, h("dt", null, msg("时区", "Time zone")), h(
+            "dd",
+            { "data-tone": deadlineZone ? void 0 : "warning" },
+            deadlineZone ? (separateStartZone ? msg("截止：", "Deadline: ") : "") + deadlineZone : msg("时区未注明 · 剩余时间仅供参考", "Time zone unspecified · Remaining time is approximate")
+          )),
+          h("div", null, h("dt", null, msg("奖励", "Rewards")), h("dd", { "data-field": "reward" }, reward || unknown)),
+          h("div", null, h("dt", null, msg("本期赛题", "Challenges in this period")), h("dd", null, scope)),
+          resources ? h("div", null, h("dt", null, msg("参赛资源", "Resources")), h("dd", null, resources)) : null
+        ),
+        groups.length ? h(
+          "ul",
+          { className: "pg-notice-groups", "aria-label": msg("赛题分组", "Challenge groups") },
+          groups.map((label2, index) => h("li", { key: index }, label2))
+        ) : null,
+        summary ? h("p", null, summary) : null,
         h(
           "div",
           { className: "pg-notice-entry-actions" },
           h(
             "button",
-            { type: "button", className: "pg-task-button", disabled: Boolean(readingKey), onClick: /* @__PURE__ */ __name(() => coordinate(item), "onClick") },
-            readingKey === item.key ? msg("正在读取赛题…", "Loading challenge…") : msg("协调参赛", "Coordinate participation")
+            { type: "button", className: "pg-task-button pg-notice-coordinate", disabled: Boolean(readingKey), onClick: /* @__PURE__ */ __name(() => coordinate(item), "onClick") },
+            readingKey === item.key ? msg("正在读取赛题…", "Loading challenge…") : msg("协调参赛", "Coordinate participation"),
+            h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "M3 7h8m0 0L7.5 3.5M11 7l-3.5 3.5" }))
           ),
-          link ? h("a", { href: link, target: "_blank", rel: "noopener noreferrer" }, msg("查看比赛", "View competition")) : null
+          link ? h("a", { href: link, className: "pg-task-button", target: "_blank", rel: "noopener noreferrer" }, msg("查看比赛", "View competition")) : null,
+          h("span", null, singleChallenge ? msg("题面可访问时，可直接选择工作区", "If the statement is accessible, choose a workspace directly") : msg("先进入赛题目录选题", "Choose a challenge in the catalog first"))
         )
       );
     })),
     h(
       "footer",
       { className: "pg-task-footer" },
+      h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
+      h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
+      h("button", { type: "button", className: "pg-task-button pg-notice-ack", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it")),
       h("p", { id: hintId }, msg(
-        "「明天再提醒」会在北京时间次日或之后再次打开主控时，显示本批仍有效的赛事。「知道了」仅确认本批。两种操作都保留新赛期提醒。",
-        "Choose Remind me tomorrow to see this batch on your next visit tomorrow or later (Beijing time). Expired entries drop out. Got it dismisses this batch. Either choice keeps alerts for new rounds on."
-      )),
-      h(
-        "div",
-        { className: "pg-notice-actions" },
-        h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
-        h(
-          "div",
-          { className: "pg-notice-batch" },
-          h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
-          h("button", { type: "button", className: "pg-task-button pg-task-create", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it"))
-        )
-      )
+        "「明天再提醒」在北京时间次日或之后再次打开主控时，只显示本批仍有效的比赛。「知道了」仅确认本批。两者都保留新赛期提醒，可在连接设置中重新开启已关闭的提醒。",
+        "Remind me tomorrow shows the still-valid entries the next time you open the controller tomorrow or later (Beijing time). Got it acknowledges this batch. Both keep future alerts on. Re-enable alerts in Connection settings."
+      ))
     )
   );
 }
 __name(CompetitionNotices, "CompetitionNotices");
 
-// src/client/controller/index.js
+// src/client/controller/styles.js
 var controllerPanelCss = `
-  .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); }
-  .pg-controller-bar { display:flex; align-items:center; gap:10px; min-height:48px; padding:0 14px; border-bottom:1px solid var(--dsw-alias-border-l3); flex-wrap:wrap; }
-  .pg-controller-bar h1 { font-size:15px; line-height:24px; margin:0; font-weight:600; }
-  .pg-controller-bar :is(select,button), .pg-controller-action, .pg-controller-row, .pg-controller-back { font:inherit; color:inherit; }
-  .pg-controller-bar select, .pg-controller-action { border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; padding:5px 8px; }
-  .pg-controller-bar button, .pg-controller-action, .pg-controller-row, .pg-controller-back { cursor:pointer; }
-  .pg-controller-bar button:hover, .pg-controller-action:hover:not(:disabled), .pg-controller-row:hover, .pg-controller-back:hover { background:var(--dsw-alias-interactive-bg-hover); }
-  .pg-controller-bar :is(button,select):focus-visible, .pg-controller-action:focus-visible, .pg-controller-row:focus-visible, .pg-controller-back:focus-visible, .pg-controller-resize:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:-2px; }
-  .pg-controller-tabs { display:flex; align-self:stretch; gap:4px; }
-  .pg-controller-challenge { border-bottom:1px solid var(--dsw-alias-border-l3); padding:8px 0; }
-  .pg-controller-challenge > summary { cursor:pointer; overflow-wrap:anywhere; }
-  .pg-controller-challenge > summary small { display:block; padding-left:16px; color:var(--dsw-alias-label-secondary); font-size:11px; }
-  .pg-controller-tab { border:0; border-bottom:2px solid transparent; padding:0 10px; background:transparent; }
-  .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent, #087f78); font-weight:600; }
-  .pg-controller-account { display:flex; align-items:center; position:relative; gap:4px; margin-left:auto; }
-  .pg-controller-bar .pg-release-indicator { display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600; padding:5px 2px; color:var(--dsw-alias-brand-primary); background:transparent; border:0; white-space:nowrap; }
+  .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); }
+  .pg-controller-bar { box-sizing:border-box; flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; min-height:56px; padding:0 var(--pg-s16); border-bottom:1px solid var(--pg-line); background:#0B0D10; }
+  .pg-controller-brand { display:flex; align-items:center; gap:10px; }
+  .pg-controller-brand svg { color:var(--pg-accent); flex:none; }
+  .pg-controller-brand h1 { margin:0; font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .pg-controller-brand small { font:10.5px/1.55 var(--pg-font-mono); color:var(--pg-label); border:1px solid var(--pg-control-line); border-radius:var(--pg-r4); padding:1px 5px; }
+  .pg-controller-workspace { position:relative; box-sizing:border-box; display:flex; align-items:center; gap:10px; height:var(--pg-h36); min-width:min(100%, 230px); max-width:min(100%, 280px); padding:0 10px 0 12px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); background:var(--pg-control); }
+  .pg-controller-workspace:not(:has(select:disabled)):hover { background:var(--pg-hover); border-color:#353D4A; }
+  .pg-controller-workspace > svg { color:var(--pg-muted); flex:none; }
+  .pg-controller-workspace-text { display:grid; flex:1; min-width:0; line-height:1.2; }
+  .pg-controller-workspace-text > span { font-size:13px; font-weight:500; }
+  .pg-controller-workspace-text small { font:10.5px/1.2 var(--pg-font-mono); color:var(--pg-label); }
+  .pg-controller-workspace-text > * { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-controller-workspace select { position:absolute; inset:0; width:100%; height:100%; opacity:0; color-scheme:dark; cursor:pointer; }
+  .pg-controller-workspace select:disabled { cursor:default; }
+  .pg-controller-workspace:has(select:disabled) { color:var(--pg-label); }
+  .pg-controller-bar button { font-family:inherit; }
+  .pg-controller-account-mark { display:grid; place-items:center; width:24px; height:24px; margin-left:-4px; border-radius:5px; background:#1B2028; color:var(--pg-accent); font:10.5px/1 var(--pg-font-mono); }
+  .pg-controller :is(.pg-controller-workspace:focus-within,.pg-controller-tab:focus-visible,.pg-controller-icon:focus-visible,.pg-controller-connection:focus-visible,.pg-release-indicator:focus-visible,.pg-language-menu button:focus-visible,.pg-controller-resize:focus-visible,.pg-controller-tasks summary:focus-visible,.pg-controller-row:focus-visible) { outline:2px solid var(--pg-accent); outline-offset:-2px; }
+  .pg-controller-tabs { display:flex; align-self:stretch; min-height:54px; gap:2px; }
+  .pg-controller-tab { padding:0 12px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--pg-muted); font-size:14px; font-weight:500; cursor:pointer; }
+  .pg-controller-tab:hover,.pg-controller-tab[aria-selected=true] { color:var(--pg-text); }
+  .pg-controller-tab[aria-selected=true] { border-bottom-color:var(--pg-accent); font-weight:600; }
+  .pg-controller-account { display:flex; align-items:center; flex-wrap:wrap; gap:var(--pg-s8); margin-left:auto; }
+  .pg-controller-account :is(.pg-controller-icon,.pg-controller-connection,.pg-release-indicator) { box-sizing:border-box; height:var(--pg-h36); border:1px solid #222833; border-radius:var(--pg-r6); background:var(--pg-control); color:var(--pg-muted); cursor:pointer; }
+  .pg-controller-account :is(.pg-controller-icon,.pg-controller-connection,.pg-release-indicator):hover { background:#1B2028; border-color:#353D4A; color:var(--pg-text); }
+  .pg-controller-account .pg-release-indicator { display:inline-flex; align-items:center; gap:6px; padding:0 10px; font-size:12.5px; color:var(--pg-info); border-color:#23364A; background:#0F1620; white-space:nowrap; }
+  .pg-controller-account .pg-controller-connection { display:flex; align-items:center; gap:8px; padding:0 10px; font-size:13px; color:var(--pg-text); white-space:nowrap; }
+  .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--pg-label); }
+  .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:var(--pg-accent); }
+  .pg-controller-connection:is([data-status=unavailable],[data-status=unauthenticated]) .pg-controller-connection-dot { background:var(--pg-error); }
+  .pg-controller-icon { display:grid; place-items:center; flex:none; width:var(--pg-h36); padding:0; }
+  .pg-controller-account .pg-controller-icon[aria-expanded=true] { background:var(--pg-hover); }
   .pg-language { position:relative; flex:none; }
-  .pg-language-menu, .pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.12); }
-  .pg-language-menu { padding:4px; }
-  .pg-language-menu button { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:32px; padding:4px 8px; text-align:start; border:0; border-radius:4px; background:transparent; }
+  .pg-language-menu,.pg-language-tip { position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:max-content; max-width:calc(100vw - 16px); box-sizing:border-box; background:var(--pg-control); border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); box-shadow:0 4px 12px rgba(0,0,0,.24); }
+  .pg-language-menu { padding:var(--pg-s4); }
+  .pg-language-menu button { display:flex; align-items:center; justify-content:space-between; gap:var(--pg-s12); width:100%; min-height:var(--pg-h30); padding:4px 8px; text-align:start; border:0; border-radius:var(--pg-r4); background:transparent; color:inherit; cursor:pointer; }
+  .pg-language-menu button:hover { background:var(--pg-hover); }
   .pg-language-tip { visibility:hidden; padding:5px 8px; font-size:12px; pointer-events:none; }
-  .pg-language:hover .pg-language-tip, .pg-language button:focus-visible + .pg-language-tip { visibility:visible; }
-  .pg-controller-icon { display:grid; place-items:center; width:32px; height:32px; padding:6px; border:0; border-radius:5px; background:transparent; }
-  .pg-controller-connection { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 8px; border:1px solid var(--dsw-alias-border-l3); border-radius:6px; background:transparent; white-space:nowrap; font-size:12px!important; }
-  .pg-controller-connection-dot { width:7px; height:7px; flex:none; border-radius:50%; background:var(--dsw-alias-label-secondary); }
-  .pg-controller-connection[data-status=authenticated] .pg-controller-connection-dot { background:#16a34a; }
-  .pg-controller-connection[data-status=unauthenticated] .pg-controller-connection-dot { background:#dc2626; }
+  .pg-language:hover .pg-language-tip,.pg-language button:focus-visible + .pg-language-tip { visibility:visible; }
   .pg-controller-body { flex:1; min-height:0; display:flex; position:relative; container-type:inline-size; }
-  .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
-  .pg-controller-view-switch { display:flex; flex:none; gap:4px; padding:4px 12px; border-bottom:1px solid var(--dsw-alias-border-l3); }
-  .pg-controller-view-switch [aria-pressed=true] { border-color:var(--pg-accent, #087f78); font-weight:600; }
-  .pg-controller-placeholder { margin:auto; max-width:440px; padding:24px; line-height:1.6; }
-  .pg-controller-resize { flex:none; width:5px; cursor:col-resize; border-left:1px solid var(--dsw-alias-border-l3); touch-action:none; }
-  .pg-controller-resize:hover { background:var(--dsw-alias-interactive-bg-hover); }
-  .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; background:var(--dsw-alias-bg-base); }
-  .pg-controller-tasks header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); }
-  .pg-controller-tasks h2 { font-size:14px; margin:0; }
-  .pg-controller-task-content { overflow:auto; min-height:0; padding:8px 12px 20px; }
-  .pg-controller-tasks p { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:1.5; }
-  .pg-controller-row { display:block; width:100%; border:0; border-bottom:1px solid var(--dsw-alias-border-l3); padding:10px 4px; background:transparent; text-align:left; }
-  .pg-controller-row strong, .pg-controller-row span { display:block; overflow-wrap:anywhere; }
-  .pg-controller-row span { margin-top:4px; color:var(--dsw-alias-label-secondary); font-size:12px; }
-  .pg-controller-back { border:0; background:transparent; padding:4px 0 10px; color:var(--dsw-alias-label-secondary); }
-  .pg-codex-chats { padding-bottom:12px; border-bottom:1px solid var(--dsw-alias-border-l3); overflow-wrap:anywhere; }
-  .pg-codex-chats label { display:block; margin:6px 0; }
-  .pg-codex-chats input, .pg-codex-chats textarea { box-sizing:border-box; width:100%; font:inherit; color:inherit; background:var(--dsw-alias-bg-base); border:1px solid var(--dsw-alias-border-l3); border-radius:4px; padding:6px; }
-  .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
-  .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
-  .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
-  .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
-  .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
-  .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
-  @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
-  @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
+  .pg-controller-chat { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--pg-grid),var(--pg-base); }
+  .pg-controller-chat-head { display:flex; flex:none; flex-wrap:wrap; align-items:center; gap:10px 14px; box-sizing:border-box; min-height:50px; padding:7px var(--pg-s24); border-bottom:1px solid #161B22; background:rgba(9,11,14,.86); }
+  .pg-controller-chat-head h2 { font-weight:600; font-size:14px; margin:0; }
+  .pg-controller-chat-head .pg-badge { height:22px; padding:0 8px; border-color:#2E3A1E; background:var(--pg-accent-soft); }
+  .pg-controller-chat-head .pg-badge::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pg-controller-session { font:11px/1.55 var(--pg-font-mono); color:var(--pg-label); }
+  .pg-controller-view-switch { display:flex; margin-left:auto; padding:2px; border:1px solid #222833; border-radius:var(--pg-r6); background:var(--pg-control); }
+  .pg-controller-view-switch .pg-button { min-height:28px; padding:0 12px; border:0; border-radius:var(--pg-r4); font-size:12.5px; color:var(--pg-muted); }
+  .pg-controller-view-switch .pg-button[aria-pressed=true] { background:#1E242D; color:var(--pg-text); }
+  .pg-controller-placeholder { margin:auto; max-width:440px; padding:var(--pg-s24); line-height:1.6; }
+  .pg-controller-resize { box-sizing:border-box; position:relative; z-index:1; flex:none; width:5px; margin-right:-5px; cursor:col-resize; touch-action:none; }
+  .pg-controller-resize:hover { background:var(--pg-hover); }
+  .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; border-left:1px solid var(--pg-line); background:#0C0F13; }
+  .pg-controller-task-head { display:flex; align-items:center; gap:10px; padding:14px var(--pg-s16) 10px; }
+  .pg-controller-tasks h2 { font-size:15px; font-weight:600; margin:0; }
+  .pg-controller-task-count { color:var(--pg-label); font:11px/1.5 var(--pg-font-mono); }
+  .pg-button.pg-controller-refresh { margin-left:auto; display:grid; place-items:center; width:var(--pg-h30); min-height:var(--pg-h30); padding:0; border-color:#222833; border-radius:var(--pg-r6); color:var(--pg-muted); }
+  .pg-controller-task-status { display:flex; align-items:center; flex-wrap:wrap; gap:var(--pg-s8); padding:0 var(--pg-s16) 10px; color:var(--pg-label); font:10.5px/1.5 var(--pg-font-mono); }
+  .pg-controller-rule { flex:1; height:1px; background:#1A1F27; }
+  .pg-controller-evidence { display:inline-flex; align-items:center; gap:var(--pg-s4); }
+  .pg-controller-evidence::before { content:""; box-sizing:border-box; width:8px; height:8px; border:1px solid var(--pg-muted); }
+  .pg-controller-evidence[data-evidence=host]::before { background:linear-gradient(135deg,var(--pg-muted) 50%,transparent 50%); }
+  .pg-controller-evidence[data-evidence=receipt]::before { background:var(--pg-text); border-color:var(--pg-text); }
+  .pg-controller-evidence[data-evidence=none]::before { border:1px dashed var(--pg-label); }
+  .pg-controller-task-content { overflow:auto; min-height:0; padding:0 10px 12px; scrollbar-width:thin; scrollbar-color:var(--pg-control-line) transparent; }
+  .pg-controller-tasks p { color:var(--pg-muted); font-size:13px; line-height:1.5; }
+  .pg-controller-challenge,.pg-controller-maintenance { margin-bottom:6px; }
+  .pg-controller-group { display:flex; align-items:center; gap:var(--pg-s8); padding:var(--pg-s8); border-radius:var(--pg-r6); cursor:pointer; }
+  .pg-controller-group::-webkit-details-marker,.pg-controller-external-chats > summary::-webkit-details-marker { display:none; }
+  .pg-controller-group:hover,.pg-controller-external-chats > summary:hover { background:var(--pg-hover); }
+  .pg-controller-group > svg { color:var(--pg-label); flex:none; }
+  details[open] > .pg-controller-group > svg { transform:rotate(90deg); }
+  .pg-controller-group-label { display:grid; flex:1; min-width:0; font-size:12.5px; font-weight:600; line-height:1.3; }
+  .pg-controller-group-label > span,.pg-controller-group-label > small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pg-controller-group-label > small { color:var(--pg-label); font:10.5px/1.3 var(--pg-font-mono); }
+  .pg-controller-maintenance .pg-controller-group-label { color:var(--pg-label); font-weight:400; }
+  .pg-controller-group-rows { display:grid; gap:2px; padding:2px 0 6px 18px; }
+  .pg-controller-row { display:grid; gap:6px; width:100%; padding:10px 12px; border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-control); color:var(--pg-text); text-align:left; font:inherit; cursor:pointer; }
+  .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
+  .pg-controller-row:disabled { color:var(--pg-label); cursor:default; }
+  .pg-controller-row strong { font-size:13.5px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; }
+  .pg-controller-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; font-size:11.5px; color:var(--pg-muted); }
+  .pg-controller-row-meta .pg-badge { min-height:0; border:0; padding:0; font-size:inherit; }
+  .pg-controller-row-meta .pg-badge::before { width:8px; height:8px; }
+  .pg-controller-row-time { font:10.5px/1.4 var(--pg-font-mono); color:var(--pg-label); overflow-wrap:anywhere; }
+  .pg-controller-detail { display:grid; gap:var(--pg-s16); padding:var(--pg-s12) 6px 4px; }
+  .pg-controller-detail > .pg-controller-back,.pg-controller-result > .pg-controller-back { justify-self:start; min-height:34px; }
+  .pg-controller-detail > .pg-controller-back:first-child { min-height:var(--pg-h30); }
+  .pg-controller-detail-title { display:grid; gap:var(--pg-s8); }
+  .pg-controller-detail h3 { margin:0; font-size:17px; font-weight:600; line-height:1.35; overflow-wrap:anywhere; }
+  .pg-controller-detail .pg-controller-detail-context { margin:0; color:var(--pg-label); font-size:11.5px; overflow-wrap:anywhere; }
+  .pg-controller-detail-meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+  .pg-controller-detail-meta > * { box-sizing:border-box; display:inline-flex; align-items:center; gap:6px; min-height:24px; padding:0 8px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r4); font-size:12px; }
+  .pg-controller-detail-meta > :not(.pg-badge) { color:var(--pg-muted); }
+  .pg-controller-detail-meta > time { font-family:var(--pg-font-mono); }
+  .pg-controller-detail > p { margin:0; }
+  .pg-controller-result { display:grid; gap:var(--pg-s8); }
+  .pg-controller-result h4 { display:flex; align-items:center; gap:var(--pg-s8); margin:0; color:var(--pg-label); font:10.5px/1.5 var(--pg-font-mono); letter-spacing:.08em; }
+  .pg-controller-result h4::after { content:""; flex:1; height:1px; background:#1A1F27; }
+  .pg-controller-markdown { min-width:0; color:#D3D9E1; overflow-wrap:anywhere; font-size:13.5px; line-height:1.55; }
+  .pg-controller-markdown pre,.pg-controller-markdown table,.pg-controller-raw pre { max-width:100%; overflow:auto; }
+  .pg-controller-markdown > pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+  .pg-controller-raw { border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-ink); color:var(--pg-muted); font-size:12.5px; }
+  .pg-controller-raw summary { padding:9px var(--pg-s12); cursor:pointer; }
+  .pg-controller-raw pre { margin:0; padding:10px var(--pg-s12); border-top:1px solid #161B22; white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.55 var(--pg-font-mono); }
+  .pg-controller-error,.pg-controller-tasks .pg-controller-error { color:var(--pg-error); }
+  @media (max-width:600px) {
+    .pg-controller-bar { gap:4px 8px; padding:4px 8px; }
+    .pg-controller-tabs { min-height:36px; }
+    .pg-controller-workspace { min-width:0; }
+    .pg-controller-chat-head { padding-inline:var(--pg-s12); }
+    .pg-controller-tasks { width:min(380px,90%); }
+  }
+  @container (max-width:720px) {
+    .pg-controller-resize { display:none; }
+    .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; max-width:90%; z-index:10; box-shadow:-8px 0 24px rgba(0,0,0,.24); }
+  }
 `;
+
+// src/client/controller/task-evidence.js
+function taskEvidence({ state, liveEnd, terminalText }) {
+  if (state === "running" || liveEnd) return "host";
+  return terminalText ? "report" : "none";
+}
+__name(taskEvidence, "taskEvidence");
+
+// src/client/controller/task-presentation.js
+function taskProvider(provider, language) {
+  if (provider === "codex") return "Codex";
+  if (provider === "dsh") return language === "en" ? "DSH subagent" : "DSH 子智能体";
+  return provider;
+}
+__name(taskProvider, "taskProvider");
+function challengeSubtitle({ id, baseUrl }, configuredBase) {
+  const taskPlatform = webRootOf(baseUrl);
+  const configuredPlatform = webRootOf(configuredBase);
+  return taskPlatform && configuredPlatform && taskPlatform !== configuredPlatform ? `${id} · ${taskPlatform}` : id;
+}
+__name(challengeSubtitle, "challengeSubtitle");
+function asDate(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+__name(asDate, "asDate");
+function calendarTime(value, language, now = Date.now()) {
+  const date = asDate(value);
+  if (!date) return null;
+  const today = new Date(now);
+  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  let label2 = time;
+  if (date.toDateString() !== today.toDateString()) {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const prefix = language === "en" ? "Yesterday" : "昨天";
+    label2 = date.toDateString() === yesterday.toDateString() ? `${prefix} ${time}` : date.toLocaleDateString(language, { year: "numeric", month: "2-digit", day: "2-digit" });
+  }
+  return { dateTime: date.toISOString(), title: date.toLocaleString(language), label: label2 };
+}
+__name(calendarTime, "calendarTime");
+function taskRowTime(row, language, now = Date.now()) {
+  const stamp = calendarTime(row.createdAt, language, now);
+  if (!stamp) return null;
+  return { ...stamp, label: language === "en" ? `Created ${stamp.label}` : `创建于 ${stamp.label}` };
+}
+__name(taskRowTime, "taskRowTime");
+
+// src/client/controller/index.js
+function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
+  return h("svg", {
+    width: size,
+    height: size,
+    viewBox,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.3,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true
+  }, h("path", { d: path }));
+}
+__name(lineIcon, "lineIcon");
+function controllerBrand() {
+  return h(
+    "div",
+    { className: "pg-controller-brand" },
+    h(
+      "svg",
+      { width: 26, height: 26, viewBox: "0 0 26 26", fill: "none", "aria-hidden": true },
+      h("rect", { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: "currentColor", strokeWidth: 1.5 }),
+      h("path", { d: "M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" })
+    ),
+    h("h1", null, "Playground"),
+    h("small", null, "DSH")
+  );
+}
+__name(controllerBrand, "controllerBrand");
+function evidenceMark(evidence, label2, description) {
+  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description }, label2);
+}
+__name(evidenceMark, "evidenceMark");
+function groupHeading(title, count, subtitle) {
+  return h(
+    "summary",
+    { className: "pg-controller-group" },
+    lineIcon("M3.5 2 6.5 5l-3 3", 10, "0 0 10 10"),
+    h("span", { className: "pg-controller-group-label" }, h("span", null, title), subtitle ? h("small", null, subtitle) : null),
+    h("span", { className: "pg-controller-task-count", "aria-label": msg(`${count} 个任务`, `${count} tasks`) }, count)
+  );
+}
+__name(groupHeading, "groupHeading");
+function taskTime(stamp) {
+  return stamp ? h("time", { dateTime: stamp.dateTime, title: stamp.title }, stamp.label) : null;
+}
+__name(taskTime, "taskTime");
 var stopReasonLabels = /* @__PURE__ */ __name(() => ({
   completed: { detail: msg("完成", "Completed") },
   aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
@@ -2116,9 +2848,32 @@ function taskState(row) {
   if (reason?.state) return `${row.state === "settled" ? msg("上次", "Previous run: ") : ""}${reason.state}`;
   if (row.state === "settled") return msg("已收到历史结果", "Received a previous result");
   if (row.state === "ended" && row.terminalText) return msg("本次运行已结束 · 已收到结果", "Run ended · Result received");
-  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("暂无执行回执", "No execution receipt yet") }[row.state];
+  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("状态未知", "Status unknown") }[row.state];
 }
 __name(taskState, "taskState");
+function taskTone(row) {
+  if (row.state === "running") return "running";
+  const reason = row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0);
+  if (stopReasonLabels()[reason]?.state) return "error";
+  if (row.terminalText || row.state === "ended") return "result";
+  return "unknown";
+}
+__name(taskTone, "taskTone");
+function controllerHeader(sessionId, viewSwitch) {
+  return h(
+    "div",
+    { className: "pg-controller-chat-head" },
+    h("h2", null, msg("工作区主控", "Workspace controller")),
+    sessionId ? h("span", { className: "pg-badge", "data-tone": "open" }, msg("已初始化", "Initialized")) : null,
+    sessionId ? h(
+      "span",
+      { className: "pg-controller-session", title: sessionId },
+      sessionId.length > 18 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId
+    ) : null,
+    viewSwitch
+  );
+}
+__name(controllerHeader, "controllerHeader");
 function taskOutput(row) {
   if (row.state === "running") return "";
   const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === "text").map((part) => part.text).join("\n");
@@ -2142,7 +2897,7 @@ function ControllerSession({ sessionId, useSession, useConversation, useSessions
   const session = useSession((value) => value);
   const conversation = useConversation((value) => value);
   const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
-  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-controller-action", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
+  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
   if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在打开所选主控对话…", "Opening the selected controller chat…"));
   if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, msg("无法加载主控对话，请重新打开。", "Could not load the controller chat. Reopen it to try again."));
   if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在加载主控对话…", "Loading controller chat…"));
@@ -2169,23 +2924,23 @@ function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useCo
   return h(
     React7.Fragment,
     null,
-    showViewSwitch ? h(
+    controllerHeader(sessionId, showViewSwitch ? h(
       "div",
       { className: "pg-controller-view-switch", role: "group", "aria-label": msg("主控视图", "Controller view") },
       controllerViews.map((item) => h("button", {
         key: item.id,
-        className: "pg-controller-action",
+        className: "pg-button",
         type: "button",
         "aria-pressed": view === item,
         onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
       }, item.label()))
-    ) : null,
+    ) : null),
     renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
   );
 }
 __name(ControllerSessionContent, "ControllerSessionContent");
 function ControllerPanel(props) {
-  usePluginLanguage();
+  const language = usePluginLanguage();
   const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
   const workspaces = useWorkspaces((value) => value);
   const sessions = useSessions((value) => value);
@@ -2208,6 +2963,16 @@ function ControllerPanel(props) {
   }, "selectTab");
   const [dispatchControls] = React7.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React7.useState("checking");
+  const [accountName, setAccountName] = React7.useState("");
+  const [accountId, setAccountId] = React7.useState(void 0);
+  const [configuredBase, setConfiguredBase] = React7.useState("");
+  const [updateAuthStatus] = React7.useState(() => (status, user, baseUrl) => {
+    setAuthStatus(status);
+    if (status === "checking") return;
+    setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
+    setAccountId(status === "authenticated" ? user?.id : void 0);
+    setConfiguredBase(baseUrl || "");
+  });
   const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
   const [preferences] = React7.useState(() => {
@@ -2220,8 +2985,7 @@ function ControllerPanel(props) {
   const [showTasks, setShowTasks] = React7.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
   const [taskWidth, setTaskWidth] = React7.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
   const [selectedTask, setSelectedTask] = React7.useState("");
-  const [showMaintenance, setShowMaintenance] = React7.useState(false);
-  const [closedChallenges, setClosedChallenges] = React7.useState(() => /* @__PURE__ */ new Set());
+  const [groupOpen, setGroupOpen] = React7.useState(() => /* @__PURE__ */ new Map());
   const [taskActionStatus, setTaskActionStatus] = React7.useState("");
   const [pane] = React7.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
   const savePane = /* @__PURE__ */ __name((change) => {
@@ -2264,7 +3028,7 @@ function ControllerPanel(props) {
     setSelectedTask("");
     setTaskSnapshot(null);
     setIncludeChallengeId("");
-    setClosedChallenges(/* @__PURE__ */ new Set());
+    setGroupOpen(/* @__PURE__ */ new Map());
     setWorkspaceId(id);
   }, "selectWorkspace");
   const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
@@ -2326,7 +3090,7 @@ function ControllerPanel(props) {
       if (inFlight) return;
       inFlight = true;
       void controllerTasks({ workspaceId, sessionId: expectedId, ...includeChallengeId && { includeChallengeId } }, abort.signal).then((value) => {
-        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value });
+        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value, updatedAt: Date.now() });
       }).catch(() => {
         if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: "unavailable" } });
       }).finally(() => {
@@ -2370,6 +3134,8 @@ function ControllerPanel(props) {
     setDispatchState({
       phase: "guide",
       challenge: dispatchState.challenge,
+      context: dispatchState.context,
+      showDialog: true,
       ...dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }
     });
     setRetry(retry + 1);
@@ -2385,10 +3151,10 @@ function ControllerPanel(props) {
           return;
         }
         setIncludeChallengeId(state.challenge.id);
-        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value, updatedAt: Date.now() });
         setShowTasks(true);
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
-        setClosedChallenges(/* @__PURE__ */ new Set());
+        setGroupOpen(/* @__PURE__ */ new Map());
       }
       const notice = state.coordination?.notice;
       if (notice && state.noticeKey === notice.key) notice.acknowledge();
@@ -2460,28 +3226,36 @@ function ControllerPanel(props) {
       dispatchControls.busy = false;
     }
   }, "sendChallenge");
-  const startHandoff = /* @__PURE__ */ __name((challenge, coordination) => {
+  const startHandoff = /* @__PURE__ */ __name((challenge, coordination, context) => {
     if (busy || dispatchControls.busy) return;
     if (coordination) {
-      setDispatchState({ phase: "guide", challenge, coordination, workspaceId: "", showDialog: true });
+      setDispatchState({ phase: "guide", challenge, context, coordination, workspaceId: "", showDialog: true });
       return;
     }
     if (dispatchState?.phase === "accepted" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
     const retry2 = dispatchState?.phase === "error" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
-    const state = retry2 ? dispatchState : { challenge };
-    if (retry2 && needsRecheck) return;
-    if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry2 && state.sessionId || selectedController });
-    setDispatchState({ ...state, phase: "guide", showDialog: true });
+    if (!retry2) setDispatchState({ phase: "guide", challenge, context, showDialog: true });
   }, "startHandoff");
   const coordinate = /* @__PURE__ */ __name((target, notice) => {
-    if (target.kind === "challenge") return startHandoff({ id: target.challengeId, title: target.title }, { notice });
+    if (target.kind === "challenge") return startHandoff(
+      { id: target.challengeId, title: target.title },
+      { notice },
+      { competition: msg(notice.titleZh || notice.title, notice.title || notice.titleZh), webBase: notice.scope }
+    );
     setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
     setView("catalog");
   }, "coordinate");
-  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice) => startHandoff(challenge, catalogNotice ? { notice } : void 0), "start"), catalogNotice };
+  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice, context) => startHandoff(challenge, catalogNotice ? { notice } : void 0, context), "start"), catalogNotice };
   const selectHandoffWorkspace = /* @__PURE__ */ __name((id) => {
-    if (dispatchState.coordination && dispatchState.workspaceId !== id) {
-      setDispatchState({ phase: "guide", challenge: dispatchState.challenge, coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
+    if (workspaceId !== id || dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({
+        phase: "guide",
+        challenge: dispatchState.challenge,
+        context: dispatchState.context,
+        coordination: dispatchState.coordination,
+        workspaceId: id,
+        showDialog: true
+      });
     }
     selectWorkspace(id);
   }, "selectHandoffWorkspace");
@@ -2510,11 +3284,14 @@ function ControllerPanel(props) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
-      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge } : dispatchState;
+      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge, context: dispatchState.context } : dispatchState;
       const sessionId = state.sessionId || selectedController || state.coordination && inspection.sessionId;
       const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
-        label: selectedController ? msg("交给主控", "Hand off to controller") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
-        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : void 0
+        label: selectedController ? msg("确认交给主控", "Confirm handoff") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
+        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : msg(
+          `工作区「${handoffWorkspace.title || workspaceId}」的主控 ${selectedController} 将协调此题。交接后可在主控对话中查看派发进度。`,
+          `Controller ${selectedController} in workspace “${handoffWorkspace.title || workspaceId}” will coordinate this challenge. Follow its progress in the controller chat.`
+        )
       };
       handoffMessage = dispatchState.phase === "error" && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
       handoffAction = { label: copy.label, run: /* @__PURE__ */ __name(() => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController), "run") };
@@ -2523,54 +3300,163 @@ function ControllerPanel(props) {
       if (error) handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
     }
   }
+  const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
+  const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : "";
+  const [handoffTasks, setHandoffTasks] = React7.useState(null);
+  React7.useEffect(() => {
+    setHandoffTasks(null);
+    if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
+    const abort = new AbortController();
+    void controllerTasks({ workspaceId, sessionId: selectedController, includeChallengeId: handoffChallengeId }, abort.signal).then((snapshot2) => {
+      if (abort.signal.aborted || snapshot2?.kind !== "ready") return;
+      const count = snapshot2.rows?.filter(({ challenge }) => challenge?.id === handoffChallengeId && webRootOf(challenge.baseUrl) === handoffBase).length;
+      setHandoffTasks({ workspaceId, sessionId: selectedController, challengeId: handoffChallengeId, base: handoffBase, retry, count });
+    }).catch(() => {
+    });
+    return () => abort.abort();
+  }, [workspaceId, selectedController, handoffChallengeId, handoffBase, retry, controllerTasks]);
+  const handoffTaskCount = handoffTasks?.workspaceId === workspaceId && handoffTasks.sessionId === selectedController && handoffTasks.challengeId === handoffChallengeId && handoffTasks.base === handoffBase && handoffTasks.retry === retry ? handoffTasks.count : void 0;
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = /* @__PURE__ */ new Map();
+  const unassociated = [];
+  const maintenance = [];
   for (const item of tasks?.rows || []) {
-    if (item.category === "maintenance") continue;
+    if (item.category === "maintenance") {
+      maintenance.push(item);
+      continue;
+    }
     const challenge = item.challenge;
-    const groupKey = challenge ? JSON.stringify([challenge.baseUrl, challenge.id]) : "unassociated";
+    if (!challenge) {
+      unassociated.push(item);
+      continue;
+    }
+    const groupKey = JSON.stringify([challenge.baseUrl, challenge.id]);
     if (!challengeGroups.has(groupKey)) challengeGroups.set(groupKey, { challenge, rows: [] });
     challengeGroups.get(groupKey).rows.push(item);
   }
+  const taskCount = (tasks?.rows?.length ?? 0) - maintenance.length;
   const childAddress = expectedId && (row?.mode === "continuable" || row?.mode === "one-shot") ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
-  const listRow = /* @__PURE__ */ __name((item) => h(
-    "button",
-    { key: item.childId, className: "pg-controller-row", ref: /* @__PURE__ */ __name((node) => {
-      if (node) pane.rows.set(item.childId, node);
-      else pane.rows.delete(item.childId);
-    }, "ref"), onClick: /* @__PURE__ */ __name(() => {
-      pane.focus = "back";
-      setTaskActionStatus("");
-      setSelectedTask(item.childId);
-    }, "onClick") },
-    h("strong", null, item.label || msg("未命名任务", "Untitled task")),
-    h("span", null, [item.provider, taskState(item)].filter(Boolean).join(" · "))
-  ), "listRow");
+  const evidenceLabels = {
+    host: msg("宿主记录", "Host record"),
+    report: msg("Agent 报告", "Agent report"),
+    none: msg("无运行记录", "No run record")
+  };
+  const stateBadge = /* @__PURE__ */ __name((item, compact = false) => {
+    const label2 = taskState(item) || msg("状态未知", "Status unknown");
+    const tone = taskTone(item);
+    const showResult = compact && tone === "result" && item.state === "ended" && item.terminalText;
+    return h(
+      "span",
+      { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
+      showResult ? msg("已收到结果", "Result received") : label2
+    );
+  }, "stateBadge");
+  const listRow = /* @__PURE__ */ __name((item) => {
+    const evidence = taskEvidence(item);
+    const time = taskTime(taskRowTime(item, language));
+    const provider = taskProvider(item.provider, language);
+    return h(
+      "button",
+      {
+        type: "button",
+        key: item.childId,
+        className: "pg-controller-row",
+        ref: /* @__PURE__ */ __name((node) => {
+          if (node) pane.rows.set(item.childId, node);
+          else pane.rows.delete(item.childId);
+        }, "ref"),
+        onClick: /* @__PURE__ */ __name(() => {
+          pane.focus = "back";
+          setTaskActionStatus("");
+          setSelectedTask(item.childId);
+        }, "onClick")
+      },
+      h("strong", null, item.label || msg("未命名任务", "Untitled task")),
+      h(
+        "span",
+        { className: "pg-controller-row-meta" },
+        stateBadge(item, true),
+        evidenceMark(evidence, evidenceLabels[evidence]),
+        provider || time ? h(
+          "span",
+          { className: "pg-controller-row-time" },
+          provider,
+          provider && time ? " · " : null,
+          time
+        ) : null
+      )
+    );
+  }, "listRow");
+  const detailEvidence = row && taskEvidence(row);
+  const detailProvider = row && taskProvider(row.provider, language);
+  const detailTime = row && taskTime(taskRowTime(row, language));
+  const output = row && taskOutput(row);
+  const taskGroup = /* @__PURE__ */ __name((key2, rows, title, subtitle, initiallyOpen = false, className = "pg-controller-challenge") => {
+    const open2 = groupOpen.get(key2) ?? initiallyOpen;
+    return h(
+      "details",
+      {
+        key: key2,
+        className,
+        open: open2,
+        onToggle: /* @__PURE__ */ __name((event) => {
+          const expanded = event.currentTarget.open;
+          if (expanded !== open2) setGroupOpen((groups) => new Map(groups).set(key2, expanded));
+        }, "onToggle")
+      },
+      groupHeading(title, rows.length, subtitle),
+      h("div", { className: "pg-controller-group-rows" }, rows.map(listRow))
+    );
+  }, "taskGroup");
   return h(
     "div",
     { className: "pg-controller" },
-    h("style", null, controllerPanelCss),
+    h("style", null, css + controllerPanelCss + codexCss),
     view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
     h(
       "header",
       { className: "pg-controller-bar" },
-      h("h1", null, "Playground"),
-      h("select", { "aria-label": msg("工作区", "Workspace"), value: workspaceId, disabled: busy || handoffBusy, onChange: /* @__PURE__ */ __name(async (event) => {
-        if (dispatchControls.busy) return;
-        if (event.target.value === "__add_workspace__") {
-          setBusy(true);
-          setError("");
-          try {
-            await props.addTaskWorkspace();
-          } catch {
-            setError("无法添加工作区，请重试。");
-          } finally {
-            setBusy(false);
-          }
-          return;
-        }
-        selectWorkspace(event.target.value);
-      }, "onChange") }, h("option", { value: "" }, msg("选择工作区", "Select workspace")), workspaceOptions(workspaces.items), h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))),
+      controllerBrand(),
+      h(
+        "div",
+        { className: "pg-controller-workspace" },
+        lineIcon("M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z"),
+        h(
+          "span",
+          { className: "pg-controller-workspace-text" },
+          h("span", { "aria-hidden": true }, selectedWorkspace ? selectedWorkspace.title || msg("未命名工作区", "Untitled workspace") : msg("选择工作区", "Select workspace")),
+          selectedWorkspace?.path ? h("small", { id: "pg-controller-workspace-path", title: selectedWorkspace.path }, selectedWorkspace.path) : null
+        ),
+        lineIcon("M3 4.5 6 7.5l3-3", 12, "0 0 12 12"),
+        h(
+          "select",
+          {
+            "aria-label": msg("工作区", "Workspace"),
+            "aria-describedby": selectedWorkspace?.path ? "pg-controller-workspace-path" : void 0,
+            value: workspaceId,
+            disabled: busy || handoffBusy,
+            onChange: /* @__PURE__ */ __name(async (event) => {
+              if (dispatchControls.busy) return;
+              if (event.target.value === "__add_workspace__") {
+                setBusy(true);
+                setError("");
+                try {
+                  await props.addTaskWorkspace();
+                } catch {
+                  setError("无法添加工作区，请重试。");
+                } finally {
+                  setBusy(false);
+                }
+                return;
+              }
+              selectWorkspace(event.target.value);
+            }, "onChange")
+          },
+          h("option", { value: "" }, msg("选择工作区", "Select workspace")),
+          workspaceOptions(workspaces.items),
+          h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))
+        )
+      ),
       h(
         "nav",
         { className: "pg-controller-tabs", role: "tablist", "aria-label": msg("Playground 导航", "Playground navigation"), onKeyDown: /* @__PURE__ */ __name((event) => {
@@ -2582,7 +3468,7 @@ function ControllerPanel(props) {
           selectTab(ids[next]);
           event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
         }, "onKeyDown") },
-        [["controller", msg("对话", "Chat")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
+        [["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
       ),
       h(
         "div",
@@ -2595,17 +3481,18 @@ function ControllerPanel(props) {
         h(
           "button",
           { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
+          accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
           h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
           { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
-        )
-      ),
-      view === "controller" ? h(
-        "button",
-        { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
-          pane.toggle = node;
-        }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
-        h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
-      ) : null
+        ),
+        view === "controller" ? h(
+          "button",
+          { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
+            pane.toggle = node;
+          }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
+          h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
+        ) : null
+      )
     ),
     h(
       "div",
@@ -2615,11 +3502,12 @@ function ControllerPanel(props) {
       h(
         "main",
         { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
-        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
+        !expectedId ? controllerHeader() : null,
+        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
           "div",
           { className: "pg-controller-placeholder" },
           h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
-          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-controller-action", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
+          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-button pg-primary", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
           h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
           renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
             setBusy(true);
@@ -2644,7 +3532,7 @@ function ControllerPanel(props) {
         { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
         h("style", null, css),
         h("h1", null, msg("连接设置", "Connection settings")),
-        h(AuthStatusPanel, { ...props, onStatusChange: setAuthStatus }),
+        h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
         view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has("settings") ? h(ReleaseStatusPanel, {
           query: props.query,
@@ -2653,7 +3541,7 @@ function ControllerPanel(props) {
           visit: releaseVisit
         }) : null
       ),
-      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff } : {} })) : null),
+      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
       view === "controller" && showTasks ? h(
         React7.Fragment,
         null,
@@ -2697,29 +3585,66 @@ function ControllerPanel(props) {
           }, "onKeyDown") },
           h(
             "header",
-            null,
+            { className: "pg-controller-task-head" },
             h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
               pane.heading = node;
-            }, "ref") }, msg("任务", "Tasks")),
-            h("button", { className: "pg-controller-back", disabled: !expectedId, onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("刷新任务", "Refresh tasks"))
+            }, "ref") }, msg("主控任务", "Controller tasks")),
+            tasks?.kind === "ready" ? h(
+              "span",
+              { className: "pg-controller-task-count" },
+              msg(`${taskCount} 个 · ${challengeGroups.size} 道赛题`, `${taskCount} tasks · ${challengeGroups.size} challenges`)
+            ) : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pg-button pg-controller-refresh",
+                disabled: !expectedId,
+                "aria-label": msg("刷新任务", "Refresh tasks"),
+                onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick")
+              },
+              lineIcon("M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75", 14)
+            )
+          ),
+          h(
+            "div",
+            { className: "pg-controller-task-status" },
+            tasks?.kind === "ready" ? h("span", null, msg("状态更新于 ", "Updated "), taskTime(calendarTime(taskSnapshot.updatedAt, language))) : null,
+            h("span", { className: "pg-controller-rule", "aria-hidden": true }),
+            evidenceMark("report", msg("报告", "Report"), evidenceLabels.report),
+            evidenceMark("host", msg("记录", "Record"), evidenceLabels.host),
+            evidenceMark("receipt", msg("回执", "Receipt"), msg("平台回执", "Platform receipt"))
           ),
           h(
             "div",
             { className: "pg-controller-task-content" },
-            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
-            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
+            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
               "div",
               { className: "pg-controller-detail" },
-              h("button", { className: "pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
+              h("button", { className: "pg-button pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
                 pane.back = node;
               }, "ref"), onClick: /* @__PURE__ */ __name(() => {
                 pane.focus = row.childId;
                 setSelectedTask("");
               }, "onClick") }, msg("返回任务", "Back to tasks")),
-              h("h3", null, row.label || msg("未命名任务", "Untitled task")),
-              h("p", null, [row.provider, taskState(row)].filter(Boolean).join(" · ")),
-              h("p", null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
-              childAddress ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+              h(
+                "div",
+                { className: "pg-controller-detail-title" },
+                h("p", { className: "pg-controller-detail-context" }, row.challenge ? [
+                  msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
+                  challengeSubtitle(row.challenge, configuredBase)
+                ].filter(Boolean).join(" · ") : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
+                h("h3", null, row.label || msg("未命名任务", "Untitled task")),
+                h(
+                  "div",
+                  { className: "pg-controller-detail-meta" },
+                  stateBadge(row),
+                  evidenceMark(detailEvidence, evidenceLabels[detailEvidence]),
+                  detailProvider ? h("span", { className: "pg-controller-detail-provider" }, detailProvider) : null,
+                  detailTime
+                )
+              ),
+              childAddress ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 setTaskActionStatus("");
                 try {
                   await openTask(childAddress);
@@ -2731,45 +3656,47 @@ function ControllerPanel(props) {
               row.liveEnd ? h("p", null, msg(`${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
               row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
               row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
-              taskOutput(row) ? h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: taskOutput(row), running: false }, { fallback: h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row)) }) : h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row))) : null,
-              taskOutput(row) ? h("button", { className: "pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
-                try {
-                  await navigator.clipboard.writeText(taskOutput(row));
-                  setTaskActionStatus("已复制结果");
-                } catch {
-                  setTaskActionStatus("无法复制，请选择文本后复制。");
-                }
-              }, "onClick") }, msg("复制结果", "Copy result")) : null,
+              output ? h(
+                "section",
+                { className: "pg-controller-result" },
+                h("h4", null, msg("返回结果", "Result")),
+                h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: output, running: false }, { fallback: h("pre", null, output) }) : h("pre", null, output)),
+                h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+                  try {
+                    await navigator.clipboard.writeText(output);
+                    setTaskActionStatus("已复制结果");
+                  } catch {
+                    setTaskActionStatus("无法复制，请选择文本后复制。");
+                  }
+                }, "onClick") }, msg("复制结果", "Copy result"))
+              ) : null,
               taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
               row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
             ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
               React7.Fragment,
               null,
-              [...challengeGroups].map(([groupKey, group]) => h(
-                "details",
-                {
-                  key: groupKey,
-                  className: "pg-controller-challenge",
-                  open: !closedChallenges.has(groupKey),
-                  onToggle: /* @__PURE__ */ __name((event) => {
-                    const closed = !event.currentTarget.open;
-                    if (closed === closedChallenges.has(groupKey)) return;
-                    const next = new Set(closedChallenges);
-                    if (closed) next.add(groupKey);
-                    else next.delete(groupKey);
-                    setClosedChallenges(next);
-                  }, "onToggle")
-                },
-                h(
-                  "summary",
-                  null,
-                  msg(`${group.challenge?.title || group.challenge?.id || "未关联赛题"}（${group.rows.length}）`, `${group.challenge?.title || group.challenge?.id || "No linked challenge"} (${group.rows.length})`),
-                  group.challenge ? h("small", null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h("small", null, msg("缺少明确的赛题关联，保留原任务和结果。", "The original task and result are available without a confirmed challenge link."))
-                ),
-                group.rows.map(listRow)
+              [...challengeGroups].map(([key2, group]) => taskGroup(
+                key2,
+                group.rows,
+                msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
+                challengeSubtitle(group.challenge, configuredBase),
+                true
               )),
-              tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, msg(`后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === "maintenance").length})`)), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
-            )
+              unassociated.length ? taskGroup(
+                "unassociated",
+                unassociated,
+                msg("未关联赛题", "No linked challenge"),
+                msg("缺少明确的赛题关联", "No confirmed challenge link")
+              ) : null,
+              maintenance.length ? taskGroup("maintenance", maintenance, msg("后台维护", "Background maintenance"), null, false, "pg-controller-maintenance") : null
+            ),
+            expectedId && props.codexChats ? h(ExternalCodexChats, {
+              key: `${workspaceId}:${expectedId}`,
+              workspaceId,
+              sessionId: expectedId,
+              query: props.codexChats,
+              refresh: taskRetry
+            }) : null
           )
         )
       ) : null
@@ -2779,6 +3706,12 @@ function ControllerPanel(props) {
       workspaces,
       workspace: handoffWorkspace,
       busy: handoffBusy,
+      inspection: handoffWorkspace ? inspection : null,
+      inspectionFailed: Boolean(error),
+      inspectController,
+      query: props.query,
+      checkAttempt: retry,
+      taskCount: handoffTaskCount,
       selectWorkspace: selectHandoffWorkspace,
       addTaskWorkspace: props.addTaskWorkspace,
       message: handoffMessage,
@@ -2881,7 +3814,7 @@ function taskAttemptScope(state) {
 __name(taskAttemptScope, "taskAttemptScope");
 
 // src/client/tasks/attempts.js
-var stageTones = { final: "success", finalLate: "success", failed: "error", evaluating: "warning", incomplete: "error" };
+var stageTones = { final: "scored", finalLate: "scored", failed: "error", evaluating: "evaluating", incomplete: "error" };
 var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
 function taskBundleMissingIds(state) {
   const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
@@ -2945,7 +3878,7 @@ function receiptProgress(receipt, t = zhText, { running = false, bundleMissing =
   const stage = running ? "running" : receiptStage;
   const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
   const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
-  const badgeTone = !receipt ? running ? "warning" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
+  const badgeTone = !receipt ? running ? "running" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
   const reportText = reported?.[t("progress.points") === "分" ? 0 : 1];
   return {
     stage,
@@ -3110,7 +4043,7 @@ var React9 = __toESM(require("react"), 1);
 var React8 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
-  return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => typeof node.getClientRects !== "function" || node.getClientRects().length > 0);
+  return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => node.tabIndex !== -1 && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0));
 }
 __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
@@ -3162,24 +4095,280 @@ function useDrawerFocus(fallback) {
 }
 __name(useDrawerFocus, "useDrawerFocus");
 
+// src/client/catalog/styles.js
+var catalogCss = `
+  .pg-workbench.pg-workbench-catalog{padding:0;overflow:hidden}
+  .pg-workbench-catalog .pg-workbench-inner,.pg-workbench-catalog .pg-workbench-grid,.pg-workbench-catalog .pg-workbench-column{height:100%;max-width:none;margin:0;min-height:0}
+  .pg-workbench-catalog .pg-workbench-grid{align-items:stretch}
+  .pg-workbench .pg-guide.pg-catalog{container-type:inline-size;display:grid;grid-template-columns:minmax(0,248px) minmax(0,1fr);margin:0;padding:0;border:0;border-radius:0;background:var(--pg-base);height:100%;min-height:0}
+  .pg-catalog-sidebar,.pg-catalog-main{overflow:auto;scrollbar-width:thin;scrollbar-color:var(--pg-line) transparent;min-width:0}
+  .pg-catalog-sidebar{padding:18px 12px;background:#0B0D10;border-right:1px solid var(--pg-line)}
+  .pg-catalog-caption{margin:0 10px 12px;font:10.5px/1.5 var(--pg-font-mono);color:var(--pg-label);letter-spacing:.08em}
+  .pg-catalog-competitions{display:grid;gap:4px}
+  .pg-catalog-mobile-select{display:none}
+  .pg-catalog-competition{display:flex;align-items:center;gap:10px;min-width:0;padding:9px 10px;min-height:52px;border:1px solid transparent;border-radius:var(--pg-r6);background:none;color:var(--pg-text);font:inherit;text-align:start;cursor:pointer}
+  .pg-catalog-competition:hover,.pg-catalog-competition[aria-pressed=true]{background:var(--pg-hover);border-color:var(--pg-control-line)}
+  .pg-catalog-competition:focus-visible{outline:2px solid var(--pg-accent);outline-offset:-2px}
+  .pg-catalog-competition strong,.pg-catalog-competition small{display:block;line-height:1.3;overflow-wrap:anywhere}
+  .pg-catalog-competition strong{font-size:13px;font-weight:500}
+  .pg-catalog-competition small{color:var(--pg-label);font-size:11.5px}
+  .pg-catalog-dot{box-sizing:border-box;width:7px;height:7px;flex:none;border:1px solid var(--pg-label);border-radius:100%}
+  .pg-catalog-dot[data-state=live]{background:var(--pg-accent);border-color:var(--pg-accent)}
+  .pg-catalog-dot[data-state=upcoming]{background:var(--pg-info);border-color:var(--pg-info)}
+  .pg-catalog-main{box-sizing:border-box;width:100%;max-width:1192px;margin:0 auto;padding:22px 44px 40px}
+  .pg-catalog .pg-competition-info{gap:14px 24px;margin:0 0 18px;padding:18px 20px;min-height:57px;border:1px solid var(--pg-line);border-radius:12px;background:var(--pg-panel)}
+  .pg-competition-summary{flex:1 1 250px;min-width:0}
+  .pg-competition-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pg-competition-title h2{font-size:22px;letter-spacing:-.01em}
+  .pg-competition-title .pg-badge{border:0;padding:0;font-size:12px}
+  .pg-competition-title .pg-badge[data-tone=success]::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .pg-catalog .pg-competition-time{margin:3px 0 0;font:12px/1.5 var(--pg-font-mono)}
+  .pg-catalog-period-select{min-width:0;max-width:100%}
+  .pg-catalog-periods{display:flex;flex-wrap:wrap;padding:2px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base)}
+  .pg-catalog-periods .pg-button{min-height:var(--pg-h30);padding:0 12px;border:0;border-radius:var(--pg-r4);color:var(--pg-muted);font-size:12.5px}
+  .pg-catalog-periods .pg-button[aria-pressed=true]{background:var(--pg-control-line);color:var(--pg-text)}
+  .pg-catalog-deadline{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--pg-muted)}
+  .pg-catalog-deadline strong{font-family:var(--pg-font-mono);font-size:26px;font-weight:500;color:var(--pg-accent)}
+  .pg-catalog-incomplete{display:flex;flex:1 0 100%;align-items:center;gap:8px}
+  .pg-catalog-open.pg-button{min-height:34px;padding:4px 12px;border-radius:var(--pg-r6);font-size:12.5px}
+  .pg-catalog-open::after,.pg-detail-web::after{content:' ↗'}
+  .pg-catalog-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin-bottom:18px}
+  .pg-catalog-search{position:relative;flex:1 1 300px;min-width:0}
+  .pg-catalog-search::before{content:"";position:absolute;left:14px;top:14px;width:8px;height:8px;border:1px solid var(--pg-label);border-radius:50%;pointer-events:none}
+  .pg-catalog-search::after{content:"";position:absolute;left:22px;top:23px;width:5px;height:1px;background:var(--pg-label);transform:rotate(45deg);pointer-events:none}
+  .pg-catalog-search .pg-input{width:100%;min-height:40px;padding-inline-start:36px;font-size:14px}
+  .pg-catalog .pg-catalog-filters{margin:0;gap:10px;flex:0 1 auto}
+  .pg-catalog .pg-filter{position:relative;flex:0 0 auto;min-width:0;display:flex;align-items:center}
+  .pg-catalog .pg-filter:has(select)>span{position:absolute;left:12px;pointer-events:none}
+  .pg-catalog .pg-filter select{min-height:40px;min-width:132px;padding-inline-start:47px;font-size:12.5px}
+  .pg-catalog .pg-filter-discipline select{min-width:184px;max-width:220px}
+  .pg-catalog .pg-filter-other{display:grid;flex:1 0 100%;order:1}
+  .pg-catalog .pg-filter-check{min-height:38px;flex:0 0 auto;padding:0 12px;gap:8px;background:var(--pg-control);border:1px solid var(--pg-control-line);border-radius:var(--pg-r8);cursor:pointer}
+  .pg-catalog .pg-filter-check input{appearance:none;position:relative;width:28px;height:16px;margin:0;background:var(--pg-control-line);border-radius:999px;cursor:pointer}
+  .pg-catalog .pg-filter-check input::before{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:100%;background:var(--pg-muted)}
+  .pg-catalog .pg-filter-check input:checked{background:var(--pg-accent)}
+  .pg-catalog .pg-filter-check input:checked::before{left:14px;background:var(--pg-ink)}
+  .pg-catalog .pg-filter-check input:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}
+  .pg-catalog .pg-catalog-groups{margin:0;gap:6px}
+  .pg-catalog .pg-group-chip{min-height:30px;border-radius:var(--pg-r6);background:var(--pg-control);color:var(--pg-muted);padding:4px 11px;font-size:12.5px}
+  .pg-catalog .pg-group-chip[aria-pressed=true]{background:var(--pg-accent);color:var(--pg-ink)}
+  .pg-catalog .pg-group-count{font-family:var(--pg-font-mono);font-size:10.5px}
+  .pg-catalog-stats{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0 18px;color:var(--pg-label);font:11px/1.5 var(--pg-font-mono)}
+  .pg-catalog .pg-catalog-count{margin:0;font:inherit;color:inherit}
+  .pg-catalog-stats-line{flex:1;border-top:1px solid var(--pg-line)}
+  .pg-catalog .pg-catalog-refresh{min-height:20px;padding:1px 6px;font-size:11px;color:var(--pg-muted)}
+  .pg-catalog .pg-challenge-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  .pg-catalog .pg-challenge{min-width:0;min-height:240px;display:flex;flex-direction:column;margin:0;padding:16px}
+  .pg-catalog .pg-challenge h3{font-size:16px;margin:10px 0 0}
+  .pg-challenge-id{overflow-wrap:anywhere;color:var(--pg-label);font:11px/1.5 var(--pg-font-mono)}
+  .pg-challenge-id .pg-button{min-height:0;padding:0;border:0;font:inherit;color:inherit;overflow-wrap:anywhere;text-align:start}
+  .pg-catalog .pg-challenge-meta{margin:2px 0 10px;font-size:12.5px;color:var(--pg-muted)}
+  .pg-challenge-facts,.pg-challenge-facts>span{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .pg-challenge-facts{gap:16px;font-size:12px;color:var(--pg-muted)}
+  .pg-challenge-facts strong{font-weight:500;color:var(--pg-text)}
+  .pg-challenge-meter{display:flex;gap:2px}
+  .pg-challenge-meter i{width:5px;height:12px;border-radius:1px;background:var(--pg-control-line)}
+  .pg-challenge-meter i[data-filled=true]{background:var(--pg-text)}
+  .pg-challenge-progress-group{display:grid;gap:4px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:0}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress){gap:2px;margin-block:8px 4px;padding-block:4px}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress) .pg-challenge-progress{line-height:17px}
+  .pg-challenge-progress::before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--pg-label)}
+  .pg-challenge-progress[data-tone=running]::before{background:var(--pg-accent)}
+  .pg-challenge-progress[data-tone=result]::before{background:var(--pg-text)}
+  .pg-catalog .pg-challenge .pg-actions{margin-top:auto;padding-top:6px}
+  .pg-catalog .pg-actions .pg-button{min-height:34px;padding:4px 12px;border-radius:var(--pg-r6);font-size:12.5px}
+  .pg-catalog .pg-badge[data-tone=open]{border-color:#2E3A1E}
+  @container (max-width:1230px){
+    .pg-catalog-main{padding-inline:24px}
+    .pg-catalog .pg-challenge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @container (max-width:790px){
+    .pg-catalog-sidebar{padding:12px 8px}
+    .pg-catalog .pg-challenge-grid{grid-template-columns:1fr}
+    .pg-catalog-main{padding-inline:16px}
+  }
+  @media(max-width:760px){
+    .pg-workbench .pg-guide.pg-catalog{display:block;overflow:auto;height:100%}
+    .pg-catalog .pg-catalog-main{overflow:visible}
+    .pg-catalog-sidebar{border:0;border-bottom:1px solid var(--pg-line)}
+    .pg-catalog-caption,.pg-catalog-competitions,.pg-catalog-periods{display:none}
+    .pg-catalog-mobile-select{display:block;max-width:100%}
+    .pg-catalog .pg-catalog-filters{flex-wrap:wrap}
+  }
+`;
+var challengeDetailCss = `
+  .pg-drawer-backdrop[data-drawer=challenge]{background:rgba(4,5,7,.66);padding:8px}
+  .pg-challenge-drawer.pg-drawer{width:min(640px,100%);height:100%;padding:0;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--pg-line-strong);border-radius:var(--pg-r14);background:var(--pg-control);box-shadow:-12px 0 42px #0006}
+  .pg-detail-top{display:flex;flex:none;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--pg-line)}
+  .pg-detail-id,.pg-detail-copy-status{font:12px/1.5 var(--pg-font-mono);color:var(--pg-muted);overflow-wrap:anywhere}
+  .pg-detail-copy-status{flex:1}
+  .pg-detail-copy.pg-button{min-height:28px;width:28px;padding:0;border-color:transparent;color:var(--pg-label)}
+  .pg-detail-copy-icon{display:inline-block;position:relative;width:8px;height:8px;border:1px solid currentColor;border-radius:2px}
+  .pg-detail-copy-icon::before{content:"";position:absolute;top:-4px;left:-4px;width:7px;height:7px;border:solid currentColor;border-width:1px 0 0 1px;border-radius:2px}
+  .pg-challenge-drawer .pg-drawer-close{min-width:66px;min-height:32px;font-size:12.5px;flex:none}
+  .pg-detail-heading{display:grid;gap:12px;padding:18px 22px 0}
+  .pg-challenge-drawer .pg-drawer-title{font-size:24px;font-weight:600;letter-spacing:-.015em;line-height:1.3}
+  .pg-detail-facts,.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px}
+  .pg-detail-facts .pg-badge{min-height:22px;padding:0 8px;font-size:12px}
+  .pg-detail-facts .pg-badge[data-tone=open]{border-color:#2E3A1E}
+  .pg-detail-tabs{display:flex;gap:2px;flex:none;margin-top:15px;padding:0 14px;overflow-x:auto;border-bottom:1px solid var(--pg-line)}
+  .pg-detail-tabs .pg-button{min-height:40px;padding:0 10px;border:0;border-bottom:2px solid transparent;border-radius:0;white-space:nowrap;color:var(--pg-muted)}
+  .pg-detail-tabs .pg-button[aria-selected=true]{border-color:var(--pg-accent);color:var(--pg-text);font-weight:600}
+  .pg-detail-tabs .pg-button:focus-visible{outline-offset:-3px}
+  .pg-detail-body{box-sizing:border-box;flex:1;min-height:0;overflow:auto;padding:18px 22px 22px;scrollbar-width:thin;scrollbar-color:var(--pg-line) transparent}
+  .pg-detail-body:focus-visible{outline:2px solid var(--pg-accent);outline-offset:-3px}
+  .pg-challenge-drawer .pg-detail-summary{margin:0 0 18px;color:var(--pg-text);font-size:14.5px;line-height:1.55}
+  .pg-detail-section{margin:0 0 18px}
+  .pg-detail-rule{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--pg-label);font:10.5px/1.5 var(--pg-font-mono);letter-spacing:.08em}
+  .pg-detail-rule::after{content:"";flex:1;border-top:1px solid var(--pg-line)}
+  .pg-detail-note{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;padding:10px 12px;border:1px dashed var(--pg-line-strong);border-radius:var(--pg-r8);color:var(--pg-muted);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+  .pg-detail-note>span{color:var(--pg-label)}
+  .pg-detail-progress-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px}
+  .pg-detail-progress{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;margin:0}
+  .pg-detail-progress>div{display:flex;flex-direction:column;gap:3px;padding:12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8)}
+  .pg-detail-progress dt{order:1;color:var(--pg-muted);font-size:12px}
+  .pg-detail-progress dd{margin:0;font:20px/1.35 var(--pg-font-mono)}
+  .pg-detail-tags,.pg-detail-resources{margin:0;padding:0;list-style:none}
+  .pg-detail-resources{display:grid;gap:8px}
+  .pg-detail-resources li{padding:10px 12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8);font-size:13px;overflow-wrap:anywhere}
+  .pg-statement{box-sizing:border-box;margin:8px 0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8);white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}
+  .pg-detail-footer{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--pg-line);background:var(--pg-panel)}
+  .pg-detail-footer .pg-button{min-height:var(--pg-h42);white-space:normal}
+  .pg-detail-footer .pg-primary{flex:1 1 200px}
+  .pg-detail-dispatch:not(:is(:disabled,[aria-disabled=true]))::after{content:' →'}
+  .pg-detail-footer .pg-detail-web{min-width:122px;border-color:transparent}
+  .pg-detail-footer .pg-button:last-child:not(.pg-primary){color:var(--pg-muted)}
+  @media(max-width:600px){
+    .pg-detail-body,.pg-detail-heading{padding-inline:16px}
+    .pg-detail-progress-grid{grid-template-columns:1fr;gap:0}
+    .pg-detail-progress{gap:6px}
+    .pg-detail-progress>div{padding:8px}
+  }
+`;
+
+// lib/submission/policy.js
+var BEIJING_OFFSET_MS = 8 * 60 * 60 * 1e3;
+var CN_SCOPE = "(每人每天|每人每日|每个账号每天|每天|每日|每人|每个账号|每位参赛者|每支队伍)";
+var dayOrTotal = /* @__PURE__ */ __name((match) => /[天日]/u.test(match[1]) ? "day" : "total", "dayOrTotal");
+var STATEMENT_LIMIT_PATTERNS = [
+  // 每天最多可以提交 3 次 / 每人每天限 3 次 / 每天可提交 3 次 / 每人限 3 次
+  [new RegExp(`${CN_SCOPE}\\s*(?:可以|可|只能|仅能)?\\s*(?:最多|至多|仅限|限|不超过|可以|可)\\s*(?:可以|可|只能)?\\s*(?:提交|评测)?\\s*(\\d{1,3})\\s*次`, "u"), dayOrTotal, 2],
+  // 每日提交上限为 5 次 / 每天提交次数上限 5 次
+  [new RegExp(`${CN_SCOPE}\\s*(?:的)?\\s*(?:提交|评测)(?:次数)?\\s*(?:上限|最多)\\s*(?:为|是)?\\s*(\\d{1,3})\\s*次`, "u"), dayOrTotal, 2],
+  // at most 5 submissions per day / up to 5 submissions per participant / at most 5 submissions (no period)
+  [
+    /\b(?:at most|no more than|a maximum of|maximum of|up to|limited to)\s+(\d{1,3})\s+submissions?\b(?:\s+(?:per|each|a)\s+(day|24 hours|participant|user|account|team))?/i,
+    (match) => !match[2] ? "unspecified" : /day|hours/i.test(match[2]) ? "day" : "total",
+    1,
+    (match) => Boolean(match[2]) || !/^up to/i.test(match[0])
+  ],
+  // 5 submissions per day
+  [
+    /\b(\d{1,3})\s+submissions?\s+(?:per|each|a)\s+(day|24 hours|participant|user|account|team)\b/i,
+    (match) => /day|hours/i.test(match[2]) ? "day" : "total",
+    1
+  ],
+  // daily limit of 5 (submissions)
+  [/\bdaily (?:submission )?limit (?:of|is)\s+(\d{1,3})\b/i, () => "day", 1]
+];
+var excerptOf = /* @__PURE__ */ __name((content, index, length) => {
+  const start = Math.max(0, index - 20);
+  const text = content.slice(start, index + length + 40).replace(/[`*_#>|[\]]/g, "").replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  const chars = Array.from(text);
+  return chars.length > 80 ? `${chars.slice(0, 79).join("")}…` : text;
+}, "excerptOf");
+function detectStatementLimit(content) {
+  if (typeof content !== "string" || !content) return void 0;
+  for (const [pattern, periodOf, group, accept = /* @__PURE__ */ __name(() => true, "accept")] of STATEMENT_LIMIT_PATTERNS) {
+    const match = pattern.exec(content);
+    const limit = Number(match?.[group]);
+    if (match && accept(match) && Number.isSafeInteger(limit) && limit > 0) {
+      return { limit, period: periodOf(match), source: "statement", excerpt: excerptOf(content, match.index, match[0].length) };
+    }
+  }
+  return void 0;
+}
+__name(detectStatementLimit, "detectStatementLimit");
+
 // src/client/catalog/detail.js
-function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
+function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ["sending", "initializing", "opening"].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h("button", { type: "button", className: "pg-button pg-primary", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
-    if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
-    event?.currentTarget?.focus();
-    beforeDispatch?.();
-    handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
-  }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
+  return h("button", {
+    type: "button",
+    className: primary ? "pg-button pg-primary pg-detail-dispatch" : "pg-button pg-list-action",
+    disabled: gated,
+    "aria-haspopup": "dialog",
+    "aria-disabled": busy || gated || void 0,
+    onClick: /* @__PURE__ */ __name((event) => {
+      if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
+      event?.currentTarget?.focus();
+      beforeDispatch?.();
+      handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
+    }, "onClick")
+  }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge?.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
-var challengeDetailCss = ".pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}";
-function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
+function overviewSection(title, children) {
+  return h(
+    "section",
+    { className: "pg-detail-section", "aria-label": title },
+    h("h3", { className: "pg-detail-rule" }, title),
+    children
+  );
+}
+__name(overviewSection, "overviewSection");
+function missingDetail(text) {
+  return h("p", { className: "pg-detail-note" }, h("span", { "aria-hidden": true }, "ⓘ"), text);
+}
+__name(missingDetail, "missingDetail");
+function challengeOverview(detail, progress) {
+  const content = !detail.contentGated && typeof detail.content === "string" ? detail.content : "";
+  const firstParagraph = content.trim().split(/\r?\n\s*\r?\n/, 1)[0] || "";
+  const excerpt = Array.from(firstParagraph);
+  const summary = !detail.contentGated && excerpt.length ? excerpt.length > 240 ? `${excerpt.slice(0, 240).join("")}…` : firstParagraph : "";
+  const { workspace, submissions, partial } = progress || {};
+  const { controllers, running, unknown, participation } = workspace || {};
+  const controllerLabel = running ? msg(`主控任务 · ${running} 个运行中`, `Controller tasks · ${running} running`) : unknown ? msg("主控任务 · 状态未知", "Controller tasks · Status unknown") : msg("主控任务", "Controller tasks");
+  const limit = detectStatementLimit(content);
+  const scope = limit?.period === "day" ? msg("每天", " per day") : limit?.period === "total" ? msg("每人", " per participant") : "";
+  const submissionCount = partial && submissions !== void 0 ? `≥ ${submissions}` : submissions ?? "—";
+  const metric = /* @__PURE__ */ __name((label2, value) => h("div", null, h("dt", null, label2), h("dd", null, value)), "metric");
+  return [
+    summary ? h("p", { key: "summary", className: "pg-detail-summary", "aria-label": msg("摘要", "Summary") }, summary) : null,
+    h("div", { key: "scoring" }, overviewSection(msg("评分构成", "Scoring breakdown"), missingDetail(
+      msg("未查到评分构成。题面写明或平台返回后，这里会标出来源。", "No scoring breakdown was found. Its source will be shown once available in the statement or from the platform.")
+    ))),
+    h("div", { key: "limits" }, overviewSection(msg("提交物限制", "Artifact limits"), missingDetail(
+      msg("未查到提交物限制。题面写明或平台返回后，这里会标出来源。", "No artifact limits were found. Their source will be shown once available in the statement or from the platform.")
+    ))),
+    h("div", { key: "quota", "aria-label": msg("提交次数上限", "Submission limit") }, missingDetail(limit ? msg(`题面写明${scope}最多提交 ${limit.limit} 次。`, `The statement specifies a limit of ${limit.limit} submissions${scope}.`) : msg("未查到提交次数上限。题面写明或平台返回上限后，这里会标出来源。", "No submission limit was found. Its source will be shown once available in the statement or from the platform."))),
+    h(
+      "div",
+      { key: "progress", className: "pg-detail-progress-grid" },
+      overviewSection(
+        msg("我的进度 · 当前账号", "My progress · Current account"),
+        h("dl", { className: "pg-detail-progress" }, metric(msg("累计提交", "Lifetime submissions"), submissionCount))
+      ),
+      overviewSection(msg("本地任务", "Local tasks"), h(
+        "dl",
+        { className: "pg-detail-progress" },
+        metric(controllerLabel, controllers || "—"),
+        metric(msg("参赛任务", "Participation tasks"), participation || "—")
+      ))
+    )
+  ];
+}
+__name(challengeOverview, "challengeOverview");
+function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competition, group, progress, close, focusFallback }) {
   const [detail, setDetail] = React9.useState(null);
   const [busy, setBusy] = React9.useState(false);
   const [failed, setFailed] = React9.useState(false);
   const [expanded, setExpanded] = React9.useState(false);
+  const [tab, setTab] = React9.useState("overview");
+  const [copyStatus, setCopyStatus] = React9.useState("");
+  const tabId = React9.useId();
   const [status, setStatus] = React9.useState(null);
   const [latest] = React9.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
@@ -3232,84 +4421,205 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
   }, [query, challengeId]);
   const shown = detail || challenge;
   const title = msg(shown.titleZh || shown.title, shown.title || shown.titleZh) || challengeId;
+  const statusLabel = shown.status && (locales[currentLanguage()].states[shown.status] || shown.status);
+  const source = {
+    benchmark: msg("基准", "Benchmark"),
+    community: msg("社区", "Community"),
+    hackathon: msg("黑客松", "Hackathon"),
+    arena: msg("竞技场", "Arena")
+  };
   const facts = [
-    [msg("方向", "Discipline"), shown.discipline],
-    [msg("来源", "Source"), shown.origin],
-    [msg("难度", "Difficulty"), shown.difficulty],
-    [msg("状态", "Status"), shown.status ? locales[currentLanguage()].states[shown.status] || shown.status : void 0],
-    [msg("提交次数", "Submissions"), shown.attempts]
-  ].filter(([, value]) => value !== void 0 && value !== null && value !== "");
+    competition,
+    group || shown.discipline,
+    shown.origin && msg(
+      `来源 · ${Object.hasOwn(source, shown.origin) ? source[shown.origin] : shown.origin}`,
+      `Source · ${Object.hasOwn(source, shown.origin) ? source[shown.origin] : shown.origin}`
+    ),
+    Number.isFinite(shown.difficulty) && msg(`难度 ${shown.difficulty} / 5`, `Difficulty ${shown.difficulty} / 5`),
+    Number.isFinite(shown.attempts) && msg(`提交 ${shown.attempts}`, `Submissions ${shown.attempts}`)
+  ].filter(Boolean);
   const tags = Array.isArray(shown.tags) ? [...new Set(shown.tags.filter((tag) => typeof tag === "string" && tag))] : [];
   const resources = Array.isArray(detail?.resources) ? detail.resources.filter((item) => item && typeof item === "object") : [];
   const content = typeof detail?.content === "string" ? detail.content : "";
+  const tabs = [
+    ["overview", msg("概览", "Overview")],
+    ["statement", msg("题面全文", "Full statement")],
+    ["resources", detail ? msg(`资源 · ${resources.length}`, `Resources · ${resources.length}`) : msg("资源", "Resources")]
+  ];
+  const useTabKeys = /* @__PURE__ */ __name((event, index) => {
+    const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    setTab(tabs[next][0]);
+    event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[next]?.focus();
+  }, "useTabKeys");
+  const copyId = /* @__PURE__ */ __name(async () => {
+    try {
+      await navigator.clipboard.writeText(challengeId);
+      setCopyStatus(msg("已复制题目编号", "Challenge ID copied"));
+    } catch {
+      setCopyStatus(msg("复制失败，请选中编号后复制。", "Copy failed. Select the ID to copy it."));
+    }
+  }, "copyId");
+  const renderStatement = /* @__PURE__ */ __name(() => {
+    if (detail.contentGated) return h("p", { className: "pg-note" }, msg("题面需要权限，请在网页中查看", "Access is required. Open the statement on the web."));
+    if (!content) return h("p", { className: "pg-note" }, msg("这道题没有题面文字。", "No statement text is available."));
+    return [
+      h(
+        "button",
+        { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") },
+        expanded ? msg("收起题面", "Collapse statement") : msg("展开题面", "Expand statement")
+      ),
+      expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": msg("题面全文", "Full challenge statement") }, content) : null,
+      expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-detail-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? msg(`题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`, `Showing the first ${detail.contentLimit} characters. Open the challenge on the web to read the full statement.`) : msg("题面过长，这里只显示前一部分；完整题面请在网页中查看。", "Only the beginning of the statement is shown. Open the challenge on the web to read the rest.")) : null
+    ];
+  }, "renderStatement");
+  const renderResources = /* @__PURE__ */ __name(() => resources.length ? h("ul", { className: "pg-detail-resources" }, resources.map((item, index) => h(
+    "li",
+    { key: `${index}:${item.name || ""}` },
+    h("strong", null, item.name || msg("未命名资源", "Unnamed resource")),
+    [item.kind, item.role].filter(Boolean).length ? h("span", { className: "pg-note" }, ` · ${[item.kind, item.role].filter(Boolean).join(" · ")}`) : null,
+    item.description ? h("p", { className: "pg-note" }, item.description) : null,
+    item.source ? h("p", { className: "pg-note pg-path" }, msg(`来源：${item.source}`, `Source: ${item.source}`)) : null
+  ))) : h("p", { className: "pg-note" }, msg("这道题没有列出资源。", "No resources are listed for this challenge.")), "renderResources");
   return h(
     "div",
-    { className: "pg-drawer-backdrop", onMouseDown: dismiss },
+    { className: "pg-drawer-backdrop", "data-drawer": "challenge", onMouseDown: dismiss },
     h(
       "aside",
-      { className: "pg-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 赛题详情`, `Challenge details: ${title}`), "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
+      { className: "pg-drawer pg-challenge-drawer", role: "dialog", "aria-modal": true, "aria-label": msg(`${title} 赛题详情`, `Challenge details: ${title}`), "aria-busy": busy, onMouseDown: /* @__PURE__ */ __name((event) => event.stopPropagation(), "onMouseDown"), ref: /* @__PURE__ */ __name((node) => {
         focus.dialog = node;
       }, "ref") },
       h("style", null, challengeDetailCss),
       h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
       h(
         "div",
-        { className: "pg-drawer-header" },
-        h("div", { className: "pg-drawer-heading" }, h("h2", { className: "pg-drawer-title", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-          focus.title = node;
-        }, "ref") }, title)),
+        { className: "pg-detail-top" },
+        h("span", { className: "pg-detail-id", "aria-label": msg(`题目编号：${challengeId}`, `Challenge ID: ${challengeId}`) }, challengeId),
         h(
-          "div",
-          { className: "pg-drawer-actions" },
-          h("button", { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭赛题详情", "Close challenge details") }, msg("关闭", "Close"))
+          "button",
+          { className: "pg-button pg-detail-copy", type: "button", "aria-label": msg("复制题目编号", "Copy challenge ID"), onClick: copyId },
+          h("span", { className: "pg-detail-copy-icon", "aria-hidden": true })
+        ),
+        h("span", { className: "pg-detail-copy-status", role: "status" }, copyStatus),
+        h(
+          "button",
+          { type: "button", className: "pg-button pg-drawer-close", onClick: dismiss, "aria-label": msg("关闭赛题详情", "Close challenge details") },
+          h("span", { "aria-hidden": true }, "× "),
+          msg("关闭", "Close")
         )
       ),
-      h("p", { className: "pg-note pg-path" }, msg(`题目编号：${challengeId}`, `Challenge ID: ${challengeId}`)),
-      facts.length ? h("dl", { className: "pg-detail-facts" }, facts.flatMap(([label2, value]) => [h("dt", { key: `${label2}-t` }, label2), h("dd", { key: `${label2}-d` }, String(value))])) : null,
-      tags.length ? h("ul", { className: "pg-detail-tags", "aria-label": msg("标签", "Tags") }, tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))) : null,
       h(
         "div",
-        { className: "pg-actions" },
-        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss }) : null,
-        openWebButton(detail?.webUrl || challenge.webUrl, title)
+        { className: "pg-detail-heading" },
+        h("h2", { className: "pg-drawer-title", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+          focus.title = node;
+        }, "ref") }, title),
+        h(
+          "div",
+          { className: "pg-detail-facts" },
+          statusLabel ? h("span", { className: "pg-badge", "data-tone": statusTone(shown.status) }, statusLabel) : null,
+          facts.map((fact, index) => h("span", { key: index, className: "pg-badge" }, fact))
+        )
       ),
-      failed ? h(
+      h(
         "div",
-        { className: "pg-detail-section" },
-        h("p", { className: "pg-error", role: "alert" }, msg("赛题详情读取失败，请稍后重试，或在网页中查看。", "Could not load challenge details. Try again later or open the challenge on the web.")),
-        h("div", { className: "pg-actions" }, h("button", { type: "button", className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => load(), "onClick") }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry")))
-      ) : null,
-      busy && !detail && !failed ? h("p", { className: "pg-note" }, msg("正在读取赛题详情…", "Loading challenge details…")) : null,
-      detail ? h(
-        "section",
-        { className: "pg-detail-section", "aria-label": msg("资源", "Resources") },
-        h("h3", null, msg("资源", "Resources")),
-        resources.length ? h("ul", { className: "pg-detail-resources" }, resources.map((item, index) => h(
-          "li",
-          { key: `${index}:${item.name || ""}` },
-          h("strong", null, item.name || msg("未命名资源", "Unnamed resource")),
-          [item.kind, item.role].filter(Boolean).length ? h("span", { className: "pg-note" }, ` · ${[item.kind, item.role].filter(Boolean).join(" · ")}`) : null,
-          item.description ? h("p", { className: "pg-note" }, item.description) : null,
-          // Platform text, shown as text only: never a link.
-          item.source ? h("p", { className: "pg-note pg-path" }, msg(`来源：${item.source}`, `Source: ${item.source}`)) : null
-        ))) : h("p", { className: "pg-note" }, msg("这道题没有列出资源。", "No resources are listed for this challenge."))
-      ) : null,
-      detail ? h(
-        "section",
-        { className: "pg-detail-section", "aria-label": msg("题面", "Challenge statement") },
-        h("h3", null, msg("题面", "Challenge statement")),
-        detail.contentGated ? h("p", { className: "pg-note" }, msg("题面需要权限，请在网页中查看", "Access is required. Open the statement on the web.")) : !content ? h("p", { className: "pg-note" }, msg("这道题没有题面文字。", "No statement text is available.")) : [
-          h("button", { key: "toggle", type: "button", className: "pg-button", "aria-expanded": expanded, onClick: /* @__PURE__ */ __name(() => setExpanded(!expanded), "onClick") }, expanded ? msg("收起题面", "Collapse statement") : msg("展开题面", "Expand statement")),
-          // Plain text with its line breaks kept; the plugin has no markdown renderer.
-          expanded ? h("pre", { key: "statement", className: "pg-statement", tabIndex: 0, "aria-label": msg("题面全文", "Full challenge statement") }, content) : null,
-          // The number comes from the Host's cap (`contentLimit`); without it the note names no number.
-          expanded && detail.truncated ? h("p", { key: "truncated", className: "pg-note" }, Number.isSafeInteger(detail.contentLimit) && detail.contentLimit > 0 ? msg(`题面超过 ${detail.contentLimit} 字，这里只显示前 ${detail.contentLimit} 字；完整题面请在网页中查看。`, `Showing the first ${detail.contentLimit} characters. Open the challenge on the web to read the full statement.`) : msg("题面过长，这里只显示前一部分；完整题面请在网页中查看。", "Only the beginning of the statement is shown. Open the challenge on the web to read the rest.")) : null
-        ]
-      ) : null
+        { className: "pg-detail-tabs", role: "tablist", "aria-label": msg("赛题详情分区", "Challenge detail sections") },
+        tabs.map(([id, label2], index) => h("button", {
+          type: "button",
+          className: "pg-button",
+          key: id,
+          id: `${tabId}-${id}`,
+          role: "tab",
+          "aria-selected": tab === id,
+          "aria-controls": `${tabId}-panel-${id}`,
+          tabIndex: tab === id ? 0 : -1,
+          onClick: /* @__PURE__ */ __name(() => setTab(id), "onClick"),
+          onKeyDown: /* @__PURE__ */ __name((event) => useTabKeys(event, index), "onKeyDown")
+        }, label2))
+      ),
+      h(
+        "div",
+        { className: "pg-detail-body", role: "tabpanel", id: `${tabId}-panel-${tab}`, "aria-labelledby": `${tabId}-${tab}`, tabIndex: 0 },
+        failed ? h(
+          "div",
+          { className: "pg-detail-section" },
+          h("p", { className: "pg-error", role: "alert" }, msg("赛题详情读取失败，请稍后重试，或在网页中查看。", "Could not load challenge details. Try again later or open the challenge on the web.")),
+          h("button", { type: "button", className: "pg-button", disabled: busy, onClick: load }, busy ? msg("正在读取…", "Loading…") : msg("重试", "Retry"))
+        ) : null,
+        busy && !detail && !failed ? h("p", { className: "pg-note" }, msg("正在读取赛题详情…", "Loading challenge details…")) : null,
+        detail && tab === "overview" ? challengeOverview(detail, progress) : null,
+        detail && tab === "statement" ? renderStatement() : null,
+        detail && tab === "resources" ? renderResources() : null,
+        tab === "overview" && tags.length ? h(
+          "ul",
+          { className: "pg-detail-tags", "aria-label": msg("标签", "Tags") },
+          tags.map((tag) => h("li", { key: tag, className: "pg-badge" }, tag))
+        ) : null
+      ),
+      h(
+        "footer",
+        { className: "pg-detail-footer" },
+        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss, primary: true }) : null,
+        requestTask ? h("button", {
+          type: "button",
+          className: "pg-button",
+          disabled: detail?.contentGated === true || handoff?.gatedIds?.has(challengeId) || void 0,
+          onClick: /* @__PURE__ */ __name(() => {
+            dismiss();
+            requestTask({ id: challengeId, title, mode: "participate" });
+          }, "onClick")
+        }, msg("开始参赛任务", "Start participation task")) : null,
+        openWebButton(detail?.webUrl || challenge.webUrl, title, { label: msg("在网页中查看", "View on the web"), className: "pg-detail-web" })
+      )
     )
   );
 }
 __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
+
+// src/client/catalog/progress.js
+var samePlatform = /* @__PURE__ */ __name((base, other) => Boolean(base && other && webRootOf(base) === webRootOf(other)), "samePlatform");
+function challengeProgress(challengeId, controllerRows = [], sessions = [], history, webBase, account) {
+  const id = String(challengeId);
+  const linked = controllerRows.filter((row) => String(row?.challenge?.id) === id && samePlatform(row.challenge.baseUrl, webBase));
+  const running = linked.filter((row) => row.state === "running").length;
+  const unknown = linked.some((row) => row.state === "unknown");
+  const participating = sessions.filter((session) => {
+    const task = session.projectionValues?.playgroundTask?.task;
+    return task && String(task.challengeId) === id && (!task.mode || task.mode === "participate") && samePlatform(task.baseUrl, webBase);
+  });
+  const workspace = { controllers: linked.length, running, unknown, participation: participating.length };
+  const accountId = typeof account === "string" || Number.isSafeInteger(account) ? String(account).trim() : "";
+  const items = history?.items;
+  if (!accountId || !Array.isArray(items) || !items.length || items.some((item) => String(item?.challengeId) !== id || String(item?.authorId ?? "") !== accountId)) return { workspace };
+  const lifetime = history?.submissionCounts?.lifetime;
+  const submissions = Number.isSafeInteger(lifetime) && lifetime >= items.length ? lifetime : !history.nextCursor ? items.length : void 0;
+  const scoring = items[0]?.scoringState;
+  const score = scoring?.scoreIsFinal === true && Number.isFinite(scoring.displayScore) ? scoring.displayScore : void 0;
+  const partial = Boolean(history?.partial || history?.submissionCounts?.partialReasons?.includes("history_incomplete"));
+  return { workspace, submissions, partial, score };
+}
+__name(challengeProgress, "challengeProgress");
+function progressSummary(progress, msg2) {
+  const { workspace, submissions, partial, score } = progress;
+  const { controllers, running, unknown } = workspace;
+  const lines = [];
+  if (controllers) {
+    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
+    lines.push({
+      text: msg2(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
+      tone: running ? "running" : "neutral"
+    });
+  }
+  if (submissions > 0) {
+    const count = partial ? msg2(`至少已提交 ${submissions} 次`, `At least ${submissions} submissions`) : msg2(`已提交 ${submissions} 次`, `${submissions} ${submissions === 1 ? "submission" : "submissions"}`);
+    const latest = score === void 0 ? "" : msg2(` · 最近 ${score} 分（最终）`, ` · Latest score ${score} (final)`);
+    lines.push({ text: msg2("本账号 · ", "Signed-in account · ") + count + latest, tone: "result" });
+  }
+  return lines;
+}
+__name(progressSummary, "progressSummary");
 
 // src/client/catalog/index.js
 var competitionGroups = /* @__PURE__ */ __name(() => [["live", msg("进行中", "Live")], ["upcoming", msg("即将开始", "Upcoming")], ["ended", msg("已结束", "Ended")]], "competitionGroups");
@@ -3390,7 +4700,7 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
-function CatalogPanel({ query, handoff, onWebBase }) {
+function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, active = true, taskSessions = [], webBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
@@ -3415,6 +4725,9 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const [notice, setNotice] = React10.useState(null);
   const [latest] = React10.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React10.useState(null);
+  const [catalogHistory, setCatalogHistory] = React10.useState(null);
+  const [detailHistory, setDetailHistory] = React10.useState(null);
+  const openDetail = /* @__PURE__ */ __name((item) => setDetail({ ...item }), "openDetail");
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
   const filters = { search, season, period, group, origin, sort, discipline };
@@ -3482,7 +4795,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
       if (typeof result?.webBase === "string") onWebBase?.(result.webBase);
       if (latest.metadataOnly) return;
       const facts = pageFacts(result?.challenges);
-      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), ...facts });
+      setList({ selection: listSelection(next), filters: next, input, page: 1, items: uniqueCards(result?.challenges?.items), updatedAt: Date.now(), periodTotal: result?.periodCounts?.count, ...facts });
       if (next.season && table && !table.some((item) => item && typeof item === "object" && competitionValue(item) === next.season)) {
         setSeason("");
         setPeriod("");
@@ -3526,6 +4839,7 @@ function CatalogPanel({ query, handoff, onWebBase }) {
         ...shown,
         page,
         items: [...shown.items, ...added],
+        updatedAt: Date.now(),
         ...facts,
         total: facts.total ?? shown.total,
         missing: Math.max(shown.missing, facts.missing),
@@ -3567,13 +4881,80 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   }, "chooseGroup");
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
-  const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: /* @__PURE__ */ __name((challenge) => {
-    if (gatedIds.has(challenge.id)) return;
+  const catalogHandoff = handoff && { state: handoff.state, gatedIds: catalogNotice ? gatedIds : handoff.gatedIds, start: /* @__PURE__ */ __name((challenge) => {
+    if (catalogNotice && gatedIds.has(challenge.id)) return;
     const fromNoticeCompetition = noticeCompetition && shownList?.filters.season === noticeCompetition && loaded.some((item) => String(item.id) === challenge.id);
-    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : void 0);
-  }, "start") } : handoff;
+    handoff.start(
+      challenge,
+      fromNoticeCompetition ? catalogNotice : void 0,
+      { competition: competitionName(selectedCompetition), period: periodName(selectedPeriod), webBase }
+    );
+  }, "start") };
   const challenges = openOnly ? loaded.filter((item) => item.status === "open") : loaded;
   const total = shownList?.total;
+  const tracked = new Set(taskSessions.flatMap((session) => {
+    const state = session.projectionValues?.playgroundTask;
+    return state?.task && (state.receipt?.attemptId || state.attemptIds?.length) && samePlatform(state.task.baseUrl, webBase) ? [String(state.task.challengeId)] : [];
+  }));
+  const trackedIds = JSON.stringify(loaded.map(({ id }) => String(id)).filter((id) => tracked.has(id)));
+  const signedIn = account != null && account !== "";
+  React10.useEffect(() => {
+    if (!signedIn) {
+      setCatalogHistory(null);
+      return;
+    }
+    if (!active || !webBase || trackedIds === "[]") return;
+    const abort = new AbortController();
+    const read = /* @__PURE__ */ __name(async () => {
+      const result = await Promise.resolve().then(() => query({ action: "my_attempts_summary" }, abort.signal)).catch(() => void 0);
+      if (!abort.signal.aborted) setCatalogHistory({ account, webBase, query, byId: result?.ok === true ? result.byId : void 0 });
+    }, "read");
+    void read();
+    return () => abort.abort();
+  }, [active, account, webBase, query, shownList, trackedIds]);
+  React10.useEffect(() => {
+    if (!signedIn) {
+      setDetailHistory(null);
+      return;
+    }
+    if (!active || !webBase || !detail) return;
+    const abort = new AbortController();
+    const read = /* @__PURE__ */ __name(async () => {
+      const input = { action: "my_attempts", challengeId: String(detail.id), limit: 1 };
+      const result = await Promise.resolve().then(() => query(input, abort.signal)).catch(() => void 0);
+      if (!abort.signal.aborted) setDetailHistory({
+        account,
+        webBase,
+        query,
+        detail,
+        result: result?.ok === true ? result : void 0
+      });
+    }, "read");
+    void read();
+    return () => abort.abort();
+  }, [active, account, webBase, query, detail]);
+  const matchesAccount = /* @__PURE__ */ __name((snapshot2) => snapshot2 && snapshot2.account === account && snapshot2.webBase === webBase && snapshot2.query === query, "matchesAccount");
+  const historyById = matchesAccount(catalogHistory) ? catalogHistory.byId : void 0;
+  const drawerHistory = matchesAccount(detailHistory) && detailHistory.detail === detail ? detailHistory.result : void 0;
+  const progressFor = /* @__PURE__ */ __name((item, history) => challengeProgress(item.id, controllerRows, taskSessions, history, webBase, account), "progressFor");
+  const groupFor = /* @__PURE__ */ __name((item) => {
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || entry.labelZh && tags.includes(entry.labelZh)).map(groupLabel).join(" · ");
+  }, "groupFor");
+  const chooseCompetition = /* @__PURE__ */ __name((value) => {
+    if (value === season) return;
+    const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
+    setSeason(value);
+    setPeriod(nextPeriod);
+    setGroup("");
+    load({ season: value, period: nextPeriod, group: "" });
+  }, "chooseCompetition");
+  const choosePeriod = /* @__PURE__ */ __name((value) => {
+    if (value === period) return;
+    setPeriod(value);
+    setGroup("");
+    load({ period: value, group: "" });
+  }, "choosePeriod");
   const missing = shownList?.missing || 0;
   const countLine = shownList ? [
     total !== void 0 ? msg(`共 ${total} 道`, `${total} total`) : "",
@@ -3583,8 +4964,17 @@ function CatalogPanel({ query, handoff, onWebBase }) {
   const infoStatus = selectedPeriod ? selectedPeriod.status : selectedCompetition?.status;
   const schedule = selectedPeriod || selectedCompetition;
   const time = scheduleText(schedule?.timeText || schedule?.dateText) || msg("日期待定", "Dates to be announced");
-  const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} 时间：${time}`, `${periodName(selectedPeriod)} dates: ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
+  const infoTime = selectedPeriod ? msg(`${periodName(selectedPeriod)} · ${time}`, `${periodName(selectedPeriod)} · ${time}`) : msg(`时间：${time}`, `Dates: ${time}`);
   const infoName = [competitionName(selectedCompetition), periodName(selectedPeriod)].filter(Boolean).join(" · ");
+  const endAt = schedule?.endAt;
+  const endTime = typeof endAt === "string" && /T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(endAt) ? Date.parse(endAt) : NaN;
+  const daysLeft = Math.ceil((endTime - Date.now()) / 864e5);
+  const periodTotal = selectedPeriod?.count ?? shownList?.periodTotal ?? (!group && !search.trim() && !origin && !discipline ? total : void 0);
+  const lastRead = shownList && new Intl.DateTimeFormat(currentLanguage() === "zh" ? "zh-CN" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(shownList.updatedAt);
   const failureText = failure?.kind === "changed" ? msg(
     failure.message,
     (failure.message || "").replace("赛题列表已变化。", "The challenge list has changed. ").replace(/有 (\d+) 道赛题读取失败，列表不完整。/, "Failed to load $1 challenges. ").replace("请从第一页重新读取。", "Reload from the first page.")
@@ -3601,256 +4991,352 @@ function CatalogPanel({ query, handoff, onWebBase }) {
     "section",
     { className: "pg-guide pg-catalog", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog"), "aria-busy": Boolean(busy) },
     h("p", { className: "pg-sr-only", role: "status", "aria-live": "polite" }, status && msg(...status)),
+    h("style", null, catalogCss),
     h(
-      "div",
-      { className: "pg-head" },
-      h("h2", { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-        latest.heading = node;
-      }, "ref") }, msg("选择比赛或赛题", "Choose a competition or challenge")),
-      h("button", { className: "pg-button", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") }, busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog"))
-    ),
-    catalogNotice ? h(
-      "p",
-      { className: "pg-note" },
-      msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
-      catalogNotice.webUrl ? h("a", { href: catalogNotice.webUrl, target: "_blank", rel: "noopener noreferrer", style: { marginInlineStart: 8 } }, msg("查看比赛", "View competition")) : null
-    ) : null,
-    h(
-      "div",
-      { className: "pg-search" },
-      h("input", { className: "pg-input", "aria-label": msg("搜索 Playground 赛题", "Search Playground challenges"), placeholder: msg("按题目名称、方向或关键词搜索", "Search by title, discipline, or keyword"), value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
-        if (event.key === "Enter") load();
-      }, "onKeyDown") }),
+      "nav",
+      { className: "pg-catalog-sidebar", "aria-label": msg("比赛", "Competitions") },
+      h("div", { className: "pg-catalog-caption" }, msg(`比赛 · ${competitions.length + 1}`, `Competitions · ${competitions.length + 1}`)),
       h(
         "select",
-        { className: "pg-input", "aria-label": msg("选择比赛", "Choose a competition"), value: season, onChange: /* @__PURE__ */ __name((event) => {
-          const value = event.target.value;
-          const nextPeriod = startingPeriod(competitions.find((item) => competitionValue(item) === value));
-          setSeason(value);
-          setPeriod(nextPeriod);
-          setGroup("");
-          load({ season: value, period: nextPeriod, group: "" });
-        }, "onChange") },
+        { className: "pg-input pg-catalog-mobile-select", "aria-label": msg("选择比赛", "Choose a competition"), value: season, onChange: /* @__PURE__ */ __name((event) => chooseCompetition(event.target.value), "onChange") },
         h("option", { value: "" }, msg("全部比赛", "All competitions")),
-        // The Host sends the list ordered live, upcoming, ended; each status becomes one group.
-        competitionGroups().map(([group2, label2]) => {
-          const members = competitions.filter((item) => item.status === group2);
-          return members.length ? h("optgroup", { key: group2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
+        competitionGroups().map(([key2, label2]) => {
+          const members = competitions.filter((item) => item.status === key2);
+          return members.length ? h("optgroup", { key: key2, label: label2 }, members.map((item) => h("option", { key: competitionValue(item), value: competitionValue(item) }, competitionLabel(item)))) : null;
         })
+      ),
+      h(
+        "div",
+        { className: "pg-catalog-competitions" },
+        competitions.map((item) => {
+          const value = competitionValue(item);
+          const current = value === season;
+          const edition = current && selectedPeriod ? selectedPeriod : competitionPeriods(item).find((entry) => entry.slug === item.defaultPeriod);
+          const meta = edition ? [periodName(edition), current && periodTotal !== void 0 ? msg(`${periodTotal} 道`, `${periodTotal} challenges`) : competitionStatusText(edition.status)].filter(Boolean).join(" · ") : scheduleText(item.dateText) || competitionStatusText(item.status);
+          return h(
+            "button",
+            { type: "button", key: value, "aria-pressed": current, className: "pg-catalog-competition", onClick: /* @__PURE__ */ __name(() => chooseCompetition(value), "onClick") },
+            h("span", { className: "pg-catalog-dot", "data-state": item.status }),
+            h("span", null, h("strong", null, competitionName(item)), meta ? h("small", null, meta) : null)
+          );
+        }),
+        h(
+          "button",
+          { type: "button", "aria-pressed": !season, className: "pg-catalog-competition", onClick: /* @__PURE__ */ __name(() => chooseCompetition(""), "onClick") },
+          h("span", { className: "pg-catalog-dot" }),
+          h("span", null, h("strong", null, msg("全部赛题", "All challenges")), h("small", null, msg("不限比赛", "Any competition")))
+        )
       )
     ),
-    // Each change reads page 1 again, combined with the competition and the search box; 只看开放 reads nothing.
     h(
       "div",
-      { className: "pg-catalog-filters", role: "group", "aria-label": msg("筛选赛题", "Filter challenges") },
+      { className: "pg-catalog-main" },
       h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("来源", "Source")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("按来源筛选", "Filter by source"), value: origin, onChange: /* @__PURE__ */ __name((event) => {
-            setOrigin(event.target.value);
-            load({ origin: event.target.value });
-          }, "onChange") },
-          originOptions().map(([value, label2]) => h("option", { key: value || "all", value }, label2))
-        )
-      ),
-      h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("学科", "Discipline")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
-            const value = event.target.value;
-            setDisciplineChoice(value);
-            const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
-            if (nextDiscipline === null) waitForDiscipline();
-            else load({}, { discipline: nextDiscipline });
-          }, "onChange") },
-          h("option", { value: "" }, msg("全部学科", "All disciplines")),
-          disciplineOptions.map((key2) => h("option", { key: key2, value: key2 }, key2)),
-          activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
-          h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
-        )
-      ),
-      disciplineChoice === OTHER_DISCIPLINE ? h(
         "div",
-        { className: "pg-filter pg-filter-other" },
-        h("label", { htmlFor: "pg-other-discipline" }, msg("其他学科（英文学科名，精确匹配）", "Other discipline (exact English name)")),
+        { className: "pg-competition-info", role: selectedCompetition ? "group" : void 0, "aria-label": selectedCompetition ? msg("比赛信息", "Competition details") : void 0 },
         h(
           "div",
-          { className: "pg-filter-row" },
-          h("input", {
-            id: "pg-other-discipline",
-            className: "pg-input",
-            value: otherDiscipline,
-            maxLength: 100,
-            placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
-            ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
-            onChange: /* @__PURE__ */ __name((event) => {
-              const value = event.target.value;
-              setOtherDiscipline(value);
-              if (appliedOther !== null && value.trim() !== appliedOther) {
-                setAppliedOther(null);
-                waitForDiscipline();
-              }
-            }, "onChange"),
-            onKeyDown: /* @__PURE__ */ __name((event) => {
-              if (event.key === "Enter") applyOther();
-            }, "onKeyDown")
-          }),
-          h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
+          { className: "pg-competition-summary" },
+          h(
+            "div",
+            { className: "pg-competition-title" },
+            h(
+              "h2",
+              { className: "pg-brand", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+                latest.heading = node;
+              }, "ref") },
+              competitionName(selectedCompetition) || msg("选择比赛或赛题", "Choose a competition or challenge")
+            ),
+            infoStatus ? h("span", { className: "pg-badge", "data-tone": COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)) : null
+          ),
+          selectedCompetition ? h(
+            "p",
+            { className: "pg-note pg-competition-time" },
+            infoTime,
+            !selectedPeriod && selectedCompetition.rounds ? msg(` · 轮次：${selectedCompetition.rounds}`, ` · Rounds: ${scheduleText(selectedCompetition.rounds)}`) : ""
+          ) : null
         ),
-        facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key2) => h("option", { key: key2, value: key2 }))) : null
-      ) : null,
-      h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("排序", "Sort")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("排序方式", "Sort order"), value: sort, onChange: /* @__PURE__ */ __name((event) => {
-            setSort(event.target.value);
-            load({ sort: event.target.value });
-          }, "onChange") },
-          sortOptions().map(([value, label2]) => h("option", { key: value, value }, label2))
-        )
+        periods.length ? h(
+          "div",
+          { className: "pg-catalog-period-select" },
+          h(
+            "select",
+            { className: "pg-input pg-catalog-mobile-select", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => choosePeriod(event.target.value), "onChange") },
+            h("option", { value: "" }, msg("全部期", "All periods")),
+            periods.map((item) => h(
+              "option",
+              { key: item.slug, value: item.slug },
+              [periodName(item), competitionStatusText(item.status), scheduleText(item.timeText || item.dateText)].filter(Boolean).join(" · ")
+            ))
+          ),
+          h(
+            "div",
+            { className: "pg-catalog-periods", role: "group", "aria-label": msg("分期", "Periods") },
+            [...periods, null].map((item) => {
+              const value = item?.slug || "";
+              return h(
+                "button",
+                { type: "button", key: value, className: "pg-button", "aria-pressed": period === value, onClick: /* @__PURE__ */ __name(() => choosePeriod(value), "onClick") },
+                item ? periodName(item) : msg("全部期", "All periods")
+              );
+            })
+          )
+        ) : null,
+        daysLeft > 0 ? h(
+          "div",
+          { className: "pg-catalog-deadline" },
+          h("strong", null, daysLeft),
+          h("span", null, msg("天后截止", daysLeft === 1 ? "day until deadline" : "days until deadline"))
+        ) : null,
+        openWebButton(schedule?.webUrl, infoName, { label: msg("查看比赛", "View competition"), className: "pg-catalog-open" }),
+        missing ? h(
+          "div",
+          { className: "pg-catalog-incomplete" },
+          h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)),
+          !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
+        ) : null
       ),
-      h(
-        "label",
-        { className: "pg-filter-check" },
-        h("input", { type: "checkbox", checked: openOnly, onChange: /* @__PURE__ */ __name((event) => setOpenOnly(event.target.checked), "onChange") }),
-        msg("只看开放", "Open only"),
-        h("span", { className: "pg-note" }, msg("（仅筛选已加载的赛题）", "(loaded challenges only)"))
-      )
-    ),
-    selectedCompetition ? h(
-      "div",
-      { className: "pg-competition-info", role: "group", "aria-label": msg("比赛信息", "Competition details") },
-      // Changing the period reads page 1 again with the other controls.
-      periods.length ? h(
-        "label",
-        { className: "pg-filter" },
-        h("span", null, msg("分期", "Period")),
-        h(
-          "select",
-          { className: "pg-input", "aria-label": msg("选择分期", "Choose a period"), value: period, onChange: /* @__PURE__ */ __name((event) => {
-            setPeriod(event.target.value);
-            setGroup("");
-            load({ period: event.target.value, group: "" });
-          }, "onChange") },
-          h("option", { value: "" }, msg("全部期", "All periods")),
-          periods.map((item) => h(
-            "option",
-            { key: item.slug, value: item.slug },
-            [periodName(item), competitionStatusText(item.status), scheduleText(item.timeText || item.dateText)].filter(Boolean).join(" · ")
-          ))
-        )
-      ) : null,
-      h(
+      catalogNotice ? h(
         "p",
         { className: "pg-note" },
-        h("span", { className: "pg-badge", "data-tone": COMPETITION_TONES[infoStatus] }, competitionStatusText(infoStatus)),
-        ` ${infoTime}`,
-        !selectedPeriod && selectedCompetition.rounds ? msg(` · 轮次：${selectedCompetition.rounds}`, ` · Rounds: ${scheduleText(selectedCompetition.rounds)}`) : ""
-      ),
-      openWebButton(selectedPeriod ? selectedPeriod.webUrl : selectedCompetition.webUrl, infoName),
-      selectedCompetition.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
-      selectedCompetition.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
-      // Some fixed ids could not be read: the list is short by that many. 重试 reads page 1 of the shown
-      // list's own query, not edits made to the controls since; while a failed read shows its own 重试, this
-      // one is left out.
-      missing ? h("p", { className: "pg-note pg-catalog-missing" }, msg(`有 ${missing} 道赛题读取失败，列表不完整。`, `The list is incomplete. Challenges that failed to load: ${missing}.`)) : null,
-      missing && !failure ? h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: /* @__PURE__ */ __name(() => load(shownList.filters), "onClick") }, msg("重试", "Retry")) : null
-    ) : null,
-    // Wraps onto further lines in a narrow column, so every group stays reachable.
-    groups.length ? h(
-      "div",
-      { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
-      h("span", { className: "pg-catalog-groups-label", "aria-hidden": true }, msg("分类", "Group")),
-      h("button", { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") }, msg("全部", "All")),
-      groups.map((item) => {
-        const label2 = groupLabel(item);
-        return h(
-          "button",
-          {
-            key: item.key,
-            type: "button",
-            className: "pg-group-chip",
-            "aria-pressed": group === item.key,
-            "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
-            onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
-          },
-          label2,
-          h("span", { className: "pg-group-count" }, item.count)
-        );
-      })
-    ) : null,
-    notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
-    failure ? h(
-      "div",
-      { className: "pg-catalog-failure" },
-      h("p", { className: "pg-error", role: "alert" }, failureText),
-      h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
-    ) : null,
-    busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
-    busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
-    shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
-    shownList && loaded.length && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
-    otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
-    countLine ? h("p", { className: "pg-note pg-catalog-count", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-      latest.count = node;
-    }, "ref") }, countLine) : null,
-    h("div", { className: "pg-challenge-grid" }, challenges.map((item) => h(
-      "article",
-      {
-        className: "pg-card pg-challenge",
-        key: item.id,
-        onClick: /* @__PURE__ */ __name((event) => {
-          if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) setDetail(item);
-        }, "onClick")
-      },
-      h("div", { className: "pg-head" }, h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id), item.status ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, locales[currentLanguage()].states[item.status] || item.status) : null),
-      h("p", { className: "pg-note pg-path" }, [item.discipline, item.origin, item.difficulty !== void 0 ? msg(`难度 ${item.difficulty}`, `Difficulty ${item.difficulty}`) : null].filter(Boolean).join(" · ") || msg("Playground 赛题", "Playground challenge")),
-      h("p", { className: "pg-note" }, msg(`题目编号：${item.id}${item.attempts !== void 0 ? ` · 已有 ${item.attempts} 次提交` : ""}`, `Challenge ID: ${item.id}${item.attempts !== void 0 ? ` · Submissions: ${item.attempts}` : ""}`)),
+        msg(`来自「${noticeTitle}」的提醒。请选择具体赛题，再确认工作区和主控。`, `You opened the catalog from “${noticeTitle}”. Choose a challenge, then confirm its workspace and controller.`),
+        catalogNotice.webUrl ? h("a", { href: catalogNotice.webUrl, target: "_blank", rel: "noopener noreferrer", style: { marginInlineStart: 8 } }, msg("查看比赛", "View competition")) : null
+      ) : null,
       h(
         "div",
-        { className: "pg-actions" },
-        handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null,
-        h("button", {
-          type: "button",
-          className: "pg-button pg-challenge-detail",
-          "aria-haspopup": "dialog",
-          "aria-label": msg(`查看详情：${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`, `View details: ${msg(item.titleZh || item.title, item.title || item.titleZh) || item.id}`),
-          onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick"),
-          ref: /* @__PURE__ */ __name((node) => {
-            if (node) latest.details.set(String(item.id), node);
-            else latest.details.delete(String(item.id));
-          }, "ref")
-        }, msg("查看详情", "View details")),
-        openWebButton(item.webUrl, msg(item.titleZh || item.title, item.title || item.titleZh) || item.id)
-      )
-    ))),
-    // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
-    // itself ignores a press while any read is running.
-    canLoadMore ? h("button", {
-      type: "button",
-      className: "pg-button pg-load-more",
-      "aria-disabled": busy ? true : void 0,
-      "aria-busy": busy === "more",
-      onClick: loadMore,
-      ref: /* @__PURE__ */ __name((node) => {
-        latest.more = node;
-      }, "ref")
-    }, busy === "more" ? msg("正在加载…", "Loading…") : msg("加载更多", "Load more")) : null,
+        { className: "pg-catalog-toolbar" },
+        h(
+          "div",
+          { className: "pg-catalog-search" },
+          h("input", { className: "pg-input", type: "search", "aria-label": msg("搜索 Playground 赛题", "Search Playground challenges"), placeholder: msg("按题目名称、方向或关键词搜索", "Search by title, discipline, or keyword"), value: search, onChange: /* @__PURE__ */ __name((event) => setSearch(event.target.value), "onChange"), onKeyDown: /* @__PURE__ */ __name((event) => {
+            if (event.key === "Enter") load();
+          }, "onKeyDown") })
+        ),
+        // Each change reads page 1 with the current competition and search. The open-only filter reads nothing.
+        h(
+          "div",
+          { className: "pg-catalog-filters", role: "group", "aria-label": msg("筛选赛题", "Filter challenges") },
+          h(
+            "label",
+            { className: "pg-filter pg-filter-discipline" },
+            h("span", null, msg("学科", "Discipline")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("按学科筛选", "Filter by discipline"), value: disciplineChoice, onChange: /* @__PURE__ */ __name((event) => {
+                const value = event.target.value;
+                setDisciplineChoice(value);
+                const nextDiscipline = value === OTHER_DISCIPLINE ? appliedOther : value;
+                if (nextDiscipline === null) waitForDiscipline();
+                else load({}, { discipline: nextDiscipline });
+              }, "onChange") },
+              h("option", { value: "" }, msg("全部学科", "All disciplines")),
+              disciplineOptions.map((key2) => h("option", { key: key2, value: key2 }, key2)),
+              activeDisciplineMissing ? h("option", { value: disciplineChoice }, disciplineChoice) : null,
+              h("option", { value: OTHER_DISCIPLINE }, msg("其他（输入学科）", "Other (enter a discipline)"))
+            )
+          ),
+          h(
+            "label",
+            { className: "pg-filter" },
+            h("span", null, msg("来源", "Source")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("按来源筛选", "Filter by source"), value: origin, onChange: /* @__PURE__ */ __name((event) => {
+                setOrigin(event.target.value);
+                load({ origin: event.target.value });
+              }, "onChange") },
+              originOptions().map(([value, label2]) => h("option", { key: value || "all", value }, label2))
+            )
+          ),
+          disciplineChoice === OTHER_DISCIPLINE ? h(
+            "div",
+            { className: "pg-filter pg-filter-other" },
+            h("label", { htmlFor: "pg-other-discipline" }, msg("其他学科（英文学科名，精确匹配）", "Other discipline (exact English name)")),
+            h(
+              "div",
+              { className: "pg-filter-row" },
+              h("input", {
+                id: "pg-other-discipline",
+                className: "pg-input",
+                value: otherDiscipline,
+                maxLength: 100,
+                placeholder: msg("例如 science，按回车筛选", "For example, science. Press Enter to filter."),
+                ...facets?.otherKeys?.length ? { list: "pg-other-discipline-keys" } : {},
+                onChange: /* @__PURE__ */ __name((event) => {
+                  const value = event.target.value;
+                  setOtherDiscipline(value);
+                  if (appliedOther !== null && value.trim() !== appliedOther) {
+                    setAppliedOther(null);
+                    waitForDiscipline();
+                  }
+                }, "onChange"),
+                onKeyDown: /* @__PURE__ */ __name((event) => {
+                  if (event.key === "Enter") applyOther();
+                }, "onKeyDown")
+              }),
+              h("button", { type: "button", className: "pg-button", onClick: applyOther }, msg("筛选", "Apply filter"))
+            ),
+            facets?.otherKeys?.length ? h("datalist", { id: "pg-other-discipline-keys" }, facets.otherKeys.map((key2) => h("option", { key: key2, value: key2 }))) : null
+          ) : null,
+          h(
+            "label",
+            { className: "pg-filter" },
+            h("span", null, msg("排序", "Sort")),
+            h(
+              "select",
+              { className: "pg-input", "aria-label": msg("排序方式", "Sort order"), value: sort, onChange: /* @__PURE__ */ __name((event) => {
+                setSort(event.target.value);
+                load({ sort: event.target.value });
+              }, "onChange") },
+              sortOptions().map(([value, label2]) => h("option", { key: value, value }, label2))
+            )
+          ),
+          h(
+            "label",
+            { className: "pg-filter-check", title: msg("仅筛选已加载的赛题", "Filters loaded challenges only") },
+            h("input", { type: "checkbox", checked: openOnly, onChange: /* @__PURE__ */ __name((event) => setOpenOnly(event.target.checked), "onChange") }),
+            msg("只看开放", "Open only"),
+            h("span", { className: "pg-sr-only" }, msg("（仅筛选已加载的赛题）", "(loaded challenges only)"))
+          )
+        )
+      ),
+      selectedCompetition?.periodsStale ? h("p", { className: "pg-note", role: "status" }, msg("赛程暂未同步，当前显示已有分期。", "The schedule is out of date. Showing available periods.")) : null,
+      selectedCompetition?.groupsStale ? h("p", { className: "pg-note", role: "status" }, msg("官方分类暂未同步，当前显示已有分类。", "The official groups could not be refreshed. Showing the available groups.")) : null,
+      // Wraps onto further lines in a narrow column, so every group stays reachable.
+      groups.length ? h(
+        "div",
+        { className: "pg-catalog-groups", role: "group", "aria-label": msg("按分类筛选", "Filter by group") },
+        h(
+          "button",
+          { type: "button", className: "pg-group-chip", "aria-pressed": !group, onClick: /* @__PURE__ */ __name(() => chooseGroup(""), "onClick") },
+          msg("全部", "All"),
+          periodTotal !== void 0 ? h("span", { className: "pg-group-count", "aria-hidden": true }, periodTotal) : null
+        ),
+        groups.map((item) => {
+          const label2 = groupLabel(item);
+          return h(
+            "button",
+            {
+              key: item.key,
+              type: "button",
+              className: "pg-group-chip",
+              "aria-pressed": group === item.key,
+              "aria-label": msg(`${label2} ${item.count} 道`, `${label2}, ${item.count} ${item.count === 1 ? "challenge" : "challenges"}`),
+              onClick: /* @__PURE__ */ __name(() => chooseGroup(item.key), "onClick")
+            },
+            label2,
+            h("span", { className: "pg-group-count" }, item.count)
+          );
+        })
+      ) : null,
+      notice ? h("p", { className: "pg-note" }, msg(...notice)) : null,
+      failure ? h(
+        "div",
+        { className: "pg-catalog-failure" },
+        h("p", { className: "pg-error", role: "alert" }, failureText),
+        h("button", { type: "button", className: "pg-button", disabled: Boolean(busy) || otherPending, onClick: retry }, failure.kind === "changed" ? msg("从第一页重新读取", "Reload from the first page") : msg("重试", "Retry"))
+      ) : null,
+      busy === "load" && competitionTable === null ? h("p", { className: "pg-note", role: "status" }, msg("正在读取比赛和赛题…", "Loading competitions and challenges…")) : null,
+      busy === "load" && competitionTable !== null && !shownList ? h("p", { className: "pg-note" }, msg("正在读取所选比赛的赛题…", "Loading challenges for this competition…")) : null,
+      shownList && !loaded.length ? h("p", { className: "pg-note" }, msg("没有找到匹配赛题。换一个关键词或筛选条件试试。", "No matching challenges. Try another keyword or filter.")) : null,
+      shownList && loaded.length > 0 && !challenges.length ? h("p", { className: "pg-note" }, `${msg("已加载的赛题中没有开放的题。", "No open challenges among those loaded. ")}${canLoadMore ? msg("可以点“加载更多”继续查找。", "Select “Load more” to keep looking.") : ""}`) : null,
+      otherPending ? h("p", { className: "pg-note pg-catalog-hint" }, msg("输入学科后按回车筛选", "Enter a discipline and press Enter to filter")) : null,
+      h(
+        "div",
+        { className: "pg-catalog-stats" },
+        countLine ? h("p", { className: "pg-note pg-catalog-count", tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+          latest.count = node;
+        }, "ref") }, countLine) : null,
+        h("span", { className: "pg-catalog-stats-line", "aria-hidden": true }),
+        lastRead ? h("span", null, msg(`目录更新于 ${lastRead}`, `Catalog updated at ${lastRead}`)) : null,
+        h(
+          "button",
+          { className: "pg-button pg-catalog-refresh", disabled: busy === "load" || otherPending, onClick: /* @__PURE__ */ __name(() => load({}, { refresh: true }), "onClick") },
+          busy === "load" ? msg("正在刷新…", "Refreshing…") : msg("刷新目录", "Refresh catalog")
+        )
+      ),
+      h("div", { className: "pg-challenge-grid" }, challenges.map((item) => {
+        const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
+        const id = String(item.id);
+        const progressLines = progressSummary(progressFor(item, tracked.has(id) ? historyById?.[id] : void 0), msg);
+        const itemGroup = groupFor(item);
+        const status2 = item.status && (locales[currentLanguage()].states[item.status] || item.status);
+        const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : void 0;
+        const attempts = Number.isFinite(item.attempts) ? item.attempts : void 0;
+        return h(
+          "article",
+          {
+            className: "pg-card pg-challenge",
+            key: item.id,
+            onClick: /* @__PURE__ */ __name((event) => {
+              if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) openDetail(item);
+            }, "onClick")
+          },
+          h(
+            "div",
+            { className: "pg-head" },
+            h("span", { className: "pg-challenge-id" }, openWebButton(item.webUrl, title, { label: String(item.id) }) || item.id),
+            status2 ? h("span", { className: "pg-badge", "data-tone": statusTone(item.status) }, status2) : null
+          ),
+          h("h3", null, title),
+          h("p", { className: "pg-note pg-challenge-meta" }, [itemGroup, item.discipline || item.origin].filter(Boolean).join(" · ") || msg("Playground 赛题", "Playground challenge")),
+          difficulty !== void 0 || attempts !== void 0 ? h(
+            "div",
+            { className: "pg-challenge-facts" },
+            difficulty !== void 0 ? h(
+              "span",
+              { "aria-label": msg(`难度 ${difficulty}`, `Difficulty ${difficulty}`) },
+              msg("难度", "Difficulty"),
+              h("span", { className: "pg-challenge-meter", "aria-hidden": true }, [1, 2, 3, 4, 5].map((step) => h("i", { key: step, "data-filled": step <= difficulty })))
+            ) : null,
+            attempts !== void 0 ? h("span", null, msg("提交", "Submissions"), " ", h("strong", null, attempts)) : null
+          ) : null,
+          progressLines.length ? h(
+            "div",
+            { className: "pg-challenge-progress-group" },
+            progressLines.map(({ text, tone }) => h("p", { key: tone, className: "pg-challenge-progress", "data-tone": tone }, text))
+          ) : null,
+          h(
+            "div",
+            { className: "pg-actions" },
+            h("button", {
+              type: "button",
+              className: "pg-button pg-challenge-detail",
+              "aria-haspopup": "dialog",
+              "aria-label": msg(`查看详情：${title}`, `View details: ${title}`),
+              onClick: /* @__PURE__ */ __name(() => openDetail(item), "onClick"),
+              ref: /* @__PURE__ */ __name((node) => {
+                if (node) latest.details.set(String(item.id), node);
+                else latest.details.delete(String(item.id));
+              }, "ref")
+            }, msg("查看详情", "View details")),
+            handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null
+          )
+        );
+      })),
+      // aria-disabled, not disabled, while a read runs: a disabled button would drop keyboard focus. loadMore
+      // itself ignores a press while any read is running.
+      canLoadMore ? h("button", {
+        type: "button",
+        className: "pg-button pg-load-more",
+        "aria-disabled": busy ? true : void 0,
+        "aria-busy": busy === "more",
+        onClick: loadMore,
+        ref: /* @__PURE__ */ __name((node) => {
+          latest.more = node;
+        }, "ref")
+      }, busy === "more" ? msg("正在加载…", "Loading…") : msg("加载更多", "Load more")) : null
+    ),
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
     detail ? h(ChallengeDetailDrawer, {
       key: String(detail.id),
       challenge: detail,
       query,
       handoff: catalogHandoff,
+      requestTask,
+      competition: infoName,
+      group: groupFor(detail),
+      progress: progressFor(detail, drawerHistory),
       close: /* @__PURE__ */ __name(() => setDetail(null), "close"),
       focusFallback: /* @__PURE__ */ __name(() => [latest.details.get(String(detail.id)), latest.heading], "focusFallback")
     }) : null
@@ -3870,10 +5356,15 @@ var React12 = __toESM(require("react"), 1);
 // src/client/tasks/start.js
 var React11 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
-function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false }) {
+function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false, primary = false }) {
   return h(
     "button",
-    { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => requestTask({ id: String(id), title: title || String(id), mode, sessionId }), "onClick") },
+    { type: "button", className: primary ? "pg-button pg-primary" : "pg-button pg-list-action", disabled, onClick: /* @__PURE__ */ __name(() => requestTask({ id: String(id), title: title || String(id), mode, sessionId }), "onClick") },
+    primary ? h(
+      "svg",
+      { width: 10, height: 10, viewBox: "0 0 10 10", "aria-hidden": true },
+      h("path", { d: "M2 1v8l6-4z", fill: "currentColor" })
+    ) : null,
     mode === "author" ? msg(`开始出题任务 · ${title || id}`, `Start authoring task · ${title || id}`) : msg(`开始参赛任务 · ${title || id}`, `Start participation task · ${title || id}`)
   );
 }
@@ -4087,6 +5578,54 @@ function blockedReason({ reason, sessionIds }) {
 __name(blockedReason, "blockedReason");
 
 // src/client/cards/tool.js
+var challengeCardCss = `
+  .pg-card.pg-tool-challenge { padding:0; border-color:var(--pg-control-line); background:var(--pg-control); overflow:hidden; }
+  .pg-tool-challenge-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; border-bottom:1px solid #1C2129; background:#0C0F13; }
+  .pg-tool-challenge-id { color:var(--pg-label); font:11px/1.55 var(--pg-font-mono); letter-spacing:.06em; overflow-wrap:anywhere; }
+  .pg-tool-challenge-meta [data-tone=open] { border-color:#2E3A1E; }
+  .pg-tool-challenge-body { display:grid; gap:var(--pg-s16); padding:var(--pg-s16); }
+  .pg-tool-challenge-body h3 { font-size:19px; letter-spacing:-.01em; }
+  .pg-tool-challenge-facts,.pg-tool-challenge-actions { display:flex; flex-wrap:wrap; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge-facts { color:var(--pg-muted); font-size:13px; }
+  .pg-tool-challenge-actions .pg-primary { display:inline-flex; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge .pg-raw { margin:0; }
+  .pg-tool-challenge .pg-raw > summary { display:inline-flex; align-items:center; margin-bottom:var(--pg-s4); }
+  .pg-tool-challenge footer { margin:0; color:var(--pg-label); font:10.5px/1.55 var(--pg-font-mono); }
+`;
+function challengeToolCard(data, text, t, sessionId, requestTask) {
+  const title = msg(data.titleZh || data.title, data.title || data.titleZh) || data.id;
+  const facts = [data.origin && t(`origins.${data.origin}`), data.discipline && t(`disciplines.${data.discipline}`)].filter(Boolean);
+  return h(
+    "section",
+    { className: "pg-card pg-tool-challenge", "aria-label": t("tools.playground_get_challenge") },
+    h("style", null, css + challengeCardCss),
+    h(
+      "div",
+      { className: "pg-tool-challenge-meta" },
+      h("span", { className: "pg-tool-challenge-id" }, "CHALLENGE · ", data.id),
+      data.status ? h("span", { className: "pg-badge", "data-tone": statusTone(data.status) }, stateLabel(data.status, t)) : null
+    ),
+    h(
+      "div",
+      { className: "pg-tool-challenge-body" },
+      h("h3", null, title),
+      facts.length ? h("div", { className: "pg-tool-challenge-facts" }, facts.join(" · ")) : null,
+      requestTask ? h(
+        "div",
+        { className: "pg-tool-challenge-actions" },
+        h(StartTaskButton, { id: data.id, title: data.title || data.titleZh, sessionId, requestTask, primary: true })
+      ) : null,
+      text || data.content && !data.contentGated ? h(
+        "details",
+        { className: "pg-raw" },
+        h("summary", { className: "pg-button" }, data.contentGated ? t("raw") : msg("查看题面", "View challenge statement")),
+        h("pre", null, text || data.content)
+      ) : null,
+      h("footer", null, t("snapshot"))
+    )
+  );
+}
+__name(challengeToolCard, "challengeToolCard");
 function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
   const language = usePluginLanguage();
   const t = languagePreference() ? zhText : hostText || zhText;
@@ -4101,6 +5640,9 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
   const receipt = approvedSubmit && data?.workflow?.kind === "receipt" ? data.workflow.receipt : void 0;
   const receiptId = receipt?.attemptId ?? data?.attemptId;
   const receiptState = receipt?.scoringState?.state || data?.scoringState?.state || receipt?.status || data?.status;
+  if (toolName === "playground_get_challenge" && data?.ok && !failed && data.id !== void 0) {
+    return challengeToolCard(data, text, t, sessionId, requestTask);
+  }
   const receiptLine = approvedSubmit && receiptId !== void 0 ? `${t("progress.attempt")} #${receiptId} · ${receiptState ? stateLabel(receiptState, t) : t("awaitingScore")}` : "";
   return h(
     "section",
@@ -4112,13 +5654,13 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       h("h3", null, data?.title || t(`tools.${toolName}`)),
       h(
         "span",
-        { className: "pg-badge", "data-tone": failed ? "error" : data?.scoringState?.scoreIsFinal ? "success" : statusTone(state) },
+        { className: "pg-badge", "data-tone": failed ? "error" : data?.scoringState?.scoreIsFinal ? "scored" : phase === "start" ? "running" : statusTone(state) },
         failed ? t("failed") : phase === "preparing" ? t("preparing") : phase === "start" ? t(approvedSubmit ? "approving" : toolName === "playground_submit_attempt" ? "uploading" : "running") : state ? stateLabel(state, t) : t("loaded")
       )
     ),
     failed ? h("p", { className: "pg-error", role: "alert" }, data?.error?.message || block.error?.message || text || t("failed")) : null,
     receiptLine ? h("p", { className: "pg-note pg-receipt", role: "status" }, receiptLine) : null,
-    phase === "result" && data?.ok && requestTask && (toolName === "playground_get_challenge" || toolName === "playground_list_challenges") ? h(
+    phase === "result" && data?.ok && requestTask && toolName === "playground_list_challenges" ? h(
       "div",
       { className: "pg-actions" },
       ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))
@@ -4160,7 +5702,11 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
             isAttempt && scoreLabel(item, t) ? h("div", null, scoreLabel(item, t)) : null
           )
         ),
-        h("span", { className: "pg-badge" }, stateLabel(item.scoringState?.state || item.status, t))
+        h(
+          "span",
+          { className: "pg-badge", "data-tone": item.scoringState?.scoreIsFinal ? "scored" : statusTone(item.scoringState?.state || item.status) },
+          stateLabel(item.scoringState?.state || item.status, t)
+        )
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
@@ -4324,7 +5870,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   return h(
     "section",
     { className: "pg-guide pg-workflow", "aria-label": msg("Playground 任务", "Playground task") },
-    h("style", null, css + ".pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{box-sizing:border-box;width:100%;min-height:40px;padding:8px 10px;font:inherit;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:7px}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}"),
+    h("style", null, css + ".pg-form{display:grid;gap:8px;margin-top:10px}.pg-field{display:grid;gap:4px;font-size:12px}.pg-input{width:100%}.pg-confirm{margin-top:10px;padding-top:10px;border-top:1px solid var(--pg-line)}.pg-path{overflow-wrap:anywhere;white-space:pre-line}.pg-advanced{margin-top:10px}"),
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
@@ -4372,11 +5918,16 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       request.status === "awaiting_user" ? h(
         React13.Fragment,
         null,
-        h("p", { className: "pg-confirm-impact" }, msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)),
+        h(
+          "p",
+          { className: "pg-confirm-impact" },
+          h("span", { className: "pg-badge", "data-tone": "warning" }, msg("等待你答复", "Waiting for your reply")),
+          msg(`${request.policy?.reasonText || "本次提交有配额风险"}。继续可能消耗提交名额。`, `${request.policy?.reasonText || "This submission may count against your quota"}. Continuing may use a submission slot.`)
+        ),
         h(
           "div",
           { className: "pg-actions" },
-          h("button", { className: "pg-button pg-primary", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue"))
+          h("button", { className: "pg-button pg-risk", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "confirm_quota", requestId: request.requestId }), "onClick") }, msg("知悉配额风险，继续本次提交", "Accept quota risk and continue"))
         )
       ) : null,
       canCancel ? h("button", { className: "pg-button", disabled: busy || !allowed, onClick: /* @__PURE__ */ __name(() => act({ action: "cancel", requestId: request.requestId }), "onClick") }, msg("取消本次请求", "Cancel this request")) : null
@@ -4723,7 +6274,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
 __name(TaskDetailDrawer, "TaskDetailDrawer");
 
 // src/client/workbench.js
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
@@ -4870,8 +6421,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   }, "openConversation");
   return h(
     "main",
-    { className: "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
-    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--dsw-alias-border-l3)}.pg-challenge .pg-primary[aria-disabled=true]:hover{background:var(--dsw-alias-button-primary-fill)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--dsw-alias-interactive-bg-hover)}.pg-task-row.is-selected{background:var(--dsw-alias-interactive-bg-active)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--dsw-alias-bg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--dsw-alias-label-secondary)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
+    { className: section === "catalog" ? "pg-workbench pg-workbench-catalog" : "pg-workbench", "aria-label": msg("Playground 工作台", "Playground Workbench") },
+    h("style", null, css + ".pg-workbench{box-sizing:border-box;min-width:0;width:100%;height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 32px;color:var(--pg-text);background:var(--pg-base)}.pg-workbench-inner{max-width:1180px;margin:0 auto}.pg-workbench h1{font-size:22px;margin:0}.pg-workbench .pg-toolbar{margin:20px 0;display:grid;gap:8px}.pg-search{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:8px;margin-top:14px}.pg-competition-info{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px}.pg-competition-info .pg-note{flex:1 1 280px;min-width:0;margin:0;overflow-wrap:anywhere}.pg-catalog-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:10px}.pg-filter{display:grid;gap:4px;flex:1 1 130px;min-width:0;font-size:12px;color:var(--pg-muted)}.pg-filter .pg-input{width:100%;min-width:0;box-sizing:border-box}.pg-filter-other{flex:2 1 240px}.pg-filter-row{display:flex;gap:6px;min-width:0}.pg-filter-row .pg-input{flex:1 1 auto}.pg-filter-check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:1 1 150px;min-height:32px;font-size:12px}.pg-filter-check .pg-note{margin:0;font-size:11px}.pg-catalog-count{margin:10px 0 0;overflow-wrap:anywhere}.pg-catalog-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}.pg-catalog-groups-label{margin-right:2px;font-size:12px;color:var(--pg-muted)}.pg-group-chip{min-height:32px;padding:5px 11px;border:1px solid var(--pg-line);border-radius:999px;background:var(--pg-base);color:var(--pg-text);font:inherit;font-size:12px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-group-chip:hover{background:var(--pg-hover)}.pg-group-chip[aria-pressed=true]{border-color:var(--pg-accent);background:var(--pg-accent-soft);color:var(--pg-accent-strong);font-weight:600}.pg-group-chip:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-group-count{margin-left:5px;color:var(--pg-muted);font-variant-numeric:tabular-nums}.pg-group-chip[aria-pressed=true] .pg-group-count{color:inherit}.pg-catalog-failure{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:10px}.pg-catalog-failure .pg-error{flex:1 1 220px;margin:0}.pg-load-more{display:block;margin:12px auto 0}.pg-workbench .pg-guide{padding:20px}.pg-workbench-grid{display:grid;gap:12px;align-items:start;margin-top:12px}.pg-workbench-column{min-width:0}.pg-column-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;padding:0 2px}.pg-column-heading h2{font-size:14px;line-height:1.4}.pg-refresh-controls{display:flex;align-items:center;gap:8px}.pg-refresh{min-height:32px;padding:5px 10px}.pg-refresh-status{margin:0 2px 8px}.pg-task-empty{padding:20px 14px;border:1px dashed var(--pg-line);border-radius:10px;color:var(--pg-muted);font-size:12px;line-height:1.6}.pg-challenge{margin-top:8px;cursor:pointer}.pg-challenge:hover{border-color:var(--pg-line-strong)}.pg-task-list{display:grid;gap:6px}.pg-task-row{width:100%;min-width:0;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding-right:10px;border:1px solid var(--pg-line);border-radius:10px;background:var(--pg-panel);color:var(--pg-text)}.pg-task-row-select{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.pg-task-row-open{flex:none;min-height:28px;padding:4px 8px;border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-base);color:var(--pg-accent-strong);font:inherit;font-size:11px;line-height:1.4;white-space:nowrap;cursor:pointer}.pg-task-row-open:hover{background:var(--pg-hover)}.pg-task-row-select:focus-visible,.pg-task-row-open:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-task-row:hover{background:var(--pg-hover)}.pg-task-row.is-selected{background:var(--pg-hover)}.pg-task-row-main{display:grid;min-width:0;gap:4px}.pg-task-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pg-task-row-meta,.pg-task-row-updated{font-size:11px;color:var(--pg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pg-task-row-side{display:grid;justify-items:end;gap:3px;min-width:78px}.pg-task-row-score{font-family:var(--pg-font-mono);font-size:12px;font-weight:600;color:var(--pg-accent-strong)}.pg-task-row-updated{font-family:var(--pg-font-mono);font-size:10px}.pg-split-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:8px 0 0;color:var(--pg-muted);font-size:11px}.pg-split-control input{width:118px;accent-color:var(--pg-accent)}.pg-drawer-backdrop{position:fixed;inset:0;z-index:20;background:rgba(15,23,42,.22);display:flex;justify-content:flex-end}.pg-drawer{box-sizing:border-box;width:min(640px,100vw);height:100%;overflow:auto;padding:calc(var(--dsh-frame-top-clearance,0px) + 24px) 24px 24px;background:var(--pg-base);color:var(--pg-text);box-shadow:-12px 0 30px rgba(15,23,42,.16)}.pg-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}.pg-drawer-title{margin:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}.pg-drawer-close,.pg-drawer-open{min-height:32px;padding:5px 9px;white-space:nowrap}.pg-drawer-heading{flex:1;min-width:0}.pg-drawer-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:0 0 auto;max-width:50%}.pg-drawer .pg-workflow{margin-top:14px}.pg-drawer .pg-history{margin-top:14px}.pg-history-side{display:grid;justify-items:end;gap:4px}.pg-drawer .pg-archive{align-items:center;flex-wrap:wrap}.pg-archived{margin-top:10px;display:grid;gap:6px}.pg-archived-toggle{justify-self:start;min-height:28px;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--pg-muted);font:inherit;font-size:12px;cursor:pointer}.pg-archived-toggle:hover{color:var(--pg-accent-strong);background:var(--pg-accent-soft)}.pg-archived-toggle:focus-visible{outline:2px solid var(--pg-accent);outline-offset:2px}.pg-archived-row{justify-content:space-between;padding:8px 10px 8px 12px;background:var(--pg-base)}.pg-archived-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pg-muted)}.pg-workbench .pg-help{margin-top:20px;font-size:12px;line-height:1.8;color:var(--pg-muted)}@media(max-width:820px){.pg-workbench-grid{grid-template-columns:1fr!important}.pg-split-control{justify-content:flex-start}}@media(max-width:600px){.pg-workbench{padding-right:14px;padding-left:14px}.pg-workbench .pg-guide{padding:14px}.pg-search{grid-template-columns:1fr}.pg-filter,.pg-filter-other{flex-basis:100%}.pg-load-more{width:100%}.pg-split-control input{width:96px}.pg-task-row{padding-right:8px}.pg-task-row-select{gap:8px;padding:10px}.pg-task-row-side{min-width:0}.pg-drawer{padding:calc(var(--dsh-frame-top-clearance,0px) + 16px) 16px 16px}}"),
     h(
       "div",
       { className: "pg-workbench-inner" },
@@ -4897,8 +6448,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
         section === "submissions" ? null : h(
           "section",
           { className: "pg-workbench-column", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog") },
-          h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
-          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, onWebBase: setWebBase })
+          section === "catalog" ? null : h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
+          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, requestTask, controllerRows, account, active, taskSessions, webBase, onWebBase: setWebBase })
         ),
         section === "catalog" ? null : h(
           "section",

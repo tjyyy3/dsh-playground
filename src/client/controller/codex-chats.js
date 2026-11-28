@@ -1,6 +1,23 @@
 import { msg } from '../shared/language.js';
 import * as React from 'react';
 import { h } from '../shared/react.js';
+import { css } from '../shared/styles.js';
+
+export const codexCss = `
+  .pg-controller-external-chats { margin-top:6px; border:1px solid #1A1F27; border-radius:var(--pg-r10); background:#0A0D10; }
+  .pg-controller-external-chats > summary { display:flex; align-items:center; gap:var(--pg-s8); padding:10px var(--pg-s12); border-radius:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .pg-controller-external-chats > summary svg { color:var(--pg-muted); }
+  .pg-controller-external-chats[open] > summary { border-bottom:1px solid #161B22; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .pg-codex-chats { display:grid; gap:var(--pg-s8); padding:var(--pg-s12); border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-panel); overflow-wrap:anywhere; }
+  .pg-controller-external-chats .pg-codex-chats { border:0; background:transparent; }
+  .pg-codex-chats h3,.pg-codex-chats p { margin:0; }
+  .pg-codex-chats label { display:grid; gap:var(--pg-s4); margin:6px 0; }
+  .pg-codex-chats .pg-input { width:100%; }
+  .pg-codex-chats .pg-controller-row { display:grid; gap:4px; width:100%; padding:8px 0; border:0; border-bottom:1px solid var(--pg-line); border-radius:var(--pg-r4); background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+  .pg-codex-chats .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
+  .pg-codex-chats .pg-controller-row span { color:var(--pg-label); font:10.5px/1.4 var(--pg-font-mono); }
+  .pg-codex-chats .pg-button { justify-self:start; }
+`;
 
 const reasons = () => ({
   controller_changed: msg('主控或工作区已变更，请重新打开。', 'The controller or workspace changed. Reopen it to continue.'),
@@ -12,15 +29,59 @@ const reasons = () => ({
   user_action_required: msg('请从主控工作台发起操作。', 'Start this action from the controller workbench.'),
   interaction_required: msg('此轮需要在原 Codex 对话中处理交互。', 'This turn needs your input in the original Codex chat.'),
 });
+function matchingChats(data, target) {
+  const rows = data?.rows || [];
+  return target ? rows.filter((item) => item.threadId === target || item.title === target) : rows;
+}
+
+function soleChatId(data, target) {
+  const matches = matchingChats(data, target);
+  return matches.length === 1 && (target || !data.partial) ? matches[0].threadId : null;
+}
+
 const label = (source) => `${source.title} · ${source.threadId}`;
 const verdict = (source) => source.text || (source.result === 'empty' ? msg('最近一轮暂无最终回复。', 'The latest turn has no final reply yet.') :
   source.result === 'unknown' ? msg('最近一轮结果未知。', 'The outcome of the latest turn is unknown.') : '');
 
-export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+export function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
+  const [detection, setDetection] = React.useState(null);
+  const [open, setOpen] = React.useState(false);
+  const [hasOpened, setHasOpened] = React.useState(false);
+  React.useEffect(() => {
+    const abort = new AbortController();
+    async function detect() {
+      try {
+        const result = await query({ action: 'detect', workspaceId, sessionId }, abort.signal);
+        if (!abort.signal.aborted) setDetection({ query, refresh, available: result?.kind === 'available' });
+      } catch {
+        if (!abort.signal.aborted) setDetection(null);
+      }
+    }
+    void detect();
+    return () => abort.abort();
+  }, [workspaceId, sessionId, query, refresh]);
+  const available = detection?.available === true && detection.query === query && detection.refresh === refresh;
+  if (!available && !hasOpened) return null;
+  return h('details', { className: 'pg-controller-external-chats', hidden: !available, open,
+    onToggle: (event) => {
+      const expanded = event.currentTarget.open;
+      setOpen(expanded);
+      if (expanded) setHasOpened(true);
+    } },
+  available ? h('summary', null,
+    h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+      h('path', { d: 'M2.5 4.5 6 8l-3.5 3.5M8 12h5.5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' })),
+    msg('外部 Codex 对话', 'External Codex chats')) : null,
+  hasOpened ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false, visible: available,
+    listRefresh: available && open ? refresh : null }) : null);
+}
+
+export function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
   const [data, setData] = React.useState(initial || null);
   const [selected, select] = React.useState(null);
   const [target, setTarget] = React.useState('');
   const [draft, setDraft] = React.useState(initial?.message || '');
+  const [draftThreadId, setDraftThreadId] = React.useState(null);
   const [choices, setChoices] = React.useState(initial?.kind === 'choose' ? initial.rows : null);
   const [response, setResponse] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
@@ -28,9 +89,14 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
   const [control] = React.useState(() => ({ active: true, writing: false, read: null }));
   React.useEffect(() => {
     control.active = true;
-    if (!initial) read('list');
     return () => { control.active = false; control.read?.abort(); };
-  }, [refresh, query]);
+  }, [query]);
+  React.useEffect(() => {
+    if (initial || listRefresh === null) return;
+    void read('list');
+    const abort = control.read;
+    return () => abort.abort();
+  }, [query, listRefresh]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -46,23 +112,31 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
     if (!draft.trim() || control.writing) return;
     const rows = data?.rows || [];
     const named = target.trim();
-    let displayed;
-    if (!source) {
-      const matches = named ? rows.filter((item) => item.threadId === named || item.title === named) : rows;
-      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
-        setChoices(matches); setResponse(null); return;
-      }
-      [displayed] = matches;
+    const boundId = source?.threadId ?? draftThreadId;
+    const checkSelection = source && source === selected && !initial && data?.kind === 'ready' && !data.partial;
+    if (boundId && (!source || checkSelection) && !rows.some((item) => item.threadId === boundId)) {
+      setResponse({ kind: 'unavailable', code: 'target_changed' });
+      return;
     }
+    const matches = matchingChats(data, named);
+    if (!boundId && (matches.length > 1 || !named && (matches.length !== 1 || data?.partial))) {
+      setChoices(matches); setResponse(null); return;
+    }
+    const matchedId = matches[0]?.threadId;
+    const destination = source || !named || (boundId && (matches.length !== 1 || matchedId !== boundId))
+      ? { threadId: boundId ?? matchedId }
+      : { target: named, ...(matchedId ? { expectedThreadId: matchedId } : {}) };
     control.writing = true;
     setBusy(true); setResponse(null); setCopied(false);
     try {
       const result = await query({ workspaceId, sessionId, action: 'send', message: draft,
-        ...(source ? { threadId: source.threadId } : named
-          ? { target: named, ...(displayed ? { expectedThreadId: displayed.threadId } : {}) }
-          : { threadId: displayed.threadId }) });
+        ...destination });
       if (!control.active) return;
-      if (result.kind === 'choose') { setChoices(result.rows); return; }
+      if (result.kind === 'choose') {
+        if (boundId) setResponse({ kind: 'unavailable', code: 'target_changed' });
+        else setChoices(result.rows);
+        return;
+      }
       setResponse(result);
       if (result.kind === 'sent' || result.kind === 'unknown') {
         select(result.source); setChoices(null); setDraft('');
@@ -74,9 +148,12 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
       if (control.active) setBusy(false);
     }
   }
+  if (!visible) return null;
   const rows = data?.rows || [];
-  return h('section', { className: 'pg-codex-chats', 'aria-label': msg('工作区 Codex 对话', 'Workspace Codex chats') },
-    h('h3', null, msg('工作区 Codex 对话', 'Workspace Codex chats')),
+  const hasFollowUp = rows.length > 0 || selected || (!initial && (target || draft));
+  return h('section', { className: 'pg-codex-chats', 'aria-label': msg('外部 Codex 对话', 'External Codex chats') },
+    showHeading ? h('style', null, css + codexCss) : null,
+    showHeading ? h('h3', null, msg('外部 Codex 对话', 'External Codex chats')) : null,
     !data ? h('p', { role: 'status' }, msg('正在查找本工作区对话…', 'Finding chats in this workspace…')) :
       data.kind === 'unavailable' ? h('p', { role: 'status' }, reasons()[data.code] || msg('无法读取本机 Codex 对话。', 'Could not read local Codex chats.')) :
       rows.length === 0 ? h('p', null, msg('本工作区暂无可见的 Codex 对话。', 'No Codex chats are visible in this workspace.')) : null,
@@ -86,19 +163,33 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
         h('strong', null, source.title), h('span', null, source.threadId)),
       verdict(source) ? h('p', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, verdict(source)) : null)),
     data?.partial ? h('p', null, msg('仅显示最近的部分对话。可通过完整会话编号指定目标。', 'Showing recent chats only. Enter the full chat ID to select another.')) : null,
-    rows.length > 0 && data.kind !== 'summary' ? h('button', { type: 'button', className: 'pg-controller-action',
+    rows.length > 0 && data.kind !== 'summary' ? h('button', { type: 'button', className: 'pg-button',
       disabled: busy, onClick: () => read('summary') }, msg('汇总最近结果', 'Summarize recent results')) : null,
-    rows.length || selected ? h('div', null,
-      selected ? h('p', null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h('button', { type: 'button', disabled: busy,
+    hasFollowUp ? h('div', null,
+      selected ? h('p', null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h('button', { type: 'button', className: 'pg-button', disabled: busy,
         onClick: () => { select(null); setChoices(null); } }, msg('更换目标', 'Change target'))) :
-      h('label', null, msg('目标会话', 'Target chat'), h('input', { value: target, disabled: busy, placeholder: msg('完整编号或标题', 'Full ID or title'),
-        onChange: (event) => { setTarget(event.target.value); setChoices(null); } })),
-      h('label', null, msg('追问内容', 'Follow-up message'), h('textarea', { value: draft, disabled: busy, maxLength: 8000,
-        onChange: (event) => setDraft(event.target.value) })),
+      h('label', null, msg('目标会话', 'Target chat'), h('input', { className: 'pg-input', value: target, disabled: busy, placeholder: msg('完整编号或标题', 'Full ID or title'),
+        onChange: (event) => {
+          const value = event.target.value;
+          if (value.trim() !== target.trim()) {
+            setDraftThreadId(soleChatId(data, value.trim()));
+            setResponse(null);
+          }
+          setTarget(value);
+          setChoices(null);
+        } })),
+      h('label', null, msg('追问内容', 'Follow-up message'), h('textarea', { className: 'pg-input', value: draft, disabled: busy, maxLength: 8000,
+        onChange: (event) => {
+          const value = event.target.value;
+          if (!selected && !draftThreadId && !draft.trim() && value.trim()) {
+            setDraftThreadId(soleChatId(data, target.trim()));
+          }
+          setDraft(value);
+        } })),
       choices ? h('div', null, h('p', null, msg('选择接收这条追问的原会话。', 'Choose the original chat to receive this follow-up.')), choices.map((source) =>
         h('button', { key: source.threadId, type: 'button', disabled: busy || !draft.trim(), className: 'pg-controller-row',
           onClick: () => send(source) }, msg(`发送给 ${label(source)}`, `Send to ${label(source)}`)))) :
-      h('button', { type: 'button', className: 'pg-controller-action', disabled: busy || !draft.trim(), onClick: () => send(selected) },
+      h('button', { type: 'button', className: 'pg-button', disabled: busy || !draft.trim(), onClick: () => send(selected) },
         busy ? msg('等待原会话回复…', 'Waiting for a reply from the original chat…') : msg('发送追问', 'Send follow-up'))) : null,
     response ? h('div', { role: 'status' },
       response.source ? h('strong', null, label(response.source)) : null,
@@ -108,7 +199,7 @@ export function CodexChats({ workspaceId, sessionId, query, initial, refresh }) 
         response.kind === 'unknown' && response.code === 'interaction_required' ? msg('该轮需要权限或用户输入，请在原 Codex 会话查看。', 'This turn needs permission or input. Open the original Codex chat.') :
         response.kind === 'unknown' ? msg('发送结果待核实。请先在原 Codex 会话查看该轮，再决定是否重新发送。', 'Delivery is unconfirmed. Check the turn in the original Codex chat before resending.') :
         reasons()[response.code] || msg('无法连接可接收追问的本机 Codex 服务。请在原会话继续。', 'Could not connect to a local Codex service that accepts follow-ups. Continue in the original chat.')),
-      response.kind === 'unavailable' && draft ? h('button', { type: 'button', onClick: async () => {
+      response.kind === 'unavailable' && draft ? h('button', { type: 'button', className: 'pg-button', onClick: async () => {
         try { await navigator.clipboard.writeText(draft); setCopied(true); } catch { setCopied(false); }
       } }, copied ? msg('已复制', 'Copied') : msg('复制追问', 'Copy follow-up')) : null) : null);
 }

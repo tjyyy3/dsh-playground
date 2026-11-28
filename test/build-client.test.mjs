@@ -14,6 +14,8 @@ test('Client builds reproduce the committed entry and freshness checks never ove
   await cp(join(root, 'src'), join(fixture, 'src'), { recursive: true });
   await mkdir(join(fixture, 'lib/task'), { recursive: true });
   await cp(join(root, 'lib/task/evidence.js'), join(fixture, 'lib/task/evidence.js'));
+  await mkdir(join(fixture, 'lib/submission'));
+  await cp(join(root, 'lib/submission/policy.js'), join(fixture, 'lib/submission/policy.js'));
   await mkdir(join(fixture, 'scripts'));
   await cp(join(root, 'scripts/build-client.mjs'), join(fixture, 'scripts/build-client.mjs'));
   await writeFile(join(fixture, 'package.json'), '{"type":"module"}\n');

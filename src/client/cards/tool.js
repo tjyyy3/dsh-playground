@@ -8,6 +8,40 @@ import { statusTone } from '../shared/display.js';
 import { StartTaskButton } from '../tasks/start.js';
 import { bundleSummaryLine, scoreLabel, submissionCountsLine } from '../tasks/attempts.js';
 
+const challengeCardCss = `
+  .pg-card.pg-tool-challenge { padding:0; border-color:var(--pg-control-line); background:var(--pg-control); overflow:hidden; }
+  .pg-tool-challenge-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; padding:12px 16px; border-bottom:1px solid #1C2129; background:#0C0F13; }
+  .pg-tool-challenge-id { color:var(--pg-label); font:11px/1.55 var(--pg-font-mono); letter-spacing:.06em; overflow-wrap:anywhere; }
+  .pg-tool-challenge-meta [data-tone=open] { border-color:#2E3A1E; }
+  .pg-tool-challenge-body { display:grid; gap:var(--pg-s16); padding:var(--pg-s16); }
+  .pg-tool-challenge-body h3 { font-size:19px; letter-spacing:-.01em; }
+  .pg-tool-challenge-facts,.pg-tool-challenge-actions { display:flex; flex-wrap:wrap; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge-facts { color:var(--pg-muted); font-size:13px; }
+  .pg-tool-challenge-actions .pg-primary { display:inline-flex; align-items:center; gap:var(--pg-s8); }
+  .pg-tool-challenge .pg-raw { margin:0; }
+  .pg-tool-challenge .pg-raw > summary { display:inline-flex; align-items:center; margin-bottom:var(--pg-s4); }
+  .pg-tool-challenge footer { margin:0; color:var(--pg-label); font:10.5px/1.55 var(--pg-font-mono); }
+`;
+
+function challengeToolCard(data, text, t, sessionId, requestTask) {
+  const title = msg(data.titleZh || data.title, data.title || data.titleZh) || data.id;
+  const facts = [data.origin && t(`origins.${data.origin}`), data.discipline && t(`disciplines.${data.discipline}`)].filter(Boolean);
+  return h('section', { className: 'pg-card pg-tool-challenge', 'aria-label': t('tools.playground_get_challenge') },
+    h('style', null, css + challengeCardCss),
+    h('div', { className: 'pg-tool-challenge-meta' },
+      h('span', { className: 'pg-tool-challenge-id' }, 'CHALLENGE · ', data.id),
+      data.status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(data.status) }, stateLabel(data.status, t)) : null),
+    h('div', { className: 'pg-tool-challenge-body' },
+      h('h3', null, title),
+      facts.length ? h('div', { className: 'pg-tool-challenge-facts' }, facts.join(' · ')) : null,
+      requestTask ? h('div', { className: 'pg-tool-challenge-actions' },
+        h(StartTaskButton, { id: data.id, title: data.title || data.titleZh, sessionId, requestTask, primary: true })) : null,
+      text || (data.content && !data.contentGated) ? h('details', { className: 'pg-raw' },
+        h('summary', { className: 'pg-button' }, data.contentGated ? t('raw') : msg('查看题面', 'View challenge statement')),
+        h('pre', null, text || data.content)) : null,
+      h('footer', null, t('snapshot'))));
+}
+
 function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, requestTask, openTask, openControllerChat, openWorkbench, codexChats }) {
   const language = usePluginLanguage();
   const t = languagePreference() ? zhText : hostText || zhText;
@@ -23,17 +57,20 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
   const receipt = approvedSubmit && data?.workflow?.kind === 'receipt' ? data.workflow.receipt : undefined;
   const receiptId = receipt?.attemptId ?? data?.attemptId;
   const receiptState = receipt?.scoringState?.state || data?.scoringState?.state || receipt?.status || data?.status;
+  if (toolName === 'playground_get_challenge' && data?.ok && !failed && data.id !== undefined) {
+    return challengeToolCard(data, text, t, sessionId, requestTask);
+  }
   const receiptLine = approvedSubmit && receiptId !== undefined
     ? `${t('progress.attempt')} #${receiptId} · ${receiptState ? stateLabel(receiptState, t) : t('awaitingScore')}` : '';
   return h('section', { className: 'pg-card', 'aria-label': t(`tools.${toolName}`) },
     h('style', null, css),
     h('div', { className: 'pg-head' },
       h('h3', null, data?.title || t(`tools.${toolName}`)),
-    h('span', { className: 'pg-badge', 'data-tone': failed ? 'error' : data?.scoringState?.scoreIsFinal ? 'success' : statusTone(state) },
+    h('span', { className: 'pg-badge', 'data-tone': failed ? 'error' : data?.scoringState?.scoreIsFinal ? 'scored' : phase === 'start' ? 'running' : statusTone(state) },
         failed ? t('failed') : phase === 'preparing' ? t('preparing') : phase === 'start' ? t(approvedSubmit ? 'approving' : toolName === 'playground_submit_attempt' ? 'uploading' : 'running') : state ? stateLabel(state, t) : t('loaded'))),
     failed ? h('p', { className: 'pg-error', role: 'alert' }, data?.error?.message || block.error?.message || text || t('failed')) : null,
     receiptLine ? h('p', { className: 'pg-note pg-receipt', role: 'status' }, receiptLine) : null,
-    phase === 'result' && data?.ok && requestTask && (toolName === 'playground_get_challenge' || toolName === 'playground_list_challenges') ? h('div', { className: 'pg-actions' },
+    phase === 'result' && data?.ok && requestTask && toolName === 'playground_list_challenges' ? h('div', { className: 'pg-actions' },
       ...(data.items || [data]).map((item) => h(StartTaskButton, { key: item.id, id: item.id, title: item.title, sessionId, requestTask }))) : null,
     data?.sessionId && (toolName === 'playground_open_controller' ? openControllerChat : openTask)
       ? h('button', { className: 'pg-button', onClick: () => toolName === 'playground_open_controller'
@@ -55,7 +92,8 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
         h('div', { className: 'pg-row-main' }, item.title || String(item.id),
           h('div', { className: 'pg-row-sub' }, `${t('id')}: ${item.id}`, item.endAt ? ` · ${new Date(item.endAt).toLocaleString(language)}` : '',
             isAttempt && scoreLabel(item, t) ? h('div', null, scoreLabel(item, t)) : null)),
-        h('span', { className: 'pg-badge' }, stateLabel(item.scoringState?.state || item.status, t)))) : h('li', { className: 'pg-note' }, t('empty'))) : null,
+        h('span', { className: 'pg-badge', 'data-tone': item.scoringState?.scoreIsFinal ? 'scored' : statusTone(item.scoringState?.state || item.status) },
+          stateLabel(item.scoringState?.state || item.status, t)))) : h('li', { className: 'pg-note' }, t('empty'))) : null,
       data.hasMore ? h('p', { className: 'pg-note' }, t('more')) : null,
       data.metrics?.length ? h(React.Fragment, null,
         h('p', { className: 'pg-note' }, t('metricTitle')),

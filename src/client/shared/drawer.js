@@ -4,7 +4,7 @@ import * as React from 'react';
 const tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 
 function tabbables(container) {
-  return [...(container.querySelectorAll?.(tabbableSelector) || [])].filter((node) => typeof node.getClientRects !== 'function' || node.getClientRects().length > 0);
+  return [...(container.querySelectorAll?.(tabbableSelector) || [])].filter((node) => node.tabIndex !== -1 && (typeof node.getClientRects !== 'function' || node.getClientRects().length > 0));
 }
 
 // Node.compareDocumentPosition bits: the other node comes before, or after, the reference node.
