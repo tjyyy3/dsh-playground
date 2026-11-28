@@ -10,7 +10,7 @@ const isStringArray = (value) => Array.isArray(value) && value.every((entry) => 
 const unique = (values) => [...new Set(values)];
 const emptySite = () => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] });
 
-function timestamp(value) {
+export function noticeDate(value) {
   if (typeof value !== 'string') return null;
   const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
   if (!match) return null;
@@ -18,7 +18,15 @@ function timestamp(value) {
   const calendarDay = new Date(date + 'T00:00:00Z');
   if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
   const ms = Date.parse(date + 'T' + time + zone);
-  return Number.isFinite(ms) ? ms : null;
+  return Number.isFinite(ms) ? { date, time, zone, ms } : null;
+}
+
+const timestamp = (value) => noticeDate(value)?.ms ?? null;
+
+export function noticeIsActive(item, now, start, end) {
+  const status = String(item.officialStatus ?? item.status ?? '').trim().toLowerCase();
+  return !endedStatuses.has(status) && (end === null || now < end) &&
+    (activeStatuses.has(status) || (start !== null && start <= now && end !== null));
 }
 
 function clockTime(value) {
@@ -66,7 +74,7 @@ function collectItems(items, sources, now) {
     const start = timestamp(item.startAt);
     const end = timestamp(item.endAt);
     const ended = endedStatuses.has(status) || (end !== null && end <= now);
-    const active = activeStatuses.has(status) || (start !== null && start <= now && end !== null && now < end);
+    const active = noticeIsActive(item, now, start, end);
     const upcoming = start !== null && start > now;
     const prior = byKey.get(item.key);
     if (!prior) {

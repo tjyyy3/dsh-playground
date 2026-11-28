@@ -298,13 +298,14 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   // Challenges show only for the selection they were read for, never under another competition's, period's or group's controls.
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
-  const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: (challenge) => {
-    if (gatedIds.has(challenge.id)) return;
+  const catalogHandoff = handoff && { state: handoff.state, gatedIds: catalogNotice ? gatedIds : handoff.gatedIds, start: (challenge) => {
+    if (catalogNotice && gatedIds.has(challenge.id)) return;
     // Keep the notice for deduplication within its competition. The Host verifies exact membership.
     const fromNoticeCompetition = noticeCompetition && shownList?.filters.season === noticeCompetition
       && loaded.some((item) => String(item.id) === challenge.id);
-    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : undefined);
-  } } : handoff;
+    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : undefined,
+      { competition: competitionName(selectedCompetition), period: periodName(selectedPeriod), webBase });
+  } };
   const challenges = openOnly ? loaded.filter((item) => item.status === 'open') : loaded;
   const total = shownList?.total;
   const tracked = new Set(taskSessions.flatMap((session) => {

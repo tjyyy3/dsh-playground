@@ -2,6 +2,7 @@ import { msg, usePluginLanguage } from '../shared/language.js';
 import * as React from 'react';
 import { h } from '../shared/react.js';
 import { workspaceOptions } from '../shared/workspaces.js';
+import { webRootOf } from '../shared/web-address.js';
 import { css } from '../shared/styles.js';
 import { AuthStatusPanel } from '../settings/auth.js';
 import { LanguageMenu } from '../settings/language.js';
@@ -265,7 +266,7 @@ function ControllerPanel(props) {
       dispatchState.coordination && ['controller_init_failed', 'controller_attach_failed', 'controller_open_failed'].includes(dispatchState.code) ||
       dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
   const recheckHandoff = () => {
-    setDispatchState({ phase: 'guide', challenge: dispatchState.challenge,
+    setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, context: dispatchState.context, showDialog: true,
       ...(dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }) });
     setRetry(retry + 1);
   };
@@ -342,28 +343,27 @@ function ControllerPanel(props) {
       dispatchControls.busy = false;
     }
   };
-  const startHandoff = (challenge, coordination) => {
+  const startHandoff = (challenge, coordination, context) => {
     if (busy || dispatchControls.busy) return;
     if (coordination) {
-      setDispatchState({ phase: 'guide', challenge, coordination, workspaceId: '', showDialog: true });
+      setDispatchState({ phase: 'guide', challenge, context, coordination, workspaceId: '', showDialog: true });
       return;
     }
     if (dispatchState?.phase === 'accepted' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
     const retry = dispatchState?.phase === 'error' && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
-    const state = retry ? dispatchState : { challenge };
-    if (retry && needsRecheck) return;
-    if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry && state.sessionId || selectedController });
-    setDispatchState({ ...state, phase: 'guide', showDialog: true });
+    if (!retry) setDispatchState({ phase: 'guide', challenge, context, showDialog: true });
   };
   const coordinate = (target, notice) => {
-    if (target.kind === 'challenge') return startHandoff({ id: target.challengeId, title: target.title }, { notice });
+    if (target.kind === 'challenge') return startHandoff({ id: target.challengeId, title: target.title }, { notice },
+      { competition: msg(notice.titleZh || notice.title, notice.title || notice.titleZh), webBase: notice.scope });
     setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
     setView('catalog');
   };
-  const handoff = { state: dispatchState, start: (challenge, notice) => startHandoff(challenge, catalogNotice ? { notice } : undefined), catalogNotice };
+  const handoff = { state: dispatchState, start: (challenge, notice, context) => startHandoff(challenge, catalogNotice ? { notice } : undefined, context), catalogNotice };
   const selectHandoffWorkspace = (id) => {
-    if (dispatchState.coordination && dispatchState.workspaceId !== id) {
-      setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
+    if (workspaceId !== id || dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({ phase: 'guide', challenge: dispatchState.challenge, context: dispatchState.context,
+        coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
     }
     selectWorkspace(id);
   };
@@ -397,11 +397,13 @@ function ControllerPanel(props) {
       handoffAction = { label: msg('重新核对', 'Check again'), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
       const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId
-        ? { challenge: dispatchState.challenge } : dispatchState;
+        ? { challenge: dispatchState.challenge, context: dispatchState.context } : dispatchState;
       const sessionId = state.sessionId || selectedController || (state.coordination && inspection.sessionId);
       const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
-        label: selectedController ? msg('交给主控', 'Hand off to controller') : inspection.kind === 'incomplete' ? msg('初始化并交接', 'Initialize and hand off') : msg('创建主控并交接', 'Create controller and hand off'),
-        message: canInitialize ? msg('DSH 会发送一条初始化消息，再把赛题交给主控。', 'DSH will send a setup message before handing the challenge to the controller.') : undefined,
+        label: selectedController ? msg('确认交给主控', 'Confirm handoff') : inspection.kind === 'incomplete' ? msg('初始化并交接', 'Initialize and hand off') : msg('创建主控并交接', 'Create controller and hand off'),
+        message: canInitialize ? msg('DSH 会发送一条初始化消息，再把赛题交给主控。', 'DSH will send a setup message before handing the challenge to the controller.')
+          : msg(`工作区「${handoffWorkspace.title || workspaceId}」的主控 ${selectedController} 将协调此题。交接后可在主控对话中查看派发进度。`,
+            `Controller ${selectedController} in workspace “${handoffWorkspace.title || workspaceId}” will coordinate this challenge. Follow its progress in the controller chat.`),
       };
       handoffMessage = dispatchState.phase === 'error' && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
       handoffAction = { label: copy.label, run: () => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController) };
@@ -410,6 +412,9 @@ function ControllerPanel(props) {
       if (error) handoffAction = { label: msg('重新核对', 'Check again'), run: () => setRetry(retry + 1) };
     }
   }
+  const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
+  const handoffTaskCount = handoffBase && tasks?.kind === 'ready' && tasks.rows?.filter(({ challenge }) =>
+    challenge?.id === dispatchState.challenge.id && webRootOf(challenge.baseUrl) === handoffBase).length;
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = new Map();
   const unassociated = [];
@@ -582,6 +587,7 @@ function ControllerPanel(props) {
             expectedId && props.codexChats ? h(ExternalCodexChats, { key: `${workspaceId}:${expectedId}`,
               workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null))) : null),
     showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: handoffWorkspace, busy: handoffBusy,
+      inspection: handoffWorkspace ? inspection : null, inspectionFailed: Boolean(error), inspectController, query: props.query, checkAttempt: retry, taskCount: handoffTaskCount,
       selectWorkspace: selectHandoffWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
       close: () => { if (!dispatchControls.busy) setDispatchState(null); } }) : null);
 

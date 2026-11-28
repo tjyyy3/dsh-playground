@@ -12,7 +12,8 @@ import { detectStatementLimit } from '../../../lib/submission/policy.js';
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ['sending', 'initializing', 'opening'].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h('button', { type: 'button', className: primary ? 'pg-button pg-primary pg-detail-dispatch' : 'pg-button pg-list-action', disabled: gated, 'aria-disabled': busy || gated || undefined, onClick: (event) => {
+  return h('button', { type: 'button', className: primary ? 'pg-button pg-primary pg-detail-dispatch' : 'pg-button pg-list-action', disabled: gated,
+    'aria-haspopup': 'dialog', 'aria-disabled': busy || gated || undefined, onClick: (event) => {
     if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();

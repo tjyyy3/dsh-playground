@@ -498,6 +498,23 @@ function workspaceOptions(items) {
 }
 __name(workspaceOptions, "workspaceOptions");
 
+// src/client/shared/web-address.js
+function webRootOf(apiBase) {
+  let root = String(apiBase || "");
+  try {
+    const parsed = new URL(root);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    root = parsed.href;
+  } catch {
+    root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, "$1");
+  }
+  return root.replace(/\/+$/, "").replace(/\/api$/i, "").replace(/\/+$/, "");
+}
+__name(webRootOf, "webRootOf");
+
 // src/client/shared/styles.js
 var instrumentCss = `
   :where(.pg-controller,.pg-workbench,.pg-guide,.pg-card,.pg-task-modal,.pg-codex-chats) {
@@ -606,23 +623,6 @@ var taskModalCss = instrumentCss + `
 
 // src/client/settings/auth.js
 var React2 = __toESM(require("react"), 1);
-
-// src/client/shared/web-address.js
-function webRootOf(apiBase) {
-  let root = String(apiBase || "");
-  try {
-    const parsed = new URL(root);
-    parsed.username = "";
-    parsed.password = "";
-    parsed.search = "";
-    parsed.hash = "";
-    root = parsed.href;
-  } catch {
-    root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, "$1");
-  }
-  return root.replace(/\/+$/, "").replace(/\/api$/i, "").replace(/\/+$/, "");
-}
-__name(webRootOf, "webRootOf");
 
 // src/client/shared/display.js
 function statusTone(state) {
@@ -1714,6 +1714,171 @@ __name(CodexChats, "CodexChats");
 // src/client/controller/handoff.js
 var React5 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/client/controller/dialog-styles.js
+var controllerDialogCss = `
+  .pg-task-modal.pg-controller-dialog {
+    --pg-dialog-bg:#0E1115; --pg-dialog-card:#0B0E12; --pg-dialog-rule:#1A1F27; --pg-dialog-selected:#6E8A2A;
+    display:flex; flex-direction:column; width:min(var(--pg-dialog-width),calc(100dvw - 32px)); max-width:none;
+    max-height:calc(100dvh - var(--pg-dialog-inset)); padding:0; border:1px solid #2A313C; border-radius:var(--pg-r14);
+    background:var(--pg-dialog-bg); box-shadow:0 40px 100px rgba(0,0,0,.6); line-height:1.55;
+    font-family:var(--pg-font-title);
+  }
+  .pg-controller-dialog .pg-task-header {
+    display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 22px;
+    border-bottom:1px solid var(--pg-dialog-rule);
+  }
+  .pg-controller-dialog .pg-task-header h2 { min-width:0; margin:0; padding:0; font-size:19px; line-height:1.55; letter-spacing:normal; overflow-wrap:anywhere }
+  .pg-controller-dialog .pg-task-close {
+    position:static; flex:none; width:34px; height:34px; border:1px solid var(--pg-control-line);
+    border-radius:var(--pg-r8); background:transparent; color:var(--pg-muted);
+  }
+  .pg-controller-dialog .pg-task-close svg { width:13px; height:13px; stroke-width:1.5 }
+  .pg-controller-dialog .pg-task-body { display:flex; flex:1 1 auto; flex-direction:column; min-height:0; gap:18px; padding:18px 22px }
+  .pg-controller-dialog .pg-task-body > * { flex-shrink:0 }
+  .pg-controller-dialog .pg-task-footer {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:14px 22px;
+    border-color:var(--pg-dialog-rule); background:var(--pg-dialog-card); border-radius:0 0 var(--pg-r14) var(--pg-r14);
+  }
+  .pg-controller-dialog .pg-task-button {
+    min-width:0; height:auto; min-height:38px; padding:6px 14px; border-color:var(--pg-line-strong);
+    background:transparent; font-size:13px; font-weight:400; white-space:normal; text-align:center; text-decoration:none;
+  }
+  .pg-controller-dialog .pg-task-button:hover:not(:disabled), .pg-controller-dialog .pg-task-close:hover:not(:disabled) {
+    background:#1B2028; border-color:#353D4A; color:var(--pg-text);
+  }
+  .pg-controller-dialog .pg-task-create {
+    padding-inline:16px; border-color:transparent; background:var(--pg-accent); color:var(--pg-ink); font-weight:600;
+  }
+  .pg-controller-dialog .pg-task-create:hover:not(:disabled) { background:var(--pg-accent-hover); border-color:transparent; color:var(--pg-ink) }
+  .pg-controller-dialog .pg-task-create:disabled:not([data-busy=true]) { background:var(--pg-hover); color:var(--pg-label) }
+  .pg-controller-dialog a:focus-visible { outline:2px solid var(--pg-accent); outline-offset:2px }
+  .pg-controller-dialog h2[data-modal-autofocus]:focus { outline:none }
+  .pg-dialog-label { font:10.5px/1.55 var(--pg-font-mono); letter-spacing:.1em; color:var(--pg-label) }
+  .pg-controller-dialog [data-tone=ready] { color:var(--pg-accent) }
+  .pg-controller-dialog [data-tone=warning] { color:var(--pg-warning) }
+  .pg-controller-dialog [data-tone=error] { color:var(--pg-error) }
+  .pg-controller-dialog [data-tone=muted] { color:var(--pg-muted) }
+  @media(max-width:600px) {
+    .pg-task-modal.pg-controller-dialog { --pg-dialog-inset:32px }
+    .pg-controller-dialog :is(.pg-task-header,.pg-task-body,.pg-task-footer) { padding-inline:16px }
+  }
+`;
+var handoffCss = `
+  .pg-controller-dialog.pg-handoff-dialog { --pg-dialog-width:620px; --pg-dialog-inset:48px }
+  .pg-handoff-dialog .pg-handoff-section { display:flex; min-width:0; flex-direction:column; gap:8px; margin:0; padding:0; border:0 }
+  .pg-handoff-dialog legend { padding:0 0 8px }
+  .pg-handoff-target,.pg-handoff-option {
+    display:flex; align-items:center; gap:14px; padding:12px 14px;
+    border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-dialog-card); line-height:1.35;
+  }
+  .pg-handoff-icon {
+    flex:none; display:grid; place-items:center; width:36px; height:36px; border:1px solid #2E3A1E;
+    border-radius:var(--pg-r8); background:var(--pg-accent-soft); color:var(--pg-accent);
+  }
+  .pg-handoff-icon svg { width:16px; height:16px; stroke-width:1.3 }
+  .pg-handoff-target div { min-width:0; overflow-wrap:anywhere }
+  .pg-handoff-target h3 { margin:0; font-size:15px; font-weight:600 }
+  .pg-handoff-target p,.pg-handoff-path { margin:0; color:var(--pg-label); font:11.5px/1.35 var(--pg-font-mono) }
+  .pg-handoff-option { align-items:flex-start; gap:12px; cursor:pointer }
+  .pg-handoff-option:hover:not(:has(:disabled)) { border-color:#353D4A }
+  .pg-handoff-option[data-selected=true],.pg-handoff-option[data-selected=true]:hover { border-color:var(--pg-dialog-selected); background:#10140B }
+  .pg-handoff-option:has(:disabled) { cursor:default }
+  .pg-handoff-option input { position:absolute; width:1px; height:1px; padding:0; margin:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap }
+  .pg-handoff-option input:focus-visible + span { outline:2px solid var(--pg-accent); outline-offset:3px }
+  .pg-handoff-radio { display:grid; place-items:center; flex:none; width:16px; height:16px; margin-top:3px; border:1.5px solid #4A5361; border-radius:50% }
+  .pg-handoff-option[data-selected=true] .pg-handoff-radio { border-color:var(--pg-accent) }
+  .pg-handoff-option[data-selected=true] .pg-handoff-radio::after { content:""; width:8px; height:8px; background:var(--pg-accent); border-radius:50% }
+  .pg-handoff-option-body { display:flex; flex-direction:column; min-width:0; gap:3px }
+  .pg-handoff-workspace { display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 8px; font-weight:500; overflow-wrap:anywhere }
+  .pg-handoff-path { font-size:11px }
+  .pg-handoff-status { display:flex; gap:6px; font-size:12px; overflow-wrap:anywhere }
+  .pg-handoff-status::before { content:""; flex:none; width:6px; height:6px; margin-top:5px; border-radius:50%; background:currentColor }
+  .pg-handoff-dialog .pg-task-add {
+    width:100%; height:40px; margin:0; padding:0 14px; border:1px dashed var(--pg-line-strong);
+    border-radius:var(--pg-r10); background:transparent; font-size:13px;
+  }
+  .pg-handoff-dialog .pg-task-add svg { width:14px; height:14px }
+  .pg-handoff-checks { border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:#0A0D10; overflow:hidden }
+  .pg-handoff-checks ol { margin:0; padding:0; list-style:none; counter-reset:pg-handoff-check }
+  .pg-handoff-checks li {
+    display:flex; align-items:baseline; gap:12px; padding:9px 14px; border-bottom:1px solid #13171D;
+    color:#D3D9E1; font-size:12.5px; counter-increment:pg-handoff-check;
+  }
+  .pg-handoff-checks li::before { content:counter(pg-handoff-check,decimal-leading-zero); color:var(--pg-label) }
+  .pg-handoff-checks li::before,.pg-handoff-checks li strong { font:11px/1.55 var(--pg-font-mono) }
+  .pg-handoff-checks li strong { flex:1; text-align:right; overflow-wrap:anywhere }
+  .pg-handoff-checks p { margin:0; padding:12px 14px; font-size:13px; overflow-wrap:anywhere }
+  .pg-handoff-codex { display:flex; align-items:flex-start; gap:10px; margin:0; color:var(--pg-muted); font-size:12.5px }
+  .pg-handoff-codex svg { width:15px; height:15px; margin-top:2px }
+  .pg-handoff-dialog .pg-task-footer p { flex:1 1 200px; margin:0; color:var(--pg-label) }
+`;
+var noticeCss = `
+  .pg-controller-dialog.pg-contest-notice { --pg-dialog-width:840px; --pg-dialog-inset:64px }
+  .pg-contest-notice .pg-task-header { align-items:flex-start; gap:16px; padding-block:20px 16px }
+  .pg-notice-heading { display:flex; flex-direction:column; gap:6px; min-width:0 }
+  .pg-contest-notice .pg-task-header h2 { font-size:22px; letter-spacing:-.01em }
+  .pg-contest-notice .pg-task-header p { margin:0; color:var(--pg-muted); font-size:13px }
+  .pg-contest-notice .pg-task-close { width:36px; height:36px }
+  .pg-contest-notice .pg-task-body { padding-block:16px; gap:12px; overscroll-behavior:contain }
+  .pg-notice-entry {
+    display:flex; flex-direction:column; gap:14px; min-width:0; padding:16px;
+    border:1px solid var(--pg-line); border-radius:var(--pg-r10); background:var(--pg-dialog-card); overflow-wrap:anywhere;
+  }
+  .pg-notice-entry-header,.pg-notice-entry-actions,.pg-notice-groups { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px }
+  .pg-notice-entry h3 { flex:1 1 auto; min-width:0; font-size:17px; font-weight:600; margin:0 }
+  .pg-notice-badge { padding:2px 7px; border-radius:var(--pg-r4); background:var(--pg-control-line); font:10.5px/1.55 var(--pg-font-mono); letter-spacing:.06em }
+  .pg-notice-badge[data-kind=period] { background:var(--pg-accent); color:var(--pg-ink) }
+  .pg-notice-badge[data-kind=competition] { background:var(--pg-info); color:var(--pg-ink) }
+  .pg-notice-live { display:inline-flex; align-items:center; gap:6px; margin-inline-start:auto; font-size:12px; color:var(--pg-accent) }
+  .pg-notice-live::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; animation:pg-notice-pulse 1.8s ease-out infinite }
+  @keyframes pg-notice-pulse { from { box-shadow:0 0 0 0 rgba(198,242,78,.55) } 70%,to { box-shadow:0 0 0 6px transparent } }
+  @media(prefers-reduced-motion:reduce) { .pg-notice-live::before { animation:none } }
+  .pg-notice-schedule { display:grid; gap:6px }
+  .pg-notice-track { position:relative; height:6px; border-radius:3px; background:var(--pg-dialog-rule) }
+  .pg-notice-track span { display:block; height:100%; margin:0; border-radius:inherit; background:var(--pg-accent) }
+  .pg-notice-track span::after { content:""; position:absolute; top:-4px; left:clamp(0px,var(--pg-notice-progress),calc(100% - 2px)); width:2px; height:14px; background:var(--pg-text) }
+  .pg-notice-times { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 16px; font:11.5px/1.55 var(--pg-font-mono); color:var(--pg-muted) }
+  .pg-notice-remaining { color:var(--pg-text) }
+  .pg-notice-entry dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr)); gap:10px 16px; margin:0; font-size:12.5px }
+  .pg-notice-entry dl > div { display:grid; align-content:start; gap:2px; min-width:0 }
+  .pg-notice-entry dt { color:var(--pg-label); font-size:11.5px }
+  .pg-notice-entry dd { margin:0; white-space:pre-line }
+  .pg-notice-entry :is(p,dd[data-field=reward]) { color:var(--pg-muted) }
+  .pg-notice-entry p { margin:0; font-size:12.5px; white-space:pre-line }
+  .pg-notice-groups { gap:6px; margin:0; padding:0; list-style:none }
+  .pg-notice-groups li { display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border:1px solid #222833; border-radius:var(--pg-r4); color:var(--pg-muted); font-size:12px }
+  .pg-notice-entry-actions { gap:8px; padding-top:12px; border-top:1px solid #161B22 }
+  .pg-notice-entry-actions span { color:var(--pg-label); font-size:12px }
+  .pg-contest-notice .pg-task-button { min-height:36px; border-radius:var(--pg-r6) }
+  .pg-contest-notice .pg-notice-coordinate { border-color:var(--pg-dialog-selected); background:var(--pg-accent-soft); color:var(--pg-accent); font-weight:600 }
+  .pg-contest-notice .pg-notice-coordinate:hover:not(:disabled) { background:#1A2210; border-color:var(--pg-dialog-selected); color:var(--pg-accent) }
+  .pg-contest-notice .pg-notice-coordinate svg { width:13px; height:13px; stroke-width:1.5 }
+  .pg-contest-notice .pg-task-footer { gap:10px 12px }
+  .pg-contest-notice .pg-task-footer p { flex-basis:100%; margin:0; color:var(--pg-label); font-size:11.5px; line-height:1.55 }
+  .pg-notice-disable { min-height:36px; padding:0 4px; margin-inline-end:auto; border:0; background:transparent; color:var(--pg-muted); font:inherit; font-size:12.5px; cursor:pointer }
+  .pg-notice-disable:hover { color:var(--pg-text); text-decoration:underline }
+  .pg-contest-notice .pg-notice-ack { padding-inline:16px; border-color:var(--pg-text); background:var(--pg-text); color:var(--pg-ink); font-weight:600 }
+  .pg-contest-notice .pg-notice-ack:hover:not(:disabled) { border-color:#fff; background:#fff; color:var(--pg-ink) }
+`;
+
+// src/client/controller/handoff-status.js
+function workspaceControllerStatus(inspection, taskCount, msg2) {
+  if (!inspection) return { label: msg2("正在核对主控…", "Checking controller…"), tone: "muted", check: msg2("核对中", "Checking") };
+  if (inspection.archived) return { label: msg2("主控已归档", "Controller archived"), tone: "warning", check: msg2("已归档", "Archived") };
+  if (inspection.kind === "existing") {
+    const id = inspection.sessionId;
+    const session = id.length > 13 ? id.slice(0, 8) + "…" + id.slice(-4) : id;
+    const count = taskCount > 0 ? msg2(` · 此题已有 ${taskCount} 个主控任务`, ` · ${taskCount} existing controller ${taskCount === 1 ? "task" : "tasks"} for this challenge`) : "";
+    return { label: msg2(`主控 ${session} · 已初始化`, `Controller ${session} · Initialized`) + count, tone: "ready", check: session };
+  }
+  if (inspection.kind === "incomplete") return { label: msg2("主控尚未初始化", "Controller setup required"), tone: "warning", check: msg2("未初始化", "Setup required") };
+  if (inspection.kind === "absent") return { label: msg2("还没有主控", "No controller yet"), tone: "muted", check: msg2("无", "None") };
+  return { label: msg2("无法核对主控", "Controller check unavailable"), tone: "warning", check: msg2("无法核对", "Unavailable") };
+}
+__name(workspaceControllerStatus, "workspaceControllerStatus");
+
+// src/client/controller/handoff.js
 function noticeHandoffCopy(inspection, workspace, notice) {
   const name = workspace.title || workspace.workspaceId;
   if (inspection.kind === "absent") return {
@@ -1730,20 +1895,64 @@ function noticeHandoffCopy(inspection, workspace, notice) {
   return {
     label: msg("确认交给主控", "Confirm handoff"),
     message: !notice ? msg(
-      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。提交评测需另行授权。`,
-      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge. Submission requires a separate request.`
+      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge.`
     ) : msg(
-      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。提交评测需另行授权。`,
-      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work. Submission requires a separate request.`
+      `工作区「${name}」的主控 ${inspection.sessionId} 将协调此题。已有任务会在主控中打开。`,
+      `Controller ${inspection.sessionId} in workspace “${name}” will coordinate this challenge or open its existing work.`
     )
   };
 }
 __name(noticeHandoffCopy, "noticeHandoffCopy");
-function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWorkspace, addTaskWorkspace, message, action, close }) {
+function ControllerHandoffDialog({
+  state,
+  workspaces,
+  workspace,
+  inspection,
+  inspectionFailed,
+  inspectController,
+  taskCount,
+  query,
+  checkAttempt,
+  busy,
+  selectWorkspace,
+  addTaskWorkspace,
+  message,
+  action,
+  close
+}) {
   const [picker] = React5.useState(() => ({ pending: false }));
   const [adding, setAdding] = React5.useState(false);
   const [addError, setAddError] = React5.useState("");
   const title = msg("交给工作区主控", "Hand off to workspace controller");
+  const groupName = React5.useId();
+  const [others, setOthers] = React5.useState(null);
+  const [platformCheck, setPlatformCheck] = React5.useState(null);
+  const activeId = workspace?.workspaceId;
+  const challengeId = state.challenge.id;
+  React5.useEffect(() => {
+    setOthers(null);
+    if (workspaces.phase !== "ready") return;
+    const abort = new AbortController();
+    for (const { workspaceId } of workspaces.items.filter((item) => item.workspaceId !== activeId)) {
+      void inspectController({ workspaceId }, abort.signal).catch(() => ({ kind: "blocked" })).then((result) => {
+        if (!abort.signal.aborted) setOthers((previous) => new Map(previous).set(workspaceId, result));
+      });
+    }
+    return () => abort.abort();
+  }, [workspaces.phase, workspaces.items, activeId, inspectController, checkAttempt]);
+  React5.useEffect(() => {
+    setPlatformCheck(null);
+    const abort = new AbortController();
+    void query({ action: "challenge", challengeId }, abort.signal).then((detail) => {
+      if (abort.signal.aborted) return;
+      const checked = detail?.ok && String(detail.id) === challengeId && typeof detail.contentGated === "boolean";
+      setPlatformCheck({ challengeId, kind: checked ? detail.contentGated ? "gated" : "readable" : "unavailable" });
+    }).catch(() => {
+      if (!abort.signal.aborted) setPlatformCheck({ challengeId, kind: "unavailable" });
+    });
+    return () => abort.abort();
+  }, [challengeId, query, checkAttempt]);
   const accepted = state.phase === "accepted" || state.phase === "opening";
   const canAdd = workspaces.phase === "ready" && !accepted;
   const canSelect = canAdd && workspaces.items.length > 0 && !busy && !adding;
@@ -1766,10 +1975,35 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       setAdding(false);
     }
   }, "addWorkspace");
+  const controllerStatus = /* @__PURE__ */ __name((item) => {
+    const selected2 = item.workspaceId === activeId;
+    const status = selected2 ? inspection ?? (inspectionFailed ? { kind: "blocked" } : null) : others?.get(item.workspaceId);
+    return workspaceControllerStatus(status, selected2 ? taskCount : void 0, msg);
+  }, "controllerStatus");
+  const workspaceCheck = workspaces.state === "error" || ["workspace_missing", "directory_missing"].includes(inspection?.code) ? [msg("无法读取", "Unavailable"), "error"] : workspace ? [msg("已注册", "Registered"), "ready"] : [msg("等待选择", "Choose a workspace"), "muted"];
+  const selected = workspace && controllerStatus(workspace);
+  const platformKind = platformCheck?.challengeId === challengeId && platformCheck.kind;
+  const platformResult = {
+    readable: [msg("可查看题面", "Statement available"), "ready"],
+    gated: [msg("需要访问权限", "Access required"), "warning"],
+    unavailable: [msg("无法核实", "Could not verify"), "warning"]
+  };
+  const checks = [
+    [msg("读取 DSH 工作区", "Read DSH workspace"), ...workspaceCheck],
+    [msg("核对主控对话", "Verify controller chat"), selected?.check ?? msg("等待选择", "Choose a workspace"), selected?.tone ?? "muted"],
+    [msg("向平台核实赛题", "Verify challenge on Playground"), ...platformResult[platformKind] ?? [msg("核实中", "Checking"), "muted"]]
+  ];
+  const codexHint = inspection?.codex === "registered" ? msg(
+    "已检测到 Codex 子智能体。Codex 不可用时，主控可以改用 DSH 子智能体，在独立对话中执行。",
+    "Codex subagents detected. If Codex is unavailable, the controller can use a DSH subagent in a separate chat."
+  ) : inspection?.codex === "unavailable" ? msg(
+    "未检测到 Codex 子智能体。主控可以改用 DSH 子智能体，在独立对话中执行。",
+    "No Codex subagent detected. The controller can use a DSH subagent in a separate chat."
+  ) : msg("Codex 子智能体可用性待核对。", "Codex subagent availability is unverified.");
   return h(
     import_dsh_client_ui_primitives.Modal,
-    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal", title, onClose: dismiss },
-    h("style", null, taskModalCss),
+    { open: true, headless: true, backdropBlur: true, className: "pg-task-modal pg-controller-dialog pg-handoff-dialog", title, onClose: dismiss },
+    h("style", null, taskModalCss + controllerDialogCss + handoffCss),
     h(
       "header",
       { className: "pg-task-header" },
@@ -1777,7 +2011,7 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       h(
         "button",
         { type: "button", className: "pg-task-close", "aria-label": msg("关闭交接弹窗", "Close handoff dialog"), disabled: busy || adding, onClick: dismiss },
-        h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 6 12 12M18 6 6 18" }))
+        h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "m3 3 8 8M11 3l-8 8" }))
       )
     ),
     h(
@@ -1785,61 +2019,91 @@ function ControllerHandoffDialog({ state, workspaces, workspace, busy, selectWor
       { className: "pg-task-body" },
       h(
         "section",
-        { className: "pg-task-summary", "aria-label": msg("目标赛题", "Target challenge") },
-        h("h3", { className: "pg-task-title", title: state.challenge.title }, state.challenge.title),
-        h("p", { className: "pg-task-id" }, state.challenge.id)
-      ),
-      h(
-        "div",
-        { className: "pg-task-field" },
-        h("label", { htmlFor: "pg-handoff-workspace" }, msg("目标工作区", "Target workspace")),
+        { className: "pg-handoff-section", "aria-label": msg("目标赛题", "Target challenge") },
+        h("span", { className: "pg-dialog-label" }, msg("目标赛题", "Target challenge")),
         h(
           "div",
-          { className: "pg-task-select-wrap" },
-          h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M3 7.5h6l2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18" })),
+          { className: "pg-handoff-target" },
           h(
-            "select",
-            {
-              id: "pg-handoff-workspace",
-              className: "pg-task-select",
-              value: workspace?.workspaceId || "",
-              disabled: !canSelect,
-              "data-empty": !workspace,
-              "aria-describedby": message ? "pg-handoff-status" : void 0,
-              onChange: /* @__PURE__ */ __name((event) => {
-                setAddError("");
-                selectWorkspace(event.target.value);
-              }, "onChange")
-            },
-            h("option", { value: "" }, msg("请选择工作区", "Choose a workspace")),
-            workspaceOptions(workspaces.items)
+            "span",
+            { className: "pg-handoff-icon" },
+            h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M3 2.5h7.5L13 5v8.5H3zM5.5 8h5m-5 2.5H9" }))
           ),
-          h("svg", { className: "pg-task-chevron", viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "m6 9 6 6 6-6" }))
-        ),
-        message ? h("p", { id: "pg-handoff-status", className: failed ? "pg-task-error" : "pg-task-hint", role: failed ? "alert" : "status" }, message) : null,
-        addError ? h("p", { className: "pg-task-error", role: "alert" }, msg("无法添加工作区，请重试。", "Could not add the workspace. Try again.")) : null,
+          h(
+            "div",
+            null,
+            h("h3", null, state.challenge.title),
+            h("p", null, [challengeId, state.context?.competition, state.context?.period].filter(Boolean).join(" · "))
+          )
+        )
+      ),
+      h(
+        "fieldset",
+        { className: "pg-handoff-section", "aria-describedby": message ? groupName + "-status" : void 0 },
+        h("legend", { className: "pg-dialog-label" }, msg("目标工作区", "Target workspace")),
+        workspaces.items.map((item) => {
+          const checked = item.workspaceId === activeId;
+          const status = controllerStatus(item);
+          return h(
+            "label",
+            { key: item.workspaceId, className: "pg-handoff-option", "data-selected": checked },
+            h("input", {
+              type: "radio",
+              name: groupName,
+              value: item.workspaceId,
+              checked,
+              disabled: !canSelect,
+              onChange: /* @__PURE__ */ __name(() => {
+                setAddError("");
+                selectWorkspace(item.workspaceId);
+              }, "onChange")
+            }),
+            h("span", { className: "pg-handoff-radio", "aria-hidden": true }),
+            h(
+              "span",
+              { className: "pg-handoff-option-body" },
+              h(
+                "span",
+                { className: "pg-handoff-workspace" },
+                item.title || item.workspaceId,
+                item.path ? h("span", { className: "pg-handoff-path" }, item.path) : null
+              ),
+              h("span", { className: "pg-handoff-status", "data-tone": status.tone }, status.label)
+            )
+          );
+        }),
         canAdd ? h(
           "button",
           { type: "button", className: "pg-task-add", disabled: busy || adding, onClick: addWorkspace },
-          h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M12 5v14M5 12h14" })),
+          h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M8 3v10M3 8h10" })),
           adding ? msg("正在选择目录…", "Choosing folder…") : msg("添加工作区…", "Add workspace…")
-        ) : null
+        ) : null,
+        addError ? h("p", { className: "pg-task-error", role: "alert" }, msg("无法添加工作区，请重试。", "Could not add the workspace. Try again.")) : null
+      ),
+      h(
+        "section",
+        { className: "pg-handoff-checks", "aria-label": msg("核对结果", "Verification results") },
+        h("ol", null, checks.map(([label2, result, tone]) => h("li", { key: label2 }, label2, h("strong", { "data-tone": tone }, result)))),
+        message ? h("p", { id: groupName + "-status", "data-tone": failed ? "error" : void 0, role: failed ? "alert" : "status" }, message) : null
+      ),
+      h(
+        "p",
+        { className: "pg-handoff-codex" },
+        h("svg", { viewBox: "0 0 16 16", "aria-hidden": true }, h("path", { d: "M2.5 4.5 6 8l-3.5 3.5M8 12h5.5" })),
+        codexHint
       )
     ),
     h(
       "footer",
       { className: "pg-task-footer" },
-      h(
-        "div",
-        { className: "pg-task-actions" },
-        h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? msg("关闭", "Close") : msg("取消", "Cancel")),
-        action || busy ? h(
-          "button",
-          { type: "button", className: "pg-task-button pg-task-create", disabled: busy || adding, "data-busy": busy, onClick: action?.run },
-          busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
-          busy ? state.phase === "opening" ? msg("正在打开…", "Opening…") : state.phase === "initializing" ? msg("正在初始化…", "Setting up…") : msg("正在交接…", "Handing off…") : action.label
-        ) : null
-      )
+      h("p", null, msg("提交评测需在参赛任务中另行请求。", "Request evaluation separately in the participation task.")),
+      h("button", { type: "button", className: "pg-task-button", disabled: busy || adding, onClick: dismiss }, accepted ? msg("关闭", "Close") : msg("取消", "Cancel")),
+      action || busy ? h(
+        "button",
+        { type: "button", className: "pg-task-button pg-task-create", disabled: busy || adding, "data-busy": busy, onClick: action?.run },
+        busy ? h("svg", { viewBox: "0 0 24 24", "aria-hidden": true }, h("path", { d: "M21 12a9 9 0 1 1-9-9" })) : null,
+        busy ? state.phase === "opening" ? msg("正在打开…", "Opening…") : state.phase === "initializing" ? msg("正在初始化…", "Setting up…") : msg("正在交接…", "Handing off…") : action.label
+      ) : null
     )
   );
 }
@@ -1859,7 +2123,7 @@ var isObject = /* @__PURE__ */ __name((value) => value !== null && typeof value 
 var isStringArray = /* @__PURE__ */ __name((value) => Array.isArray(value) && value.every((entry) => typeof entry === "string"), "isStringArray");
 var unique = /* @__PURE__ */ __name((values) => [...new Set(values)], "unique");
 var emptySite = /* @__PURE__ */ __name(() => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] }), "emptySite");
-function timestamp(value) {
+function noticeDate(value) {
   if (typeof value !== "string") return null;
   const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
   if (!match) return null;
@@ -1867,9 +2131,15 @@ function timestamp(value) {
   const calendarDay = /* @__PURE__ */ new Date(date + "T00:00:00Z");
   if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
   const ms = Date.parse(date + "T" + time + zone);
-  return Number.isFinite(ms) ? ms : null;
+  return Number.isFinite(ms) ? { date, time, zone, ms } : null;
 }
-__name(timestamp, "timestamp");
+__name(noticeDate, "noticeDate");
+var timestamp = /* @__PURE__ */ __name((value) => noticeDate(value)?.ms ?? null, "timestamp");
+function noticeIsActive(item, now, start, end) {
+  const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
+  return !endedStatuses.has(status) && (end === null || now < end) && (activeStatuses.has(status) || start !== null && start <= now && end !== null);
+}
+__name(noticeIsActive, "noticeIsActive");
 function clockTime(value) {
   const ms = typeof value === "number" ? value : value instanceof Date ? value.getTime() : timestamp(value);
   if (!Number.isFinite(ms)) throw new TypeError("Pass an explicit time to the notice state.");
@@ -1905,7 +2175,7 @@ function collectItems(items, sources, now) {
     const start = timestamp(item.startAt);
     const end = timestamp(item.endAt);
     const ended = endedStatuses.has(status) || end !== null && end <= now;
-    const active = activeStatuses.has(status) || start !== null && start <= now && end !== null && now < end;
+    const active = noticeIsActive(item, now, start, end);
     const upcoming = start !== null && start > now;
     const prior = byKey.get(item.key);
     if (!prior) {
@@ -2055,14 +2325,74 @@ __name(actOnNotices, "actOnNotices");
 var storageKey2 = "dsh-playground.competition-notices.v2";
 var legacyStorageKey = "dsh-playground.competition-notices.v1";
 function timeLabel(value) {
-  if (!value) return void 0;
-  const timestamp2 = /^(\d{4}-\d{2}-\d{2})[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(Z|[+-]\d\d:\d\d)?$/.exec(value);
-  if (!timestamp2) return value;
-  const [, date, time, seconds, offset] = timestamp2;
-  const zone = offset === "Z" ? "UTC" : offset ? "UTC" + offset : msg("时区未注明", "time zone unspecified");
-  return `${date} ${time}${seconds && seconds !== "00" ? ":" + seconds : ""} (${zone})`;
+  const match = typeof value === "string" && /^\d{4}-(\d\d)-(\d\d)(?:[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(?:Z|[+-]\d\d:?\d\d)?)?$/i.exec(value.trim());
+  if (!match) return value;
+  const [, month, day3, time, seconds] = match;
+  return month + "." + day3 + (time ? " " + time + (seconds && seconds !== "00" ? ":" + seconds : "") : "");
 }
 __name(timeLabel, "timeLabel");
+function zoneLabel(zone) {
+  const normalized = zone.toUpperCase().replace(/^([+-]\d\d)(\d\d)$/, "$1:$2");
+  if (normalized === "Z") return "UTC";
+  if (normalized === "+08:00") return msg("北京时间 UTC+8", "Beijing time UTC+8");
+  return "UTC" + normalized;
+}
+__name(zoneLabel, "zoneLabel");
+function remainingLabel(ms) {
+  if (ms <= 0) return msg("截止时间已过", "Deadline passed");
+  const hours = Math.floor(ms / 36e5);
+  if (!hours) return msg("剩余不足 1 小时", "Less than 1 hour left");
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return days ? msg(`剩余 ${days} 天 ${rest} 小时`, `${days}d ${rest}h left`) : msg(`剩余 ${hours} 小时`, `${hours}h left`);
+}
+__name(remainingLabel, "remainingLabel");
+function noticeGroups(item) {
+  for (const summary of [msg(item.summaryZh, item.summary), msg(item.summary, item.summaryZh)]) {
+    const list = /^(?:本期赛题分组[：:]|Challenge groups:)\s*(.+)$/i.exec(summary ?? "")?.[1];
+    if (list) return list.split(" · ").map((label2) => label2.trim()).filter(Boolean);
+  }
+  return [];
+}
+__name(noticeGroups, "noticeGroups");
+function noticeBadge(item) {
+  if (item.parentKey && item.source === "seasons") return ["round", msg("新一轮", "New round")];
+  if (item.parentKey || item.target?.period) return ["period", msg("新一期", "New period")];
+  return ["competition", msg("新比赛", "New competition")];
+}
+__name(noticeBadge, "noticeBadge");
+function noticeSchedule(item, start, end, now, unknown) {
+  const progress = start && end && start.ms < end.ms ? Math.min(100, Math.max(0, 100 * (now - start.ms) / (end.ms - start.ms))) : null;
+  return h(
+    "div",
+    { className: "pg-notice-schedule" },
+    progress === null ? null : h(
+      "div",
+      {
+        className: "pg-notice-track",
+        role: "progressbar",
+        "aria-label": msg("赛程进度", "Competition progress"),
+        "aria-valuenow": Math.round(progress)
+      },
+      h("span", { style: { width: progress + "%", "--pg-notice-progress": progress + "%" } })
+    ),
+    h(
+      "div",
+      { className: "pg-notice-times" },
+      h(
+        "span",
+        null,
+        msg("开始", "Starts"),
+        " ",
+        timeLabel(item.startAt) || unknown,
+        start && (!end || zoneLabel(start.zone) !== zoneLabel(end.zone)) ? " (" + zoneLabel(start.zone) + ")" : null
+      ),
+      end ? h("span", { className: "pg-notice-remaining" }, remainingLabel(end.ms - now)) : null,
+      h("span", null, msg("截止", "Deadline"), " ", timeLabel(item.endAt) || unknown)
+    )
+  );
+}
+__name(noticeSchedule, "noticeSchedule");
 function noticeDetail(zh, en, keywords) {
   const published = /* @__PURE__ */ __name((value2) => value2?.trim().replace(/^(?:暂未公布|尚未公布|待公布|未公布|无|not announced|to be announced|none|TBA|TBD)[。.!！]?$/i, ""), "published");
   const chinese = published(zh);
@@ -2104,25 +2434,6 @@ function CompetitionNoticeSetting({ memory }) {
   );
 }
 __name(CompetitionNoticeSetting, "CompetitionNoticeSetting");
-var noticeCss = `
-  .pg-task-modal.pg-contest-notice { width:590px; border:1px solid var(--pg-task-border); box-shadow:0 12px 48px rgba(0,0,0,.16) }
-  .pg-notice-entries { overflow-y:auto; overscroll-behavior:contain; min-height:0; gap:16px }
-  .pg-notice-entry { min-width:0 }
-  .pg-notice-entry + .pg-notice-entry { border-top:1px solid var(--pg-task-border); padding-top:16px }
-  .pg-notice-entry h3 { font-size:19px; line-height:1.35; font-weight:700; margin:0; overflow-wrap:anywhere }
-  .pg-notice-entry p { color:var(--pg-task-secondary); line-height:1.6; margin:6px 0 12px; overflow-wrap:anywhere }
-  .pg-notice-entry dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 16px; margin:0 0 12px; line-height:1.5 }
-  .pg-notice-entry dt, .pg-notice-entry dd strong { font-weight:700 }
-  .pg-notice-entry dd { margin:0; font-weight:400; overflow-wrap:anywhere; white-space:pre-line }
-  .pg-notice-entry a { color:var(--pg-task-accent); font-weight:600; text-underline-offset:3px }
-  .pg-notice-entry-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap }
-  .pg-notice-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 12px }
-  .pg-notice-batch { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-inline-start:auto }
-  .pg-contest-notice h2:focus-visible { outline:2px solid var(--pg-task-accent); outline-offset:3px; border-radius:4px }
-  .pg-notice-actions .pg-task-create { min-width:90px; background:var(--pg-accent)); color:var(--pg-ink) }
-  .pg-notice-disable { color:var(--pg-task-secondary); border:0; background:none; padding:8px 0; font:inherit; cursor:pointer }
-  .pg-notice-disable:hover { text-decoration:underline }
-`;
 function CompetitionNotices({ memory, query, onCoordinate }) {
   const [view, setView] = React6.useState(null);
   const [readingKey, setReadingKey] = React6.useState("");
@@ -2187,54 +2498,98 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
   __name(coordinate, "coordinate");
   const unknown = msg("暂未公布", "Not announced");
   const title = view.kind === "overview" ? msg("正在进行的比赛", "Ongoing competitions") : view.kind === "reminder" ? msg("赛事提醒", "Competition reminders") : msg("新比赛提醒", "New competition alerts");
+  const now = Date.now();
+  const count = view.items.length;
   return h(
     import_dsh_client_ui_primitives2.Modal,
-    { open: true, headless: true, backdropBlur: false, className: "pg-task-modal pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
-    h("style", null, taskModalCss + noticeCss),
-    h("header", { className: "pg-task-header" }, h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title)),
-    h("div", { className: "pg-task-body pg-notice-entries" }, view.items.map((item) => {
+    { open: true, headless: true, backdropBlur: true, className: "pg-task-modal pg-controller-dialog pg-contest-notice", title, onClose: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClose") },
+    h("style", null, taskModalCss + controllerDialogCss + noticeCss),
+    h(
+      "header",
+      { className: "pg-task-header" },
+      h(
+        "div",
+        { className: "pg-notice-heading" },
+        h("span", { className: "pg-dialog-label" }, msg(`EVENTS · ${count} 条 · 按最近截止排序`, `EVENTS · ${count} · Earliest deadlines first`)),
+        h("h2", { tabIndex: -1, "data-modal-autofocus": true }, title),
+        h("p", null, view.kind === "overview" ? msg("只列出能由官方状态或带时区赛程确认正在进行的比赛和赛期。", "Ongoing competitions and rounds are verified by official status or a schedule with a time zone.") : msg("查看比赛和赛期。进行中状态来自官方状态或带时区赛程。", "Explore competitions and rounds. Ongoing status comes from official status or a schedule with a time zone."))
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          className: "pg-task-close",
+          "aria-label": msg("关闭新比赛提醒弹窗", "Close competition alerts dialog"),
+          onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick")
+        },
+        h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "m3 3 8 8M11 3l-8 8" }))
+      )
+    ),
+    h("div", { className: "pg-task-body" }, view.items.map((item) => {
       const link = openableWebUrl(item.webUrl);
+      const start = noticeDate(item.startAt);
+      const end = noticeDate(item.endAt);
+      const active = noticeIsActive(item, now, start?.ms ?? null, end?.ms ?? null);
+      const [kind, badge] = noticeBadge(item);
+      const groups = noticeGroups(item);
+      const singleChallenge = item.target?.kind === "challenge";
+      const scope = singleChallenge ? msg("1 道已确认赛题", "1 confirmed challenge") : groups.length ? msg(`${groups.length} 个分组`, `${groups.length} ${groups.length === 1 ? "group" : "groups"}`) : unknown;
+      const summary = groups.length ? null : msg(item.summaryZh || item.summary, item.summary || item.summaryZh);
+      const reward = noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i);
+      const resources = noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i);
       return h(
         "article",
         { key: item.key, className: "pg-notice-entry" },
-        h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
-        h("p", null, msg(item.summaryZh || item.summary, item.summary || item.summaryZh) || msg("比赛简介暂未公布", "Competition summary not announced")),
-        h("dl", null, [
-          [msg("开始", "Starts"), timeLabel(item.startAt)],
-          [msg("截止", "Deadline"), timeLabel(item.endAt) || unknown],
-          [msg("奖励", "Rewards"), noticeDetail(item.rewardZh, item.reward, /((?:\b(?:CNY|RMB|USD)\s*|[¥￥$]\s*)\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{3})*(?:\.\d+)?\s*万?元)/i)],
-          [msg("参赛资源", "Resources"), noticeDetail(item.resourcesZh, item.resources, /(算力支持|\bcompute support\b)/i)]
-        ].filter(([, value]) => value).map(([label2, value]) => h(React6.Fragment, { key: label2 }, h("dt", null, label2), h("dd", null, value)))),
+        h(
+          "div",
+          { className: "pg-notice-entry-header" },
+          h("span", { className: "pg-notice-badge", "data-kind": kind }, badge),
+          h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
+          active ? h("span", { className: "pg-notice-live" }, msg("进行中", "Ongoing")) : null
+        ),
+        noticeSchedule(item, start, end, now, unknown),
+        h(
+          "dl",
+          null,
+          h("div", null, h("dt", null, msg("时区", "Time zone")), h(
+            "dd",
+            { "data-tone": end ? void 0 : "warning" },
+            end ? zoneLabel(end.zone) : msg("时区未注明 · 剩余时间仅供参考", "Time zone unspecified · Remaining time is approximate")
+          )),
+          h("div", null, h("dt", null, msg("奖励", "Rewards")), h("dd", { "data-field": "reward" }, reward || unknown)),
+          h("div", null, h("dt", null, msg("本期赛题", "Challenges in this period")), h("dd", null, scope)),
+          resources ? h("div", null, h("dt", null, msg("参赛资源", "Resources")), h("dd", null, resources)) : null
+        ),
+        groups.length ? h(
+          "ul",
+          { className: "pg-notice-groups", "aria-label": msg("赛题分组", "Challenge groups") },
+          groups.map((label2, index) => h("li", { key: index }, label2))
+        ) : null,
+        summary ? h("p", null, summary) : null,
         h(
           "div",
           { className: "pg-notice-entry-actions" },
           h(
             "button",
-            { type: "button", className: "pg-task-button", disabled: Boolean(readingKey), onClick: /* @__PURE__ */ __name(() => coordinate(item), "onClick") },
-            readingKey === item.key ? msg("正在读取赛题…", "Loading challenge…") : msg("协调参赛", "Coordinate participation")
+            { type: "button", className: "pg-task-button pg-notice-coordinate", disabled: Boolean(readingKey), onClick: /* @__PURE__ */ __name(() => coordinate(item), "onClick") },
+            readingKey === item.key ? msg("正在读取赛题…", "Loading challenge…") : msg("协调参赛", "Coordinate participation"),
+            h("svg", { viewBox: "0 0 14 14", "aria-hidden": true }, h("path", { d: "M3 7h8m0 0L7.5 3.5M11 7l-3.5 3.5" }))
           ),
-          link ? h("a", { href: link, target: "_blank", rel: "noopener noreferrer" }, msg("查看比赛", "View competition")) : null
+          link ? h("a", { href: link, className: "pg-task-button", target: "_blank", rel: "noopener noreferrer" }, msg("查看比赛", "View competition")) : null,
+          h("span", null, singleChallenge ? msg("题面可访问时，可直接选择工作区", "If the statement is accessible, choose a workspace directly") : msg("先进入赛题目录选题", "Choose a challenge in the catalog first"))
         )
       );
     })),
     h(
       "footer",
       { className: "pg-task-footer" },
+      h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
+      h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
+      h("button", { type: "button", className: "pg-task-button pg-notice-ack", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it")),
       h("p", { id: hintId }, msg(
-        "「明天再提醒」会在北京时间次日或之后再次打开主控时，显示本批仍有效的赛事。「知道了」仅确认本批。两种操作都保留新赛期提醒。",
-        "Choose Remind me tomorrow to see this batch on your next visit tomorrow or later (Beijing time). Expired entries drop out. Got it dismisses this batch. Either choice keeps alerts for new rounds on."
-      )),
-      h(
-        "div",
-        { className: "pg-notice-actions" },
-        h("button", { type: "button", className: "pg-notice-disable", onClick: /* @__PURE__ */ __name(() => dismiss("disable"), "onClick") }, msg("关闭新比赛提醒", "Turn off competition alerts")),
-        h(
-          "div",
-          { className: "pg-notice-batch" },
-          h("button", { type: "button", className: "pg-task-button", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("snooze"), "onClick") }, msg("明天再提醒", "Remind me tomorrow")),
-          h("button", { type: "button", className: "pg-task-button pg-task-create", "aria-describedby": hintId, onClick: /* @__PURE__ */ __name(() => dismiss("acknowledge"), "onClick") }, msg("知道了", "Got it"))
-        )
-      )
+        "「明天再提醒」在北京时间次日或之后再次打开主控时，只显示本批仍有效的比赛。「知道了」仅确认本批。两者都保留新赛期提醒，可在连接设置中重新开启已关闭的提醒。",
+        "Remind me tomorrow shows the still-valid entries the next time you open the controller tomorrow or later (Beijing time). Got it acknowledges this batch. Both keep future alerts on. Re-enable alerts in Connection settings."
+      ))
     )
   );
 }
@@ -2757,6 +3112,8 @@ function ControllerPanel(props) {
     setDispatchState({
       phase: "guide",
       challenge: dispatchState.challenge,
+      context: dispatchState.context,
+      showDialog: true,
       ...dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }
     });
     setRetry(retry + 1);
@@ -2847,28 +3204,36 @@ function ControllerPanel(props) {
       dispatchControls.busy = false;
     }
   }, "sendChallenge");
-  const startHandoff = /* @__PURE__ */ __name((challenge, coordination) => {
+  const startHandoff = /* @__PURE__ */ __name((challenge, coordination, context) => {
     if (busy || dispatchControls.busy) return;
     if (coordination) {
-      setDispatchState({ phase: "guide", challenge, coordination, workspaceId: "", showDialog: true });
+      setDispatchState({ phase: "guide", challenge, context, coordination, workspaceId: "", showDialog: true });
       return;
     }
     if (dispatchState?.phase === "accepted" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
     const retry2 = dispatchState?.phase === "error" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
-    const state = retry2 ? dispatchState : { challenge };
-    if (retry2 && needsRecheck) return;
-    if (selectedController) return sendChallenge(state, { workspaceId, sessionId: retry2 && state.sessionId || selectedController });
-    setDispatchState({ ...state, phase: "guide", showDialog: true });
+    if (!retry2) setDispatchState({ phase: "guide", challenge, context, showDialog: true });
   }, "startHandoff");
   const coordinate = /* @__PURE__ */ __name((target, notice) => {
-    if (target.kind === "challenge") return startHandoff({ id: target.challengeId, title: target.title }, { notice });
+    if (target.kind === "challenge") return startHandoff(
+      { id: target.challengeId, title: target.title },
+      { notice },
+      { competition: msg(notice.titleZh || notice.title, notice.title || notice.titleZh), webBase: notice.scope }
+    );
     setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
     setView("catalog");
   }, "coordinate");
-  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice) => startHandoff(challenge, catalogNotice ? { notice } : void 0), "start"), catalogNotice };
+  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice, context) => startHandoff(challenge, catalogNotice ? { notice } : void 0, context), "start"), catalogNotice };
   const selectHandoffWorkspace = /* @__PURE__ */ __name((id) => {
-    if (dispatchState.coordination && dispatchState.workspaceId !== id) {
-      setDispatchState({ phase: "guide", challenge: dispatchState.challenge, coordination: dispatchState.coordination, workspaceId: id, showDialog: true });
+    if (workspaceId !== id || dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({
+        phase: "guide",
+        challenge: dispatchState.challenge,
+        context: dispatchState.context,
+        coordination: dispatchState.coordination,
+        workspaceId: id,
+        showDialog: true
+      });
     }
     selectWorkspace(id);
   }, "selectHandoffWorkspace");
@@ -2897,11 +3262,14 @@ function ControllerPanel(props) {
       handoffMessage = controllerMessage(dispatchState.message);
       handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
     } else if (selectedController || canInitialize) {
-      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge } : dispatchState;
+      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge, context: dispatchState.context } : dispatchState;
       const sessionId = state.sessionId || selectedController || state.coordination && inspection.sessionId;
       const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
-        label: selectedController ? msg("交给主控", "Hand off to controller") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
-        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : void 0
+        label: selectedController ? msg("确认交给主控", "Confirm handoff") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
+        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : msg(
+          `工作区「${handoffWorkspace.title || workspaceId}」的主控 ${selectedController} 将协调此题。交接后可在主控对话中查看派发进度。`,
+          `Controller ${selectedController} in workspace “${handoffWorkspace.title || workspaceId}” will coordinate this challenge. Follow its progress in the controller chat.`
+        )
       };
       handoffMessage = dispatchState.phase === "error" && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
       handoffAction = { label: copy.label, run: /* @__PURE__ */ __name(() => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController), "run") };
@@ -2910,6 +3278,8 @@ function ControllerPanel(props) {
       if (error) handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
     }
   }
+  const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
+  const handoffTaskCount = handoffBase && tasks?.kind === "ready" && tasks.rows?.filter(({ challenge }) => challenge?.id === dispatchState.challenge.id && webRootOf(challenge.baseUrl) === handoffBase).length;
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = /* @__PURE__ */ new Map();
   const unassociated = [];
@@ -3300,6 +3670,12 @@ function ControllerPanel(props) {
       workspaces,
       workspace: handoffWorkspace,
       busy: handoffBusy,
+      inspection: handoffWorkspace ? inspection : null,
+      inspectionFailed: Boolean(error),
+      inspectController,
+      query: props.query,
+      checkAttempt: retry,
+      taskCount: handoffTaskCount,
       selectWorkspace: selectHandoffWorkspace,
       addTaskWorkspace: props.addTaskWorkspace,
       message: handoffMessage,
@@ -3883,12 +4259,19 @@ __name(detectStatementLimit, "detectStatementLimit");
 function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ["sending", "initializing", "opening"].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h("button", { type: "button", className: primary ? "pg-button pg-primary pg-detail-dispatch" : "pg-button pg-list-action", disabled: gated, "aria-disabled": busy || gated || void 0, onClick: /* @__PURE__ */ __name((event) => {
-    if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
-    event?.currentTarget?.focus();
-    beforeDispatch?.();
-    handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
-  }, "onClick") }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge?.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
+  return h("button", {
+    type: "button",
+    className: primary ? "pg-button pg-primary pg-detail-dispatch" : "pg-button pg-list-action",
+    disabled: gated,
+    "aria-haspopup": "dialog",
+    "aria-disabled": busy || gated || void 0,
+    onClick: /* @__PURE__ */ __name((event) => {
+      if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
+      event?.currentTarget?.focus();
+      beforeDispatch?.();
+      handoff.start({ id: String(challenge.id), title: msg(challenge.titleZh || challenge.title, challenge.title || challenge.titleZh) || String(challenge.id) });
+    }, "onClick")
+  }, gated ? msg("题面需要权限", "Statement access required") : busy && handoff.state.challenge?.id === String(challenge.id) ? msg("正在交接…", "Handing off…") : msg("交给主控", "Hand off to controller"));
 }
 __name(DispatchChallengeButton, "DispatchChallengeButton");
 function overviewSection(title, children) {
@@ -4462,11 +4845,15 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   }, "chooseGroup");
   const shownList = list && list.selection === listSelection(filters) ? list : null;
   const loaded = shownList ? shownList.items : [];
-  const catalogHandoff = catalogNotice ? { state: handoff.state, gatedIds, start: /* @__PURE__ */ __name((challenge) => {
-    if (gatedIds.has(challenge.id)) return;
+  const catalogHandoff = handoff && { state: handoff.state, gatedIds: catalogNotice ? gatedIds : handoff.gatedIds, start: /* @__PURE__ */ __name((challenge) => {
+    if (catalogNotice && gatedIds.has(challenge.id)) return;
     const fromNoticeCompetition = noticeCompetition && shownList?.filters.season === noticeCompetition && loaded.some((item) => String(item.id) === challenge.id);
-    handoff.start(challenge, fromNoticeCompetition ? catalogNotice : void 0);
-  }, "start") } : handoff;
+    handoff.start(
+      challenge,
+      fromNoticeCompetition ? catalogNotice : void 0,
+      { competition: competitionName(selectedCompetition), period: periodName(selectedPeriod), webBase }
+    );
+  }, "start") };
   const challenges = openOnly ? loaded.filter((item) => item.status === "open") : loaded;
   const total = shownList?.total;
   const tracked = new Set(taskSessions.flatMap((session) => {

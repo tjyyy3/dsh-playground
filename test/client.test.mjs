@@ -130,8 +130,9 @@ test('upgrading enabled competition alerts retains history, batches new entries 
   assert.equal(first.type, 'native-modal');
   assert.deepEqual(findAll(first, (node) => node.type === 'h3').map(text), ['new-2', 'new-1']);
   const [weekly, sparse] = findAll(first, (node) => node.type === 'article');
-  assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['截止']);
-  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['开始', '截止', '奖励', '参赛资源']);
+  assert.deepEqual(findAll(sparse, (node) => node.type === 'dt').map(text), ['时区', '奖励', '本期赛题']);
+  assert.match(text(sparse), /暂未公布/);
+  assert.deepEqual(findAll(weekly, (node) => node.type === 'dt').map(text), ['时区', '奖励', '本期赛题', '参赛资源']);
   assert.deepEqual(findAll(weekly, (node) => node.type === 'strong').map(text), ['17,000 元', '算力支持']);
   assert.equal(f.find(first, (node) => node.props?.['data-modal-autofocus']).type, 'h2');
   buttonLabeled(f, first, '知道了').props.onClick();
@@ -202,6 +203,45 @@ test('English first-use alerts focus the heading, snooze until Beijing midnight 
   const readsBefore = reads;
   assert.equal(await enter(), null);
   assert.equal(reads, readsBefore);
+});
+
+test('competition alert cards show a progress track only for a verified schedule', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-27T12:00:00+08:00'));
+  const f = await clientFixture(t);
+  const main = f.registrations.get('main');
+  const items = [
+    { key: 'period', parentKey: 'parent', source: 'catalog', target: { kind: 'collection', period: '3' },
+      titleZh: '学术效率 · 第三期', startAt: '2026-11-25T12:00:00+08:00', endAt: '2026-11-29T12:00:00+08:00',
+      summaryZh: '本期赛题分组：文献检索 · 文献阅读' },
+    { key: 'weekly', source: 'catalog', officialStatus: 'active', target: { kind: 'challenge', challengeId: '42' },
+      titleZh: '周赛', startAt: '2026-11-23', endAt: '2026-11-28T21:00:00' },
+  ];
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async () => ({ ok: true, scope: 'site', sources: ['catalog'], items }) };
+  const alerts = f.find(f.render(main.Component, props), (node) => node.type?.name === 'CompetitionNotices');
+  const [period, weekly] = findAll(await f.mount(alerts), (node) => node.type === 'article');
+  assert.match(text(period), /新一期/);
+  assert.match(text(period), /剩余 2 天 0 小时/);
+  assert.match(text(period), /本期赛题.*2 个分组.*文献检索.*文献阅读/);
+  assert.equal(f.find(period, (node) => node.props?.role === 'progressbar').props['aria-valuenow'], 50);
+  assert.match(text(weekly), /时区未注明 · 剩余时间仅供参考/);
+  assert.match(text(weekly), /1 道已确认赛题/);
+  assert.equal(f.find(weekly, (node) => node.props?.role === 'progressbar'), undefined);
+});
+
+test('workspace controller status distinguishes setup, unavailable checks and verified task counts', async () => {
+  const { workspaceControllerStatus } = await import('../src/client/controller/handoff-status.js');
+  const zh = (chinese) => chinese;
+  const en = (_chinese, english) => english;
+  const existing = { kind: 'existing', sessionId: 'ses_7f3a0000c21e' };
+  assert.equal(workspaceControllerStatus(existing, 2, zh).label, '主控 ses_7f3a…c21e · 已初始化 · 此题已有 2 个主控任务');
+  assert.equal(workspaceControllerStatus(existing, undefined, en).label, 'Controller ses_7f3a…c21e · Initialized');
+  assert.equal(workspaceControllerStatus({ kind: 'incomplete' }, undefined, zh).label, '主控尚未初始化');
+  assert.equal(workspaceControllerStatus({ kind: 'absent' }, undefined, zh).label, '还没有主控');
+  assert.equal(workspaceControllerStatus({ kind: 'blocked' }, undefined, zh).tone, 'warning');
+  assert.equal(workspaceControllerStatus({ ...existing, archived: true }, undefined, zh).label, '主控已归档');
+  assert.equal(workspaceControllerStatus(undefined, undefined, zh).label, '正在核对主控…');
 });
 
 test('each Client apply owns its stores while its registered consumers share them', async (t) => {
@@ -6596,7 +6636,9 @@ async function controllerHandoffHarness(t, { workspaceId = '', inspections = {},
     const dialog = f.find(view(), (node) => node.type?.name === 'ControllerHandoffDialog');
     return dialog ? f.render(dialog.type, dialog.props) : undefined;
   };
-  const modalWorkspace = () => f.find(modal(), (node) => node.type === 'select');
+  const workspaceRadios = () => findAll(modal(), (node) => node.type === 'input' && node.props.type === 'radio');
+  const modalWorkspace = () => workspaceRadios().find((radio) => radio.props.checked)?.props.value ?? '';
+  const chooseModalWorkspace = (id) => workspaceRadios().find((radio) => radio.props.value === id).props.onChange();
   const modalButton = (label) => f.find(modal(), buttonLabelled(label));
   const refresh = async () => { view(); await runEffects(); };
   const changeWorkspace = async (workspaceId) => {
@@ -6614,7 +6656,7 @@ async function controllerHandoffHarness(t, { workspaceId = '', inspections = {},
     f.find(view(), buttonLabelled('主控')).props.onClick();
     return f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'));
   };
-  return { f, calls, view, notices, catalog, cardButton, modal, modalWorkspace, modalButton, changeWorkspace, refresh, remount, dispatchCalls };
+  return { f, calls, view, notices, catalog, cardButton, modal, modalWorkspace, chooseModalWorkspace, workspaceRadios, modalButton, changeWorkspace, refresh, remount, dispatchCalls };
 }
 
 const existingController = (sessionId) => ({ kind: 'existing', sessionId, archived: false });
@@ -6645,7 +6687,7 @@ test('coordinate participation in a fresh install offers workspace registration 
   assert.equal(h.modalButton('确认交给主控'), undefined);
   await h.modalButton('添加工作区…').props.onClick();
   await h.refresh();
-  assert.equal(h.modalWorkspace().props.value, 'registered');
+  assert.equal(h.modalWorkspace(), 'registered');
   assert.ok(h.modalButton('创建主控对话'));
   assert.deepEqual(h.calls, [['register', '/chosen-for-contest']]);
 });
@@ -6657,17 +6699,17 @@ test('an alert confirms a chosen workspace and named controller even when one is
     query: noticeQuery(singleNotice, { reads }), dispatch: async (input) => { await admission.promise; return admittedController(input); } });
   const enter = async () => buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
   await enter();
-  assert.equal(h.modalWorkspace().props.value, '');
+  assert.equal(h.modalWorkspace(), '');
   assert.equal(h.modalButton('确认交给主控'), undefined);
   assert.match(text(h.modal()), /合成赛题/);
   assert.deepEqual(h.dispatchCalls(), []);
   h.modal().props.onClose();
   await enter();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   const confirmation = text(h.modal());
   assert.match(confirmation, /One/);
   assert.match(confirmation, /main-one/);
-  assert.match(confirmation, /提交评测需另行授权/);
+  assert.match(confirmation, /提交评测需在参赛任务中另行请求/);
   assert.deepEqual(h.calls, []);
   const click = h.modalButton('确认交给主控').props.onClick;
   const sending = click();
@@ -6691,7 +6733,7 @@ for (const [inspection, label] of [[{ kind: 'absent' }, '创建主控对话'], [
       query: noticeQuery(singleNotice), dispatch: admittedController, navigate: (id) => { nativeSession = id; } });
     await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
     assert.equal(h.modalButton(label), undefined);
-    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+    h.chooseModalWorkspace('one');
     await h.modalButton(label).props.onClick();
     assert.deepEqual(h.calls, [['initialize', { workspaceId: 'one', expectedSessionId: inspection.sessionId ?? null, createIfMissing: true }],
       ['open', inspection.sessionId || 'new-controller']]);
@@ -6703,7 +6745,7 @@ for (const [inspection, label] of [[{ kind: 'absent' }, '创建主控对话'], [
     assert.equal(nativeSession, embedded.props.data.expectedId);
     assert.deepEqual(h.dispatchCalls(), []);
     await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
-    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+    h.chooseModalWorkspace('one');
     await h.modalButton('确认交给主控').props.onClick();
     assert.equal(h.dispatchCalls()[0].sessionId, inspection.sessionId || 'new-controller');
   });
@@ -6741,9 +6783,9 @@ test('a collection card handoff verifies official details after confirmation and
   assert.match(text(panel), /Weekly contest/);
   assert.equal(h.f.find(panel, (node) => node.type === 'a').props.href, noticeScope + '/competition/weekly');
   h.cardButton().props.onClick();
-  assert.equal(h.modalWorkspace().props.value, '');
+  assert.equal(h.modalWorkspace(), '');
   assert.deepEqual(h.dispatchCalls(), []);
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   assert.deepEqual(requests, []);
   const confirm = async () => h.modalButton('确认交给主控').props.onClick();
   const detailPath = '/api/challenges/' + encodeURIComponent(challengeCard.id);
@@ -6793,7 +6835,7 @@ test('a linked alert opens the controller with its existing child task selected'
       ? { kind: 'ready', linkedChildIds: ['original'], rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] }
       : { kind: 'ready', rows: [] } });
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   await h.modalButton('确认交给主控').props.onClick();
   await h.refresh();
   const pane = h.f.find(h.view(), (node) => node.type === 'aside');
@@ -6816,7 +6858,7 @@ test('a linked handoff shows its snapshot time before task polling returns', asy
     } });
   await h.refresh();
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   await h.modalButton('确认交给主控').props.onClick();
   await h.refresh();
   assert.equal(exactReads, 2);
@@ -6833,7 +6875,7 @@ test('an unreadable single alert keeps its original period, and an archived cont
   await h.f.mount(h.catalog());
   assert.deepEqual(reads.at(-1), { action: 'catalog', search: '', competition: 'bohr-product', period: '5', per_page: 20 });
   h.cardButton().props.onClick();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   assert.match(text(h.modal()), /已归档/);
   assert.equal(h.modalButton('确认交给主控'), undefined);
   assert.deepEqual(h.calls, []);
@@ -6862,7 +6904,7 @@ test('an alert stays pending when the linked work cannot be opened', async (t) =
     query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['original'] }),
     navigate: async () => { throw Error('native navigation unavailable'); } });
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   await h.modalButton('确认交给主控').props.onClick();
   assert.match(text(h.modal()), /已有主控任务/);
   h.modal().props.onClose();
@@ -6874,7 +6916,7 @@ test('a child removed before native navigation finishes leaves its notice pendin
     query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['previous'] }),
     controllerTasks: async () => ({ kind: 'unavailable' }) });
   await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
-  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  h.chooseModalWorkspace('one');
   await h.modalButton('确认交给主控').props.onClick();
   assert.match(text(h.modal()), /无法打开已关联的子任务/);
   assert.equal(h.modalButton('确认交给主控'), undefined);
@@ -6964,8 +7006,8 @@ for (const unavailable of [false, true]) {
       await settle();
     }
     h.cardButton().props.onClick();
-    assert.equal(h.modalWorkspace().props.value, '');
-    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+    assert.equal(h.modalWorkspace(), '');
+    h.chooseModalWorkspace('one');
     await h.modalButton('确认交给主控').props.onClick();
     assert.equal(h.modal(), undefined);
     assert.equal(prompts.length, unavailable ? 0 : 1);
@@ -7022,7 +7064,7 @@ test('a round notice in the season-only catalog acknowledges only Host-confirmed
     h.f.unmount(panel.type);
     await h.f.mount(panel);
     h.cardButton().props.onClick();
-    h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+    h.chooseModalWorkspace('one');
     await h.modalButton('确认交给主控').props.onClick();
   };
   await coordinate(await h.notices());
@@ -7067,21 +7109,25 @@ test('an explicit controller result changes the selected workspace in the mounte
   assert.equal(expectedSession(), 'main-one');
 });
 
-test('catalog hands off directly to the selected workspace controller and shows the conversation tab', async (t) => {
+test('catalog confirms the selected workspace controller before handing off and opening the conversation tab', async (t) => {
   let admit;
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
     dispatch: (input) => new Promise((resolve) => { admit = () => resolve(admittedController(input)); }) });
   const button = h.cardButton();
   button.props.onClick();
-  assert.equal(h.modal(), undefined);
+  assert.equal(h.modalWorkspace(), 'one');
+  assert.deepEqual(h.dispatchCalls(), []);
+  const confirm = h.modalButton('确认交给主控').props.onClick;
+  const sending = confirm();
   assert.equal(h.cardButton().props['aria-disabled'], true);
   button.props.onClick();
+  await confirm();
   assert.equal(h.dispatchCalls().length, 1);
   const [input] = h.dispatchCalls();
   assert.deepEqual(input, { workspaceId: 'one', sessionId: 'main-one', challengeId: challengeCard.id, requestId: input.requestId });
   assert.match(input.requestId, /^[\da-f-]{36}$/);
   admit();
-  await settle();
+  await sending;
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
   assert.equal(h.modal(), undefined);
   assert.equal(h.f.find(h.view(), buttonLabelled('主控')).props['aria-selected'], true);
@@ -7101,7 +7147,8 @@ test('handoff opens a cancellable native dialog with focus on its title and regi
   const [initialFocus] = findAll(modal, (node) => node.props?.['data-modal-autofocus']);
   assert.equal(initialFocus.type, 'h2');
   assert.equal(initialFocus.props.tabIndex, -1);
-  assert.deepEqual(findAll(modal, (node) => node.type === 'option').map((node) => node.props.value), ['', 'one', 'two']);
+  assert.deepEqual(h.workspaceRadios().map((node) => node.props.value), ['one', 'two']);
+  assert.equal(h.modalWorkspace(), '');
   assert.equal(h.modalButton('创建主控并交接'), undefined);
   modal.props.onClose();
   assert.equal(h.modal(), undefined);
@@ -7123,7 +7170,7 @@ test('handoff can register and select its first workspace without sending a chal
       return picker.promise;
     } });
   h.cardButton().props.onClick();
-  assert.equal(h.modalWorkspace().props.disabled, true);
+  assert.equal(h.workspaceRadios().length, 0);
   const choose = h.modalButton('添加工作区…').props.onClick;
   const cancelled = choose();
   await choose();
@@ -7146,7 +7193,7 @@ test('handoff can register and select its first workspace without sending a chal
   const selected = h.modalButton('添加工作区…').props.onClick();
   picker.resolve('/new-workspace');
   await selected;
-  assert.equal(h.modalWorkspace().props.value, 'registered');
+  assert.equal(h.modalWorkspace(), 'registered');
   assert.equal(h.modalButton('创建主控并交接'), undefined);
   await h.refresh();
   assert.ok(h.modalButton('创建主控并交接'));
@@ -7160,11 +7207,11 @@ for (const [kind, label] of [['absent', '创建主控并交接'], ['incomplete',
     const h = await controllerHandoffHarness(t, { inspections: { two: { kind } },
       dispatch: async (input) => { await request.promise; return admittedController(input); } });
     h.cardButton().props.onClick();
-    h.modalWorkspace().props.onChange({ target: { value: 'two' } });
+    h.chooseModalWorkspace('two');
     assert.equal(h.modalButton(label), undefined);
     await h.refresh();
     assert.deepEqual(h.calls, []);
-    assert.equal(h.modalWorkspace().props.value, 'two');
+    assert.equal(h.modalWorkspace(), 'two');
     assert.equal(h.f.find(h.view(), (node) => node.props?.['aria-label'] === '工作区').props.value, 'two');
     const confirm = h.modalButton(label).props.onClick;
     const sending = confirm();
@@ -7173,7 +7220,7 @@ for (const [kind, label] of [['absent', '创建主控并交接'], ['incomplete',
     assert.equal(h.dispatchCalls().length, 1);
     assert.equal(h.dispatchCalls()[0].workspaceId, 'two');
     assert.equal(h.dispatchCalls()[0].sessionId, 'new-controller');
-    assert.equal(h.modalWorkspace().props.disabled, true);
+    assert.ok(h.workspaceRadios().every((radio) => radio.props.disabled));
     h.modal().props.onClose();
     assert.ok(h.modal());
     request.resolve();
@@ -7190,11 +7237,11 @@ test('transport retry keeps its request identity and navigation retry does not d
     dispatch: (input) => { if (connectionLost) throw Error('lost'); return admittedController(input); },
     navigate: () => { if (navigationFailed) throw Error('cannot open'); } });
   h.cardButton().props.onClick();
-  await settle();
+  await h.modalButton('确认交给主控').props.onClick();
   assert.match(text(h.modal()), /无法连接 DSH 服务/);
   connectionLost = false;
   navigationFailed = true;
-  await h.modalButton('交给主控').props.onClick();
+  await h.modalButton('确认交给主控').props.onClick();
   assert.deepEqual(h.dispatchCalls(), Array(2).fill(h.dispatchCalls()[0]));
   assert.match(text(h.modal()), /已接收/);
   await h.modalButton('打开主控对话').props.onClick();
@@ -7203,7 +7250,7 @@ test('transport retry keeps its request identity and navigation retry does not d
   h.modalButton('关闭').props.onClick();
   await h.changeWorkspace('two');
   h.cardButton().props.onClick();
-  await settle();
+  await h.modalButton('确认交给主控').props.onClick();
   assert.equal(h.dispatchCalls().length, 3);
   assert.equal(h.dispatchCalls()[2].sessionId, 'main-two');
   assert.notEqual(h.dispatchCalls()[2].requestId, h.dispatchCalls()[0].requestId);
@@ -7215,7 +7262,7 @@ test('a stale controller refusal requires reinspection and confirmation before t
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections,
     dispatch: (input) => changed ? admittedController(input) : { kind: 'blocked', code: 'controller_changed', reason: '主控已变更' } });
   h.cardButton().props.onClick();
-  await settle();
+  await h.modalButton('确认交给主控').props.onClick();
   assert.match(text(h.modal()), /主控已变更/);
   h.cardButton().props.onClick();
   assert.equal(h.dispatchCalls().length, 1);
@@ -7224,7 +7271,7 @@ test('a stale controller refusal requires reinspection and confirmation before t
   h.modalButton('重新核对').props.onClick();
   await h.refresh();
   assert.equal(h.dispatchCalls().length, 1);
-  await h.modalButton('交给主控').props.onClick();
+  await h.modalButton('确认交给主控').props.onClick();
   assert.equal(h.dispatchCalls()[1].sessionId, 'replacement');
   assert.notEqual(h.dispatchCalls()[1].requestId, h.dispatchCalls()[0].requestId);
 });
