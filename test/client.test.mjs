@@ -2711,12 +2711,34 @@ test('catalog progress uses linked controller rows and confirmed current-account
   const progress = challengeProgress('c', rows, sessions, history, base, account);
   assert.deepEqual(progress, { workspace: { controllers: 2, running: 1, unknown: false, participation: 1 }, submissions: 2, partial: false, score: 0 });
   assert.deepEqual(progressSummary(challengeProgress('c', rows, sessions, undefined, base, account), zh),
-    { text: '本地 · 主控任务 2 个 · 1 个运行中', tone: 'running' });
-  assert.equal(progressSummary(progress, zh).text, '已提交 2 次 · 最近 0 分（最终）');
+    [{ text: '本地 · 主控任务 2 个 · 1 个运行中', tone: 'running' }]);
+  assert.deepEqual(progressSummary(progress, zh), [
+    { text: '本地 · 主控任务 2 个 · 1 个运行中', tone: 'running' },
+    { text: '本账号 · 已提交 2 次 · 最近 0 分（最终）', tone: 'result' },
+  ]);
   const partial = { items: [{ ...item, scoringState: { displayScore: 71.5, scoreIsFinal: false } }], partial: { reasons: ['history_incomplete'] } };
-  assert.equal(progressSummary(challengeProgress('c', [], [], partial, base, account), zh).text, '至少已提交 1 次');
-  assert.equal(progressSummary(challengeProgress('c', [], [], { items: [], nextCursor: null }, base, account), zh), undefined);
+  assert.deepEqual(progressSummary(challengeProgress('c', [], [], partial, base, account), zh),
+    [{ text: '本账号 · 至少已提交 1 次', tone: 'result' }]);
   assert.equal(challengeProgress('c', rows, sessions, undefined, 'https://other.example.test', account).workspace.participation, 0);
+});
+
+test('catalog progress shows only the sources with activity for the active account and workspace', async () => {
+  const { challengeProgress, progressSummary } = await import('../src/client/catalog/progress.js');
+  const zh = (text) => text;
+  const base = 'https://play.example.test';
+  const rows = [{ challenge: { id: 'c', baseUrl: base }, state: 'ended' }];
+  const history = {
+    items: [{ challengeId: 'c', authorId: 'account-a', scoringState: { displayScore: 71.5, scoreIsFinal: true } }],
+    submissionCounts: { lifetime: 2 },
+  };
+  const local = { text: '本地 · 主控任务 1 个', tone: 'neutral' };
+  const account = { text: '本账号 · 已提交 2 次 · 最近 71.5 分（最终）', tone: 'result' };
+  assert.deepEqual(progressSummary(challengeProgress('c', rows, [], history, base, 'account-a'), zh), [local, account]);
+  assert.deepEqual(progressSummary(challengeProgress('c', [], [], history, base, 'account-a'), zh), [account]);
+  assert.deepEqual(progressSummary(challengeProgress('c', rows, [], history, base, 'account-b'), zh), [local]);
+  assert.deepEqual(progressSummary(challengeProgress('c', rows, [], history, base), zh), [local]);
+  assert.deepEqual(progressSummary(challengeProgress('c', [], [], history, base, 'account-b'), zh), []);
+  assert.deepEqual(progressSummary(challengeProgress('c', [], [], undefined, base, 'account-a'), zh), []);
 });
 
 test('catalog and drawer isolate account history when switching accounts on the same platform and signing out', async (t) => {
@@ -2771,10 +2793,13 @@ test('catalog and drawer isolate account history when switching accounts on the 
     return findAll(section, (node) => node.type === 'dd').map(text);
   };
 
+  const progressLines = () => findAll(renderCatalog(), (node) => node.props?.className === 'pg-challenge-progress').map(text);
+  const local = '本地 · 主控任务 1 个 · 1 个运行中';
+
   await f.mount(catalog());
   await readHistory(account);
   await answer(reads[0], account, 2, 71.5);
-  assert.match(text(renderCatalog()), /已提交 2 次 · 最近 71.5 分/);
+  assert.deepEqual(progressLines(), [local, '本账号 · 已提交 2 次 · 最近 71.5 分（最终）']);
   f.find(renderCatalog(), buttonLabelled('查看详情')).props.onClick();
   await f.mount(detailNode());
   assert.deepEqual(metrics('我的进度 · 当前账号'), ['2']);
@@ -2786,14 +2811,14 @@ test('catalog and drawer isolate account history when switching accounts on the 
   await readHistory(account);
   assert.equal(reads[0].signal.aborted, true);
   await answer(reads[1], account, 3, 92);
-  assert.match(text(renderCatalog()), /已提交 3 次 · 最近 92 分/);
+  assert.deepEqual(progressLines(), [local, '本账号 · 已提交 3 次 · 最近 92 分（最终）']);
   assert.deepEqual(metrics('我的进度 · 当前账号'), ['3']);
   assert.deepEqual(metrics('本地任务'), ['1', '1']);
 
   await readHistory(account);
   const pending = reads[2];
   account = undefined;
-  assert.doesNotMatch(text(renderCatalog()), /已提交.*次/);
+  assert.deepEqual(progressLines(), [local]);
   assert.deepEqual(metrics('我的进度 · 当前账号'), ['—']);
   assert.deepEqual(metrics('本地任务'), ['1', '1']);
   await readHistory(account);

@@ -71,7 +71,10 @@ const catalogCss = `
   .pg-challenge-meter{display:flex;gap:2px}
   .pg-challenge-meter i{width:5px;height:12px;border-radius:1px;background:var(--pg-control-line)}
   .pg-challenge-meter i[data-filled=true]{background:var(--pg-text)}
-  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-challenge-progress-group{display:grid;gap:4px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:0}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress){gap:2px;margin-block:8px 4px;padding-block:4px}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress) .pg-challenge-progress{line-height:17px}
   .pg-challenge-progress::before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--pg-label)}
   .pg-challenge-progress[data-tone=running]::before{background:var(--pg-accent)}
   .pg-challenge-progress[data-tone=result]::before{background:var(--pg-text)}

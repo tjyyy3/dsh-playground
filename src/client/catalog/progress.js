@@ -32,19 +32,22 @@ function challengeProgress(challengeId, controllerRows = [], sessions = [], hist
 
 function progressSummary(progress, msg) {
   const { workspace, submissions, partial, score } = progress;
+  const { controllers, running, unknown } = workspace;
+  const lines = [];
+  if (controllers) {
+    const activity = running ? msg(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg(' · 状态未知', ' · Status unknown') : '';
+    lines.push({
+      text: msg(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? 'task' : 'tasks'}`) + activity,
+      tone: running ? 'running' : 'neutral',
+    });
+  }
   if (submissions > 0) {
     const count = partial ? msg(`至少已提交 ${submissions} 次`, `At least ${submissions} submissions`)
       : msg(`已提交 ${submissions} 次`, `${submissions} ${submissions === 1 ? 'submission' : 'submissions'}`);
     const latest = score === undefined ? '' : msg(` · 最近 ${score} 分（最终）`, ` · Latest score ${score} (final)`);
-    return { text: count + latest, tone: 'result' };
+    lines.push({ text: msg('本账号 · ', 'Signed-in account · ') + count + latest, tone: 'result' });
   }
-  const { controllers, running, unknown } = workspace;
-  if (controllers) {
-    const activity = running ? msg(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg(' · 状态未知', ' · Status unknown') : '';
-    return { text: msg(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? 'task' : 'tasks'}`) + activity,
-      tone: running ? 'running' : 'neutral' };
-  }
-  return undefined;
+  return lines;
 }
 
 export { challengeProgress, progressSummary, samePlatform };

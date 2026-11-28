@@ -3757,7 +3757,10 @@ var catalogCss = `
   .pg-challenge-meter{display:flex;gap:2px}
   .pg-challenge-meter i{width:5px;height:12px;border-radius:1px;background:var(--pg-control-line)}
   .pg-challenge-meter i[data-filled=true]{background:var(--pg-text)}
-  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-challenge-progress-group{display:grid;gap:4px;margin:12px 0 10px;padding:8px 10px;border:1px solid var(--pg-control-line);border-radius:var(--pg-r6);background:var(--pg-base);color:var(--pg-text)}
+  .pg-catalog .pg-challenge-progress{display:flex;align-items:center;gap:8px;margin:0}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress){gap:2px;margin-block:8px 4px;padding-block:4px}
+  .pg-challenge-progress-group:has(.pg-challenge-progress + .pg-challenge-progress) .pg-challenge-progress{line-height:17px}
   .pg-challenge-progress::before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--pg-label)}
   .pg-challenge-progress[data-tone=running]::before{background:var(--pg-accent)}
   .pg-challenge-progress[data-tone=result]::before{background:var(--pg-text)}
@@ -4181,20 +4184,21 @@ function challengeProgress(challengeId, controllerRows = [], sessions = [], hist
 __name(challengeProgress, "challengeProgress");
 function progressSummary(progress, msg2) {
   const { workspace, submissions, partial, score } = progress;
+  const { controllers, running, unknown } = workspace;
+  const lines = [];
+  if (controllers) {
+    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
+    lines.push({
+      text: msg2(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
+      tone: running ? "running" : "neutral"
+    });
+  }
   if (submissions > 0) {
     const count = partial ? msg2(`至少已提交 ${submissions} 次`, `At least ${submissions} submissions`) : msg2(`已提交 ${submissions} 次`, `${submissions} ${submissions === 1 ? "submission" : "submissions"}`);
     const latest = score === void 0 ? "" : msg2(` · 最近 ${score} 分（最终）`, ` · Latest score ${score} (final)`);
-    return { text: count + latest, tone: "result" };
+    lines.push({ text: msg2("本账号 · ", "Signed-in account · ") + count + latest, tone: "result" });
   }
-  const { controllers, running, unknown } = workspace;
-  if (controllers) {
-    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
-    return {
-      text: msg2(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
-      tone: running ? "running" : "neutral"
-    };
-  }
-  return void 0;
+  return lines;
 }
 __name(progressSummary, "progressSummary");
 
@@ -4821,7 +4825,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
       ),
       h("div", { className: "pg-challenge-grid" }, challenges.map((item) => {
         const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
-        const summary = progressSummary(progressFor(item), msg);
+        const progressLines = progressSummary(progressFor(item), msg);
         const itemGroup = groupFor(item);
         const status2 = item.status && (locales[currentLanguage()].states[item.status] || item.status);
         const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : void 0;
@@ -4854,7 +4858,11 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
             ) : null,
             attempts !== void 0 ? h("span", null, msg("提交", "Submissions"), " ", h("strong", null, attempts)) : null
           ) : null,
-          summary ? h("p", { className: "pg-challenge-progress", "data-tone": summary.tone }, summary.text) : null,
+          progressLines.length ? h(
+            "div",
+            { className: "pg-challenge-progress-group" },
+            progressLines.map(({ text, tone }) => h("p", { key: tone, className: "pg-challenge-progress", "data-tone": tone }, text))
+          ) : null,
           h(
             "div",
             { className: "pg-actions" },

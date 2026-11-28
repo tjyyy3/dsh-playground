@@ -507,7 +507,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
           busy === 'load' ? msg('正在刷新…', 'Refreshing…') : msg('刷新目录', 'Refresh catalog'))),
       h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => {
         const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
-        const summary = progressSummary(progressFor(item), msg);
+        const progressLines = progressSummary(progressFor(item), msg);
         const itemGroup = groupFor(item);
         const status = item.status && (locales[currentLanguage()].states[item.status] || item.status);
         const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : undefined;
@@ -523,7 +523,8 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
             difficulty !== undefined ? h('span', { 'aria-label': msg(`难度 ${difficulty}`, `Difficulty ${difficulty}`) }, msg('难度', 'Difficulty'),
               h('span', { className: 'pg-challenge-meter', 'aria-hidden': true }, [1, 2, 3, 4, 5].map((step) => h('i', { key: step, 'data-filled': step <= difficulty })))) : null,
             attempts !== undefined ? h('span', null, msg('提交', 'Submissions'), ' ', h('strong', null, attempts)) : null) : null,
-          summary ? h('p', { className: 'pg-challenge-progress', 'data-tone': summary.tone }, summary.text) : null,
+          progressLines.length ? h('div', { className: 'pg-challenge-progress-group' },
+            progressLines.map(({ text, tone }) => h('p', { key: tone, className: 'pg-challenge-progress', 'data-tone': tone }, text))) : null,
           h('div', { className: 'pg-actions' },
             h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': msg(`查看详情：${title}`, `View details: ${title}`), onClick: () => setDetail(item),
               ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, msg('查看详情', 'View details')),
