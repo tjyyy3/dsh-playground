@@ -6454,8 +6454,13 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       )
     ) : null,
     snapshot2 && !snapshot2.requests.length && !snapshot2.grants.length ? h("p", null, msg("没有待授权的外部材料或任务级授权。", "No pending external materials or task grants.")) : null,
-    error ? h("p", { className: "pg-error", role: "alert" }, error) : null,
-    h(
+    error ? h("p", { className: "pg-error", role: "alert" }, error, snapshot2?.requests.length ? null : h("button", {
+      type: "button",
+      className: "pg-submit-link",
+      disabled: busy,
+      onClick: refresh
+    }, msg("刷新权限", "Refresh access"))) : null,
+    snapshot2?.requests.length ? h(
       "footer",
       null,
       h(
@@ -6465,7 +6470,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
         h("button", { type: "button", className: "pg-submit-link", disabled: busy, onClick: refresh }, msg("刷新权限", "Refresh access"))
       ),
       h("p", null, msg("先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。", "Check existing submissions before creating another. Stopping generation cannot undo completed server writes."))
-    )
+    ) : null
   );
   return h(
     "section",

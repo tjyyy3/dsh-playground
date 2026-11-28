@@ -65,10 +65,12 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled, 
       h('button', { type: 'button', className: 'pg-submit-link pg-submit-revoke', disabled: disabled || busy, onClick: () => act({ action: 'revoke' }) },
         msg('撤销本任务全部材料授权', 'Revoke all material access for this task'))) : null,
     snapshot && !snapshot.requests.length && !snapshot.grants.length ? h('p', null, msg('没有待授权的外部材料或任务级授权。', 'No pending external materials or task grants.')) : null,
-    error ? h('p', { className: 'pg-error', role: 'alert' }, error) : null,
-    h('footer', null, h('div', null, h('small', null, msg('结果未知时', 'When the outcome is unknown')),
+    error ? h('p', { className: 'pg-error', role: 'alert' }, error, snapshot?.requests.length ? null : h('button', {
+      type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refresh,
+    }, msg('刷新权限', 'Refresh access'))) : null,
+    snapshot?.requests.length ? h('footer', null, h('div', null, h('small', null, msg('结果未知时', 'When the outcome is unknown')),
       h('button', { type: 'button', className: 'pg-submit-link', disabled: busy, onClick: refresh }, msg('刷新权限', 'Refresh access'))),
-      h('p', null, msg('先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。', 'Check existing submissions before creating another. Stopping generation cannot undo completed server writes.'))));
+      h('p', null, msg('先核对已有提交，再决定是否新建。取消生成无法撤回已发生的服务器写入。', 'Check existing submissions before creating another. Stopping generation cannot undo completed server writes.'))) : null);
   return h('section', { className: 'pg-confirm', 'aria-label': msg('外部材料权限', 'External material permissions') },
     h('h4', null, msg('外部材料权限', 'External material permissions')),
     h('p', { className: 'pg-note' }, msg('仅用于当前任务所列比赛材料引用和后续读取。此授权不代表同意提交；平台提交仍需单独请求。任务结束、工作区切换或宿主重启后失效。', 'Access covers the listed material references and subsequent reads for this task. Submitting to the platform requires a separate request. Access expires when the task ends, the workspace changes, or the host restarts.')),

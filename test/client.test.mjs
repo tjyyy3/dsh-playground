@@ -8739,11 +8739,35 @@ test('[submit-page] material authorization resumes with the host ticket and keep
   });
   const permission = f.renderElement(f.workflow()).props.permissions;
   const sidebar = await f.mount(permission);
+  assert.match(text(sidebar), /结果未知时/);
+  assert.doesNotMatch(text(sidebar), /拒绝/);
   await f.btn(sidebar, '允许引用并继续交接').props.onClick();
   assert.deepEqual(calls.slice(1, 3), [
     { action: 'authorize', requestId: request.requestId, scope: 'operation', recursive: false, sessionId: f.session.id },
     { action: 'request', material_request_id: request.requestId, bundle_path: '/materials/bundle.zip', sessionId: f.session.id },
   ]);
+});
+
+test('[submit-page] shows the current grants and revokes them together when no requests are pending', async (t) => {
+  const calls = [];
+  let grants = [{ path: '/materials/bundle.zip', kind: 'file' }];
+  const f = await submitFixture(t, {
+    materials: async (input) => {
+      calls.push(input);
+      if (input.action === 'revoke') grants = [];
+      return { ok: true, requests: [], grants };
+    },
+  });
+  const permission = f.renderElement(f.workflow()).props.permissions;
+  const sidebar = await f.mount(permission);
+  assert.match(text(sidebar), /本次任务已允许的范围.*\/materials\/bundle\.zip/);
+  assert.doesNotMatch(text(sidebar), /结果未知时|允许引用并继续交接/);
+  assert.deepEqual(findAll(sidebar, (node) => node.type === 'button').map(text), ['撤销本任务全部材料授权']);
+  await f.btn(sidebar, '撤销本任务全部材料授权').props.onClick();
+  assert.deepEqual(calls, ['status', 'revoke', 'status'].map((action) => ({ action, sessionId: f.session.id })));
+  const empty = f.renderElement(permission);
+  assert.match(text(empty), /没有待授权的外部材料或任务级授权/);
+  assert.equal(findAll(empty, (node) => node.type === 'button').length, 0);
 });
 
 test('[submit-page] status labels and symbols preserve the five evidenced outcomes', async (t) => {
