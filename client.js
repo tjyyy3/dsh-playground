@@ -277,7 +277,7 @@ var locales = {
       playground_check_materials: "提交前检查",
       playground_task: "任务状态",
       playground_open_controller: "打开工作区主控",
-      playground_controller_codex_chats: "工作区 Codex 对话",
+      playground_controller_codex_chats: "外部 Codex 对话",
       playground_submit: "提交到 Playground"
     },
     preparing: "正在准备参数…",
@@ -374,7 +374,7 @@ var locales = {
       playground_check_materials: "Submission checks",
       playground_task: "Task status",
       playground_open_controller: "Open workspace controller",
-      playground_controller_codex_chats: "Workspace Codex chats",
+      playground_controller_codex_chats: "External Codex chats",
       playground_submit: "Submit to Playground"
     },
     preparing: "Preparing arguments…",
@@ -1499,7 +1499,7 @@ function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
         { width: 14, height: 14, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
         h("path", { d: "M2.5 4.5 6 8l-3.5 3.5M8 12h5.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" })
       ),
-      msg("工作区 Codex 对话", "Workspace Codex chats")
+      msg("外部 Codex 对话", "External Codex chats")
     ) : null,
     hasOpened ? h(CodexChats, {
       workspaceId,
@@ -1607,9 +1607,9 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
   const hasFollowUp = rows.length > 0 || selected || !initial && (target || draft);
   return h(
     "section",
-    { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
+    { className: "pg-codex-chats", "aria-label": msg("外部 Codex 对话", "External Codex chats") },
     showHeading ? h("style", null, css + codexCss) : null,
-    showHeading ? h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")) : null,
+    showHeading ? h("h3", null, msg("外部 Codex 对话", "External Codex chats")) : null,
     !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
     rows.map((source) => h(
       "div",
@@ -2407,10 +2407,7 @@ __name(calendarTime, "calendarTime");
 function taskRowTime(row, language, now = Date.now()) {
   const stamp = calendarTime(row.createdAt, language, now);
   if (!stamp) return null;
-  if (row.state !== "running") return stamp;
-  const minutes = Math.floor((now - Date.parse(stamp.dateTime)) / 6e4);
-  if (minutes < 0) return null;
-  return { ...stamp, label: language === "en" ? `Running for ${minutes} min` : `已运行 ${minutes} 分钟` };
+  return { ...stamp, label: language === "en" ? `Created ${stamp.label}` : `创建于 ${stamp.label}` };
 }
 __name(taskRowTime, "taskRowTime");
 

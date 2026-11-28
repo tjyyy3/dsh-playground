@@ -39,8 +39,5 @@ export function calendarTime(value, language, now = Date.now()) {
 export function taskRowTime(row, language, now = Date.now()) {
   const stamp = calendarTime(row.createdAt, language, now);
   if (!stamp) return null;
-  if (row.state !== 'running') return stamp;
-  const minutes = Math.floor((now - Date.parse(stamp.dateTime)) / 60000);
-  if (minutes < 0) return null;
-  return { ...stamp, label: language === 'en' ? `Running for ${minutes} min` : `已运行 ${minutes} 分钟` };
+  return { ...stamp, label: language === 'en' ? `Created ${stamp.label}` : `创建于 ${stamp.label}` };
 }

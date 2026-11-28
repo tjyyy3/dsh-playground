@@ -71,7 +71,7 @@ export function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
   available ? h('summary', null,
     h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
       h('path', { d: 'M2.5 4.5 6 8l-3.5 3.5M8 12h5.5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' })),
-    msg('工作区 Codex 对话', 'Workspace Codex chats')) : null,
+    msg('外部 Codex 对话', 'External Codex chats')) : null,
   hasOpened ? h(CodexChats, { workspaceId, sessionId, query, showHeading: false, visible: available,
     listRefresh: available && open ? refresh : null }) : null);
 }
@@ -151,9 +151,9 @@ export function CodexChats({ workspaceId, sessionId, query, initial, showHeading
   if (!visible) return null;
   const rows = data?.rows || [];
   const hasFollowUp = rows.length > 0 || selected || (!initial && (target || draft));
-  return h('section', { className: 'pg-codex-chats', 'aria-label': msg('工作区 Codex 对话', 'Workspace Codex chats') },
+  return h('section', { className: 'pg-codex-chats', 'aria-label': msg('外部 Codex 对话', 'External Codex chats') },
     showHeading ? h('style', null, css + codexCss) : null,
-    showHeading ? h('h3', null, msg('工作区 Codex 对话', 'Workspace Codex chats')) : null,
+    showHeading ? h('h3', null, msg('外部 Codex 对话', 'External Codex chats')) : null,
     !data ? h('p', { role: 'status' }, msg('正在查找本工作区对话…', 'Finding chats in this workspace…')) :
       data.kind === 'unavailable' ? h('p', { role: 'status' }, reasons()[data.code] || msg('无法读取本机 Codex 对话。', 'Could not read local Codex chats.')) :
       rows.length === 0 ? h('p', null, msg('本工作区暂无可见的 Codex 对话。', 'No Codex chats are visible in this workspace.')) : null,

@@ -7511,14 +7511,28 @@ test('Instrument task times use row timestamps and the local calendar', async ()
   const now = new Date(2026, 10, 28, 13, 42).getTime();
   const at = (day, hour, minute) => new Date(2026, 10, day, hour, minute).getTime();
   const time = (row) => taskRowTime(row, 'zh-CN', now)?.label;
-  assert.equal(time({ state: 'running', createdAt: at(28, 13, 30) }), '已运行 12 分钟');
-  assert.equal(time({ state: 'running', createdAt: at(28, 13, 43) }), undefined);
-  assert.equal(time({ state: 'ended', createdAt: new Date(at(28, 13, 38)).toISOString() }), '13:38');
-  assert.equal(time({ state: 'settled', createdAt: at(27, 21, 14) }), '昨天 21:14');
-  assert.equal(time({ state: 'ended', createdAt: at(26, 18, 0) }), '2026/11/26');
-  assert.equal(time({ state: 'unknown', createdAt: at(27, 18, 0) }), '昨天 18:00');
+  assert.equal(time({ state: 'running', createdAt: at(28, 13, 30) }), '创建于 13:30');
+  assert.equal(time({ state: 'ended', createdAt: new Date(at(28, 13, 38)).toISOString() }), '创建于 13:38');
+  assert.equal(time({ state: 'settled', createdAt: at(27, 21, 14) }), '创建于 昨天 21:14');
+  assert.equal(time({ state: 'ended', createdAt: at(26, 18, 0) }), '创建于 2026/11/26');
+  assert.equal(time({ state: 'unknown', createdAt: at(27, 18, 0) }), '创建于 昨天 18:00');
   assert.equal(time({ state: 'ended', createdAt: 'invalid' }), undefined);
   assert.equal(time({ state: 'running', updatedAt: now }), undefined);
+});
+
+test('[review-134] a rerun with only a creation timestamp shows Created in the task list and detail', async (t) => {
+  const now = new Date(2026, 10, 28, 13, 42).getTime();
+  const createdAt = new Date(2026, 10, 27, 13, 38).toISOString();
+  t.mock.method(Date, 'now', () => now);
+  const { f, sidebar } = await codexSidebarFixture(t, undefined, {
+    browser: { localStorage: { getItem: () => 'en' } },
+    taskRows: [{ childId: 'rerun', label: 'Rerun fixture', state: 'running', createdAt }],
+  });
+  const button = f.find(sidebar(), (node) => node.type === 'button' && text(node).includes('Rerun fixture'));
+  const readTime = (tree) => f.find(tree, (node) => node.type === 'time' && node.props.dateTime === createdAt);
+  assert.equal(text(readTime(button)), 'Created Yesterday 13:38');
+  button.props.onClick();
+  assert.equal(text(readTime(sidebar())), 'Created Yesterday 13:38');
 });
 
 test('Instrument sidebar counts task rows and distinct linked challenges', async (t) => {
@@ -7664,10 +7678,10 @@ test('workspace selection hides old controller tasks immediately and ignores a l
 });
 
 
-async function codexSidebarFixture(t, codexChats) {
-  const f = await clientFixture(t);
+async function codexSidebarFixture(t, codexChats, { browser, taskRows } = {}) {
+  const f = await clientFixture(t, {}, browser);
   const Main = f.registrations.get('main').Component;
-  const rows = [
+  const rows = taskRows ?? [
     { childId: 'linked', label: 'Linked task', state: 'settled',
       challenge: { id: 'challenge', title: 'Linked challenge', baseUrl: 'https://example.test/api' } },
     { childId: 'legacy', label: 'Legacy task', state: 'settled' },
@@ -7748,6 +7762,17 @@ test('task sidebar hides external chats during detection and when detection is u
   assert.ok(calls.every((input) => input.action === 'detect'));
 });
 
+test('[review-134] the English sidebar and expanded region use External Codex chats', async (t) => {
+  const { f, renderExternal, renderChats, runEffects } = await codexSidebarFixture(t, async ({ action }) =>
+    action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] },
+  { browser: { localStorage: { getItem: () => 'en' } } });
+  renderExternal(); runEffects(); await settle();
+  const collapsed = renderExternal();
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')).trim(), 'External Codex chats');
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+  assert.equal(renderChats(renderExternal()).props['aria-label'], 'External Codex chats');
+});
+
 test('external chats follow all task groups and only list when expanded', async (t) => {
   const calls = [];
   const { f, sidebar, external, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
@@ -7764,7 +7789,7 @@ test('external chats follow all task groups and only list when expanded', async 
   const collapsed = renderExternal();
   assert.equal(collapsed.type, 'details');
   assert.equal(collapsed.props.open, false);
-  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')).trim(), '工作区 Codex 对话');
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')).trim(), '外部 Codex 对话');
   const list = (tree) => f.find(tree, (node) => node.type?.name === 'CodexChats');
   assert.equal(list(collapsed), undefined);
   assert.deepEqual(calls, ['detect']);
