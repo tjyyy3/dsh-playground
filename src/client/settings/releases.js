@@ -75,7 +75,7 @@ function ReleaseStatusPanel({ query, checks, installRelease, visit, onAvailable 
         error: undefined, resetAt: undefined });
     }, Math.max(0, Date.parse(release.resetAt) - Date.now()));
     return () => clearTimeout(timer);
-  }, [scope, release.error, release.resetAt]);
+  }, [release.error, release.resetAt, scope]);
   const channelLabels = { stable: msg('正式版', 'Stable'), beta: 'Beta' };
   const { status, comparison } = release;
   const target = release.target;
