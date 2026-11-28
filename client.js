@@ -1343,13 +1343,68 @@ var reasons = /* @__PURE__ */ __name(() => ({
   user_action_required: msg("请从主控工作台发起操作。", "Start this action from the controller workbench."),
   interaction_required: msg("此轮需要在原 Codex 对话中处理交互。", "This turn needs your input in the original Codex chat.")
 }), "reasons");
+function matchingChats(data, target) {
+  const rows = data?.rows || [];
+  return target ? rows.filter((item) => item.threadId === target || item.title === target) : rows;
+}
+__name(matchingChats, "matchingChats");
+function soleChatId(data, target) {
+  const matches = matchingChats(data, target);
+  return matches.length === 1 && (target || !data.partial) ? matches[0].threadId : null;
+}
+__name(soleChatId, "soleChatId");
 var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
 var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
-function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
+function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
+  const [detection, setDetection] = React4.useState(null);
+  const [open, setOpen] = React4.useState(false);
+  const [hasOpened, setHasOpened] = React4.useState(false);
+  React4.useEffect(() => {
+    const abort = new AbortController();
+    async function detect() {
+      try {
+        const result = await query({ action: "detect", workspaceId, sessionId }, abort.signal);
+        if (!abort.signal.aborted) setDetection({ query, refresh, available: result?.kind === "available" });
+      } catch {
+        if (!abort.signal.aborted) setDetection(null);
+      }
+    }
+    __name(detect, "detect");
+    void detect();
+    return () => abort.abort();
+  }, [workspaceId, sessionId, query, refresh]);
+  const available = detection?.available === true && detection.query === query && detection.refresh === refresh;
+  if (!available && !hasOpened) return null;
+  return h(
+    "details",
+    {
+      className: "pg-controller-external-chats",
+      hidden: !available,
+      open,
+      onToggle: /* @__PURE__ */ __name((event) => {
+        const expanded = event.currentTarget.open;
+        setOpen(expanded);
+        if (expanded) setHasOpened(true);
+      }, "onToggle")
+    },
+    available ? h("summary", null, msg("外部 Codex 对话", "External Codex chats")) : null,
+    hasOpened ? h(CodexChats, {
+      workspaceId,
+      sessionId,
+      query,
+      showHeading: false,
+      visible: available,
+      listRefresh: available && open ? refresh : null
+    }) : null
+  );
+}
+__name(ExternalCodexChats, "ExternalCodexChats");
+function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true, visible = true, listRefresh = 0 }) {
   const [data, setData] = React4.useState(initial || null);
   const [selected, select] = React4.useState(null);
   const [target, setTarget] = React4.useState("");
   const [draft, setDraft] = React4.useState(initial?.message || "");
+  const [draftThreadId, setDraftThreadId] = React4.useState(null);
   const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
   const [response, setResponse] = React4.useState(null);
   const [busy, setBusy] = React4.useState(false);
@@ -1357,12 +1412,17 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
   const [control] = React4.useState(() => ({ active: true, writing: false, read: null }));
   React4.useEffect(() => {
     control.active = true;
-    if (!initial) read("list");
     return () => {
       control.active = false;
       control.read?.abort();
     };
-  }, [refresh, query]);
+  }, [query]);
+  React4.useEffect(() => {
+    if (initial || listRefresh === null) return;
+    void read("list");
+    const abort = control.read;
+    return () => abort.abort();
+  }, [query, listRefresh]);
   async function read(action, threadId) {
     control.read?.abort();
     const abort = new AbortController();
@@ -1379,16 +1439,20 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     if (!draft.trim() || control.writing) return;
     const rows2 = data?.rows || [];
     const named = target.trim();
-    let displayed;
-    if (!source) {
-      const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
-      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
-        setChoices(matches);
-        setResponse(null);
-        return;
-      }
-      [displayed] = matches;
+    const boundId = source?.threadId ?? draftThreadId;
+    const checkSelection = source && source === selected && !initial && data?.kind === "ready" && !data.partial;
+    if (boundId && (!source || checkSelection) && !rows2.some((item) => item.threadId === boundId)) {
+      setResponse({ kind: "unavailable", code: "target_changed" });
+      return;
     }
+    const matches = matchingChats(data, named);
+    if (!boundId && (matches.length > 1 || !named && (matches.length !== 1 || data?.partial))) {
+      setChoices(matches);
+      setResponse(null);
+      return;
+    }
+    const matchedId = matches[0]?.threadId;
+    const destination = source || !named || boundId && (matches.length !== 1 || matchedId !== boundId) ? { threadId: boundId ?? matchedId } : { target: named, ...matchedId ? { expectedThreadId: matchedId } : {} };
     control.writing = true;
     setBusy(true);
     setResponse(null);
@@ -1399,11 +1463,12 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         sessionId,
         action: "send",
         message: draft,
-        ...source ? { threadId: source.threadId } : named ? { target: named, ...displayed ? { expectedThreadId: displayed.threadId } : {} } : { threadId: displayed.threadId }
+        ...destination
       });
       if (!control.active) return;
       if (result.kind === "choose") {
-        setChoices(result.rows);
+        if (boundId) setResponse({ kind: "unavailable", code: "target_changed" });
+        else setChoices(result.rows);
         return;
       }
       setResponse(result);
@@ -1424,11 +1489,13 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
     }
   }
   __name(send, "send");
+  if (!visible) return null;
   const rows = data?.rows || [];
+  const hasFollowUp = rows.length > 0 || selected || !initial && (target || draft);
   return h(
     "section",
     { className: "pg-codex-chats", "aria-label": msg("工作区 Codex 对话", "Workspace Codex chats") },
-    h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")),
+    showHeading ? h("h3", null, msg("工作区 Codex 对话", "Workspace Codex chats")) : null,
     !data ? h("p", { role: "status" }, msg("正在查找本工作区对话…", "Finding chats in this workspace…")) : data.kind === "unavailable" ? h("p", { role: "status" }, reasons()[data.code] || msg("无法读取本机 Codex 对话。", "Could not read local Codex chats.")) : rows.length === 0 ? h("p", null, msg("本工作区暂无可见的 Codex 对话。", "No Codex chats are visible in this workspace.")) : null,
     rows.map((source) => h(
       "div",
@@ -1457,7 +1524,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
       disabled: busy,
       onClick: /* @__PURE__ */ __name(() => read("summary"), "onClick")
     }, msg("汇总最近结果", "Summarize recent results")) : null,
-    rows.length || selected ? h(
+    hasFollowUp ? h(
       "div",
       null,
       selected ? h("p", null, msg(`回复 ${label(selected)} `, `Reply to ${label(selected)} `), h("button", {
@@ -1472,7 +1539,12 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         disabled: busy,
         placeholder: msg("完整编号或标题", "Full ID or title"),
         onChange: /* @__PURE__ */ __name((event) => {
-          setTarget(event.target.value);
+          const value = event.target.value;
+          if (value.trim() !== target.trim()) {
+            setDraftThreadId(soleChatId(data, value.trim()));
+            setResponse(null);
+          }
+          setTarget(value);
           setChoices(null);
         }, "onChange")
       })),
@@ -1480,7 +1552,13 @@ function CodexChats({ workspaceId, sessionId, query, initial, refresh }) {
         value: draft,
         disabled: busy,
         maxLength: 8e3,
-        onChange: /* @__PURE__ */ __name((event) => setDraft(event.target.value), "onChange")
+        onChange: /* @__PURE__ */ __name((event) => {
+          const value = event.target.value;
+          if (!selected && !draftThreadId && !draft.trim() && value.trim()) {
+            setDraftThreadId(soleChatId(data, target.trim()));
+          }
+          setDraft(value);
+        }, "onChange")
       })),
       choices ? h("div", null, h("p", null, msg("选择接收这条追问的原会话。", "Choose the original chat to receive this follow-up.")), choices.map((source) => h("button", {
         key: source.threadId,
@@ -2099,6 +2177,8 @@ var controllerPanelCss = `
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
   .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
   .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
+  .pg-controller-external-chats { margin-top:16px; }
+  .pg-controller-external-chats > summary { cursor:pointer; }
   .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
@@ -2706,7 +2786,6 @@ function ControllerPanel(props) {
           h(
             "div",
             { className: "pg-controller-task-content" },
-            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
             !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
               "div",
               { className: "pg-controller-detail" },
@@ -2769,7 +2848,14 @@ function ControllerPanel(props) {
                 group.rows.map(listRow)
               )),
               tasks.rows.some((item) => item.category === "maintenance") ? h("details", { className: "pg-controller-maintenance", open: showMaintenance, onToggle: /* @__PURE__ */ __name((event) => setShowMaintenance(event.currentTarget.open), "onToggle") }, h("summary", null, msg(`后台维护（${tasks.rows.filter((item) => item.category === "maintenance").length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === "maintenance").length})`)), tasks.rows.filter((item) => item.category === "maintenance").map(listRow)) : null
-            )
+            ),
+            expectedId && props.codexChats ? h(ExternalCodexChats, {
+              key: `${workspaceId}:${expectedId}`,
+              workspaceId,
+              sessionId: expectedId,
+              query: props.codexChats,
+              refresh: taskRetry
+            }) : null
           )
         )
       ) : null

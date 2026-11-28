@@ -7,7 +7,7 @@ import { AuthStatusPanel } from '../settings/auth.js';
 import { LanguageMenu } from '../settings/language.js';
 import { ReleaseStatusPanel, ReleaseIndicator } from '../settings/releases.js';
 import { controllerMessage } from './messages.js';
-import { CodexChats } from './codex-chats.js';
+import { ExternalCodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog, noticeHandoffCopy } from './handoff.js';
 import { CompetitionNotices, CompetitionNoticeSetting } from './competition-notices.js';
 
@@ -63,6 +63,8 @@ const controllerPanelCss = `
   .pg-controller-markdown pre, .pg-controller-markdown table, .pg-controller-raw pre { max-width:100%; overflow:auto; }
   .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; font-size:12px; }
   .pg-controller-raw, .pg-controller-maintenance { margin-top:16px; font-size:12px; }
+  .pg-controller-external-chats { margin-top:16px; }
+  .pg-controller-external-chats > summary { cursor:pointer; }
   .pg-controller-error { color:var(--dsw-alias-state-error-primary); }
   @media (max-width:600px) { .pg-controller-bar { gap:4px; padding:4px 8px; } }
   @container (max-width:720px) { .pg-controller-resize { display:none; } .pg-controller-tasks { position:absolute; right:0; top:0; bottom:0; width:min(380px,90%)!important; z-index:10; border-left:1px solid var(--dsw-alias-border-l3); box-shadow:-8px 0 24px rgba(0,0,0,.12); } }
@@ -477,7 +479,6 @@ function ControllerPanel(props) {
           h('header', null, h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, msg('任务', 'Tasks')),
             h('button', { className: 'pg-controller-back', disabled: !expectedId, onClick: () => setTaskRetry(taskRetry + 1) }, msg('刷新任务', 'Refresh tasks'))),
           h('div', { className: 'pg-controller-task-content' },
-            expectedId && props.codexChats ? h(CodexChats, { key: `${workspaceId}:${expectedId}`, workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null,
             !expectedId ? h('p', null, msg('打开主控后查看其派发的任务。', 'Open the controller to see the tasks it dispatched.')) : !tasks ? h('p', { role: 'status' }, msg('正在读取任务…', 'Loading tasks…'))
               : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, msg('无法读取任务。', 'Could not load tasks.'), h('button', { onClick: () => setTaskRetry(taskRetry + 1) }, msg('重试', 'Retry')))
               : row ? h('div', { className: 'pg-controller-detail' },
@@ -503,7 +504,9 @@ function ControllerPanel(props) {
                 h('summary', null, msg(`${group.challenge?.title || group.challenge?.id || '未关联赛题'}（${group.rows.length}）`, `${group.challenge?.title || group.challenge?.id || 'No linked challenge'} (${group.rows.length})`),
                   group.challenge ? h('small', null, `${group.challenge.id} · ${group.challenge.baseUrl}`) : h('small', null, msg('缺少明确的赛题关联，保留原任务和结果。', 'The original task and result are available without a confirmed challenge link.'))),
                 group.rows.map(listRow))),
-                tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, msg(`后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === 'maintenance').length})`)), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null)))) : null),
+                tasks.rows.some((item) => item.category === 'maintenance') ? h('details', { className: 'pg-controller-maintenance', open: showMaintenance, onToggle: (event) => setShowMaintenance(event.currentTarget.open) }, h('summary', null, msg(`后台维护（${tasks.rows.filter((item) => item.category === 'maintenance').length}）`, `Background maintenance (${tasks.rows.filter((item) => item.category === 'maintenance').length})`)), tasks.rows.filter((item) => item.category === 'maintenance').map(listRow)) : null),
+            expectedId && props.codexChats ? h(ExternalCodexChats, { key: `${workspaceId}:${expectedId}`,
+              workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null))) : null),
     showHandoffDialog ? h(ControllerHandoffDialog, { state: dispatchState, workspaces, workspace: handoffWorkspace, busy: handoffBusy,
       selectWorkspace: selectHandoffWorkspace, addTaskWorkspace: props.addTaskWorkspace, message: handoffMessage, action: handoffAction,
       close: () => { if (!dispatchControls.busy) setDispatchState(null); } }) : null);

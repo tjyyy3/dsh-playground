@@ -7528,6 +7528,250 @@ test('workspace selection hides old controller tasks immediately and ignores a l
 });
 
 
+async function codexSidebarFixture(t, codexChats) {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const rows = [
+    { childId: 'linked', label: 'Linked task', state: 'settled',
+      challenge: { id: 'challenge', title: 'Linked challenge', baseUrl: 'https://example.test/api' } },
+    { childId: 'legacy', label: 'Legacy task', state: 'settled' },
+    { childId: 'maintenance', label: 'Maintenance task', category: 'maintenance', state: 'settled' },
+  ];
+  const props = { controllerSelection: { workspaceId: 'ws', showTasks: true }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'ws', title: 'Fixture workspace' }] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null, openControllerChat: async () => {},
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    controllerTasks: async () => ({ kind: 'ready', rows }), codexChats };
+  const cleanups = [];
+  t.after(() => cleanups.reverse().forEach((cleanup) => cleanup?.()));
+  const runEffects = (predicate = () => true) => {
+    for (const effect of f.effects.splice(0).filter(predicate)) cleanups.push(effect());
+  };
+  const render = () => {
+    f.effects.length = 0;
+    return f.render(Main, props);
+  };
+  render(); runEffects(); await settle();
+  render(); runEffects((effect) => effect.deps?.[2] === props.controllerTasks); await settle();
+  const sidebar = () => f.find(render(), (node) => node.type === 'aside' && node.props.id === 'pg-controller-tasks');
+  const external = (tree = sidebar()) => f.find(tree, (node) => node.type?.name === 'ExternalCodexChats');
+  const renderExternal = (element = external()) => {
+    f.effects.length = 0;
+    return f.render(element.type, element.props);
+  };
+  let chatsType;
+  let chatsEffects = [];
+  const renderChats = (details) => {
+    const element = f.find(details, (node) => node.type?.name === 'CodexChats');
+    if (!element) {
+      for (const effect of chatsEffects) effect.cleanup?.();
+      if (chatsType) f.unmount(chatsType);
+      chatsType = undefined;
+      chatsEffects = [];
+      return null;
+    }
+    chatsType = element.type;
+    f.effects.length = 0;
+    const tree = f.render(chatsType, element.props);
+    chatsEffects = f.effects.splice(0).map((effect, index) => {
+      const previous = chatsEffects[index];
+      if (previous?.deps && effect.deps && previous.deps.length === effect.deps.length &&
+        effect.deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return previous;
+      previous?.cleanup?.();
+      return { deps: effect.deps, cleanup: effect() };
+    });
+    return tree;
+  };
+  t.after(() => renderChats(null));
+  const refresh = () => buttonLabeled(f, sidebar(), '刷新任务').props.onClick();
+  return { f, sidebar, external, renderExternal, renderChats, refresh, runEffects };
+}
+
+test('task sidebar hides external chats during detection and when detection is unavailable or fails', async (t) => {
+  const calls = [];
+  const pending = Promise.withResolvers();
+  const { f, sidebar, renderExternal, refresh, runEffects } = await codexSidebarFixture(t, (input) => {
+    calls.push(input);
+    return calls.length === 1 ? pending.promise : Promise.reject(Error('Host unavailable'));
+  });
+  assert.equal(f.find(sidebar(), (node) => node.type?.name === 'CodexChats'), undefined);
+  assert.doesNotMatch(text(sidebar()), /codex/i);
+  assert.equal(renderExternal(), null);
+  runEffects();
+  assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'controller', action: 'detect' }]);
+  assert.equal(renderExternal(), null);
+  pending.resolve({ kind: 'unavailable', code: 'codex_unavailable' });
+  await settle();
+  assert.equal(renderExternal(), null);
+  refresh();
+  assert.equal(renderExternal(), null);
+  runEffects();
+  await settle();
+  assert.equal(renderExternal(), null);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((input) => input.action === 'detect'));
+});
+
+test('external chats follow all task groups and only list when expanded', async (t) => {
+  const calls = [];
+  const { f, sidebar, external, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
+    calls.push(action);
+    return action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] };
+  });
+  const tree = sidebar();
+  const content = f.find(tree, (node) => node.props?.className === 'pg-controller-task-content');
+  const entry = external(tree);
+  assert.ok(entry);
+  assert.equal(content.props.children.at(-1), entry);
+  assert.match(text(content), /Linked challenge.*未关联赛题.*后台维护/);
+  renderExternal(entry); runEffects(); await settle();
+  const collapsed = renderExternal();
+  assert.equal(collapsed.type, 'details');
+  assert.equal(collapsed.props.open, false);
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')), '外部 Codex 对话');
+  const list = (tree) => f.find(tree, (node) => node.type?.name === 'CodexChats');
+  assert.equal(list(collapsed), undefined);
+  assert.deepEqual(calls, ['detect']);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+
+  const expanded = renderExternal();
+  assert.equal(expanded.props.open, true);
+  renderChats(expanded); await settle();
+  assert.match(text(renderChats(renderExternal())), /本工作区暂无可见的 Codex 对话/);
+  assert.deepEqual(calls, ['detect', 'list']);
+  refresh();
+  const checking = renderExternal(); runEffects();
+  assert.doesNotMatch(text(checking), /codex/i);
+  assert.equal(renderChats(checking), null);
+  assert.deepEqual(calls, ['detect', 'list', 'detect']);
+  await settle();
+  const refreshed = renderExternal();
+  assert.equal(refreshed.props.open, true);
+  renderChats(refreshed);
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list']);
+
+  refreshed.props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  refresh();
+  const checkingWhileClosed = renderExternal(); runEffects(); renderChats(checkingWhileClosed);
+  await settle();
+  const closedAfterRefresh = renderExternal();
+  assert.equal(closedAfterRefresh.props.open, false);
+  renderChats(closedAfterRefresh);
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list', 'detect']);
+});
+
+test('external chats retain the target and draft across collapse and refresh', async (t) => {
+  const rows = [{ title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000010' }];
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) =>
+    action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: rows[0].threadId } });
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  const collapsed = renderExternal();
+  assert.equal(collapsed.props.open, false);
+  renderChats(collapsed);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const checkDraft = () => {
+    const chats = renderChats(renderExternal());
+    assert.equal(f.find(chats, (node) => node.type === 'input')?.props.value, rows[0].threadId);
+    assert.equal(f.find(chats, (node) => node.type === 'textarea')?.props.value, 'Keep this draft');
+  };
+  checkDraft();
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  checkDraft();
+});
+
+test('[review-132] reopening the sidebar keeps a draft bound until another chat is selected', async (t) => {
+  const original = { title: 'Shared title', threadId: '018ee808-f10c-7000-b000-000000000012' };
+  const replacement = { title: original.title, threadId: '018ee808-f10c-7000-b000-000000000013' };
+  let listed = original;
+  const sends = [];
+  const { f, renderExternal, renderChats, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') return { kind: 'ready', rows: [listed] };
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return { kind: 'sent', source: listed, text: 'Reply' };
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: original.title } });
+  tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  listed = replacement;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  tree = renderChats(renderExternal());
+  assert.match(text(tree), new RegExp(replacement.threadId));
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  tree = renderChats(renderExternal());
+  assert.deepEqual(sends, []);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Keep this draft');
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /请重新选择/);
+
+  f.find(tree, (node) => node.type === 'button' && text(node).includes(replacement.threadId)).props.onClick();
+  tree = renderChats(renderExternal());
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.deepEqual(sends, [{ workspaceId: 'ws', sessionId: 'controller', action: 'send',
+    threadId: replacement.threadId, message: 'Keep this draft' }]);
+});
+
+test('external chats retain a pending send and its reply across refresh and collapse', async (t) => {
+  const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000011' };
+  const delivery = Promise.withResolvers();
+  const sends = [];
+  let listed = false;
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') {
+      const rows = listed ? [] : [source];
+      listed = true;
+      return { kind: 'ready', rows };
+    }
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return delivery.promise;
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'One follow-up' } });
+  tree = renderChats(renderExternal());
+  const send = buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].threadId, source.threadId);
+
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  assert.equal(buttonLabeled(f, renderChats(renderExternal()), '等待原会话回复…')?.props.disabled, true);
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  delivery.resolve({ kind: 'sent', source, turnStatus: 'completed', text: 'Reply to the original send' });
+  await send;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  tree = renderChats(renderExternal());
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /Reply to the original send/);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, '');
+  assert.equal(sends.length, 1);
+});
+
 test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
   const f = await clientFixture(t);
   const Tool = f.registrations.get('playground_controller_codex_chats').Component;
