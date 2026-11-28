@@ -475,3 +475,33 @@ test('controller task reads can include a linked challenge while promotion uses 
     assert.equal(schema.safeParse({ workspaceId: 'w', sessionId: 's', includeChallengeId: ' ' }).success, false);
   }
 });
+
+test('[home] queries anonymous public sources independently and projects the fields used by home', async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push([url.pathname, options.method, options.headers.authorization, url.searchParams.get('per_page')]);
+    const fixtures = {
+      '/api/challenges/facets': { total: 27, attempts: 53, disciplines: { physics: 5, optics: 2 }, formalDisciplines: { physics: 5 } },
+      '/api/stats/participation': { total: 8, events: [{ name: 'Extra fixture data' }] },
+      '/api/topics': { topics: [{}, {}] },
+      '/api/challenges': { items: [{ id: 'fixture', title: 'Trace a ray', attempts: 3 }] },
+      '/api/feed': [{ text: '<strong>Example</strong> submitted a result', time: '2030-01-01T00:00:00Z', link: 'https://example.test/' }],
+      '/api/contests': [{ slug: 'fixture', hasPage: true, visibility: 'public', status: 'active' }],
+      '/api/hackathon/seasons': [{ id: 91, slug: 'fixture', nameEn: 'Fixture contest', status: 'active', challengeIds: ['fixture'] }],
+    };
+    if (!fixtures[url.pathname]) return new Response('', { status: 404 });
+    return Response.json(fixtures[url.pathname]);
+  });
+  let service, schema;
+  registerWorkbenchQueries({ provide: (_, provided) => { service = provided; },
+    typert: { register: (entry) => { schema = entry.invocations[0].parameters[0].codec.create(); } } }, {});
+  const parsed = schema.safeParse({ action: 'home' });
+  assert.equal(parsed.success, true);
+  const home = await service.query(parsed.data);
+  assert.deepEqual(home.stats, { challenges: 27, attempts: 53, disciplines: 1, discussions: 2, knights: 8 });
+  assert.deepEqual(home.challenges, [{ id: 'fixture', title: 'Trace a ray', attempts: 3 }]);
+  assert.deepEqual(home.feed, [{ text: '<strong>Example</strong> submitted a result', time: '2030-01-01T00:00:00Z' }]);
+  assert.equal(home.competitions.find(({ season }) => season === 'fixture').count, 1);
+  assert.ok(requests.every(([, method, authorization]) => method === 'GET' && authorization === undefined));
+  assert.ok(requests.some(([path, , , perPage]) => path === '/api/challenges' && perPage === '6'));
+});

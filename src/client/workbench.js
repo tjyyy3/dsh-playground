@@ -7,7 +7,7 @@ import { AuthStatusPanel } from './settings/auth.js';
 import { CatalogPanel } from './catalog/index.js';
 import { ArchivedTaskRow, TaskDetailDrawer, TaskSummaryRow } from './tasks/list.js';
 
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, catalogDestination, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   // DSH's archive set lives on the workspace list snapshot. Without it nothing counts as archived and
@@ -169,7 +169,8 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       h('div', { className: 'pg-workbench-grid', style: { gridTemplateColumns: section ? 'minmax(0,1fr)' : `minmax(0,${split}fr) minmax(0,${100 - split}fr)` } },
         section === 'submissions' ? null : h('section', { className: 'pg-workbench-column', 'aria-label': msg('Playground 赛题目录', 'Playground challenge catalog') },
           section === 'catalog' ? null : h('div', { className: 'pg-column-heading' }, h('h2', null, msg('赛题目录', 'Challenge catalog'))),
-          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, requestTask, controllerRows, account, active, taskSessions, webBase, onWebBase: setWebBase })),
+          h(CatalogPanel, { key: handoff?.catalogNotice ? 'notice:' + handoff.catalogNotice.visit : 'tab:' + (catalogDestination?.visit ?? 0),
+            destination: catalogDestination, query, handoff, requestTask, controllerRows, account, active, taskSessions, webBase, onWebBase: setWebBase })),
         section === 'catalog' ? null : h('section', { className: 'pg-workbench-column', 'aria-label': msg('Playground 任务总览', 'Playground task overview') },
           h('div', { className: 'pg-column-heading' }, h('h2', { tabIndex: -1, ref: (node) => { nav.heading = node; } }, msg('任务总览', 'Task overview')),
             h('span', { className: 'pg-refresh-controls' }, h('span', { className: 'pg-badge' }, msg(`${taskSessions.length} 个任务`, `${taskSessions.length} task${taskSessions.length === 1 ? "" : "s"}`)),

@@ -12,6 +12,7 @@ import { codexCss, ExternalCodexChats } from './codex-chats.js';
 import { ControllerHandoffDialog, noticeHandoffCopy } from './handoff.js';
 import { CompetitionNotices, CompetitionNoticeSetting } from './competition-notices.js';
 import { controllerPanelCss } from './styles.js';
+import { HomePanel } from '../home/index.js';
 import { taskEvidence } from './task-evidence.js';
 import { calendarTime, challengeSubtitle, taskProvider, taskRowTime } from './task-presentation.js';
 
@@ -20,22 +21,30 @@ function lineIcon(path, size = 16, viewBox = '0 0 16 16') {
     strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: path }));
 }
 
-function controllerBrand() {
-  return h('div', { className: 'pg-controller-brand' },
+function controllerBrand(onClick) {
+  return h('button', { type: 'button', className: 'pg-controller-brand', onClick,
+    'aria-label': msg('Playground 首页', 'Playground home') },
     h('svg', { width: 26, height: 26, viewBox: '0 0 26 26', fill: 'none', 'aria-hidden': true },
       h('rect', { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: 'currentColor', strokeWidth: 1.5 }),
       h('path', { d: 'M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' })),
-    h('h1', null, 'Playground'), h('small', null, 'DSH'));
+    h('strong', null, 'Playground'), h('small', null, 'DSH'));
 }
 
 function evidenceMark(evidence, label, description) {
   return h('span', { className: 'pg-controller-evidence', 'data-evidence': evidence, title: description }, label);
 }
 
-function groupHeading(title, count, subtitle) {
+function groupHeading(title, rows, subtitle, summarize) {
+  const running = rows.filter((row) => row.state === 'running').length;
+  const received = rows.filter((row) => row.state !== 'running' && (row.terminalText ||
+    row.liveEnd?.lastAssistantMessage?.some((part) => part.type === 'text' && part.text))).length;
+  const summary = summarize ? msg(
+    rows.length + ' 个任务 · ' + running + ' 运行中 · ' + received + ' 已回结果',
+    rows.length + ' tasks · ' + running + ' running · ' + received + ' with results') : null;
   return h('summary', { className: 'pg-controller-group' }, lineIcon('M3.5 2 6.5 5l-3 3', 10, '0 0 10 10'),
-    h('span', { className: 'pg-controller-group-label' }, h('span', null, title), subtitle ? h('small', null, subtitle) : null),
-    h('span', { className: 'pg-controller-task-count', 'aria-label': msg(`${count} 个任务`, `${count} tasks`) }, count));
+    h('span', { className: 'pg-controller-group-label' }, h('span', null, title), subtitle ? h('small', null, subtitle) : null,
+      summary ? h('small', { className: 'pg-controller-group-overview' }, summary) : null),
+    summarize ? null : h('span', { className: 'pg-controller-task-count' }, rows.length));
 }
 
 function taskTime(stamp) {
@@ -126,6 +135,8 @@ function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useCo
     renderFactorySlot('conversation.content', { variant: 'embedded', phase, hero }, { slots: view.slots }));
 }
 
+const PRIMARY_TABS = ['home', 'controller', 'catalog', 'submissions'];
+
 function ControllerPanel(props) {
   const language = usePluginLanguage();
   const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
@@ -139,14 +150,25 @@ function ControllerPanel(props) {
   const [expectedId, setExpectedId] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [errorMessage, setError] = React.useState('');
-  const [view, setView] = React.useState('controller');
+  const [view, updateView] = React.useState(() => props.controllerSelection.view || 'home');
+  const setView = (next) => {
+    props.controllerSelection.view = next;
+    updateView(next);
+  };
   const [releaseVisit, setReleaseVisit] = React.useState(0);
   const error = controllerMessage(errorMessage);
   const [dispatchState, setDispatchState] = React.useState(null);
   const [catalogNotice, setCatalogNotice] = React.useState(null);
+  const [catalogDestination, setCatalogDestination] = React.useState(null);
+  const workspacePicker = React.useRef(null);
   const selectTab = (tab) => {
     if (tab === 'catalog' && view !== 'catalog') setCatalogNotice(null);
     setView(tab);
+  };
+  const browse = (destination) => {
+    setCatalogNotice(null);
+    setCatalogDestination((previous) => ({ ...destination, visit: (previous?.visit ?? 0) + 1 }));
+    setView('catalog');
   };
   const [dispatchControls] = React.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React.useState('checking');
@@ -258,6 +280,15 @@ function ControllerPanel(props) {
     finally { setBusy(false); }
   };
   const selectedWorkspace = workspaces.phase === 'ready' && workspaces.items.find((item) => item.workspaceId === workspaceId);
+  const homeController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
+  const showController = () => {
+    selectTab('controller');
+    if (!homeController && !workspaceId) workspacePicker.current?.focus();
+  };
+  const showVersion = () => {
+    setReleaseVisit((visit) => visit + 1);
+    setView('settings');
+  };
   const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? undefined : selectedWorkspace;
   const selectedController = selectedWorkspace && inspection?.kind === 'existing' && !inspection.archived ? inspection.sessionId : '';
   const canInitialize = selectedWorkspace && (inspection?.kind === 'absent' || inspection?.kind === 'incomplete');
@@ -444,12 +475,18 @@ function ControllerPanel(props) {
     challengeGroups.get(groupKey).rows.push(item);
   }
   const taskCount = (tasks?.rows?.length ?? 0) - maintenance.length;
+  const taskRows = tasks?.kind === 'ready' ? tasks.rows.filter(({ category }) => category !== 'maintenance') : undefined;
   const childAddress = expectedId && (row?.mode === 'continuable' || row?.mode === 'one-shot')
     ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
   const evidenceLabels = {
     host: msg('宿主记录', 'Host record'),
     report: msg('Agent 报告', 'Agent report'),
     none: msg('无运行记录', 'No run record'),
+  };
+  const evidenceDescriptions = {
+    host: msg('DSH 亲眼看到的运行（最可信）', 'Run observed by DSH (highest confidence)'),
+    report: msg('子智能体自己说的结果，还没人核对', 'Result reported by the subagent and awaiting verification'),
+    none: msg('既没看到运行也没收到结果', 'No run observed and no result received'),
   };
   const stateBadge = (item, compact = false) => {
     const label = taskState(item) || msg('状态未知', 'Status unknown');
@@ -466,9 +503,10 @@ function ControllerPanel(props) {
       ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); },
       onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
       h('strong', null, item.label || msg('未命名任务', 'Untitled task')),
+      h('span', { className: 'pg-controller-row-arrow', 'aria-hidden': true }, '›'),
       h('span', { className: 'pg-controller-row-meta' },
         stateBadge(item, true),
-        evidenceMark(evidence, evidenceLabels[evidence]),
+        evidenceMark(evidence, evidenceLabels[evidence], evidenceDescriptions[evidence]),
         provider || time ? h('span', { className: 'pg-controller-row-time' },
           provider, provider && time ? ' · ' : null, time) : null));
   };
@@ -482,12 +520,12 @@ function ControllerPanel(props) {
       onToggle: (event) => {
         const expanded = event.currentTarget.open;
         if (expanded !== open) setGroupOpen((groups) => new Map(groups).set(key, expanded));
-      } }, groupHeading(title, rows.length, subtitle),
+      } }, groupHeading(title, rows, subtitle, initiallyOpen),
       h('div', { className: 'pg-controller-group-rows' }, rows.map(listRow)));
   };
   return h('div', { className: 'pg-controller' }, h('style', null, css + controllerPanelCss + codexCss),
     view === 'controller' ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
-    h('header', { className: 'pg-controller-bar' }, controllerBrand(),
+    h('header', { className: 'pg-controller-bar' }, controllerBrand(() => selectTab('home')),
       h('div', { className: 'pg-controller-workspace' },
         lineIcon('M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z'),
         h('span', { className: 'pg-controller-workspace-text' },
@@ -495,18 +533,16 @@ function ControllerPanel(props) {
           selectedWorkspace?.path ? h('small', { id: 'pg-controller-workspace-path', title: selectedWorkspace.path }, selectedWorkspace.path) : null),
         lineIcon('M3 4.5 6 7.5l3-3', 12, '0 0 12 12'),
         h('select', { 'aria-label': msg('工作区', 'Workspace'), 'aria-describedby': selectedWorkspace?.path ? 'pg-controller-workspace-path' : undefined,
-          value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
+          ref: workspacePicker, value: workspaceId, disabled: busy || handoffBusy, onChange: async (event) => {
             if (dispatchControls.busy) return;
             if (event.target.value === '__add_workspace__') { setBusy(true); setError(''); try { await props.addTaskWorkspace(); } catch { setError('无法添加工作区，请重试。'); } finally { setBusy(false); } return; }
             selectWorkspace(event.target.value);
           } }, h('option', { value: '' }, msg('选择工作区', 'Select workspace')), workspaceOptions(workspaces.items),
           h('option', { value: '__add_workspace__', disabled: busy }, msg('添加工作区…', 'Add workspace…')))),
-      h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = ['controller', 'catalog', 'submissions']; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : 2)) % 3; selectTab(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
-        [['controller', msg('主控', 'Controller')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
+      h('nav', { className: 'pg-controller-tabs', role: 'tablist', 'aria-label': msg('Playground 导航', 'Playground navigation'), onKeyDown: (event) => { const ids = PRIMARY_TABS; const index = Math.max(0, ids.indexOf(view)); if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? ids.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length; selectTab(ids[next]); event.currentTarget.querySelectorAll('[role=tab]')[next]?.focus(); } },
+        [['home', msg('首页', 'Home')], ['controller', msg('主控', 'Controller')], ['catalog', msg('赛题', 'Challenges')], ['submissions', msg('提交', 'Submissions')]].map(([id, title]) => h('button', { key: id, className: 'pg-controller-tab', role: 'tab', tabIndex: view === id || (view === 'settings' && id === 'controller') ? 0 : -1, 'aria-selected': view === id, onClick: () => selectTab(id) }, title))),
       h('div', { className: 'pg-controller-account' },
-        h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: () => {
-          setReleaseVisit(releaseVisit + 1); setView('settings');
-        } }), h(LanguageMenu),
+        h(ReleaseIndicator, { checks: props.releaseChecks, active: view === 'controller', open: showVersion }), h(LanguageMenu),
         h('button', { className: 'pg-controller-connection', title: msg('连接设置', 'Connection settings'), 'data-status': authStatus, onClick: () => setView('settings') },
           accountName ? h('span', { className: 'pg-controller-account-mark', title: accountName, 'aria-hidden': true }, Array.from(accountName).slice(0, 2).join('').toLocaleUpperCase()) : null,
           h('span', { className: 'pg-controller-connection-dot', 'aria-hidden': true }),
@@ -514,6 +550,12 @@ function ControllerPanel(props) {
         view === 'controller' ? h('button', { className: 'pg-controller-icon', ref: (node) => { pane.toggle = node; }, title: showTasks ? msg('隐藏任务侧栏', 'Hide task sidebar') : msg('显示任务侧栏', 'Show task sidebar'), 'aria-label': showTasks ? msg('隐藏任务侧栏', 'Hide task sidebar') : msg('显示任务侧栏', 'Show task sidebar'), 'aria-expanded': showTasks, 'aria-controls': 'pg-controller-tasks', onClick: toggleTasks },
           h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, 'aria-hidden': true }, h('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h('path', { d: 'M15 4v16' }))) : null)),
     h('div', { className: 'pg-controller-body', ref: (node) => { pane.body = node; } },
+      view === 'home' ? h(HomePanel, { query: props.query, authStatus, account: accountId, workspace: selectedWorkspace,
+        inspection, controllerId: homeController, taskRows, requestTask: props.requestTask,
+        handoff: { state: dispatchState, start: (challenge) => startHandoff(challenge, undefined, { webBase: configuredBase }) },
+        actions: { browse, controller: showController, submissions: () => selectTab('submissions'),
+          settings: () => setView('settings'), versions: showVersion, recheck: () => setRetry(retry + 1),
+          focusWorkspace: () => workspacePicker.current?.focus() } }) : null,
       h('main', { className: 'pg-controller-chat', style: { display: view === 'controller' ? 'flex' : 'none' } },
         !expectedId ? controllerHeader() : null,
         !workspaceId ? h('div', { className: 'pg-controller-placeholder', role: workspaces.state === 'error' ? 'alert' : undefined }, workspaces.state === 'error' ? msg('无法读取工作区，请重启 DSH 后重试。', 'Could not load workspaces. Restart DSH and try again.') : workspaces.phase !== 'ready' ? msg('正在读取工作区…', 'Loading workspaces…') : msg('选择工作区以打开或创建主控对话。', 'Choose a workspace to open or create a controller chat.'), error ? h('p', { className: 'pg-controller-error', role: 'alert' }, error) : null)
@@ -538,28 +580,39 @@ function ControllerPanel(props) {
         view === 'settings' ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
         visited.has('settings') ? h(ReleaseStatusPanel, { query: props.query, checks: props.releaseChecks,
           installRelease: props.installRelease, visit: releaseVisit }) : null),
-      ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff, controllerRows: tasks?.kind === 'ready' ? tasks.rows : undefined, account: authStatus === 'authenticated' ? accountId : undefined } : {}) })) : null),
+      ['catalog', 'submissions'].map((section) => visited.has(section) ? h('div', { key: section, style: { display: view === section ? 'flex' : 'none', flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot('playground.library', { libraryOnly: true, section, active: view === section, ...(section === 'catalog' ? { handoff, catalogDestination, controllerRows: tasks?.kind === 'ready' ? tasks.rows : undefined, account: authStatus === 'authenticated' ? accountId : undefined } : {}) })) : null),
       view === 'controller' && showTasks ? h(React.Fragment, null,
         h('div', { className: 'pg-controller-resize', role: 'separator', tabIndex: 0, 'aria-label': msg('调整任务侧栏宽度', 'Resize task sidebar'), 'aria-orientation': 'vertical', 'aria-valuemin': 300, 'aria-valuemax': 520, 'aria-valuenow': taskWidth,
           onKeyDown: (event) => { const next = { ArrowLeft: taskWidth + 10, ArrowRight: taskWidth - 10, Home: 300, End: 520 }[event.key]; if (next !== undefined) { event.preventDefault(); resize(next); } },
           onPointerDown: (event) => { pane.drag = { x: event.clientX, width: taskWidth }; event.currentTarget.setPointerCapture(event.pointerId); },
           onPointerMove: (event) => { if (pane.drag) resize(pane.drag.width + pane.drag.x - event.clientX); }, onPointerUp: () => { pane.drag = null; }, onPointerCancel: () => { pane.drag = null; } }),
-        h('aside', { id: 'pg-controller-tasks', className: 'pg-controller-tasks', 'aria-label': msg('主控任务', 'Controller tasks'), style: { width: taskWidth }, onKeyDown: (event) => { if (event.key === 'Escape' && pane.body?.clientWidth <= 720) { toggleTasks(); pane.toggle?.focus(); } } },
+        h('aside', { id: 'pg-controller-tasks', className: 'pg-controller-tasks', 'aria-label': msg('派出的任务', 'Dispatched tasks'), style: { width: taskWidth }, onKeyDown: (event) => { if (event.key === 'Escape' && pane.body?.clientWidth <= 720) { toggleTasks(); pane.toggle?.focus(); } } },
           h('header', { className: 'pg-controller-task-head' },
-            h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, msg('主控任务', 'Controller tasks')),
-            tasks?.kind === 'ready' ? h('span', { className: 'pg-controller-task-count' },
+            h('h2', { tabIndex: -1, ref: (node) => { pane.heading = node; } }, msg('派出的任务', 'Dispatched tasks')),
+            tasks?.kind === 'ready' && taskCount > 0 ? h('span', { className: 'pg-controller-task-count' },
               msg(`${taskCount} 个 · ${challengeGroups.size} 道赛题`, `${taskCount} tasks · ${challengeGroups.size} challenges`)) : null,
             h('button', { type: 'button', className: 'pg-button pg-controller-refresh', disabled: !expectedId,
               'aria-label': msg('刷新任务', 'Refresh tasks'), onClick: () => setTaskRetry(taskRetry + 1) },
-              lineIcon('M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75', 14))),
-          h('div', { className: 'pg-controller-task-status' },
-            tasks?.kind === 'ready' ? h('span', null, msg('状态更新于 ', 'Updated '), taskTime(calendarTime(taskSnapshot.updatedAt, language))) : null,
-            h('span', { className: 'pg-controller-rule', 'aria-hidden': true }),
-            evidenceMark('report', msg('报告', 'Report'), evidenceLabels.report),
-            evidenceMark('host', msg('记录', 'Record'), evidenceLabels.host),
-            evidenceMark('receipt', msg('回执', 'Receipt'), msg('平台回执', 'Platform receipt'))),
+              lineIcon('M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75', 14)),
+            h('details', { className: 'pg-controller-evidence-info' },
+              h('summary', null, h('span', { 'aria-hidden': true }, 'ⓘ'), msg('状态从哪来', 'Status sources')),
+              h('ul', null, Object.entries(evidenceLabels).map(([kind, label]) => h('li', { key: kind },
+                evidenceMark(kind, label), h('span', null, evidenceDescriptions[kind])))))),
+          h('p', { className: 'pg-controller-task-intro' }, msg(
+            '主控把题拆成子任务，交给 Codex 或 DSH 子智能体去做；这里看每个子任务做到哪、结果回来没有。提交评测不在这里。',
+            'The controller assigns subtasks to Codex or DSH subagents. Follow their progress and results here. Evaluation is under Submissions.')),
+          tasks?.kind === 'ready' ? h('div', { className: 'pg-controller-task-status' },
+            h('span', null, msg('状态更新于 ', 'Updated '), taskTime(calendarTime(taskSnapshot.updatedAt, language))),
+            h('span', { className: 'pg-controller-rule', 'aria-hidden': true })) : null,
           h('div', { className: 'pg-controller-task-content' },
-            !expectedId ? h('p', null, msg('打开主控后查看其派发的任务。', 'Open the controller to see the tasks it dispatched.')) : !tasks ? h('p', { role: 'status' }, msg('正在读取任务…', 'Loading tasks…'))
+            !expectedId || (tasks?.kind === 'ready' && !tasks.rows.length) ? h('div', { className: 'pg-controller-task-empty' },
+              h('h3', null, msg('还没有派出的任务', 'No dispatched tasks yet')),
+              h('ol', null,
+                h('li', null, msg('在「赛题」选一道题，点「交给主控」', 'Choose a challenge and select “Hand off to controller.”')),
+                h('li', null, msg('在对话里说：「把这道题交给 Codex，先读题列验证计划」', 'In the chat, say “Give this challenge to Codex. Read it and draft a validation plan first.”')),
+                h('li', null, msg('主控派出的子任务会按赛题出现在这里', 'The assigned subtasks appear here by challenge.'))),
+              h('button', { type: 'button', className: 'pg-button pg-primary', onClick: () => browse() }, msg('去选题', 'Choose a challenge')))
+              : !tasks ? h('p', { role: 'status' }, msg('正在读取任务…', 'Loading tasks…'))
               : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, msg('无法读取任务。', 'Could not load tasks.'), h('button', { className: 'pg-button', onClick: () => setTaskRetry(taskRetry + 1) }, msg('重试', 'Retry')))
               : row ? h('div', { className: 'pg-controller-detail' },
                 h('button', { className: 'pg-button pg-controller-back', ref: (node) => { pane.back = node; }, onClick: () => { pane.focus = row.childId; setSelectedTask(''); } }, msg('返回任务', 'Back to tasks')),
@@ -567,10 +620,10 @@ function ControllerPanel(props) {
                   h('p', { className: 'pg-controller-detail-context' }, row.challenge
                     ? [msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
                       challengeSubtitle(row.challenge, configuredBase)].filter(Boolean).join(' · ')
-                    : row.category === 'maintenance' ? msg('后台维护', 'Background maintenance') : msg('未关联赛题', 'No linked challenge')),
+                    : row.category === 'maintenance' ? msg('后台维护', 'Background maintenance') : msg('没有对上赛题的任务', 'Tasks without a challenge link')),
                   h('h3', null, row.label || msg('未命名任务', 'Untitled task')),
                   h('div', { className: 'pg-controller-detail-meta' }, stateBadge(row),
-                    evidenceMark(detailEvidence, evidenceLabels[detailEvidence]),
+                    evidenceMark(detailEvidence, evidenceLabels[detailEvidence], evidenceDescriptions[detailEvidence]),
                     detailProvider ? h('span', { className: 'pg-controller-detail-provider' }, detailProvider) : null,
                     detailTime)),
                 childAddress ? h('button', { className: 'pg-button pg-controller-back', onClick: async () => {
@@ -593,12 +646,12 @@ function ControllerPanel(props) {
                   } }, msg('复制结果', 'Copy result'))) : null,
                 taskActionStatus ? h('p', { role: 'status' }, controllerMessage(taskActionStatus)) : null,
                 row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, row.state !== 'ended' ? msg('历史原始通知', 'Original notification from an earlier run') : msg('原始通知', 'Original notification')), h('pre', null, row.terminalText)) : null)
-              : !tasks.rows.length ? h('p', null, msg('还没有派发任务。', 'No tasks dispatched yet.')) : h(React.Fragment, null,
+              : h(React.Fragment, null,
                 [...challengeGroups].map(([key, group]) => taskGroup(key, group.rows,
                   msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
                   challengeSubtitle(group.challenge, configuredBase), true)),
-                unassociated.length ? taskGroup('unassociated', unassociated, msg('未关联赛题', 'No linked challenge'),
-                  msg('缺少明确的赛题关联', 'No confirmed challenge link')) : null,
+                unassociated.length ? taskGroup('unassociated', unassociated, msg('没有对上赛题的任务', 'Tasks without a challenge link'),
+                  msg('主控派活时没登记是哪道题', 'The controller did not record a challenge for these tasks')) : null,
                 maintenance.length ? taskGroup('maintenance', maintenance, msg('后台维护', 'Background maintenance'), null, false, 'pg-controller-maintenance') : null),
             expectedId && props.codexChats ? h(ExternalCodexChats, { key: `${workspaceId}:${expectedId}`,
               workspaceId, sessionId: expectedId, query: props.codexChats, refresh: taskRetry }) : null))) : null),

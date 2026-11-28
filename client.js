@@ -490,7 +490,7 @@ __name(stateLabel, "stateLabel");
 var zhText = /* @__PURE__ */ __name((key2) => key2.split(".").reduce((value, part) => value?.[part], locales[currentLanguage()]) ?? key2, "zhText");
 
 // src/client/controller/index.js
-var React7 = __toESM(require("react"), 1);
+var React11 = __toESM(require("react"), 1);
 
 // src/client/shared/workspaces.js
 function workspaceOptions(items) {
@@ -2621,9 +2621,10 @@ __name(CompetitionNotices, "CompetitionNotices");
 var controllerPanelCss = `
   .pg-controller { height:100%; min-height:0; display:flex; flex-direction:column; background:var(--pg-base); }
   .pg-controller-bar { box-sizing:border-box; flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; min-height:56px; padding:0 var(--pg-s16); border-bottom:1px solid var(--pg-line); background:#0B0D10; }
-  .pg-controller-brand { display:flex; align-items:center; gap:10px; }
+  .pg-controller-brand { display:flex; align-items:center; gap:10px; padding:0; border:0; color:var(--pg-text); background:transparent; cursor:pointer; }
+  .pg-controller-brand:focus-visible { outline:2px solid var(--pg-accent); outline-offset:4px; }
   .pg-controller-brand svg { color:var(--pg-accent); flex:none; }
-  .pg-controller-brand h1 { margin:0; font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .pg-controller-brand strong { margin:0; font-size:15px; font-weight:600; letter-spacing:-.01em; }
   .pg-controller-brand small { font:10.5px/1.55 var(--pg-font-mono); color:var(--pg-label); border:1px solid var(--pg-control-line); border-radius:var(--pg-r4); padding:1px 5px; }
   .pg-controller-workspace { position:relative; box-sizing:border-box; display:flex; align-items:center; gap:10px; height:var(--pg-h36); min-width:min(100%, 230px); max-width:min(100%, 280px); padding:0 10px 0 12px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); background:var(--pg-control); }
   .pg-controller-workspace:not(:has(select:disabled)):hover { background:var(--pg-hover); border-color:#353D4A; }
@@ -2674,15 +2675,27 @@ var controllerPanelCss = `
   .pg-controller-resize:hover { background:var(--pg-hover); }
   .pg-controller-tasks { box-sizing:border-box; flex:none; min-width:0; display:flex; flex-direction:column; border-left:1px solid var(--pg-line); background:#0C0F13; }
   .pg-controller-task-head { display:flex; align-items:center; gap:10px; padding:14px var(--pg-s16) 10px; }
-  .pg-controller-tasks h2 { font-size:15px; font-weight:600; margin:0; }
-  .pg-controller-task-count { color:var(--pg-label); font:11px/1.5 var(--pg-font-mono); }
+  .pg-controller-tasks h2 { flex:none; font-size:15px; font-weight:600; margin:0; }
+  .pg-controller-tasks .pg-controller-task-intro { margin:0; padding:0 var(--pg-s16) var(--pg-s12); font-size:12px; }
+  .pg-controller-evidence-info { position:relative; flex:none; }
+  .pg-controller-evidence-info summary { display:flex; align-items:center; gap:4px; color:var(--pg-muted); cursor:pointer; border-radius:var(--pg-r4); padding:5px 3px; font-size:11px; }
+  .pg-controller-evidence-info summary:hover,.pg-controller-evidence-info[open] summary { color:var(--pg-text); }
+  .pg-controller-evidence-info summary::-webkit-details-marker { display:none; }
+  .pg-controller-evidence-info ul { position:absolute; right:0; top:100%; z-index:3; width:min(270px,calc(100vw - 48px)); box-sizing:border-box; margin:4px 0 0; padding:8px 10px; list-style:none; border:1px solid var(--pg-control-line); border-radius:var(--pg-r6); background:var(--pg-control); box-shadow:0 8px 24px #0008; }
+  .pg-controller-evidence-info li { display:grid; grid-template-columns:86px minmax(0,1fr); align-items:baseline; gap:5px; padding:4px 0; font-size:11px; color:var(--pg-muted); }
+  .pg-controller-evidence-info .pg-controller-evidence { color:var(--pg-text); }
+  .pg-controller-task-empty { margin:6px 4px var(--pg-s16); padding:var(--pg-s16); border:1px solid var(--pg-control-line); border-radius:var(--pg-r8); background:var(--pg-control); }
+  .pg-controller-task-empty h3 { margin:0; font-size:14px; font-weight:600; }
+  .pg-controller-task-empty ol { margin:var(--pg-s12) 0 var(--pg-s16); padding-inline-start:20px; color:var(--pg-muted); font-size:12px; line-height:1.55; }
+  .pg-controller-task-empty li + li { margin-top:7px; }
+  .pg-controller-task-empty .pg-button { min-height:30px; }
+  .pg-controller-task-count { min-width:0; overflow-wrap:anywhere; color:var(--pg-label); font:11px/1.5 var(--pg-font-mono); }
   .pg-button.pg-controller-refresh { margin-left:auto; display:grid; place-items:center; width:var(--pg-h30); min-height:var(--pg-h30); padding:0; border-color:#222833; border-radius:var(--pg-r6); color:var(--pg-muted); }
   .pg-controller-task-status { display:flex; align-items:center; flex-wrap:wrap; gap:var(--pg-s8); padding:0 var(--pg-s16) 10px; color:var(--pg-label); font:10.5px/1.5 var(--pg-font-mono); }
   .pg-controller-rule { flex:1; height:1px; background:#1A1F27; }
   .pg-controller-evidence { display:inline-flex; align-items:center; gap:var(--pg-s4); }
   .pg-controller-evidence::before { content:""; box-sizing:border-box; width:8px; height:8px; border:1px solid var(--pg-muted); }
   .pg-controller-evidence[data-evidence=host]::before { background:linear-gradient(135deg,var(--pg-muted) 50%,transparent 50%); }
-  .pg-controller-evidence[data-evidence=receipt]::before { background:var(--pg-text); border-color:var(--pg-text); }
   .pg-controller-evidence[data-evidence=none]::before { border:1px dashed var(--pg-label); }
   .pg-controller-task-content { overflow:auto; min-height:0; padding:0 10px 12px; scrollbar-width:thin; scrollbar-color:var(--pg-control-line) transparent; }
   .pg-controller-tasks p { color:var(--pg-muted); font-size:13px; line-height:1.5; }
@@ -2695,13 +2708,15 @@ var controllerPanelCss = `
   .pg-controller-group-label { display:grid; flex:1; min-width:0; font-size:12.5px; font-weight:600; line-height:1.3; }
   .pg-controller-group-label > span,.pg-controller-group-label > small { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .pg-controller-group-label > small { color:var(--pg-label); font:10.5px/1.3 var(--pg-font-mono); }
+  .pg-controller-group-label .pg-controller-group-overview { margin-top:3px; color:var(--pg-muted); }
   .pg-controller-maintenance .pg-controller-group-label { color:var(--pg-label); font-weight:400; }
   .pg-controller-group-rows { display:grid; gap:2px; padding:2px 0 6px 18px; }
-  .pg-controller-row { display:grid; gap:6px; width:100%; padding:10px 12px; border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-control); color:var(--pg-text); text-align:left; font:inherit; cursor:pointer; }
+  .pg-controller-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; width:100%; padding:10px 12px; border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-control); color:var(--pg-text); text-align:left; font:inherit; cursor:pointer; }
   .pg-controller-row:hover:not(:disabled) { background:var(--pg-hover); }
   .pg-controller-row:disabled { color:var(--pg-label); cursor:default; }
   .pg-controller-row strong { font-size:13.5px; line-height:1.35; font-weight:500; overflow-wrap:anywhere; }
-  .pg-controller-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; font-size:11.5px; color:var(--pg-muted); }
+  .pg-controller-row-arrow { grid-area:1 / 2 / 3 / 3; align-self:center; color:var(--pg-label); font-size:18px; line-height:1; }
+  .pg-controller-row-meta { grid-column:1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; font-size:11.5px; color:var(--pg-muted); }
   .pg-controller-row-meta .pg-badge { min-height:0; border:0; padding:0; font-size:inherit; }
   .pg-controller-row-meta .pg-badge::before { width:8px; height:8px; }
   .pg-controller-row-time { font:10.5px/1.4 var(--pg-font-mono); color:var(--pg-label); overflow-wrap:anywhere; }
@@ -2739,1308 +2754,14 @@ var controllerPanelCss = `
   }
 `;
 
-// src/client/controller/task-evidence.js
-function taskEvidence({ state, liveEnd, terminalText }) {
-  if (state === "running" || liveEnd) return "host";
-  return terminalText ? "report" : "none";
-}
-__name(taskEvidence, "taskEvidence");
-
-// src/client/controller/task-presentation.js
-function taskProvider(provider, language) {
-  if (provider === "codex") return "Codex";
-  if (provider === "dsh") return language === "en" ? "DSH subagent" : "DSH 子智能体";
-  return provider;
-}
-__name(taskProvider, "taskProvider");
-function challengeSubtitle({ id, baseUrl }, configuredBase) {
-  const taskPlatform = webRootOf(baseUrl);
-  const configuredPlatform = webRootOf(configuredBase);
-  return taskPlatform && configuredPlatform && taskPlatform !== configuredPlatform ? `${id} · ${taskPlatform}` : id;
-}
-__name(challengeSubtitle, "challengeSubtitle");
-function asDate(value) {
-  if (typeof value !== "string" && typeof value !== "number") return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date : null;
-}
-__name(asDate, "asDate");
-function calendarTime(value, language, now = Date.now()) {
-  const date = asDate(value);
-  if (!date) return null;
-  const today = new Date(now);
-  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  let label2 = time;
-  if (date.toDateString() !== today.toDateString()) {
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const prefix = language === "en" ? "Yesterday" : "昨天";
-    label2 = date.toDateString() === yesterday.toDateString() ? `${prefix} ${time}` : date.toLocaleDateString(language, { year: "numeric", month: "2-digit", day: "2-digit" });
-  }
-  return { dateTime: date.toISOString(), title: date.toLocaleString(language), label: label2 };
-}
-__name(calendarTime, "calendarTime");
-function taskRowTime(row, language, now = Date.now()) {
-  const stamp = calendarTime(row.createdAt, language, now);
-  if (!stamp) return null;
-  return { ...stamp, label: language === "en" ? `Created ${stamp.label}` : `创建于 ${stamp.label}` };
-}
-__name(taskRowTime, "taskRowTime");
-
-// src/client/controller/index.js
-function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
-  return h("svg", {
-    width: size,
-    height: size,
-    viewBox,
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.3,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    "aria-hidden": true
-  }, h("path", { d: path }));
-}
-__name(lineIcon, "lineIcon");
-function controllerBrand() {
-  return h(
-    "div",
-    { className: "pg-controller-brand" },
-    h(
-      "svg",
-      { width: 26, height: 26, viewBox: "0 0 26 26", fill: "none", "aria-hidden": true },
-      h("rect", { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: "currentColor", strokeWidth: 1.5 }),
-      h("path", { d: "M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" })
-    ),
-    h("h1", null, "Playground"),
-    h("small", null, "DSH")
-  );
-}
-__name(controllerBrand, "controllerBrand");
-function evidenceMark(evidence, label2, description) {
-  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description }, label2);
-}
-__name(evidenceMark, "evidenceMark");
-function groupHeading(title, count, subtitle) {
-  return h(
-    "summary",
-    { className: "pg-controller-group" },
-    lineIcon("M3.5 2 6.5 5l-3 3", 10, "0 0 10 10"),
-    h("span", { className: "pg-controller-group-label" }, h("span", null, title), subtitle ? h("small", null, subtitle) : null),
-    h("span", { className: "pg-controller-task-count", "aria-label": msg(`${count} 个任务`, `${count} tasks`) }, count)
-  );
-}
-__name(groupHeading, "groupHeading");
-function taskTime(stamp) {
-  return stamp ? h("time", { dateTime: stamp.dateTime, title: stamp.title }, stamp.label) : null;
-}
-__name(taskTime, "taskTime");
-var stopReasonLabels = /* @__PURE__ */ __name(() => ({
-  completed: { detail: msg("完成", "Completed") },
-  aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
-  "max-tokens": { detail: msg("达到输出上限", "Output limit reached"), state: msg("达到输出上限", "Output limit reached") },
-  refusal: { detail: msg("拒绝", "Refused"), state: msg("拒绝执行", "Task refused") },
-  error: { detail: msg("出错", "Error"), state: msg("运行出错", "Run failed") }
-}), "stopReasonLabels");
-function taskState(row) {
-  if (row.state === "running") return msg("运行中", "Running");
-  const reason = stopReasonLabels()[row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0)];
-  if (reason?.state) return `${row.state === "settled" ? msg("上次", "Previous run: ") : ""}${reason.state}`;
-  if (row.state === "settled") return msg("已收到历史结果", "Received a previous result");
-  if (row.state === "ended" && row.terminalText) return msg("本次运行已结束 · 已收到结果", "Run ended · Result received");
-  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("状态未知", "Status unknown") }[row.state];
-}
-__name(taskState, "taskState");
-function taskTone(row) {
-  if (row.state === "running") return "running";
-  const reason = row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0);
-  if (stopReasonLabels()[reason]?.state) return "error";
-  if (row.terminalText || row.state === "ended") return "result";
-  return "unknown";
-}
-__name(taskTone, "taskTone");
-function controllerHeader(sessionId, viewSwitch) {
-  return h(
-    "div",
-    { className: "pg-controller-chat-head" },
-    h("h2", null, msg("工作区主控", "Workspace controller")),
-    sessionId ? h("span", { className: "pg-badge", "data-tone": "open" }, msg("已初始化", "Initialized")) : null,
-    sessionId ? h(
-      "span",
-      { className: "pg-controller-session", title: sessionId },
-      sessionId.length > 18 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId
-    ) : null,
-    viewSwitch
-  );
-}
-__name(controllerHeader, "controllerHeader");
-function taskOutput(row) {
-  if (row.state === "running") return "";
-  const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-  if (live) return live;
-  const text = row.terminalText || "";
-  const [summary, marker, ...rest] = text.split("\n");
-  const prefix = `Background subagent ${row.childId} `;
-  const endings = ["finished and will do no further work unless you send it more.", "finished. It cannot receive follow-up messages.", "was stopped before it finished.", "ran out of room before it finished.", "declined the task.", "failed before it finished."];
-  return marker === "Its closing message:" && endings.some((ending) => summary === prefix + ending) ? rest.join("\n") : text;
-}
-__name(taskOutput, "taskOutput");
-var TRAJECTORY_VIEW_ID = "trajectory";
-var controllerViews = [["chat", () => msg("对话", "Chat")], [TRAJECTORY_VIEW_ID, () => msg("轨迹", "Trajectory")]].map(([id, label2]) => ({
-  id,
-  label: label2,
-  slots: { views: /* @__PURE__ */ __name(({ renderSlot }) => renderSlot("conversation.session", { view: id }), "views") }
-}));
-var [chatView, trajectoryView] = controllerViews;
-function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderSlot, expectedId, onPromote, busy }) {
-  usePluginLanguage();
-  const session = useSession((value) => value);
-  const conversation = useConversation((value) => value);
-  const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
-  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
-  if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在打开所选主控对话…", "Opening the selected controller chat…"));
-  if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, msg("无法加载主控对话，请重新打开。", "Could not load the controller chat. Reopen it to try again."));
-  if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在加载主控对话…", "Loading controller chat…"));
-  const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running ? "active" : session.promptAttempted ? "engaging" : "blank";
-  const settling = shellPhase === "blank" && session.openState === "loading" && blank !== true || session.subagent?.address.mode === "continuable" && session.subagent.parentAvailable === void 0;
-  const hero = shellPhase === "blank" && (session.openState === "open" || blank === true);
-  return renderSlot("playground.controller.content", {
-    phase: settling ? "settling" : hero ? "hero" : "active",
-    hero,
-    canSwitchView: shellPhase === "active" && !settling
-  });
-}
-__name(ControllerSession, "ControllerSession");
-function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
-  usePluginLanguage();
-  const trajectoryAvailable = useControllerTrajectory((value) => value);
-  const viewRequest = useStore?.((value) => value.viewRequest);
-  const [traceSessionId, setTraceSessionId] = React7.useState(null);
-  const showViewSwitch = trajectoryAvailable && canSwitchView;
-  React7.useEffect(() => {
-    if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
-  }, [sessionId, showViewSwitch, viewRequest]);
-  const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
-  return h(
-    React7.Fragment,
-    null,
-    controllerHeader(sessionId, showViewSwitch ? h(
-      "div",
-      { className: "pg-controller-view-switch", role: "group", "aria-label": msg("主控视图", "Controller view") },
-      controllerViews.map((item) => h("button", {
-        key: item.id,
-        className: "pg-button",
-        type: "button",
-        "aria-pressed": view === item,
-        onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
-      }, item.label()))
-    ) : null),
-    renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
-  );
-}
-__name(ControllerSessionContent, "ControllerSessionContent");
-function ControllerPanel(props) {
-  const language = usePluginLanguage();
-  const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
-  const workspaces = useWorkspaces((value) => value);
-  const sessions = useSessions((value) => value);
-  const controllerTarget = useControllerTarget((value) => value);
-  const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
-  const selectedMarker = selectedSession?.projectionValues?.playgroundController;
-  const [workspaceId, setWorkspaceId] = React7.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
-  const [inspection, setInspection] = React7.useState(null);
-  const [expectedId, setExpectedId] = React7.useState("");
-  const [busy, setBusy] = React7.useState(false);
-  const [errorMessage, setError] = React7.useState("");
-  const [view, setView] = React7.useState("controller");
-  const [releaseVisit, setReleaseVisit] = React7.useState(0);
-  const error = controllerMessage(errorMessage);
-  const [dispatchState, setDispatchState] = React7.useState(null);
-  const [catalogNotice, setCatalogNotice] = React7.useState(null);
-  const selectTab = /* @__PURE__ */ __name((tab) => {
-    if (tab === "catalog" && view !== "catalog") setCatalogNotice(null);
-    setView(tab);
-  }, "selectTab");
-  const [dispatchControls] = React7.useState(() => ({ busy: false }));
-  const [authStatus, setAuthStatus] = React7.useState("checking");
-  const [accountName, setAccountName] = React7.useState("");
-  const [accountId, setAccountId] = React7.useState(void 0);
-  const [configuredBase, setConfiguredBase] = React7.useState("");
-  const [updateAuthStatus] = React7.useState(() => (status, user, baseUrl) => {
-    setAuthStatus(status);
-    if (status === "checking") return;
-    setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
-    setAccountId(status === "authenticated" ? user?.id : void 0);
-    setConfiguredBase(baseUrl || "");
-  });
-  const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
-  if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
-  const [preferences] = React7.useState(() => {
-    try {
-      return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const [showTasks, setShowTasks] = React7.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
-  const [taskWidth, setTaskWidth] = React7.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
-  const [selectedTask, setSelectedTask] = React7.useState("");
-  const [groupOpen, setGroupOpen] = React7.useState(() => /* @__PURE__ */ new Map());
-  const [taskActionStatus, setTaskActionStatus] = React7.useState("");
-  const [pane] = React7.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
-  const savePane = /* @__PURE__ */ __name((change) => {
-    Object.assign(preferences, change);
-    try {
-      window.localStorage?.setItem("playground.controller.pane", JSON.stringify(preferences));
-    } catch {
-    }
-  }, "savePane");
-  const resize = /* @__PURE__ */ __name((width) => {
-    const next = Math.min(520, Math.max(300, width));
-    props.controllerSelection.taskWidth = next;
-    savePane({ width: next });
-    setTaskWidth(next);
-  }, "resize");
-  const toggleTasks = /* @__PURE__ */ __name(() => {
-    if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = "heading";
-    props.controllerSelection.showTasks = !showTasks;
-    savePane({ open: !showTasks });
-    setShowTasks(!showTasks);
-  }, "toggleTasks");
-  React7.useEffect(() => {
-    if (pane.focus === "heading") pane.heading?.focus();
-    else if (pane.focus === "back") pane.back?.focus();
-    else if (pane.focus) pane.rows.get(pane.focus)?.focus();
-    pane.focus = "";
-  }, [selectedTask, showTasks]);
-  const [taskSnapshot, setTaskSnapshot] = React7.useState(null);
-  const [includeChallengeId, setIncludeChallengeId] = React7.useState("");
-  const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
-  const [retry, setRetry] = React7.useState(0);
-  const [taskRetry, setTaskRetry] = React7.useState(0);
-  const selectWorkspace = /* @__PURE__ */ __name((id) => {
-    if (id === workspaceId) return;
-    props.controllerSelection.workspaceId = id;
-    props.controllerSelection.sessionId = "";
-    setExpectedId("");
-    setInspection(null);
-    setError("");
-    setSelectedTask("");
-    setTaskSnapshot(null);
-    setIncludeChallengeId("");
-    setGroupOpen(/* @__PURE__ */ new Map());
-    setWorkspaceId(id);
-  }, "selectWorkspace");
-  const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
-  React7.useEffect(() => {
-    if (!targetWorkspaceId) return;
-    setView("controller");
-    if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
-    else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
-    props.clearControllerTarget(controllerTarget);
-  }, [controllerTarget, targetWorkspaceId]);
-  React7.useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 600px)");
-    if (!media) return;
-    const changed = /* @__PURE__ */ __name((event) => {
-      if (event.matches) setShowTasks(false);
-      else setShowTasks(props.controllerSelection.showTasks ?? true);
-    }, "changed");
-    media.addEventListener("change", changed);
-    return () => media.removeEventListener("change", changed);
-  }, []);
-  React7.useEffect(() => {
-    if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
-      props.controllerSelection.workspaceId = selectedMarker.workspaceId;
-      setWorkspaceId(selectedMarker.workspaceId);
-    }
-  }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
-  React7.useEffect(() => {
-    setExpectedId("");
-    setInspection(null);
-    setError("");
-    if (!workspaceId) return;
-    const abort = new AbortController();
-    inspectController({ workspaceId }, abort.signal).then((value) => {
-      if (abort.signal.aborted) return;
-      setInspection(value);
-      if (value.kind === "existing" && !value.archived) {
-        props.controllerSelection.sessionId = value.sessionId;
-        setExpectedId(value.sessionId);
-        Promise.resolve(openControllerChat(value.sessionId)).catch(() => {
-          if (!abort.signal.aborted) {
-            setExpectedId("");
-            setError("无法打开主控对话，请重试。");
-          }
-        });
-      }
-    }).catch((failure) => {
-      if (!abort.signal.aborted) setError(failure.message);
-    });
-    return () => abort.abort();
-  }, [workspaceId, retry]);
-  React7.useEffect(() => {
-    setTaskSnapshot(null);
-  }, [workspaceId, expectedId]);
-  React7.useEffect(() => {
-    if (!workspaceId || !expectedId || !controllerTasks) return;
-    const abort = new AbortController();
-    let inFlight = false;
-    const refresh = /* @__PURE__ */ __name(() => {
-      if (inFlight) return;
-      inFlight = true;
-      void controllerTasks({ workspaceId, sessionId: expectedId, ...includeChallengeId && { includeChallengeId } }, abort.signal).then((value) => {
-        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value, updatedAt: Date.now() });
-      }).catch(() => {
-        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: "unavailable" } });
-      }).finally(() => {
-        inFlight = false;
-      });
-    }, "refresh");
-    void refresh();
-    const timer = setInterval(refresh, 4e3);
-    return () => {
-      abort.abort();
-      clearInterval(timer);
-    };
-  }, [workspaceId, expectedId, controllerTasks, taskRetry, includeChallengeId]);
-  const selectController = /* @__PURE__ */ __name((sessionId) => {
-    setInspection({ kind: "existing", sessionId, archived: false });
-    props.controllerSelection.sessionId = sessionId;
-    setExpectedId(sessionId);
-  }, "selectController");
-  const open = /* @__PURE__ */ __name(async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await openController({ workspaceId, createIfMissing: true });
-      if (result.kind !== "opened") setError(result.reason);
-      else {
-        selectController(result.sessionId);
-        await openControllerChat(result.sessionId);
-      }
-    } catch (failure) {
-      setError(failure.message);
-    } finally {
-      setBusy(false);
-    }
-  }, "open");
-  const selectedWorkspace = workspaces.phase === "ready" && workspaces.items.find((item) => item.workspaceId === workspaceId);
-  const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? void 0 : selectedWorkspace;
-  const selectedController = selectedWorkspace && inspection?.kind === "existing" && !inspection.archived ? inspection.sessionId : "";
-  const canInitialize = selectedWorkspace && (inspection?.kind === "absent" || inspection?.kind === "incomplete");
-  const needsRecheck = dispatchState?.phase === "error" && dispatchState.workspaceId === workspaceId && (["controller_changed", "controller_missing", "controller_init_required", "controller_archived", "workspace_mismatch"].includes(dispatchState.code) || dispatchState.coordination && ["controller_init_failed", "controller_attach_failed", "controller_open_failed"].includes(dispatchState.code) || dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
-  const recheckHandoff = /* @__PURE__ */ __name(() => {
-    setDispatchState({
-      phase: "guide",
-      challenge: dispatchState.challenge,
-      context: dispatchState.context,
-      showDialog: true,
-      ...dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }
-    });
-    setRetry(retry + 1);
-  }, "recheckHandoff");
-  const openAfterDispatch = /* @__PURE__ */ __name(async (state) => {
-    try {
-      await openControllerChat(state.sessionId);
-      selectController(state.sessionId);
-      if (state.linked) {
-        const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => void 0);
-        if (value?.kind !== "ready" || value.missingLinkedChildren || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
-          setDispatchState({ ...state, phase: "error", code: "linked_task_unavailable" });
-          return;
-        }
-        setIncludeChallengeId(state.challenge.id);
-        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value, updatedAt: Date.now() });
-        setShowTasks(true);
-        setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
-        setGroupOpen(/* @__PURE__ */ new Map());
-      }
-      const notice = state.coordination?.notice;
-      if (notice && state.noticeKey === notice.key) notice.acknowledge();
-      setDispatchState(null);
-      setView("controller");
-    } catch {
-      setDispatchState({ ...state, phase: "accepted" });
-    }
-  }, "openAfterDispatch");
-  const retryOpenAfterDispatch = /* @__PURE__ */ __name(async (state) => {
-    if (dispatchControls.busy) return;
-    dispatchControls.busy = true;
-    setDispatchState({ ...state, phase: "opening" });
-    try {
-      await openAfterDispatch(state);
-    } finally {
-      dispatchControls.busy = false;
-    }
-  }, "retryOpenAfterDispatch");
-  const sendChallenge = /* @__PURE__ */ __name(async (state, target, initialize = false) => {
-    if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
-    dispatchControls.busy = true;
-    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: initialize && state.coordination ? "initializing" : "sending" };
-    setDispatchState(attempt);
-    try {
-      if (initialize) {
-        const opened = await openController({
-          workspaceId: target.workspaceId,
-          createIfMissing: true,
-          ...state.coordination && { expectedSessionId: target.sessionId || null }
-        });
-        if (opened.kind !== "opened") {
-          setDispatchState({ ...attempt, phase: "error", code: opened.code, message: opened.reason });
-          return;
-        }
-        attempt = { ...attempt, sessionId: opened.sessionId };
-        if (state.coordination) {
-          try {
-            await openControllerChat(opened.sessionId);
-          } catch {
-            setExpectedId("");
-            setInspection(null);
-            setError("无法打开主控对话，请重试。");
-            setDispatchState({ ...attempt, phase: "error", code: "controller_open_failed", message: "无法打开主控对话，请重试。" });
-            return;
-          }
-          selectController(opened.sessionId);
-          setDispatchState({ ...attempt, phase: "guide" });
-          return;
-        }
-        setInspection({ kind: "existing", sessionId: opened.sessionId, archived: false });
-      }
-      const notice = state.coordination?.notice;
-      const result = await dispatchChallenge({
-        workspaceId: attempt.workspaceId,
-        sessionId: attempt.sessionId,
-        challengeId: attempt.challenge.id,
-        requestId: attempt.requestId,
-        ...notice && { notice: { scope: notice.scope, key: notice.key } }
-      });
-      if ((result.kind === "accepted" || result.kind === "linked") && result.sessionId === attempt.sessionId) {
-        await openAfterDispatch({ ...attempt, linked: result.kind === "linked", childIds: result.childIds, noticeKey: result.noticeKey });
-      } else {
-        setDispatchState({ ...attempt, phase: "error", code: result.code, message: result.reason || "DSH 未确认接收请求，请重试。" });
-      }
-    } catch (failure) {
-      setDispatchState({ ...attempt, phase: "error", message: failure.message || "无法交给主控，请重试。" });
-    } finally {
-      dispatchControls.busy = false;
-    }
-  }, "sendChallenge");
-  const startHandoff = /* @__PURE__ */ __name((challenge, coordination, context) => {
-    if (busy || dispatchControls.busy) return;
-    if (coordination) {
-      setDispatchState({ phase: "guide", challenge, context, coordination, workspaceId: "", showDialog: true });
-      return;
-    }
-    if (dispatchState?.phase === "accepted" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
-    const retry2 = dispatchState?.phase === "error" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
-    if (!retry2) setDispatchState({ phase: "guide", challenge, context, showDialog: true });
-  }, "startHandoff");
-  const coordinate = /* @__PURE__ */ __name((target, notice) => {
-    if (target.kind === "challenge") return startHandoff(
-      { id: target.challengeId, title: target.title },
-      { notice },
-      { competition: msg(notice.titleZh || notice.title, notice.title || notice.titleZh), webBase: notice.scope }
-    );
-    setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
-    setView("catalog");
-  }, "coordinate");
-  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice, context) => startHandoff(challenge, catalogNotice ? { notice } : void 0, context), "start"), catalogNotice };
-  const selectHandoffWorkspace = /* @__PURE__ */ __name((id) => {
-    if (workspaceId !== id || dispatchState.coordination && dispatchState.workspaceId !== id) {
-      setDispatchState({
-        phase: "guide",
-        challenge: dispatchState.challenge,
-        context: dispatchState.context,
-        coordination: dispatchState.coordination,
-        workspaceId: id,
-        showDialog: true
-      });
-    }
-    selectWorkspace(id);
-  }, "selectHandoffWorkspace");
-  const handoffBusy = ["sending", "initializing", "opening"].includes(dispatchState?.phase);
-  const showHandoffDialog = dispatchState && (dispatchState.phase !== "sending" || dispatchState.showDialog);
-  let handoffMessage;
-  let handoffAction;
-  if (showHandoffDialog) {
-    if (handoffBusy) {
-      handoffMessage = dispatchState.phase === "initializing" ? msg("正在初始化主控对话…", "Setting up controller chat…") : dispatchState.phase === "sending" ? msg("正在交给主控…", "Handing off to the controller…") : msg("正在打开主控对话…", "Opening controller chat…");
-    } else if (dispatchState.phase === "accepted") {
-      handoffMessage = dispatchState.linked ? msg("此题已有主控任务，暂时无法打开对话。", "This challenge already has controller work. Its chat could not be opened.") : msg("主控已接收请求，无法打开对话。", "The controller received the request, but its chat could not be opened.");
-      if (dispatchState.workspaceId === workspaceId) handoffAction = { label: msg("打开主控对话", "Open controller chat"), run: /* @__PURE__ */ __name(() => retryOpenAfterDispatch(dispatchState), "run") };
-    } else if (!handoffWorkspace) {
-      handoffMessage = workspaces.state === "error" ? msg("无法读取 DSH 工作区，请重启 DSH 后重试。", "Could not load DSH workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取 DSH 工作区…", "Loading DSH workspaces…") : workspaces.items.length ? msg("请选择赛题工作所在的工作区。", "Choose the workspace for this challenge.") : msg("还没有工作区。请选择一个目录添加为工作区。", "No workspaces yet. Choose a folder to add one.");
-    } else if (inspection?.kind === "blocked" || inspection?.archived) {
-      handoffMessage = controllerMessage(inspection.reason) || msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.");
-      handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
-    } else if (dispatchState.code === "platform_changed") {
-      handoffMessage = controllerMessage(dispatchState.message);
-    } else if (dispatchState.code === "linked_task_unavailable") {
-      handoffMessage = msg("无法打开已关联的子任务，请在主控对话中核对已有工作。", "The linked child task could not be opened. Check the existing work in the controller chat.");
-    } else if (dispatchState.code === "controller_history_unavailable") {
-      handoffMessage = msg("无法核对完整派工历史，请在主控对话中检查已有工作。", "The full assignment history could not be verified. Check existing work in the controller chat.");
-    } else if (needsRecheck) {
-      handoffMessage = controllerMessage(dispatchState.message);
-      handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
-    } else if (selectedController || canInitialize) {
-      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge, context: dispatchState.context } : dispatchState;
-      const sessionId = state.sessionId || selectedController || state.coordination && inspection.sessionId;
-      const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
-        label: selectedController ? msg("确认交给主控", "Confirm handoff") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
-        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : msg(
-          `工作区「${handoffWorkspace.title || workspaceId}」的主控 ${selectedController} 将协调此题。交接后可在主控对话中查看派发进度。`,
-          `Controller ${selectedController} in workspace “${handoffWorkspace.title || workspaceId}” will coordinate this challenge. Follow its progress in the controller chat.`
-        )
-      };
-      handoffMessage = dispatchState.phase === "error" && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
-      handoffAction = { label: copy.label, run: /* @__PURE__ */ __name(() => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController), "run") };
-    } else {
-      handoffMessage = error || msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…");
-      if (error) handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
-    }
-  }
-  const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
-  const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : "";
-  const [handoffTasks, setHandoffTasks] = React7.useState(null);
-  React7.useEffect(() => {
-    setHandoffTasks(null);
-    if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
-    const abort = new AbortController();
-    void controllerTasks({ workspaceId, sessionId: selectedController, includeChallengeId: handoffChallengeId }, abort.signal).then((snapshot2) => {
-      if (abort.signal.aborted || snapshot2?.kind !== "ready") return;
-      const count = snapshot2.rows?.filter(({ challenge }) => challenge?.id === handoffChallengeId && webRootOf(challenge.baseUrl) === handoffBase).length;
-      setHandoffTasks({ workspaceId, sessionId: selectedController, challengeId: handoffChallengeId, base: handoffBase, retry, count });
-    }).catch(() => {
-    });
-    return () => abort.abort();
-  }, [workspaceId, selectedController, handoffChallengeId, handoffBase, retry, controllerTasks]);
-  const handoffTaskCount = handoffTasks?.workspaceId === workspaceId && handoffTasks.sessionId === selectedController && handoffTasks.challengeId === handoffChallengeId && handoffTasks.base === handoffBase && handoffTasks.retry === retry ? handoffTasks.count : void 0;
-  const row = tasks?.rows?.find((item) => item.childId === selectedTask);
-  const challengeGroups = /* @__PURE__ */ new Map();
-  const unassociated = [];
-  const maintenance = [];
-  for (const item of tasks?.rows || []) {
-    if (item.category === "maintenance") {
-      maintenance.push(item);
-      continue;
-    }
-    const challenge = item.challenge;
-    if (!challenge) {
-      unassociated.push(item);
-      continue;
-    }
-    const groupKey = JSON.stringify([challenge.baseUrl, challenge.id]);
-    if (!challengeGroups.has(groupKey)) challengeGroups.set(groupKey, { challenge, rows: [] });
-    challengeGroups.get(groupKey).rows.push(item);
-  }
-  const taskCount = (tasks?.rows?.length ?? 0) - maintenance.length;
-  const childAddress = expectedId && (row?.mode === "continuable" || row?.mode === "one-shot") ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
-  const evidenceLabels = {
-    host: msg("宿主记录", "Host record"),
-    report: msg("Agent 报告", "Agent report"),
-    none: msg("无运行记录", "No run record")
-  };
-  const stateBadge = /* @__PURE__ */ __name((item, compact = false) => {
-    const label2 = taskState(item) || msg("状态未知", "Status unknown");
-    const tone = taskTone(item);
-    const showResult = compact && tone === "result" && item.state === "ended" && item.terminalText;
-    return h(
-      "span",
-      { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
-      showResult ? msg("已收到结果", "Result received") : label2
-    );
-  }, "stateBadge");
-  const listRow = /* @__PURE__ */ __name((item) => {
-    const evidence = taskEvidence(item);
-    const time = taskTime(taskRowTime(item, language));
-    const provider = taskProvider(item.provider, language);
-    return h(
-      "button",
-      {
-        type: "button",
-        key: item.childId,
-        className: "pg-controller-row",
-        ref: /* @__PURE__ */ __name((node) => {
-          if (node) pane.rows.set(item.childId, node);
-          else pane.rows.delete(item.childId);
-        }, "ref"),
-        onClick: /* @__PURE__ */ __name(() => {
-          pane.focus = "back";
-          setTaskActionStatus("");
-          setSelectedTask(item.childId);
-        }, "onClick")
-      },
-      h("strong", null, item.label || msg("未命名任务", "Untitled task")),
-      h(
-        "span",
-        { className: "pg-controller-row-meta" },
-        stateBadge(item, true),
-        evidenceMark(evidence, evidenceLabels[evidence]),
-        provider || time ? h(
-          "span",
-          { className: "pg-controller-row-time" },
-          provider,
-          provider && time ? " · " : null,
-          time
-        ) : null
-      )
-    );
-  }, "listRow");
-  const detailEvidence = row && taskEvidence(row);
-  const detailProvider = row && taskProvider(row.provider, language);
-  const detailTime = row && taskTime(taskRowTime(row, language));
-  const output = row && taskOutput(row);
-  const taskGroup = /* @__PURE__ */ __name((key2, rows, title, subtitle, initiallyOpen = false, className = "pg-controller-challenge") => {
-    const open2 = groupOpen.get(key2) ?? initiallyOpen;
-    return h(
-      "details",
-      {
-        key: key2,
-        className,
-        open: open2,
-        onToggle: /* @__PURE__ */ __name((event) => {
-          const expanded = event.currentTarget.open;
-          if (expanded !== open2) setGroupOpen((groups) => new Map(groups).set(key2, expanded));
-        }, "onToggle")
-      },
-      groupHeading(title, rows.length, subtitle),
-      h("div", { className: "pg-controller-group-rows" }, rows.map(listRow))
-    );
-  }, "taskGroup");
-  return h(
-    "div",
-    { className: "pg-controller" },
-    h("style", null, css + controllerPanelCss + codexCss),
-    view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
-    h(
-      "header",
-      { className: "pg-controller-bar" },
-      controllerBrand(),
-      h(
-        "div",
-        { className: "pg-controller-workspace" },
-        lineIcon("M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z"),
-        h(
-          "span",
-          { className: "pg-controller-workspace-text" },
-          h("span", { "aria-hidden": true }, selectedWorkspace ? selectedWorkspace.title || msg("未命名工作区", "Untitled workspace") : msg("选择工作区", "Select workspace")),
-          selectedWorkspace?.path ? h("small", { id: "pg-controller-workspace-path", title: selectedWorkspace.path }, selectedWorkspace.path) : null
-        ),
-        lineIcon("M3 4.5 6 7.5l3-3", 12, "0 0 12 12"),
-        h(
-          "select",
-          {
-            "aria-label": msg("工作区", "Workspace"),
-            "aria-describedby": selectedWorkspace?.path ? "pg-controller-workspace-path" : void 0,
-            value: workspaceId,
-            disabled: busy || handoffBusy,
-            onChange: /* @__PURE__ */ __name(async (event) => {
-              if (dispatchControls.busy) return;
-              if (event.target.value === "__add_workspace__") {
-                setBusy(true);
-                setError("");
-                try {
-                  await props.addTaskWorkspace();
-                } catch {
-                  setError("无法添加工作区，请重试。");
-                } finally {
-                  setBusy(false);
-                }
-                return;
-              }
-              selectWorkspace(event.target.value);
-            }, "onChange")
-          },
-          h("option", { value: "" }, msg("选择工作区", "Select workspace")),
-          workspaceOptions(workspaces.items),
-          h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))
-        )
-      ),
-      h(
-        "nav",
-        { className: "pg-controller-tabs", role: "tablist", "aria-label": msg("Playground 导航", "Playground navigation"), onKeyDown: /* @__PURE__ */ __name((event) => {
-          const ids = ["controller", "catalog", "submissions"];
-          const index = Math.max(0, ids.indexOf(view));
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const next = event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : 2)) % 3;
-          selectTab(ids[next]);
-          event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
-        }, "onKeyDown") },
-        [["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
-      ),
-      h(
-        "div",
-        { className: "pg-controller-account" },
-        h(ReleaseIndicator, { checks: props.releaseChecks, active: view === "controller", open: /* @__PURE__ */ __name(() => {
-          setReleaseVisit(releaseVisit + 1);
-          setView("settings");
-        }, "open") }),
-        h(LanguageMenu),
-        h(
-          "button",
-          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
-          accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
-          h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
-          { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
-        ),
-        view === "controller" ? h(
-          "button",
-          { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
-            pane.toggle = node;
-          }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
-          h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
-        ) : null
-      )
-    ),
-    h(
-      "div",
-      { className: "pg-controller-body", ref: /* @__PURE__ */ __name((node) => {
-        pane.body = node;
-      }, "ref") },
-      h(
-        "main",
-        { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
-        !expectedId ? controllerHeader() : null,
-        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
-          "div",
-          { className: "pg-controller-placeholder" },
-          h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
-          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-button pg-primary", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
-          h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
-          renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
-            setBusy(true);
-            setError("");
-            try {
-              const result = await promoteController({ workspaceId, sessionId });
-              if (result.kind === "opened") {
-                selectController(result.sessionId);
-                await openControllerChat(result.sessionId);
-              } else setError(result.reason);
-            } catch (failure) {
-              setError(failure.message);
-            } finally {
-              setBusy(false);
-            }
-          }, "onPromote") }),
-          error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null
-        ) : renderSlot("playground.controller.session", { expectedId })
-      ),
-      h(
-        "main",
-        { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
-        h("style", null, css),
-        h("h1", null, msg("连接设置", "Connection settings")),
-        h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
-        view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
-        visited.has("settings") ? h(ReleaseStatusPanel, {
-          query: props.query,
-          checks: props.releaseChecks,
-          installRelease: props.installRelease,
-          visit: releaseVisit
-        }) : null
-      ),
-      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
-      view === "controller" && showTasks ? h(
-        React7.Fragment,
-        null,
-        h("div", {
-          className: "pg-controller-resize",
-          role: "separator",
-          tabIndex: 0,
-          "aria-label": msg("调整任务侧栏宽度", "Resize task sidebar"),
-          "aria-orientation": "vertical",
-          "aria-valuemin": 300,
-          "aria-valuemax": 520,
-          "aria-valuenow": taskWidth,
-          onKeyDown: /* @__PURE__ */ __name((event) => {
-            const next = { ArrowLeft: taskWidth + 10, ArrowRight: taskWidth - 10, Home: 300, End: 520 }[event.key];
-            if (next !== void 0) {
-              event.preventDefault();
-              resize(next);
-            }
-          }, "onKeyDown"),
-          onPointerDown: /* @__PURE__ */ __name((event) => {
-            pane.drag = { x: event.clientX, width: taskWidth };
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }, "onPointerDown"),
-          onPointerMove: /* @__PURE__ */ __name((event) => {
-            if (pane.drag) resize(pane.drag.width + pane.drag.x - event.clientX);
-          }, "onPointerMove"),
-          onPointerUp: /* @__PURE__ */ __name(() => {
-            pane.drag = null;
-          }, "onPointerUp"),
-          onPointerCancel: /* @__PURE__ */ __name(() => {
-            pane.drag = null;
-          }, "onPointerCancel")
-        }),
-        h(
-          "aside",
-          { id: "pg-controller-tasks", className: "pg-controller-tasks", "aria-label": msg("主控任务", "Controller tasks"), style: { width: taskWidth }, onKeyDown: /* @__PURE__ */ __name((event) => {
-            if (event.key === "Escape" && pane.body?.clientWidth <= 720) {
-              toggleTasks();
-              pane.toggle?.focus();
-            }
-          }, "onKeyDown") },
-          h(
-            "header",
-            { className: "pg-controller-task-head" },
-            h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
-              pane.heading = node;
-            }, "ref") }, msg("主控任务", "Controller tasks")),
-            tasks?.kind === "ready" ? h(
-              "span",
-              { className: "pg-controller-task-count" },
-              msg(`${taskCount} 个 · ${challengeGroups.size} 道赛题`, `${taskCount} tasks · ${challengeGroups.size} challenges`)
-            ) : null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: "pg-button pg-controller-refresh",
-                disabled: !expectedId,
-                "aria-label": msg("刷新任务", "Refresh tasks"),
-                onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick")
-              },
-              lineIcon("M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75", 14)
-            )
-          ),
-          h(
-            "div",
-            { className: "pg-controller-task-status" },
-            tasks?.kind === "ready" ? h("span", null, msg("状态更新于 ", "Updated "), taskTime(calendarTime(taskSnapshot.updatedAt, language))) : null,
-            h("span", { className: "pg-controller-rule", "aria-hidden": true }),
-            evidenceMark("report", msg("报告", "Report"), evidenceLabels.report),
-            evidenceMark("host", msg("记录", "Record"), evidenceLabels.host),
-            evidenceMark("receipt", msg("回执", "Receipt"), msg("平台回执", "Platform receipt"))
-          ),
-          h(
-            "div",
-            { className: "pg-controller-task-content" },
-            !expectedId ? h("p", null, msg("打开主控后查看其派发的任务。", "Open the controller to see the tasks it dispatched.")) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
-              "div",
-              { className: "pg-controller-detail" },
-              h("button", { className: "pg-button pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
-                pane.back = node;
-              }, "ref"), onClick: /* @__PURE__ */ __name(() => {
-                pane.focus = row.childId;
-                setSelectedTask("");
-              }, "onClick") }, msg("返回任务", "Back to tasks")),
-              h(
-                "div",
-                { className: "pg-controller-detail-title" },
-                h("p", { className: "pg-controller-detail-context" }, row.challenge ? [
-                  msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
-                  challengeSubtitle(row.challenge, configuredBase)
-                ].filter(Boolean).join(" · ") : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
-                h("h3", null, row.label || msg("未命名任务", "Untitled task")),
-                h(
-                  "div",
-                  { className: "pg-controller-detail-meta" },
-                  stateBadge(row),
-                  evidenceMark(detailEvidence, evidenceLabels[detailEvidence]),
-                  detailProvider ? h("span", { className: "pg-controller-detail-provider" }, detailProvider) : null,
-                  detailTime
-                )
-              ),
-              childAddress ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
-                setTaskActionStatus("");
-                try {
-                  await openTask(childAddress);
-                } catch {
-                  setTaskActionStatus("无法打开子智能体对话，请重试。");
-                }
-              }, "onClick") }, msg("打开子智能体对话", "Open subagent chat")) : null,
-              row.state === "unknown" ? h("p", null, msg("未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。", "No result notification or current run record is available. This can happen after a restart even if the task succeeded.")) : null,
-              row.liveEnd ? h("p", null, msg(`${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
-              row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
-              row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
-              output ? h(
-                "section",
-                { className: "pg-controller-result" },
-                h("h4", null, msg("返回结果", "Result")),
-                h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: output, running: false }, { fallback: h("pre", null, output) }) : h("pre", null, output)),
-                h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
-                  try {
-                    await navigator.clipboard.writeText(output);
-                    setTaskActionStatus("已复制结果");
-                  } catch {
-                    setTaskActionStatus("无法复制，请选择文本后复制。");
-                  }
-                }, "onClick") }, msg("复制结果", "Copy result"))
-              ) : null,
-              taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
-              row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
-            ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
-              React7.Fragment,
-              null,
-              [...challengeGroups].map(([key2, group]) => taskGroup(
-                key2,
-                group.rows,
-                msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
-                challengeSubtitle(group.challenge, configuredBase),
-                true
-              )),
-              unassociated.length ? taskGroup(
-                "unassociated",
-                unassociated,
-                msg("未关联赛题", "No linked challenge"),
-                msg("缺少明确的赛题关联", "No confirmed challenge link")
-              ) : null,
-              maintenance.length ? taskGroup("maintenance", maintenance, msg("后台维护", "Background maintenance"), null, false, "pg-controller-maintenance") : null
-            ),
-            expectedId && props.codexChats ? h(ExternalCodexChats, {
-              key: `${workspaceId}:${expectedId}`,
-              workspaceId,
-              sessionId: expectedId,
-              query: props.codexChats,
-              refresh: taskRetry
-            }) : null
-          )
-        )
-      ) : null
-    ),
-    showHandoffDialog ? h(ControllerHandoffDialog, {
-      state: dispatchState,
-      workspaces,
-      workspace: handoffWorkspace,
-      busy: handoffBusy,
-      inspection: handoffWorkspace ? inspection : null,
-      inspectionFailed: Boolean(error),
-      inspectController,
-      query: props.query,
-      checkAttempt: retry,
-      taskCount: handoffTaskCount,
-      selectWorkspace: selectHandoffWorkspace,
-      addTaskWorkspace: props.addTaskWorkspace,
-      message: handoffMessage,
-      action: handoffAction,
-      close: /* @__PURE__ */ __name(() => {
-        if (!dispatchControls.busy) setDispatchState(null);
-      }, "close")
-    }) : null
-  );
-}
-__name(ControllerPanel, "ControllerPanel");
-
-// src/client/workbench.js
-var React15 = __toESM(require("react"), 1);
-
-// lib/task/evidence.js
-var NO_OFFSET_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
-function parsePlatformTime(value) {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === "number") return value;
-  if (typeof value !== "string") return Number.NaN;
-  const text = value.trim();
-  return Date.parse(NO_OFFSET_TIME.test(text) ? `${text.replace(" ", "T")}Z` : text);
-}
-__name(parsePlatformTime, "parsePlatformTime");
-function compareAttemptUpdates(previous, next) {
-  const before = parsePlatformTime(previous);
-  const after = parsePlatformTime(next);
-  return Number.isFinite(before) && Number.isFinite(after) ? Math.sign(after - before) : void 0;
-}
-__name(compareAttemptUpdates, "compareAttemptUpdates");
-var observedWorker = /* @__PURE__ */ __name((attempt) => attempt.scoringQueue?.workerReceivedAt ?? attempt.lastWorkerReceivedAt, "observedWorker");
-function compareAttemptRevisions(previous, next) {
-  const row = compareAttemptUpdates(previous.updatedAt, next.updatedAt);
-  if (row) return row;
-  const job = compareAttemptUpdates(observedWorker(previous), observedWorker(next));
-  if (job) return job;
-  if (row === void 0 && Number.isFinite(parsePlatformTime(previous.updatedAt))) return -1;
-  return row ?? job;
-}
-__name(compareAttemptRevisions, "compareAttemptRevisions");
-var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
-function refreshedAttemptFields(previous, incoming, order) {
-  const attempt = {};
-  for (const field of ATTEMPT_STATE_FIELDS) {
-    attempt[field] = incoming[field] ?? (order === 1 ? void 0 : previous[field]);
-  }
-  if (!incoming.scoringQueue && (incoming.scoringState?.scoreIsFinal || incoming.scoringState?.state === "provisional")) {
-    attempt.scoringQueue = void 0;
-  }
-  attempt.updatedAt = Number.isFinite(parsePlatformTime(incoming.updatedAt)) ? incoming.updatedAt : previous.updatedAt;
-  const lastWorkerReceivedAt = observedWorker(incoming) ?? observedWorker(previous);
-  if (lastWorkerReceivedAt) attempt.lastWorkerReceivedAt = lastWorkerReceivedAt;
-  return attempt;
-}
-__name(refreshedAttemptFields, "refreshedAttemptFields");
-function attemptScore(item) {
-  const raw = item?.scoringState;
-  const scoring = typeof raw === "string" ? { state: raw } : raw || {};
-  const failed = [scoring.state, item?.status].some((value) => ["failed", "rejected"].includes(value)) || item?.bundleStatus === "failed";
-  const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
-  const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : void 0;
-  const reference = scoreIsFinal || failed ? void 0 : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
-  const explicitZero = scoring.state === "provisional" && scoring.provisionalScore === 0;
-  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && (reference !== 0 || explicitZero) ? reference : void 0 };
-}
-__name(attemptScore, "attemptScore");
-var RECEIVED_STATES = /* @__PURE__ */ new Set(["evaluating", "scoring", "provisional", "final", "late_scored"]);
-function platformReceivedBundle(attempt) {
-  const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
-  return RECEIVED_STATES.has(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
-}
-__name(platformReceivedBundle, "platformReceivedBundle");
-function workerPhase(attempt, scoring) {
-  if (scoring.state === "provisional") return 3;
-  if (scoring.workerStatus === "trace_scoring") return 4;
-  if (["evaluating", "scoring"].includes(scoring.state)) return 2;
-  return platformReceivedBundle(attempt) ? 1 : 0;
-}
-__name(workerPhase, "workerPhase");
-function keepsWorkerProgress(previous, next) {
-  const before = attemptScore(previous);
-  const after = attemptScore(next);
-  const phase = workerPhase(next, after.scoring) - workerPhase(previous, before.scoring);
-  return phase > 0 || phase === 0 && (before.referenceScore === void 0 || after.referenceScore !== void 0);
-}
-__name(keepsWorkerProgress, "keepsWorkerProgress");
-var workChallengeId = /* @__PURE__ */ __name((item) => {
-  const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
-  return id === void 0 || id === null ? void 0 : String(id);
-}, "workChallengeId");
-function taskAttemptScope(state) {
-  const { task, receipt } = state || {};
-  const taskId = workChallengeId(task);
-  const receiptId = workChallengeId(receipt);
-  if (task?.baseUrl && receipt?.baseUrl && task.baseUrl !== receipt.baseUrl) return { conflict: "platform_changed" };
-  if (taskId && receiptId && taskId !== receiptId) return { conflict: "challenge_mismatch" };
-  return { baseUrl: task?.baseUrl || receipt?.baseUrl, challengeId: taskId || receiptId };
-}
-__name(taskAttemptScope, "taskAttemptScope");
-
-// src/client/tasks/attempts.js
-var stageTones = { final: "scored", finalLate: "scored", failed: "error", evaluating: "evaluating", incomplete: "error" };
-var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
-function taskBundleMissingIds(state) {
-  const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
-  if (receiptBundleMissing(state?.receipt)) ids.push(state.receipt.attemptId);
-  return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
-}
-__name(taskBundleMissingIds, "taskBundleMissingIds");
-function submissionLimitsOf(state, challengeId) {
-  if (!Array.isArray(state?.submissionLimits) || challengeId === void 0 || challengeId === null) return void 0;
-  return state.submissionLimits.filter((item) => item?.challengeId === String(challengeId));
-}
-__name(submissionLimitsOf, "submissionLimitsOf");
-function submissionCountsLine(counts, limits) {
-  if (!counts || typeof counts !== "object" || !Number.isInteger(counts.total)) return void 0;
-  const period = { day: msg("每天", " per day"), total: msg("每人", " per person") };
-  const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : []).filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === "platform").map((item) => item.source === "statement" ? msg(
-    `题面写明${period[item.period] || ""}最多 ${item.limit} 次${typeof item.excerpt === "string" ? `（原文：${item.excerpt}）` : ""}`,
-    `The statement allows up to ${item.limit} submissions${period[item.period] || ""}${typeof item.excerpt === "string" ? ` (“${item.excerpt}”)` : ""}`
-  ) : Number.isSafeInteger(item.limit) ? msg(`平台曾返回上限 ${item.limit} 次`, `The platform reported a limit of ${item.limit}`) : msg("平台曾返回已达提交上限", "The platform reported that the submission limit was reached"));
-  const limitText = known.length ? `Submission limits: ${known.join(". ")}.` : "No submission limit found.";
-  if (counts.scope === "current_account") {
-    const history = counts.partialReasons?.includes("history_incomplete");
-    const today = history || counts.partialReasons?.includes("time_unknown");
-    return msg(
-      `当前账号累计${history ? "已核实 " : " "}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? "已核实" : "已提交"} ${counts.total} 次，${counts.counted == null ? "占名额次数未知" : `其中占名额 ${counts.counted} 次`}${today ? "（数据不完整）" : ""}。${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
-      `Current account, lifetime submissions${history ? " verified" : ""}: ${counts.lifetime}. Today (Beijing time, ${counts.date}): ${counts.total}${today ? " verified" : " submitted"}. ${counts.counted == null ? "Quota usage unknown" : `Counted against quota: ${counts.counted}`}.${today ? " Data is incomplete." : ""} ${limitText}`
-    );
-  }
-  return msg(
-    `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? "（可能不完整）" : ""}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes("agent_private_hidden") ? "Agent 账号未公开的提交看不到，没有计入。" : ""}${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
-    `Today (Beijing time, ${counts.date}): ${counts.total} submitted, ${counts.counted} counted against quota across your account and its Agent accounts.${counts.partial ? " Counts may be incomplete." : ""}${counts.partialReasons?.includes("agent_private_hidden") ? " Private Agent submissions are excluded." : ""} ${limitText}`
-  );
-}
-__name(submissionCountsLine, "submissionCountsLine");
-function bundleSummaryLine(summary) {
-  if (!summary || typeof summary !== "object" || !Number.isFinite(summary.files)) return void 0;
-  const size = /* @__PURE__ */ __name((bytes) => !Number.isFinite(bytes) ? "?" : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`, "size");
-  const named = /* @__PURE__ */ __name((item) => `${String(item?.name ?? "").split("/").pop()}${msg("（", " (")}${size(item?.bytes)}${msg("）", ")")}`, "named");
-  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join(msg("、", ", ")) : "";
-  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join(msg("、", ", ")) : "";
-  return [
-    msg(`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`, `Historical ZIP directory: ${summary.files} files, ${size(summary.totalBytes)} total`),
-    largest ? msg(`最大：${largest}`, `Largest: ${largest}`) : "",
-    summary.nonTextCount ? msg(`非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? " 等" : ""}`, `Non-text files by extension: ${summary.nonTextCount} (${nonText}${summary.nonTextCount > 3 ? ", …" : ""})`) : msg("非文本文件（按扩展名）0 个", "No non-text files by extension"),
-    summary.symlinkCount ? msg(`符号链接 ${summary.symlinkCount} 个`, `Symbolic links: ${summary.symlinkCount}`) : "",
-    summary.layout && typeof summary.layout === "object" ? msg(`外层结构：outputs/ ${summary.layout.hasOutputs ? "有文件" : "无文件"}，arm_manifest.json ${summary.layout.hasManifest ? "有" : "缺失"}`, `Top level: outputs/ ${summary.layout.hasOutputs ? "contains files" : "has no files"}, arm_manifest.json ${summary.layout.hasManifest ? "present" : "missing"}`) : "",
-    summary.complete === false ? msg("ZIP 目录未能读完", "ZIP directory listing incomplete") : ""
-  ].filter(Boolean).join(msg("；", ". "));
-}
-__name(bundleSummaryLine, "bundleSummaryLine");
-function receiptProgress(receipt, t = zhText, { running = false, bundleMissing = false } = {}) {
-  const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
-  const states = [scoring.state, receipt?.status];
-  const known = /* @__PURE__ */ __name((value) => value && value !== "unknown" ? value : void 0, "known");
-  const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
-  const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
-  const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
-  const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt) && (bundleMissing || receiptBundleMissing(receipt));
-  const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt) ? { created: ["已创建，上传未确认", "Created; upload unconfirmed"], uploaded: ["Agent 报告已上传", "Agent reports uploaded"], unknown: ["结果未知，先核对已有提交", "Outcome unknown; reconcile existing attempts"] }[receipt?.submissionState] : void 0;
-  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "provisional", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
-  const stage = running ? "running" : receiptStage;
-  const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
-  const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
-  const badgeTone = !receipt ? running ? "running" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
-  const reportText = reported?.[t("progress.points") === "分" ? 0 : 1];
-  return {
-    stage,
-    stageText: !running && reportText ? reportText : t(`progress.${stage}`),
-    state,
-    badgeText: reportText || badgeText,
-    badgeTone,
-    scoreIsFinal,
-    score: finalScore,
-    referenceScore,
-    scoreText
-  };
-}
-__name(receiptProgress, "receiptProgress");
-function scoreLabel(item, t) {
-  const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(item);
-  if ([scoring.state, item?.status].includes("draft")) return void 0;
-  if (scoreIsFinal) return `${t("finalScore")}: ${finalScore ?? "—"}`;
-  if (failed) return void 0;
-  if (referenceScore !== void 0) return `${t("referenceScore")}: ${referenceScore}`;
-  return t("awaitingScore");
-}
-__name(scoreLabel, "scoreLabel");
-var attemptRefreshMs = 12e4;
-var unarchiveFocusMs = 2e3;
-var noArchiveError = Object.freeze({ id: "", message: "" });
-function receiptSettled(receipt) {
-  const { failed, scoreIsFinal } = attemptScore(receipt);
-  return receipt?.bundleNotReceived === true || failed || scoreIsFinal;
-}
-__name(receiptSettled, "receiptSettled");
-var receiptAttemptId = /* @__PURE__ */ __name((receipt) => {
-  const id = Number(receipt?.attemptId);
-  return Number.isSafeInteger(id) && id > 0 ? id : void 0;
-}, "receiptAttemptId");
-var refreshConcurrency = 4;
-var visibleRefreshGapMs = 3e4;
-function receiptPending(receipt) {
-  if (receiptAttemptId(receipt) === void 0 || receipt.bundleStatus === "incomplete") return false;
-  const { stage } = receiptProgress({ ...receipt, submissionState: void 0 }, zhText);
-  if (stage === "evaluating") return true;
-  if (stage === "incomplete" && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
-  const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes("awaiting_review");
-  return stage === "submitted" && ([void 0, "submitted"].includes(receipt.status) || awaitingReview);
-}
-__name(receiptPending, "receiptPending");
-var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
-var receiptKey = /* @__PURE__ */ __name((sessionId, receipt) => JSON.stringify([
-  sessionId,
-  receipt.trackedAt,
-  receipt.confirmedAt,
-  receipt.agentReport?.state,
-  receipt.agentReport?.message
-]), "receiptKey");
-function withLatestAttempt(state, attempts, sessionId) {
-  const receipt = state?.receipt;
-  if (!receipt) return receipt;
-  const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
-  const stored = entry?.overlays?.get(receiptKey(sessionId, receipt));
-  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored) } : receipt;
-}
-__name(withLatestAttempt, "withLatestAttempt");
-function overlayForReceipt(receipt, stored) {
-  const { scoring, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
-  const receiptEvidence = JSON.stringify([
-    parsePlatformTime(receipt.updatedAt),
-    receipt.status,
-    receipt.bundleStatus,
-    receipt.bundleNotReceived === true,
-    platformReceivedBundle(receipt),
-    scoring.state,
-    scoring.workerStatus,
-    scoreIsFinal,
-    finalScore,
-    referenceScore
-  ]);
-  const receiptWorker = parsePlatformTime(receipt.scoringQueue?.workerReceivedAt ?? receipt.lastWorkerReceivedAt);
-  if (stored?.receiptEvidence === receiptEvidence && (!Number.isFinite(receiptWorker) || receiptWorker === stored.receiptWorker)) return stored;
-  const attempt = stored ? observeAttempt(stored, receipt) ?? stored : refreshedAttemptFields({}, receipt, 1);
-  return { ...attempt, receiptEvidence, receiptWorker };
-}
-__name(overlayForReceipt, "overlayForReceipt");
-function observeAttempt(previous, incoming) {
-  if (!incoming) return void 0;
-  const order = compareAttemptRevisions(previous, incoming);
-  if (order === -1) return void 0;
-  const attempt = refreshedAttemptFields(previous, incoming, order);
-  if (order !== 1) {
-    const settled = receiptSettled(attempt);
-    if (receiptSettled(previous) && (!settled || order === 0)) return void 0;
-    if (!settled && !keepsWorkerProgress(previous, attempt)) return void 0;
-  }
-  return attempt;
-}
-__name(observeAttempt, "observeAttempt");
-function withHistoryAttempt(item, attempt, { latest, closed }) {
-  const order = attempt && (latest ? compareAttemptRevisions(item, attempt) : compareAttemptUpdates(item.updatedAt, attempt.updatedAt));
-  if (latest && order === 1) return { ...item, ...refreshedAttemptFields(item, attempt, order) };
-  const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
-  if (!attempt || receiptSettled(row) || order === -1) return row;
-  const merged = { ...row };
-  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
-  return receiptSettled(merged) ? merged : row;
-}
-__name(withHistoryAttempt, "withHistoryAttempt");
-var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
-async function refreshAttempts(store, keys) {
-  if (!keys.length || store.controller || store.disposed) return;
-  const wanted = keys.map((key2) => {
-    const { scope, attemptId, snapshots } = store.receipts.get(key2);
-    return { key: key2, input: { action: "attempt", attemptId, ...scope }, snapshots };
-  });
-  const controller = new AbortController();
-  store.controller = controller;
-  store.startedAt = Date.now();
-  store.publish();
-  const fresh = [];
-  let next = 0;
-  const worker = /* @__PURE__ */ __name(async () => {
-    while (next < wanted.length && !controller.signal.aborted) {
-      const { key: key2, input, snapshots } = wanted[next++];
-      try {
-        const attempt = await store.query(input, controller.signal);
-        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
-          fresh.push({ key: key2, snapshots, attempt });
-        }
-      } catch {
-      }
-    }
-  }, "worker");
-  await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
-  if (store.controller !== controller) return;
-  store.controller = null;
-  const updates = fresh.map(({ key: key2, snapshots, attempt }) => {
-    const previous = store.attempts[key2];
-    const current = store.receipts.get(key2)?.snapshots;
-    const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
-      const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
-      const latest = current?.get(receiptId);
-      const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
-      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
-    }));
-    return [key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
-  });
-  store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
-  store.failed = fresh.length < wanted.length;
-  if (!store.failed) {
-    store.refreshedAt = Date.now();
-    store.partial = false;
-  } else if (fresh.length) store.partial = true;
-  store.publish();
-}
-__name(refreshAttempts, "refreshAttempts");
-
-// src/client/catalog/index.js
+// src/client/home/index.js
 var React10 = __toESM(require("react"), 1);
 
 // src/client/catalog/detail.js
-var React9 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 
 // src/client/shared/drawer.js
-var React8 = __toESM(require("react"), 1);
+var React7 = __toESM(require("react"), 1);
 var tabbableSelector = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
 function tabbables(container) {
   return [...container.querySelectorAll?.(tabbableSelector) || []].filter((node) => node.tabIndex !== -1 && (typeof node.getClientRects !== "function" || node.getClientRects().length > 0));
@@ -4049,7 +2770,7 @@ __name(tabbables, "tabbables");
 var DOCUMENT_POSITION_PRECEDING = 2;
 var DOCUMENT_POSITION_FOLLOWING = 4;
 function useDrawerFocus(fallback) {
-  const [focus] = React8.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
+  const [focus] = React7.useState(() => ({ opener: typeof document === "undefined" ? null : document.activeElement, dialog: null, title: null, restored: false, dismiss: /* @__PURE__ */ __name(() => {
   }, "dismiss") }));
   focus.fallback = fallback;
   focus.restore = () => {
@@ -4058,7 +2779,7 @@ function useDrawerFocus(fallback) {
     const body = typeof document === "undefined" ? void 0 : document.body;
     [focus.opener, focus.fallback?.()].flat().find((node) => node && node !== body && node.isConnected)?.focus?.();
   };
-  React8.useEffect(() => {
+  React7.useEffect(() => {
     focus.restored = false;
     focus.title?.focus?.();
     const inForeignDialog = /* @__PURE__ */ __name((target) => {
@@ -4247,6 +2968,92 @@ var challengeDetailCss = `
   }
 `;
 
+// lib/task/evidence.js
+var NO_OFFSET_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+function parsePlatformTime(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return Number.NaN;
+  const text = value.trim();
+  return Date.parse(NO_OFFSET_TIME.test(text) ? `${text.replace(" ", "T")}Z` : text);
+}
+__name(parsePlatformTime, "parsePlatformTime");
+function compareAttemptUpdates(previous, next) {
+  const before = parsePlatformTime(previous);
+  const after = parsePlatformTime(next);
+  return Number.isFinite(before) && Number.isFinite(after) ? Math.sign(after - before) : void 0;
+}
+__name(compareAttemptUpdates, "compareAttemptUpdates");
+var observedWorker = /* @__PURE__ */ __name((attempt) => attempt.scoringQueue?.workerReceivedAt ?? attempt.lastWorkerReceivedAt, "observedWorker");
+function compareAttemptRevisions(previous, next) {
+  const row = compareAttemptUpdates(previous.updatedAt, next.updatedAt);
+  if (row) return row;
+  const job = compareAttemptUpdates(observedWorker(previous), observedWorker(next));
+  if (job) return job;
+  if (row === void 0 && Number.isFinite(parsePlatformTime(previous.updatedAt))) return -1;
+  return row ?? job;
+}
+__name(compareAttemptRevisions, "compareAttemptRevisions");
+var ATTEMPT_STATE_FIELDS = ["status", "bundleStatus", "score", "scoringState", "scoringQueue", "bundleNotReceived"];
+function refreshedAttemptFields(previous, incoming, order) {
+  const attempt = {};
+  for (const field of ATTEMPT_STATE_FIELDS) {
+    attempt[field] = incoming[field] ?? (order === 1 ? void 0 : previous[field]);
+  }
+  if (!incoming.scoringQueue && (incoming.scoringState?.scoreIsFinal || incoming.scoringState?.state === "provisional")) {
+    attempt.scoringQueue = void 0;
+  }
+  attempt.updatedAt = Number.isFinite(parsePlatformTime(incoming.updatedAt)) ? incoming.updatedAt : previous.updatedAt;
+  const lastWorkerReceivedAt = observedWorker(incoming) ?? observedWorker(previous);
+  if (lastWorkerReceivedAt) attempt.lastWorkerReceivedAt = lastWorkerReceivedAt;
+  return attempt;
+}
+__name(refreshedAttemptFields, "refreshedAttemptFields");
+function attemptScore(item) {
+  const raw = item?.scoringState;
+  const scoring = typeof raw === "string" ? { state: raw } : raw || {};
+  const failed = [scoring.state, item?.status].some((value) => ["failed", "rejected"].includes(value)) || item?.bundleStatus === "failed";
+  const scoreIsFinal = !failed && scoring.scoreIsFinal === true;
+  const finalScore = scoreIsFinal ? scoring.displayScore ?? item?.score : void 0;
+  const reference = scoreIsFinal || failed ? void 0 : scoring.provisionalScore ?? scoring.displayScore ?? item?.score;
+  const explicitZero = scoring.state === "provisional" && scoring.provisionalScore === 0;
+  return { scoring, failed, scoreIsFinal, finalScore, referenceScore: Number.isFinite(reference) && (reference !== 0 || explicitZero) ? reference : void 0 };
+}
+__name(attemptScore, "attemptScore");
+var RECEIVED_STATES = /* @__PURE__ */ new Set(["evaluating", "scoring", "provisional", "final", "late_scored"]);
+function platformReceivedBundle(attempt) {
+  const state = typeof attempt?.scoringState === "string" ? attempt.scoringState : attempt?.scoringState?.state;
+  return RECEIVED_STATES.has(state) || typeof attempt?.scoringQueue?.workerReceivedAt === "string" && attempt.scoringQueue.workerReceivedAt !== "";
+}
+__name(platformReceivedBundle, "platformReceivedBundle");
+function workerPhase(attempt, scoring) {
+  if (scoring.state === "provisional") return 3;
+  if (scoring.workerStatus === "trace_scoring") return 4;
+  if (["evaluating", "scoring"].includes(scoring.state)) return 2;
+  return platformReceivedBundle(attempt) ? 1 : 0;
+}
+__name(workerPhase, "workerPhase");
+function keepsWorkerProgress(previous, next) {
+  const before = attemptScore(previous);
+  const after = attemptScore(next);
+  const phase = workerPhase(next, after.scoring) - workerPhase(previous, before.scoring);
+  return phase > 0 || phase === 0 && (before.referenceScore === void 0 || after.referenceScore !== void 0);
+}
+__name(keepsWorkerProgress, "keepsWorkerProgress");
+var workChallengeId = /* @__PURE__ */ __name((item) => {
+  const id = item?.challenge?.id ?? item?.challengeId ?? item?.args?.challenge_id;
+  return id === void 0 || id === null ? void 0 : String(id);
+}, "workChallengeId");
+function taskAttemptScope(state) {
+  const { task, receipt } = state || {};
+  const taskId = workChallengeId(task);
+  const receiptId = workChallengeId(receipt);
+  if (task?.baseUrl && receipt?.baseUrl && task.baseUrl !== receipt.baseUrl) return { conflict: "platform_changed" };
+  if (taskId && receiptId && taskId !== receiptId) return { conflict: "challenge_mismatch" };
+  return { baseUrl: task?.baseUrl || receipt?.baseUrl, challengeId: taskId || receiptId };
+}
+__name(taskAttemptScope, "taskAttemptScope");
+
 // lib/submission/policy.js
 var BEIJING_OFFSET_MS = 8 * 60 * 60 * 1e3;
 var CN_SCOPE = "(每人每天|每人每日|每个账号每天|每天|每日|每人|每个账号|每位参赛者|每支队伍)";
@@ -4362,15 +3169,15 @@ function challengeOverview(detail, progress) {
 }
 __name(challengeOverview, "challengeOverview");
 function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competition, group, progress, close, focusFallback }) {
-  const [detail, setDetail] = React9.useState(null);
-  const [busy, setBusy] = React9.useState(false);
-  const [failed, setFailed] = React9.useState(false);
-  const [expanded, setExpanded] = React9.useState(false);
-  const [tab, setTab] = React9.useState("overview");
-  const [copyStatus, setCopyStatus] = React9.useState("");
-  const tabId = React9.useId();
-  const [status, setStatus] = React9.useState(null);
-  const [latest] = React9.useState(() => ({ controller: null, closed: false }));
+  const [detail, setDetail] = React8.useState(null);
+  const [busy, setBusy] = React8.useState(false);
+  const [failed, setFailed] = React8.useState(false);
+  const [expanded, setExpanded] = React8.useState(false);
+  const [tab, setTab] = React8.useState("overview");
+  const [copyStatus, setCopyStatus] = React8.useState("");
+  const tabId = React8.useId();
+  const [status, setStatus] = React8.useState(null);
+  const [latest] = React8.useState(() => ({ controller: null, closed: false }));
   const challengeId = String(challenge.id);
   const load = /* @__PURE__ */ __name(async () => {
     latest.controller?.abort();
@@ -4410,7 +3217,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competi
     close();
   }, "dismiss");
   focus.dismiss = dismiss;
-  React9.useEffect(() => {
+  React8.useEffect(() => {
     latest.closed = false;
     load();
     return () => {
@@ -4578,6 +3385,9 @@ function ChallengeDetailDrawer({ challenge, query, handoff, requestTask, competi
 }
 __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
 
+// src/client/catalog/index.js
+var React9 = __toESM(require("react"), 1);
+
 // src/client/catalog/progress.js
 var samePlatform = /* @__PURE__ */ __name((base, other) => Boolean(base && other && webRootOf(base) === webRootOf(other)), "samePlatform");
 function challengeProgress(challengeId, controllerRows = [], sessions = [], history, webBase, account) {
@@ -4700,33 +3510,33 @@ var pageFacts = /* @__PURE__ */ __name((page) => ({
   pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0
 }), "pageFacts");
-function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, active = true, taskSessions = [], webBase }) {
+function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, destination, active = true, taskSessions = [], webBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
   const noticeCompetition = target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : "";
-  const [gatedIds] = React10.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
-  const [search, setSearch] = React10.useState("");
-  const [season, setSeason] = React10.useState(noticeCompetition);
-  const [period, setPeriod] = React10.useState(target?.period ?? "");
-  const [group, setGroup] = React10.useState(target?.group ?? "");
-  const [origin, setOrigin] = React10.useState("");
-  const [disciplineChoice, setDisciplineChoice] = React10.useState("");
-  const [otherDiscipline, setOtherDiscipline] = React10.useState("");
-  const [appliedOther, setAppliedOther] = React10.useState(null);
-  const [sort, setSort] = React10.useState("newest");
-  const [openOnly, setOpenOnly] = React10.useState(false);
-  const [competitionTable, setCompetitionTable] = React10.useState(null);
-  const [list, setList] = React10.useState(null);
-  const [facets, setFacets] = React10.useState(null);
-  const [busy, setBusy] = React10.useState("");
-  const [failure, setFailure] = React10.useState(null);
-  const [status, setStatus] = React10.useState(null);
-  const [notice, setNotice] = React10.useState(null);
-  const [latest] = React10.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
-  const [detail, setDetail] = React10.useState(null);
-  const [catalogHistory, setCatalogHistory] = React10.useState(null);
-  const [detailHistory, setDetailHistory] = React10.useState(null);
+  const [gatedIds] = React9.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
+  const [search, setSearch] = React9.useState("");
+  const [season, setSeason] = React9.useState(noticeCompetition || destination?.value || "");
+  const [period, setPeriod] = React9.useState(target?.period ?? destination?.period ?? "");
+  const [group, setGroup] = React9.useState(target?.group ?? "");
+  const [origin, setOrigin] = React9.useState("");
+  const [disciplineChoice, setDisciplineChoice] = React9.useState("");
+  const [otherDiscipline, setOtherDiscipline] = React9.useState("");
+  const [appliedOther, setAppliedOther] = React9.useState(null);
+  const [sort, setSort] = React9.useState("newest");
+  const [openOnly, setOpenOnly] = React9.useState(false);
+  const [competitionTable, setCompetitionTable] = React9.useState(null);
+  const [list, setList] = React9.useState(null);
+  const [facets, setFacets] = React9.useState(null);
+  const [busy, setBusy] = React9.useState("");
+  const [failure, setFailure] = React9.useState(null);
+  const [status, setStatus] = React9.useState(null);
+  const [notice, setNotice] = React9.useState(null);
+  const [latest] = React9.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
+  const [detail, setDetail] = React9.useState(null);
+  const [catalogHistory, setCatalogHistory] = React9.useState(null);
+  const [detailHistory, setDetailHistory] = React9.useState(null);
   const openDetail = /* @__PURE__ */ __name((item) => setDetail({ ...item }), "openDetail");
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
@@ -4856,14 +3666,14 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     }
   }, "loadMore");
   const retry = /* @__PURE__ */ __name(() => failure?.kind === "more" ? canLoadMore ? loadMore() : load() : load(failure?.filters, { refresh: failure?.refresh }), "retry");
-  React10.useEffect(() => {
+  React9.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
       latest.controller = null;
     };
   }, [query]);
-  React10.useEffect(() => {
+  React9.useEffect(() => {
     const ids = latest.refocus;
     if (!ids) return;
     latest.refocus = null;
@@ -4898,7 +3708,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   }));
   const trackedIds = JSON.stringify(loaded.map(({ id }) => String(id)).filter((id) => tracked.has(id)));
   const signedIn = account != null && account !== "";
-  React10.useEffect(() => {
+  React9.useEffect(() => {
     if (!signedIn) {
       setCatalogHistory(null);
       return;
@@ -4912,7 +3722,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     void read();
     return () => abort.abort();
   }, [active, account, webBase, query, shownList, trackedIds]);
-  React10.useEffect(() => {
+  React9.useEffect(() => {
     if (!signedIn) {
       setDetailHistory(null);
       return;
@@ -5344,17 +4154,1701 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
 }
 __name(CatalogPanel, "CatalogPanel");
 
+// src/client/tasks/attempts.js
+var stageTones = { final: "scored", finalLate: "scored", failed: "error", evaluating: "evaluating", incomplete: "error" };
+var receiptBundleMissing = /* @__PURE__ */ __name((receipt) => receipt?.ok === false && receipt?.error?.code === "upload_failed" && Number.isSafeInteger(Number(receipt?.attemptId)) && Number(receipt.attemptId) > 0 && !platformReceivedBundle(receipt), "receiptBundleMissing");
+function taskBundleMissingIds(state) {
+  const ids = Array.isArray(state?.bundleMissingIds) ? [...state.bundleMissingIds] : [];
+  if (receiptBundleMissing(state?.receipt)) ids.push(state.receipt.attemptId);
+  return ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+}
+__name(taskBundleMissingIds, "taskBundleMissingIds");
+function submissionLimitsOf(state, challengeId) {
+  if (!Array.isArray(state?.submissionLimits) || challengeId === void 0 || challengeId === null) return void 0;
+  return state.submissionLimits.filter((item) => item?.challengeId === String(challengeId));
+}
+__name(submissionLimitsOf, "submissionLimitsOf");
+function submissionCountsLine(counts, limits) {
+  if (!counts || typeof counts !== "object" || !Number.isInteger(counts.total)) return void 0;
+  const period = { day: msg("每天", " per day"), total: msg("每人", " per person") };
+  const known = (Array.isArray(limits) ? limits : Array.isArray(counts.limits) ? counts.limits : []).filter((item) => item && Number.isSafeInteger(item.limit) || item?.source === "platform").map((item) => item.source === "statement" ? msg(
+    `题面写明${period[item.period] || ""}最多 ${item.limit} 次${typeof item.excerpt === "string" ? `（原文：${item.excerpt}）` : ""}`,
+    `The statement allows up to ${item.limit} submissions${period[item.period] || ""}${typeof item.excerpt === "string" ? ` (“${item.excerpt}”)` : ""}`
+  ) : Number.isSafeInteger(item.limit) ? msg(`平台曾返回上限 ${item.limit} 次`, `The platform reported a limit of ${item.limit}`) : msg("平台曾返回已达提交上限", "The platform reported that the submission limit was reached"));
+  const limitText = known.length ? `Submission limits: ${known.join(". ")}.` : "No submission limit found.";
+  if (counts.scope === "current_account") {
+    const history = counts.partialReasons?.includes("history_incomplete");
+    const today = history || counts.partialReasons?.includes("time_unknown");
+    return msg(
+      `当前账号累计${history ? "已核实 " : " "}${counts.lifetime} 次；今天（北京时间 ${counts.date}）${today ? "已核实" : "已提交"} ${counts.total} 次，${counts.counted == null ? "占名额次数未知" : `其中占名额 ${counts.counted} 次`}${today ? "（数据不完整）" : ""}。${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
+      `Current account, lifetime submissions${history ? " verified" : ""}: ${counts.lifetime}. Today (Beijing time, ${counts.date}): ${counts.total}${today ? " verified" : " submitted"}. ${counts.counted == null ? "Quota usage unknown" : `Counted against quota: ${counts.counted}`}.${today ? " Data is incomplete." : ""} ${limitText}`
+    );
+  }
+  return msg(
+    `今天（北京时间 ${counts.date}）已提交 ${counts.total} 次，其中占名额 ${counts.counted} 次，本人与名下 Agent 账号合计${counts.partial ? "（可能不完整）" : ""}。${Array.isArray(counts.partialReasons) && counts.partialReasons.includes("agent_private_hidden") ? "Agent 账号未公开的提交看不到，没有计入。" : ""}${known.length ? `次数上限：${known.join("；")}。` : "未查到次数上限。"}`,
+    `Today (Beijing time, ${counts.date}): ${counts.total} submitted, ${counts.counted} counted against quota across your account and its Agent accounts.${counts.partial ? " Counts may be incomplete." : ""}${counts.partialReasons?.includes("agent_private_hidden") ? " Private Agent submissions are excluded." : ""} ${limitText}`
+  );
+}
+__name(submissionCountsLine, "submissionCountsLine");
+function bundleSummaryLine(summary) {
+  if (!summary || typeof summary !== "object" || !Number.isFinite(summary.files)) return void 0;
+  const size = /* @__PURE__ */ __name((bytes) => !Number.isFinite(bytes) ? "?" : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`, "size");
+  const named = /* @__PURE__ */ __name((item) => `${String(item?.name ?? "").split("/").pop()}${msg("（", " (")}${size(item?.bytes)}${msg("）", ")")}`, "named");
+  const largest = Array.isArray(summary.largest) ? summary.largest.slice(0, 3).map(named).join(msg("、", ", ")) : "";
+  const nonText = Array.isArray(summary.nonText) ? summary.nonText.slice(0, 3).map(named).join(msg("、", ", ")) : "";
+  return [
+    msg(`历史 ZIP 目录信息：${summary.files} 个文件，共 ${size(summary.totalBytes)}`, `Historical ZIP directory: ${summary.files} files, ${size(summary.totalBytes)} total`),
+    largest ? msg(`最大：${largest}`, `Largest: ${largest}`) : "",
+    summary.nonTextCount ? msg(`非文本文件（按扩展名）${summary.nonTextCount} 个：${nonText}${summary.nonTextCount > 3 ? " 等" : ""}`, `Non-text files by extension: ${summary.nonTextCount} (${nonText}${summary.nonTextCount > 3 ? ", …" : ""})`) : msg("非文本文件（按扩展名）0 个", "No non-text files by extension"),
+    summary.symlinkCount ? msg(`符号链接 ${summary.symlinkCount} 个`, `Symbolic links: ${summary.symlinkCount}`) : "",
+    summary.layout && typeof summary.layout === "object" ? msg(`外层结构：outputs/ ${summary.layout.hasOutputs ? "有文件" : "无文件"}，arm_manifest.json ${summary.layout.hasManifest ? "有" : "缺失"}`, `Top level: outputs/ ${summary.layout.hasOutputs ? "contains files" : "has no files"}, arm_manifest.json ${summary.layout.hasManifest ? "present" : "missing"}`) : "",
+    summary.complete === false ? msg("ZIP 目录未能读完", "ZIP directory listing incomplete") : ""
+  ].filter(Boolean).join(msg("；", ". "));
+}
+__name(bundleSummaryLine, "bundleSummaryLine");
+function receiptProgress(receipt, t = zhText, { running = false, bundleMissing = false } = {}) {
+  const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
+  const states = [scoring.state, receipt?.status];
+  const known = /* @__PURE__ */ __name((value) => value && value !== "unknown" ? value : void 0, "known");
+  const state = known(scoring.state) || known(receipt?.bundleStatus) || known(receipt?.status);
+  const uploadFailed = receipt?.ok === false && !receipt.status && !scoring.state;
+  const notReceived = Boolean(receipt) && receipt.bundleNotReceived === true && !scoreIsFinal;
+  const notUploaded = Boolean(receipt) && !failed && !scoreIsFinal && !platformReceivedBundle(receipt) && (bundleMissing || receiptBundleMissing(receipt));
+  const reported = !failed && !scoreIsFinal && !platformReceivedBundle(receipt) ? { created: ["已创建，上传未确认", "Created; upload unconfirmed"], uploaded: ["Agent 报告已上传", "Agent reports uploaded"], unknown: ["结果未知，先核对已有提交", "Outcome unknown; reconcile existing attempts"] }[receipt?.submissionState] : void 0;
+  const receiptStage = !receipt ? "created" : notReceived ? "incomplete" : failed ? "failed" : scoreIsFinal ? states.includes("late_scored") ? "finalLate" : "final" : notUploaded ? "incomplete" : reported ? "submitted" : states.some((value) => ["queued", "evaluating", "scoring", "provisional", "pending_review"].includes(value)) ? "evaluating" : uploadFailed || states.includes("draft") ? "incomplete" : "submitted";
+  const stage = running ? "running" : receiptStage;
+  const scoreText = Number.isFinite(finalScore) ? `${finalScore} ${t("progress.points")}` : referenceScore !== void 0 ? `${t("progress.reference")} ${referenceScore}` : "—";
+  const badgeText = !receipt ? t("progress.notSubmitted") : notReceived ? t("progress.notReceived") : notUploaded ? t("progress.notUploaded") : state ? stateLabel(state, t) : receipt.ok === false ? t("progress.notSubmitted") : t("unknown");
+  const badgeTone = !receipt ? running ? "running" : "neutral" : receiptStage === "submitted" && receipt.bundleStatus === "incomplete" ? "warning" : stageTones[receiptStage] || "neutral";
+  const reportText = reported?.[t("progress.points") === "分" ? 0 : 1];
+  return {
+    stage,
+    stageText: !running && reportText ? reportText : t(`progress.${stage}`),
+    state,
+    badgeText: reportText || badgeText,
+    badgeTone,
+    scoreIsFinal,
+    score: finalScore,
+    referenceScore,
+    scoreText
+  };
+}
+__name(receiptProgress, "receiptProgress");
+function scoreLabel(item, t) {
+  const { scoring, failed, scoreIsFinal, finalScore, referenceScore } = attemptScore(item);
+  if ([scoring.state, item?.status].includes("draft")) return void 0;
+  if (scoreIsFinal) return `${t("finalScore")}: ${finalScore ?? "—"}`;
+  if (failed) return void 0;
+  if (referenceScore !== void 0) return `${t("referenceScore")}: ${referenceScore}`;
+  return t("awaitingScore");
+}
+__name(scoreLabel, "scoreLabel");
+var attemptRefreshMs = 12e4;
+var unarchiveFocusMs = 2e3;
+var noArchiveError = Object.freeze({ id: "", message: "" });
+function receiptSettled(receipt) {
+  const { failed, scoreIsFinal } = attemptScore(receipt);
+  return receipt?.bundleNotReceived === true || failed || scoreIsFinal;
+}
+__name(receiptSettled, "receiptSettled");
+var receiptAttemptId = /* @__PURE__ */ __name((receipt) => {
+  const id = Number(receipt?.attemptId);
+  return Number.isSafeInteger(id) && id > 0 ? id : void 0;
+}, "receiptAttemptId");
+var refreshConcurrency = 4;
+var visibleRefreshGapMs = 3e4;
+function receiptPending(receipt) {
+  if (receiptAttemptId(receipt) === void 0 || receipt.bundleStatus === "incomplete") return false;
+  const { stage } = receiptProgress({ ...receipt, submissionState: void 0 }, zhText);
+  if (stage === "evaluating") return true;
+  if (stage === "incomplete" && receiptBundleMissing(receipt) && receipt.bundleNotReceived !== true) return true;
+  const awaitingReview = [attemptScore(receipt).scoring.state, receipt.status].includes("awaiting_review");
+  return stage === "submitted" && ([void 0, "submitted"].includes(receipt.status) || awaitingReview);
+}
+__name(receiptPending, "receiptPending");
+var attemptKey = /* @__PURE__ */ __name((scope, id) => scope.conflict || id === void 0 ? void 0 : JSON.stringify([scope.baseUrl, scope.challengeId, id]), "attemptKey");
+var receiptKey = /* @__PURE__ */ __name((sessionId, receipt) => JSON.stringify([
+  sessionId,
+  receipt.trackedAt,
+  receipt.confirmedAt,
+  receipt.agentReport?.state,
+  receipt.agentReport?.message
+]), "receiptKey");
+function withLatestAttempt(state, attempts, sessionId) {
+  const receipt = state?.receipt;
+  if (!receipt) return receipt;
+  const entry = attempts?.[attemptKey(taskAttemptScope(state), receiptAttemptId(receipt))];
+  const stored = entry?.overlays?.get(receiptKey(sessionId, receipt));
+  return stored ? { ...receipt, ...overlayForReceipt(receipt, stored) } : receipt;
+}
+__name(withLatestAttempt, "withLatestAttempt");
+function overlayForReceipt(receipt, stored) {
+  const { scoring, scoreIsFinal, finalScore, referenceScore } = attemptScore(receipt);
+  const receiptEvidence = JSON.stringify([
+    parsePlatformTime(receipt.updatedAt),
+    receipt.status,
+    receipt.bundleStatus,
+    receipt.bundleNotReceived === true,
+    platformReceivedBundle(receipt),
+    scoring.state,
+    scoring.workerStatus,
+    scoreIsFinal,
+    finalScore,
+    referenceScore
+  ]);
+  const receiptWorker = parsePlatformTime(receipt.scoringQueue?.workerReceivedAt ?? receipt.lastWorkerReceivedAt);
+  if (stored?.receiptEvidence === receiptEvidence && (!Number.isFinite(receiptWorker) || receiptWorker === stored.receiptWorker)) return stored;
+  const attempt = stored ? observeAttempt(stored, receipt) ?? stored : refreshedAttemptFields({}, receipt, 1);
+  return { ...attempt, receiptEvidence, receiptWorker };
+}
+__name(overlayForReceipt, "overlayForReceipt");
+function observeAttempt(previous, incoming) {
+  if (!incoming) return void 0;
+  const order = compareAttemptRevisions(previous, incoming);
+  if (order === -1) return void 0;
+  const attempt = refreshedAttemptFields(previous, incoming, order);
+  if (order !== 1) {
+    const settled = receiptSettled(attempt);
+    if (receiptSettled(previous) && (!settled || order === 0)) return void 0;
+    if (!settled && !keepsWorkerProgress(previous, attempt)) return void 0;
+  }
+  return attempt;
+}
+__name(observeAttempt, "observeAttempt");
+function withHistoryAttempt(item, attempt, { latest, closed }) {
+  const order = attempt && (latest ? compareAttemptRevisions(item, attempt) : compareAttemptUpdates(item.updatedAt, attempt.updatedAt));
+  if (latest && order === 1) return { ...item, ...refreshedAttemptFields(item, attempt, order) };
+  const row = (closed || attempt?.bundleNotReceived === true) && item.bundleNotReceived !== true && !platformReceivedBundle(item) && !attemptScore(item).scoreIsFinal ? { ...item, bundleNotReceived: true } : item;
+  if (!attempt || receiptSettled(row) || order === -1) return row;
+  const merged = { ...row };
+  for (const field of ATTEMPT_STATE_FIELDS) if (attempt[field] != null) merged[field] = attempt[field];
+  return receiptSettled(merged) ? merged : row;
+}
+__name(withHistoryAttempt, "withHistoryAttempt");
+var clock = /* @__PURE__ */ __name((time) => `${String(new Date(time).getHours()).padStart(2, "0")}:${String(new Date(time).getMinutes()).padStart(2, "0")}`, "clock");
+async function refreshAttempts(store, keys) {
+  if (!keys.length || store.controller || store.disposed) return;
+  const wanted = keys.map((key2) => {
+    const { scope, attemptId, snapshots } = store.receipts.get(key2);
+    return { key: key2, input: { action: "attempt", attemptId, ...scope }, snapshots };
+  });
+  const controller = new AbortController();
+  store.controller = controller;
+  store.startedAt = Date.now();
+  store.publish();
+  const fresh = [];
+  let next = 0;
+  const worker = /* @__PURE__ */ __name(async () => {
+    while (next < wanted.length && !controller.signal.aborted) {
+      const { key: key2, input, snapshots } = wanted[next++];
+      try {
+        const attempt = await store.query(input, controller.signal);
+        if (attempt?.ok !== false && attempt?.id === input.attemptId && (!input.baseUrl || attempt.baseUrl === input.baseUrl) && (!input.challengeId || String(attempt.challengeId) === input.challengeId)) {
+          fresh.push({ key: key2, snapshots, attempt });
+        }
+      } catch {
+      }
+    }
+  }, "worker");
+  await Promise.all(Array.from({ length: Math.min(refreshConcurrency, wanted.length) }, worker));
+  if (store.controller !== controller) return;
+  store.controller = null;
+  const updates = fresh.map(({ key: key2, snapshots, attempt }) => {
+    const previous = store.attempts[key2];
+    const current = store.receipts.get(key2)?.snapshots;
+    const overlays = new Map([...snapshots].map(([receiptId, receipt]) => {
+      const initial = overlayForReceipt(receipt, previous?.overlays.get(receiptId));
+      const latest = current?.get(receiptId);
+      const overlay = latest && latest !== receipt ? overlayForReceipt(latest, initial) : initial;
+      return [receiptId, { ...overlay, ...observeAttempt(overlay, attempt) }];
+    }));
+    return [key2, { attempt: observeAttempt(previous?.attempt ?? {}, attempt) ?? previous?.attempt, overlays }];
+  });
+  store.attempts = { ...store.attempts, ...Object.fromEntries(updates) };
+  store.failed = fresh.length < wanted.length;
+  if (!store.failed) {
+    store.refreshedAt = Date.now();
+    store.partial = false;
+  } else if (fresh.length) store.partial = true;
+  store.publish();
+}
+__name(refreshAttempts, "refreshAttempts");
+
+// src/client/home/styles.js
+var homeCss = `
+  .pg-home { flex:1; min-width:0; overflow:auto; padding:20px clamp(16px,3.25cqw,48px) 36px; scrollbar-width:thin; }
+  .pg-home h1,.pg-home h2,.pg-home h3,.pg-home dl,.pg-home p { margin:0; }
+  .pg-home h2 { font-size:16px; font-weight:650; }
+  .pg-home h3 { font-size:14px; font-weight:600; }
+  .pg-home-top { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(330px,1fr); gap:var(--pg-s16); }
+  .pg-home-hero,.pg-home-work,.pg-home-lists > section,.pg-home-contest { min-width:0; border:1px solid var(--pg-control-line); border-radius:var(--pg-r8); background:var(--pg-control); }
+  .pg-home-hero { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; padding:clamp(18px,1.9cqw,25px); background:var(--pg-grid),var(--pg-base); }
+  .pg-home-kicker { color:var(--pg-label); font:11px/1.5 var(--pg-font-mono); letter-spacing:.14em; }
+  .pg-home-hero h1 { margin-top:10px; font-size:clamp(26px,3.15cqw,46px); line-height:1.15; letter-spacing:-.035em; }
+  .pg-home .pg-home-tagline { margin-top:8px; color:var(--pg-muted); font-size:clamp(14px,1.45cqw,20px); line-height:1.45; }
+  .pg-home-actions { display:flex; gap:var(--pg-s8); flex-wrap:wrap; margin-top:var(--pg-s16); }
+  .pg-home .pg-home-stats { width:100%; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; border-top:1px solid var(--pg-control-line); padding-top:var(--pg-s16); margin-top:var(--pg-s24); }
+  .pg-home-stats > div { display:flex; flex-direction:column-reverse; gap:3px; }
+  .pg-home-stats dt,.pg-home-work-facts dt { color:var(--pg-muted); font-size:12px; }
+  .pg-home-stats dd { color:var(--pg-text); margin:0; font:600 clamp(13px,1.82cqw,26px)/1.15 var(--pg-font-mono); overflow-wrap:anywhere; }
+  .pg-home-work { padding:var(--pg-s16); }
+  .pg-home-work > h2 { border-bottom:1px solid var(--pg-control-line); padding-bottom:10px; margin-bottom:10px; }
+  .pg-home-work-facts { display:grid; }
+  .pg-home-work-facts > div { display:flex; justify-content:space-between; align-items:center; gap:10px; min-height:30px; }
+  .pg-home-work-facts dd { margin:0; text-align:right; font:12px/1.45 var(--pg-font-mono); overflow-wrap:anywhere; }
+  .pg-home-ready::before,.pg-home-contest-meta [data-status]::before { content:''; display:inline-block; width:7px; height:7px; margin-right:6px; border:1px solid currentColor; border-radius:50%; }
+  .pg-home-ready::before { color:var(--pg-info); background:currentColor; }
+  .pg-home-readiness,.pg-home-contest-list,.pg-home-lists ul { margin:0; padding:0; list-style:none; }
+  .pg-home-readiness { display:grid; gap:3px; margin-top:6px; }
+  .pg-home-readiness li { display:grid; grid-template-columns:22px minmax(0,1fr) auto auto; align-items:center; gap:7px; min-height:38px; border-radius:var(--pg-r4); padding:3px 4px; }
+  .pg-home-readiness li[data-state=next] { background:var(--pg-hover); }
+  .pg-home-step { display:grid; place-items:center; width:20px; height:20px; border:1px dashed var(--pg-label); border-radius:50%; color:var(--pg-muted); font:10px var(--pg-font-mono); }
+  .pg-home-readiness [data-state=done] .pg-home-step { color:var(--pg-accent); border-style:solid; }
+  .pg-home-readiness [data-state=next] .pg-home-step { border-style:solid; color:var(--pg-text); }
+  .pg-home-readiness strong { font-weight:550; font-size:12px; }
+  .pg-home-readiness small { display:block; color:var(--pg-label); font-size:11px; }
+  .pg-home-step-status { color:var(--pg-muted); font-size:10px; white-space:nowrap; }
+  .pg-home-readiness .pg-button { min-height:26px; padding:0 6px; font-size:11px; }
+  .pg-home-section-head { display:flex; align-items:center; gap:var(--pg-s12); margin-bottom:var(--pg-s8); }
+  .pg-home-section-head small { color:var(--pg-label); font:11px var(--pg-font-mono); }
+  .pg-home-section-head button { margin-inline-start:auto; }
+  .pg-home-competitions,.pg-home-lists { margin-top:var(--pg-s16); }
+  .pg-home-contest-list { display:grid; grid-auto-flow:column; grid-auto-columns:max(226px,calc((100% - 24px) / 3)); gap:var(--pg-s12); overflow-x:auto; padding-bottom:3px; scrollbar-width:thin; }
+  .pg-home-contest { display:grid; grid-template-rows:auto 1fr; align-items:start; gap:8px; padding:var(--pg-s12) var(--pg-s16); }
+  .pg-home-contest h3 { overflow-wrap:anywhere; }
+  .pg-home-contest-meta { display:flex; flex-wrap:wrap; gap:5px 12px; align-items:center; font:11px/1.4 var(--pg-font-mono); color:var(--pg-muted); }
+  .pg-home-contest-meta [data-status=live] { color:var(--pg-accent); }
+  .pg-home-contest-meta [data-status=live]::before { background:currentColor; }
+  .pg-home-contest-progress { appearance:none; width:min(180px,100%); height:3px; border:0; border-radius:3px; background:var(--pg-control-line); }
+  .pg-home-contest-progress::-webkit-progress-bar { border-radius:3px; background:var(--pg-control-line); }
+  .pg-home-contest-progress::-webkit-progress-value { border-radius:3px; background:var(--pg-accent); }
+  .pg-home-contest-progress::-moz-progress-bar { border-radius:3px; background:var(--pg-accent); }
+  .pg-home-contest .pg-button { justify-self:start; align-self:end; min-height:28px; }
+  .pg-home-lists { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:var(--pg-s16); }
+  .pg-home-lists > section { padding:var(--pg-s12) var(--pg-s16); }
+  .pg-home-lists h2 { padding:1px 0 var(--pg-s8); }
+  .pg-home-lists li { display:flex; justify-content:space-between; align-items:baseline; gap:var(--pg-s12); border-top:1px solid var(--pg-line); padding:6px 0; font-size:13px; }
+  .pg-home-lists li > :first-child { min-width:0; overflow-wrap:anywhere; }
+  .pg-home-lists li > :only-child { flex:1; }
+  .pg-home-latest button { padding:0; border:0; background:none; color:var(--pg-text); text-align:start; font:inherit; cursor:pointer; }
+  .pg-home-latest button:hover { color:var(--pg-info); text-decoration:underline; }
+  .pg-home-latest span,.pg-home-feed time { flex:none; color:var(--pg-label); font:11px/1.4 var(--pg-font-mono); }
+  .pg-home-feed li > span { color:var(--pg-muted); }
+  @container (max-width:820px) { .pg-home-top { grid-template-columns:minmax(0,1fr); } }
+  @container (max-width:620px) { .pg-home-lists { grid-auto-flow:row; } }
+  @container (max-width:345px) { .pg-home-step-status { display:none; } }
+`;
+
+// src/client/home/index.js
+var HOME_REFRESH_MS = 5 * 60 * 1e3;
+var positiveCount = /* @__PURE__ */ __name((value) => Number.isSafeInteger(value) && value > 0, "positiveCount");
+var formatHomeNumber = /* @__PURE__ */ __name((value) => new Intl.NumberFormat(currentLanguage() === "zh" ? "zh-CN" : "en").format(value), "formatHomeNumber");
+var offsetTime = /[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
+function feedText(value) {
+  if (typeof value !== "string") return "";
+  const template = globalThis.document?.createElement?.("template");
+  if (!template) return value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  template.innerHTML = value;
+  template.content.querySelectorAll("script, style, template, noscript").forEach((node) => node.remove());
+  return template.content.textContent.replace(/\s+/g, " ").trim();
+}
+__name(feedText, "feedText");
+function relativeFeedTime(value, now) {
+  if (typeof value !== "string" || !offsetTime.test(value)) return void 0;
+  const seconds = Math.round((Date.parse(value) - now) / 1e3);
+  if (!Number.isFinite(seconds)) return void 0;
+  const format = new Intl.RelativeTimeFormat(currentLanguage() === "zh" ? "zh-CN" : "en", { numeric: "auto" });
+  for (const [unit, size] of [["day", 86400], ["hour", 3600], ["minute", 60]]) {
+    if (Math.abs(seconds) >= size) return format.format(Math.trunc(seconds / size), unit);
+  }
+  return msg("刚刚", "Just now");
+}
+__name(relativeFeedTime, "relativeFeedTime");
+function deadline(schedule, now) {
+  const { startAt: start, endAt: end, status } = schedule;
+  const value = status === "upcoming" ? start : end;
+  if (!value) return void 0;
+  const date = noticeScheduleDate(value);
+  if (!date) return void 0;
+  if (date.ms === null) return msg("时区未注明", "Time zone unspecified");
+  const left = date.ms - now;
+  if (!Number.isFinite(left) || left <= 0) return void 0;
+  const days = Math.ceil(left / 864e5);
+  const hours = Math.ceil(left / 36e5);
+  return status === "upcoming" ? hours < 24 ? msg("约 " + hours + " 小时后开始", "Starts in ~" + hours + " h") : msg(days + " 天后开始", "Starts in " + days + " d") : hours < 24 ? msg("约剩 " + hours + " 小时", "~" + hours + " h left") : msg("剩 " + days + " 天", days + " d left");
+}
+__name(deadline, "deadline");
+function homeAction(label2, onClick, primary = false, extra = {}) {
+  return h("button", { ...extra, type: "button", className: "pg-button" + (primary ? " pg-primary" : ""), onClick }, label2);
+}
+__name(homeAction, "homeAction");
+function statsRow(stats) {
+  const fields = [
+    ["challenges", msg("开放挑战", "Open challenges")],
+    ["disciplines", msg("学科", "Disciplines")],
+    ["attempts", msg("累计尝试", "Total attempts")],
+    ["discussions", msg("讨论", "Discussions")],
+    ["knights", msg("骑士", "Knights")]
+  ];
+  if (!fields.every(([name]) => positiveCount(stats?.[name]))) return null;
+  return h("dl", { className: "pg-home-stats" }, fields.map(([key2, label2]) => h("div", { key: key2 }, h("dt", null, label2), h("dd", null, formatHomeNumber(stats[key2])))));
+}
+__name(statsRow, "statsRow");
+function readiness({ workspace, inspection, authStatus, actions }) {
+  const codex = inspection?.codex;
+  const agentReady = codex === "registered" || codex === "unavailable";
+  const signedIn = authStatus === "authenticated";
+  const steps = [
+    [
+      true,
+      msg("插件已加载", "Plugin loaded"),
+      msg("Playground 工作台已就绪", "Playground Workbench is ready"),
+      msg("查看版本", "View version"),
+      actions.versions
+    ],
+    [
+      agentReady,
+      msg("子智能体可用", "Subagents available"),
+      codex === "registered" ? msg("已检测到 Codex 子智能体", "Codex subagent detected") : codex === "unavailable" ? msg("可使用 DSH 子智能体", "DSH subagents are available") : msg("选择工作区后检查", "Select a workspace to check"),
+      msg("检查子智能体", "Check subagents"),
+      workspace ? actions.recheck : actions.focusWorkspace
+    ],
+    [
+      Boolean(workspace),
+      msg("选择工作区", "Choose a workspace"),
+      workspace?.title || msg("选择已有 DSH 工作区，或添加一个专用目录", "Choose a DSH workspace or add a folder"),
+      msg("选择工作区", "Choose workspace"),
+      actions.focusWorkspace
+    ],
+    [
+      false,
+      msg("创建主控对话", "Create a controller chat"),
+      msg("主控会在选定工作区协调赛题工作", "The controller coordinates challenges in your workspace"),
+      msg("创建主控对话", "Set up controller"),
+      actions.controller
+    ],
+    [
+      signedIn,
+      msg("登录 Playground（可选）", "Sign in to Playground (optional)"),
+      msg("查看个人提交和请求评测时需要", "For viewing your submissions and requesting evaluation"),
+      signedIn ? msg("查看账号", "View account") : msg("用 API 令牌登录", "Sign in with an API token"),
+      actions.settings
+    ]
+  ];
+  const next = steps.findIndex(([done], index) => !done && index > 1);
+  return h(
+    "div",
+    null,
+    h("h3", null, msg("准备就绪检查", "Readiness check")),
+    h("ol", { className: "pg-home-readiness" }, steps.map(([done, title, detail, label2, run], index) => h(
+      "li",
+      { key: index, "data-state": done ? "done" : index === next ? "next" : "todo" },
+      h("span", { className: "pg-home-step", "aria-hidden": true }, done ? "✓" : String(index + 1).padStart(2, "0")),
+      h("div", null, h("strong", null, title), h("small", null, detail)),
+      h("span", { className: "pg-home-step-status" }, done ? msg("就绪", "Ready") : msg("待完成", "Pending")),
+      homeAction(label2, run)
+    )))
+  );
+}
+__name(readiness, "readiness");
+function myWork({ workspace, inspection, controllerId, taskRows, authStatus, latest, actions }) {
+  const running = taskRows?.filter((row) => row.state === "running").length;
+  const score = latest ? receiptProgress(latest).score : void 0;
+  const fact = /* @__PURE__ */ __name((label2, value) => h("div", null, h("dt", null, label2), h("dd", null, value)), "fact");
+  return h(
+    "section",
+    { className: "pg-home-work" },
+    h("h2", null, msg("我的工作", "My work")),
+    controllerId ? h(
+      React10.Fragment,
+      null,
+      h(
+        "dl",
+        { className: "pg-home-work-facts" },
+        fact(msg("工作区", "Workspace"), workspace.title || workspace.workspaceId),
+        fact(msg("主控", "Controller"), h("span", { className: "pg-home-ready" }, msg("已初始化", "Initialized"))),
+        taskRows && fact(
+          msg("派出的任务", "Dispatched tasks"),
+          msg(taskRows.length + " 个 · " + running + " 运行中", taskRows.length + " tasks · " + running + " running")
+        ),
+        latest && fact(
+          msg("最近提交", "Latest submission"),
+          "#" + latest.id + (Number.isFinite(score) ? " · " + formatHomeNumber(score) : "")
+        )
+      ),
+      h(
+        "div",
+        { className: "pg-home-actions" },
+        homeAction(msg("打开主控", "Open controller"), actions.controller),
+        homeAction(msg("看提交", "View submissions"), actions.submissions)
+      )
+    ) : readiness({ workspace, inspection, authStatus, actions })
+  );
+}
+__name(myWork, "myWork");
+function competitionsSection(items, now, actions) {
+  if (!items?.length) return null;
+  return h(
+    "section",
+    { className: "pg-home-competitions" },
+    h(
+      "header",
+      { className: "pg-home-section-head" },
+      h("h2", null, msg("进行中的比赛", "Ongoing competitions")),
+      h("small", null, msg(items.length + " 场", items.length + " competitions")),
+      homeAction(msg("查看全部 →", "View all →"), actions.browse)
+    ),
+    h("ul", { className: "pg-home-contest-list" }, items.map((item) => {
+      const period = item.periods?.find(({ slug }) => slug === startingPeriod(item));
+      const schedule = period || item;
+      const status = schedule.status;
+      const remaining = deadline(schedule, now);
+      const count = period ? period.count : item.count;
+      const start = noticeScheduleDate(schedule.startAt)?.ms;
+      const end = noticeScheduleDate(schedule.endAt)?.ms;
+      const progress = status === "live" && Number.isFinite(start) && Number.isFinite(end) && start < now && now < end ? (now - start) / (end - start) : void 0;
+      return h(
+        "li",
+        { key: item.id, className: "pg-home-contest" },
+        h("h3", null, [competitionName(item), periodName(period)].filter(Boolean).join(" · ")),
+        h(
+          "div",
+          { className: "pg-home-contest-meta" },
+          h("span", { "data-status": status }, competitionStatusText(status)),
+          remaining && h("span", null, remaining),
+          positiveCount(count) && h("span", null, msg(formatHomeNumber(count) + " 道题", formatHomeNumber(count) + " challenges"))
+        ),
+        progress !== void 0 ? h("progress", {
+          className: "pg-home-contest-progress",
+          value: progress,
+          max: 1,
+          "aria-label": msg("比赛时间进度", "Competition time elapsed")
+        }) : null,
+        homeAction(msg("看赛题", "View challenges"), () => actions.browse({ value: competitionValue(item), period: period?.slug }))
+      );
+    }))
+  );
+}
+__name(competitionsSection, "competitionsSection");
+function latestAttempt(result, account) {
+  if (!result?.ok) return void 0;
+  const when = /* @__PURE__ */ __name(({ createdAt }) => Date.parse(createdAt) || 0, "when");
+  return Object.values(result.byId ?? {}).flatMap(({ items }) => items ?? []).filter((item) => positiveCount(item?.id) && (item.authorId == null || String(item.authorId) === String(account))).reduce((latest, item) => !latest || when(item) > when(latest) || when(item) === when(latest) && item.id > latest.id ? item : latest, void 0);
+}
+__name(latestAttempt, "latestAttempt");
+function HomePanel({ query, account, authStatus, workspace, inspection, controllerId, taskRows, actions, handoff, requestTask }) {
+  const [snapshot2, setSnapshot] = React10.useState(null);
+  const [attempt, setAttempt] = React10.useState(null);
+  const [detail, setDetail] = React10.useState(null);
+  const heading = React10.useRef(null);
+  const entries = React10.useRef(/* @__PURE__ */ new Map());
+  React10.useEffect(() => {
+    const abort = new AbortController();
+    let running = false;
+    const refresh = /* @__PURE__ */ __name(async () => {
+      if (running) return;
+      running = true;
+      try {
+        const result = await query({ action: "home" }, abort.signal);
+        if (!abort.signal.aborted) setSnapshot(result?.ok ? result : null);
+      } catch {
+        if (!abort.signal.aborted) setSnapshot(null);
+      } finally {
+        running = false;
+      }
+    }, "refresh");
+    void refresh();
+    const timer = setInterval(refresh, HOME_REFRESH_MS);
+    return () => {
+      clearInterval(timer);
+      abort.abort();
+    };
+  }, [query]);
+  React10.useEffect(() => {
+    setAttempt(null);
+    if (!controllerId || authStatus !== "authenticated" || account == null) return;
+    const abort = new AbortController();
+    void Promise.resolve().then(() => query({ action: "my_attempts_summary" }, abort.signal)).then((result) => {
+      if (!abort.signal.aborted) setAttempt({ account, value: latestAttempt(result, account) });
+    }).catch(() => {
+    });
+    return () => abort.abort();
+  }, [query, controllerId, authStatus, account]);
+  const now = Date.now();
+  const feed = snapshot2?.feed?.slice(0, 8).map((item) => ({ ...item, text: feedText(item.text) })).filter((item) => item.text);
+  const challenges = snapshot2?.challenges?.slice(0, 6);
+  return h(
+    "main",
+    { className: "pg-home", "aria-label": msg("Playground 首页", "Playground home") },
+    h("style", null, homeCss),
+    h(
+      "div",
+      { className: "pg-home-top" },
+      h(
+        "section",
+        { className: "pg-home-hero" },
+        h("p", { className: "pg-home-kicker" }, msg("OPEN AGENTIC SCIENCE PLATFORM", "OPEN AGENTIC SCIENCE PLATFORM")),
+        h("h1", { tabIndex: -1, ref: heading }, msg("从一道题直击科研现场", "Start with a real research challenge")),
+        h("p", { className: "pg-home-tagline" }, msg("碳基硅基各显本领。", "A place for people and agents to do science.")),
+        h(
+          "div",
+          { className: "pg-home-actions" },
+          homeAction(msg("浏览赛题", "Browse challenges"), () => actions.browse(), true),
+          homeAction(controllerId ? msg("继续主控对话", "Continue controller chat") : msg("创建主控", "Set up a controller"), actions.controller)
+        ),
+        statsRow(snapshot2?.stats)
+      ),
+      myWork({
+        workspace,
+        inspection,
+        controllerId,
+        taskRows,
+        authStatus,
+        latest: authStatus === "authenticated" && attempt?.account === account ? attempt?.value : void 0,
+        actions
+      })
+    ),
+    competitionsSection(snapshot2?.competitions, now, actions),
+    challenges?.length || feed?.length ? h(
+      "div",
+      { className: "pg-home-lists" },
+      challenges?.length ? h(
+        "section",
+        null,
+        h("h2", null, msg("最新挑战", "Latest challenges")),
+        h("ul", { className: "pg-home-latest" }, challenges.map((item) => {
+          const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
+          return h(
+            "li",
+            { key: item.id },
+            h("button", {
+              type: "button",
+              "aria-haspopup": "dialog",
+              ref: /* @__PURE__ */ __name((node) => {
+                if (node) entries.current.set(item.id, node);
+                else entries.current.delete(item.id);
+              }, "ref"),
+              onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick")
+            }, title),
+            positiveCount(item.attempts) ? h("span", null, msg(formatHomeNumber(item.attempts) + " 次", formatHomeNumber(item.attempts) + " attempts")) : null
+          );
+        }))
+      ) : null,
+      feed?.length ? h(
+        "section",
+        null,
+        h("h2", null, msg("实时动态", "Live activity")),
+        h("ul", { className: "pg-home-feed" }, feed.map((item, index) => {
+          const when = relativeFeedTime(item.time, now);
+          return h(
+            "li",
+            { key: index },
+            h("span", null, item.text),
+            when ? h("time", { dateTime: item.time }, when) : null
+          );
+        }))
+      ) : null
+    ) : null,
+    detail ? h(ChallengeDetailDrawer, {
+      key: detail.id,
+      challenge: detail,
+      query,
+      handoff,
+      requestTask,
+      progress: challengeProgress(detail.id, taskRows, [], void 0, void 0, account),
+      close: /* @__PURE__ */ __name(() => setDetail(null), "close"),
+      focusFallback: /* @__PURE__ */ __name(() => [entries.current.get(detail.id), heading.current], "focusFallback")
+    }) : null
+  );
+}
+__name(HomePanel, "HomePanel");
+
+// src/client/controller/task-evidence.js
+function taskEvidence({ state, liveEnd, terminalText }) {
+  if (state === "running" || liveEnd) return "host";
+  return terminalText ? "report" : "none";
+}
+__name(taskEvidence, "taskEvidence");
+
+// src/client/controller/task-presentation.js
+function taskProvider(provider, language) {
+  if (provider === "codex") return "Codex";
+  if (provider === "dsh") return language === "en" ? "DSH subagent" : "DSH 子智能体";
+  return provider;
+}
+__name(taskProvider, "taskProvider");
+function challengeSubtitle({ id, baseUrl }, configuredBase) {
+  const taskPlatform = webRootOf(baseUrl);
+  const configuredPlatform = webRootOf(configuredBase);
+  return taskPlatform && configuredPlatform && taskPlatform !== configuredPlatform ? `${id} · ${taskPlatform}` : id;
+}
+__name(challengeSubtitle, "challengeSubtitle");
+function asDate(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+__name(asDate, "asDate");
+function calendarTime(value, language, now = Date.now()) {
+  const date = asDate(value);
+  if (!date) return null;
+  const today = new Date(now);
+  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  let label2 = time;
+  if (date.toDateString() !== today.toDateString()) {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const prefix = language === "en" ? "Yesterday" : "昨天";
+    label2 = date.toDateString() === yesterday.toDateString() ? `${prefix} ${time}` : date.toLocaleDateString(language, { year: "numeric", month: "2-digit", day: "2-digit" });
+  }
+  return { dateTime: date.toISOString(), title: date.toLocaleString(language), label: label2 };
+}
+__name(calendarTime, "calendarTime");
+function taskRowTime(row, language, now = Date.now()) {
+  const stamp = calendarTime(row.createdAt, language, now);
+  if (!stamp) return null;
+  return { ...stamp, label: language === "en" ? `Created ${stamp.label}` : `创建于 ${stamp.label}` };
+}
+__name(taskRowTime, "taskRowTime");
+
+// src/client/controller/index.js
+function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
+  return h("svg", {
+    width: size,
+    height: size,
+    viewBox,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.3,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true
+  }, h("path", { d: path }));
+}
+__name(lineIcon, "lineIcon");
+function controllerBrand(onClick) {
+  return h(
+    "button",
+    {
+      type: "button",
+      className: "pg-controller-brand",
+      onClick,
+      "aria-label": msg("Playground 首页", "Playground home")
+    },
+    h(
+      "svg",
+      { width: 26, height: 26, viewBox: "0 0 26 26", fill: "none", "aria-hidden": true },
+      h("rect", { x: 1, y: 1, width: 24, height: 24, rx: 6, stroke: "currentColor", strokeWidth: 1.5 }),
+      h("path", { d: "M5 13.5c2.1 0 2.1-6.5 4.2-6.5s2.1 12 4.3 12 2.1-8.5 4.2-8.5c1.3 0 1.9 3 3.3 3", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" })
+    ),
+    h("strong", null, "Playground"),
+    h("small", null, "DSH")
+  );
+}
+__name(controllerBrand, "controllerBrand");
+function evidenceMark(evidence, label2, description) {
+  return h("span", { className: "pg-controller-evidence", "data-evidence": evidence, title: description }, label2);
+}
+__name(evidenceMark, "evidenceMark");
+function groupHeading(title, rows, subtitle, summarize) {
+  const running = rows.filter((row) => row.state === "running").length;
+  const received = rows.filter((row) => row.state !== "running" && (row.terminalText || row.liveEnd?.lastAssistantMessage?.some((part) => part.type === "text" && part.text))).length;
+  const summary = summarize ? msg(
+    rows.length + " 个任务 · " + running + " 运行中 · " + received + " 已回结果",
+    rows.length + " tasks · " + running + " running · " + received + " with results"
+  ) : null;
+  return h(
+    "summary",
+    { className: "pg-controller-group" },
+    lineIcon("M3.5 2 6.5 5l-3 3", 10, "0 0 10 10"),
+    h(
+      "span",
+      { className: "pg-controller-group-label" },
+      h("span", null, title),
+      subtitle ? h("small", null, subtitle) : null,
+      summary ? h("small", { className: "pg-controller-group-overview" }, summary) : null
+    ),
+    summarize ? null : h("span", { className: "pg-controller-task-count" }, rows.length)
+  );
+}
+__name(groupHeading, "groupHeading");
+function taskTime(stamp) {
+  return stamp ? h("time", { dateTime: stamp.dateTime, title: stamp.title }, stamp.label) : null;
+}
+__name(taskTime, "taskTime");
+var stopReasonLabels = /* @__PURE__ */ __name(() => ({
+  completed: { detail: msg("完成", "Completed") },
+  aborted: { detail: msg("已中止", "Aborted"), state: msg("已中止", "Aborted") },
+  "max-tokens": { detail: msg("达到输出上限", "Output limit reached"), state: msg("达到输出上限", "Output limit reached") },
+  refusal: { detail: msg("拒绝", "Refused"), state: msg("拒绝执行", "Task refused") },
+  error: { detail: msg("出错", "Error"), state: msg("运行出错", "Run failed") }
+}), "stopReasonLabels");
+function taskState(row) {
+  if (row.state === "running") return msg("运行中", "Running");
+  const reason = stopReasonLabels()[row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0)];
+  if (reason?.state) return `${row.state === "settled" ? msg("上次", "Previous run: ") : ""}${reason.state}`;
+  if (row.state === "settled") return msg("已收到历史结果", "Received a previous result");
+  if (row.state === "ended" && row.terminalText) return msg("本次运行已结束 · 已收到结果", "Run ended · Result received");
+  return { ended: msg("本次运行已结束", "Run ended"), unknown: msg("状态未知", "Status unknown") }[row.state];
+}
+__name(taskState, "taskState");
+function taskTone(row) {
+  if (row.state === "running") return "running";
+  const reason = row.liveEnd?.stopReason || (row.state === "settled" ? row.noticeStopReason : void 0);
+  if (stopReasonLabels()[reason]?.state) return "error";
+  if (row.terminalText || row.state === "ended") return "result";
+  return "unknown";
+}
+__name(taskTone, "taskTone");
+function controllerHeader(sessionId, viewSwitch) {
+  return h(
+    "div",
+    { className: "pg-controller-chat-head" },
+    h("h2", null, msg("工作区主控", "Workspace controller")),
+    sessionId ? h("span", { className: "pg-badge", "data-tone": "open" }, msg("已初始化", "Initialized")) : null,
+    sessionId ? h(
+      "span",
+      { className: "pg-controller-session", title: sessionId },
+      sessionId.length > 18 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId
+    ) : null,
+    viewSwitch
+  );
+}
+__name(controllerHeader, "controllerHeader");
+function taskOutput(row) {
+  if (row.state === "running") return "";
+  const live = row.liveEnd?.lastAssistantMessage?.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  if (live) return live;
+  const text = row.terminalText || "";
+  const [summary, marker, ...rest] = text.split("\n");
+  const prefix = `Background subagent ${row.childId} `;
+  const endings = ["finished and will do no further work unless you send it more.", "finished. It cannot receive follow-up messages.", "was stopped before it finished.", "ran out of room before it finished.", "declined the task.", "failed before it finished."];
+  return marker === "Its closing message:" && endings.some((ending) => summary === prefix + ending) ? rest.join("\n") : text;
+}
+__name(taskOutput, "taskOutput");
+var TRAJECTORY_VIEW_ID = "trajectory";
+var controllerViews = [["chat", () => msg("对话", "Chat")], [TRAJECTORY_VIEW_ID, () => msg("轨迹", "Trajectory")]].map(([id, label2]) => ({
+  id,
+  label: label2,
+  slots: { views: /* @__PURE__ */ __name(({ renderSlot }) => renderSlot("conversation.session", { view: id }), "views") }
+}));
+var [chatView, trajectoryView] = controllerViews;
+function ControllerSession({ sessionId, useSession, useConversation, useSessions, renderSlot, expectedId, onPromote, busy }) {
+  usePluginLanguage();
+  const session = useSession((value) => value);
+  const conversation = useConversation((value) => value);
+  const blank = useSessions((value) => sessionId === void 0 ? void 0 : value.byId[sessionId]?.blank);
+  if (!expectedId) return sessionId && onPromote ? h("button", { className: "pg-button", disabled: busy, onClick: /* @__PURE__ */ __name(() => onPromote(sessionId), "onClick") }, msg("把当前对话设为主控", "Use this chat as the controller")) : null;
+  if (sessionId !== expectedId) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在打开所选主控对话…", "Opening the selected controller chat…"));
+  if (session?.openState === "error") return h("div", { className: "pg-controller-placeholder pg-controller-error", role: "alert" }, msg("无法加载主控对话，请重新打开。", "Could not load the controller chat. Reopen it to try again."));
+  if (!session || !conversation) return h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在加载主控对话…", "Loading controller chat…"));
+  const shellPhase = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running ? "active" : session.promptAttempted ? "engaging" : "blank";
+  const settling = shellPhase === "blank" && session.openState === "loading" && blank !== true || session.subagent?.address.mode === "continuable" && session.subagent.parentAvailable === void 0;
+  const hero = shellPhase === "blank" && (session.openState === "open" || blank === true);
+  return renderSlot("playground.controller.content", {
+    phase: settling ? "settling" : hero ? "hero" : "active",
+    hero,
+    canSwitchView: shellPhase === "active" && !settling
+  });
+}
+__name(ControllerSession, "ControllerSession");
+function ControllerSessionContent({ sessionId, phase, hero, canSwitchView, useControllerTrajectory, useStore, renderFactorySlot }) {
+  usePluginLanguage();
+  const trajectoryAvailable = useControllerTrajectory((value) => value);
+  const viewRequest = useStore?.((value) => value.viewRequest);
+  const [traceSessionId, setTraceSessionId] = React11.useState(null);
+  const showViewSwitch = trajectoryAvailable && canSwitchView;
+  React11.useEffect(() => {
+    if (showViewSwitch && viewRequest?.view === TRAJECTORY_VIEW_ID) setTraceSessionId(sessionId);
+  }, [sessionId, showViewSwitch, viewRequest]);
+  const view = showViewSwitch && traceSessionId === sessionId ? trajectoryView : chatView;
+  return h(
+    React11.Fragment,
+    null,
+    controllerHeader(sessionId, showViewSwitch ? h(
+      "div",
+      { className: "pg-controller-view-switch", role: "group", "aria-label": msg("主控视图", "Controller view") },
+      controllerViews.map((item) => h("button", {
+        key: item.id,
+        className: "pg-button",
+        type: "button",
+        "aria-pressed": view === item,
+        onClick: /* @__PURE__ */ __name(() => setTraceSessionId(item === trajectoryView ? sessionId : null), "onClick")
+      }, item.label()))
+    ) : null),
+    renderFactorySlot("conversation.content", { variant: "embedded", phase, hero }, { slots: view.slots })
+  );
+}
+__name(ControllerSessionContent, "ControllerSessionContent");
+var PRIMARY_TABS = ["home", "controller", "catalog", "submissions"];
+function ControllerPanel(props) {
+  const language = usePluginLanguage();
+  const { useWorkspaces, useSessions, useControllerTarget, renderSlot, renderFactorySlot, inspectController, openController, openControllerChat, openTask, promoteController, controllerTasks, dispatchChallenge } = props;
+  const workspaces = useWorkspaces((value) => value);
+  const sessions = useSessions((value) => value);
+  const controllerTarget = useControllerTarget((value) => value);
+  const selectedSession = sessions.ids.map((id) => sessions.byId[id]).find((item) => (item?.retainedBy?.mainView ?? 0) > 0);
+  const selectedMarker = selectedSession?.projectionValues?.playgroundController;
+  const [workspaceId, setWorkspaceId] = React11.useState(() => props.controllerSelection.workspaceId || (selectedMarker?.sessionId === selectedSession?.id ? selectedMarker?.workspaceId : "") || "");
+  const [inspection, setInspection] = React11.useState(null);
+  const [expectedId, setExpectedId] = React11.useState("");
+  const [busy, setBusy] = React11.useState(false);
+  const [errorMessage, setError] = React11.useState("");
+  const [view, updateView] = React11.useState(() => props.controllerSelection.view || "home");
+  const setView = /* @__PURE__ */ __name((next) => {
+    props.controllerSelection.view = next;
+    updateView(next);
+  }, "setView");
+  const [releaseVisit, setReleaseVisit] = React11.useState(0);
+  const error = controllerMessage(errorMessage);
+  const [dispatchState, setDispatchState] = React11.useState(null);
+  const [catalogNotice, setCatalogNotice] = React11.useState(null);
+  const [catalogDestination, setCatalogDestination] = React11.useState(null);
+  const workspacePicker = React11.useRef(null);
+  const selectTab = /* @__PURE__ */ __name((tab) => {
+    if (tab === "catalog" && view !== "catalog") setCatalogNotice(null);
+    setView(tab);
+  }, "selectTab");
+  const browse = /* @__PURE__ */ __name((destination) => {
+    setCatalogNotice(null);
+    setCatalogDestination((previous) => ({ ...destination, visit: (previous?.visit ?? 0) + 1 }));
+    setView("catalog");
+  }, "browse");
+  const [dispatchControls] = React11.useState(() => ({ busy: false }));
+  const [authStatus, setAuthStatus] = React11.useState("checking");
+  const [accountName, setAccountName] = React11.useState("");
+  const [accountId, setAccountId] = React11.useState(void 0);
+  const [configuredBase, setConfiguredBase] = React11.useState("");
+  const [updateAuthStatus] = React11.useState(() => (status, user, baseUrl) => {
+    setAuthStatus(status);
+    if (status === "checking") return;
+    setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
+    setAccountId(status === "authenticated" ? user?.id : void 0);
+    setConfiguredBase(baseUrl || "");
+  });
+  const [visited] = React11.useState(() => /* @__PURE__ */ new Set());
+  if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
+  const [preferences] = React11.useState(() => {
+    try {
+      return JSON.parse(window.localStorage?.getItem("playground.controller.pane") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [showTasks, setShowTasks] = React11.useState(() => props.controllerSelection.showTasks ?? preferences.open ?? !window.matchMedia?.("(max-width: 600px)").matches);
+  const [taskWidth, setTaskWidth] = React11.useState(() => Math.min(520, Math.max(300, Number(props.controllerSelection.taskWidth ?? preferences.width) || 380)));
+  const [selectedTask, setSelectedTask] = React11.useState("");
+  const [groupOpen, setGroupOpen] = React11.useState(() => /* @__PURE__ */ new Map());
+  const [taskActionStatus, setTaskActionStatus] = React11.useState("");
+  const [pane] = React11.useState(() => ({ toggle: null, body: null, heading: null, back: null, rows: /* @__PURE__ */ new Map(), focus: "", drag: null }));
+  const savePane = /* @__PURE__ */ __name((change) => {
+    Object.assign(preferences, change);
+    try {
+      window.localStorage?.setItem("playground.controller.pane", JSON.stringify(preferences));
+    } catch {
+    }
+  }, "savePane");
+  const resize = /* @__PURE__ */ __name((width) => {
+    const next = Math.min(520, Math.max(300, width));
+    props.controllerSelection.taskWidth = next;
+    savePane({ width: next });
+    setTaskWidth(next);
+  }, "resize");
+  const toggleTasks = /* @__PURE__ */ __name(() => {
+    if (!showTasks && pane.body?.clientWidth <= 720) pane.focus = "heading";
+    props.controllerSelection.showTasks = !showTasks;
+    savePane({ open: !showTasks });
+    setShowTasks(!showTasks);
+  }, "toggleTasks");
+  React11.useEffect(() => {
+    if (pane.focus === "heading") pane.heading?.focus();
+    else if (pane.focus === "back") pane.back?.focus();
+    else if (pane.focus) pane.rows.get(pane.focus)?.focus();
+    pane.focus = "";
+  }, [selectedTask, showTasks]);
+  const [taskSnapshot, setTaskSnapshot] = React11.useState(null);
+  const [includeChallengeId, setIncludeChallengeId] = React11.useState("");
+  const tasks = taskSnapshot?.workspaceId === workspaceId && taskSnapshot.sessionId === expectedId ? taskSnapshot.value : null;
+  const [retry, setRetry] = React11.useState(0);
+  const [taskRetry, setTaskRetry] = React11.useState(0);
+  const selectWorkspace = /* @__PURE__ */ __name((id) => {
+    if (id === workspaceId) return;
+    props.controllerSelection.workspaceId = id;
+    props.controllerSelection.sessionId = "";
+    setExpectedId("");
+    setInspection(null);
+    setError("");
+    setSelectedTask("");
+    setTaskSnapshot(null);
+    setIncludeChallengeId("");
+    setGroupOpen(/* @__PURE__ */ new Map());
+    setWorkspaceId(id);
+  }, "selectWorkspace");
+  const targetWorkspaceId = controllerTarget && (controllerTarget.workspaceId || workspaces.items.find((item) => item.sessionIds?.includes(controllerTarget.sessionId))?.workspaceId);
+  React11.useEffect(() => {
+    if (!targetWorkspaceId) return;
+    setView("controller");
+    if (targetWorkspaceId !== workspaceId) selectWorkspace(targetWorkspaceId);
+    else if (controllerTarget.sessionId !== expectedId) setRetry(retry + 1);
+    props.clearControllerTarget(controllerTarget);
+  }, [controllerTarget, targetWorkspaceId]);
+  React11.useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 600px)");
+    if (!media) return;
+    const changed = /* @__PURE__ */ __name((event) => {
+      if (event.matches) setShowTasks(false);
+      else setShowTasks(props.controllerSelection.showTasks ?? true);
+    }, "changed");
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
+  React11.useEffect(() => {
+    if (!workspaceId && selectedMarker?.sessionId === selectedSession?.id && selectedMarker?.workspaceId) {
+      props.controllerSelection.workspaceId = selectedMarker.workspaceId;
+      setWorkspaceId(selectedMarker.workspaceId);
+    }
+  }, [workspaceId, selectedSession?.id, selectedMarker?.workspaceId]);
+  React11.useEffect(() => {
+    setExpectedId("");
+    setInspection(null);
+    setError("");
+    if (!workspaceId) return;
+    const abort = new AbortController();
+    inspectController({ workspaceId }, abort.signal).then((value) => {
+      if (abort.signal.aborted) return;
+      setInspection(value);
+      if (value.kind === "existing" && !value.archived) {
+        props.controllerSelection.sessionId = value.sessionId;
+        setExpectedId(value.sessionId);
+        Promise.resolve(openControllerChat(value.sessionId)).catch(() => {
+          if (!abort.signal.aborted) {
+            setExpectedId("");
+            setError("无法打开主控对话，请重试。");
+          }
+        });
+      }
+    }).catch((failure) => {
+      if (!abort.signal.aborted) setError(failure.message);
+    });
+    return () => abort.abort();
+  }, [workspaceId, retry]);
+  React11.useEffect(() => {
+    setTaskSnapshot(null);
+  }, [workspaceId, expectedId]);
+  React11.useEffect(() => {
+    if (!workspaceId || !expectedId || !controllerTasks) return;
+    const abort = new AbortController();
+    let inFlight = false;
+    const refresh = /* @__PURE__ */ __name(() => {
+      if (inFlight) return;
+      inFlight = true;
+      void controllerTasks({ workspaceId, sessionId: expectedId, ...includeChallengeId && { includeChallengeId } }, abort.signal).then((value) => {
+        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value, updatedAt: Date.now() });
+      }).catch(() => {
+        if (!abort.signal.aborted) setTaskSnapshot({ workspaceId, sessionId: expectedId, value: { kind: "unavailable" } });
+      }).finally(() => {
+        inFlight = false;
+      });
+    }, "refresh");
+    void refresh();
+    const timer = setInterval(refresh, 4e3);
+    return () => {
+      abort.abort();
+      clearInterval(timer);
+    };
+  }, [workspaceId, expectedId, controllerTasks, taskRetry, includeChallengeId]);
+  const selectController = /* @__PURE__ */ __name((sessionId) => {
+    setInspection({ kind: "existing", sessionId, archived: false });
+    props.controllerSelection.sessionId = sessionId;
+    setExpectedId(sessionId);
+  }, "selectController");
+  const open = /* @__PURE__ */ __name(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await openController({ workspaceId, createIfMissing: true });
+      if (result.kind !== "opened") setError(result.reason);
+      else {
+        selectController(result.sessionId);
+        await openControllerChat(result.sessionId);
+      }
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }, "open");
+  const selectedWorkspace = workspaces.phase === "ready" && workspaces.items.find((item) => item.workspaceId === workspaceId);
+  const homeController = selectedWorkspace && inspection?.kind === "existing" && !inspection.archived ? inspection.sessionId : "";
+  const showController = /* @__PURE__ */ __name(() => {
+    selectTab("controller");
+    if (!homeController && !workspaceId) workspacePicker.current?.focus();
+  }, "showController");
+  const showVersion = /* @__PURE__ */ __name(() => {
+    setReleaseVisit((visit) => visit + 1);
+    setView("settings");
+  }, "showVersion");
+  const handoffWorkspace = dispatchState?.coordination && dispatchState.workspaceId !== workspaceId ? void 0 : selectedWorkspace;
+  const selectedController = selectedWorkspace && inspection?.kind === "existing" && !inspection.archived ? inspection.sessionId : "";
+  const canInitialize = selectedWorkspace && (inspection?.kind === "absent" || inspection?.kind === "incomplete");
+  const needsRecheck = dispatchState?.phase === "error" && dispatchState.workspaceId === workspaceId && (["controller_changed", "controller_missing", "controller_init_required", "controller_archived", "workspace_mismatch"].includes(dispatchState.code) || dispatchState.coordination && ["controller_init_failed", "controller_attach_failed", "controller_open_failed"].includes(dispatchState.code) || dispatchState.sessionId && inspection && dispatchState.sessionId !== selectedController);
+  const recheckHandoff = /* @__PURE__ */ __name(() => {
+    setDispatchState({
+      phase: "guide",
+      challenge: dispatchState.challenge,
+      context: dispatchState.context,
+      showDialog: true,
+      ...dispatchState.coordination && { coordination: dispatchState.coordination, workspaceId, showDialog: true }
+    });
+    setRetry(retry + 1);
+  }, "recheckHandoff");
+  const openAfterDispatch = /* @__PURE__ */ __name(async (state) => {
+    try {
+      await openControllerChat(state.sessionId);
+      selectController(state.sessionId);
+      if (state.linked) {
+        const value = await controllerTasks?.({ workspaceId: state.workspaceId, sessionId: state.sessionId, includeChallengeId: state.challenge.id }).catch(() => void 0);
+        if (value?.kind !== "ready" || value.missingLinkedChildren || !value.linkedChildIds?.length || !state.childIds.every((id) => value.linkedChildIds.includes(id))) {
+          setDispatchState({ ...state, phase: "error", code: "linked_task_unavailable" });
+          return;
+        }
+        setIncludeChallengeId(state.challenge.id);
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value, updatedAt: Date.now() });
+        setShowTasks(true);
+        setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
+        setGroupOpen(/* @__PURE__ */ new Map());
+      }
+      const notice = state.coordination?.notice;
+      if (notice && state.noticeKey === notice.key) notice.acknowledge();
+      setDispatchState(null);
+      setView("controller");
+    } catch {
+      setDispatchState({ ...state, phase: "accepted" });
+    }
+  }, "openAfterDispatch");
+  const retryOpenAfterDispatch = /* @__PURE__ */ __name(async (state) => {
+    if (dispatchControls.busy) return;
+    dispatchControls.busy = true;
+    setDispatchState({ ...state, phase: "opening" });
+    try {
+      await openAfterDispatch(state);
+    } finally {
+      dispatchControls.busy = false;
+    }
+  }, "retryOpenAfterDispatch");
+  const sendChallenge = /* @__PURE__ */ __name(async (state, target, initialize = false) => {
+    if (busy || dispatchControls.busy || !selectedWorkspace || target.workspaceId !== workspaceId) return;
+    dispatchControls.busy = true;
+    let attempt = { ...state, ...target, requestId: state.requestId || crypto.randomUUID(), phase: initialize && state.coordination ? "initializing" : "sending" };
+    setDispatchState(attempt);
+    try {
+      if (initialize) {
+        const opened = await openController({
+          workspaceId: target.workspaceId,
+          createIfMissing: true,
+          ...state.coordination && { expectedSessionId: target.sessionId || null }
+        });
+        if (opened.kind !== "opened") {
+          setDispatchState({ ...attempt, phase: "error", code: opened.code, message: opened.reason });
+          return;
+        }
+        attempt = { ...attempt, sessionId: opened.sessionId };
+        if (state.coordination) {
+          try {
+            await openControllerChat(opened.sessionId);
+          } catch {
+            setExpectedId("");
+            setInspection(null);
+            setError("无法打开主控对话，请重试。");
+            setDispatchState({ ...attempt, phase: "error", code: "controller_open_failed", message: "无法打开主控对话，请重试。" });
+            return;
+          }
+          selectController(opened.sessionId);
+          setDispatchState({ ...attempt, phase: "guide" });
+          return;
+        }
+        setInspection({ kind: "existing", sessionId: opened.sessionId, archived: false });
+      }
+      const notice = state.coordination?.notice;
+      const result = await dispatchChallenge({
+        workspaceId: attempt.workspaceId,
+        sessionId: attempt.sessionId,
+        challengeId: attempt.challenge.id,
+        requestId: attempt.requestId,
+        ...notice && { notice: { scope: notice.scope, key: notice.key } }
+      });
+      if ((result.kind === "accepted" || result.kind === "linked") && result.sessionId === attempt.sessionId) {
+        await openAfterDispatch({ ...attempt, linked: result.kind === "linked", childIds: result.childIds, noticeKey: result.noticeKey });
+      } else {
+        setDispatchState({ ...attempt, phase: "error", code: result.code, message: result.reason || "DSH 未确认接收请求，请重试。" });
+      }
+    } catch (failure) {
+      setDispatchState({ ...attempt, phase: "error", message: failure.message || "无法交给主控，请重试。" });
+    } finally {
+      dispatchControls.busy = false;
+    }
+  }, "sendChallenge");
+  const startHandoff = /* @__PURE__ */ __name((challenge, coordination, context) => {
+    if (busy || dispatchControls.busy) return;
+    if (coordination) {
+      setDispatchState({ phase: "guide", challenge, context, coordination, workspaceId: "", showDialog: true });
+      return;
+    }
+    if (dispatchState?.phase === "accepted" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId) return retryOpenAfterDispatch(dispatchState);
+    const retry2 = dispatchState?.phase === "error" && dispatchState.challenge.id === challenge.id && dispatchState.workspaceId === workspaceId;
+    if (!retry2) setDispatchState({ phase: "guide", challenge, context, showDialog: true });
+  }, "startHandoff");
+  const coordinate = /* @__PURE__ */ __name((target, notice) => {
+    if (target.kind === "challenge") return startHandoff(
+      { id: target.challengeId, title: target.title },
+      { notice },
+      { competition: msg(notice.titleZh || notice.title, notice.title || notice.titleZh), webBase: notice.scope }
+    );
+    setCatalogNotice({ ...notice, target, visit: (catalogNotice?.visit ?? 0) + 1 });
+    setView("catalog");
+  }, "coordinate");
+  const handoff = { state: dispatchState, start: /* @__PURE__ */ __name((challenge, notice, context) => startHandoff(challenge, catalogNotice ? { notice } : void 0, context), "start"), catalogNotice };
+  const selectHandoffWorkspace = /* @__PURE__ */ __name((id) => {
+    if (workspaceId !== id || dispatchState.coordination && dispatchState.workspaceId !== id) {
+      setDispatchState({
+        phase: "guide",
+        challenge: dispatchState.challenge,
+        context: dispatchState.context,
+        coordination: dispatchState.coordination,
+        workspaceId: id,
+        showDialog: true
+      });
+    }
+    selectWorkspace(id);
+  }, "selectHandoffWorkspace");
+  const handoffBusy = ["sending", "initializing", "opening"].includes(dispatchState?.phase);
+  const showHandoffDialog = dispatchState && (dispatchState.phase !== "sending" || dispatchState.showDialog);
+  let handoffMessage;
+  let handoffAction;
+  if (showHandoffDialog) {
+    if (handoffBusy) {
+      handoffMessage = dispatchState.phase === "initializing" ? msg("正在初始化主控对话…", "Setting up controller chat…") : dispatchState.phase === "sending" ? msg("正在交给主控…", "Handing off to the controller…") : msg("正在打开主控对话…", "Opening controller chat…");
+    } else if (dispatchState.phase === "accepted") {
+      handoffMessage = dispatchState.linked ? msg("此题已有主控任务，暂时无法打开对话。", "This challenge already has controller work. Its chat could not be opened.") : msg("主控已接收请求，无法打开对话。", "The controller received the request, but its chat could not be opened.");
+      if (dispatchState.workspaceId === workspaceId) handoffAction = { label: msg("打开主控对话", "Open controller chat"), run: /* @__PURE__ */ __name(() => retryOpenAfterDispatch(dispatchState), "run") };
+    } else if (!handoffWorkspace) {
+      handoffMessage = workspaces.state === "error" ? msg("无法读取 DSH 工作区，请重启 DSH 后重试。", "Could not load DSH workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取 DSH 工作区…", "Loading DSH workspaces…") : workspaces.items.length ? msg("请选择赛题工作所在的工作区。", "Choose the workspace for this challenge.") : msg("还没有工作区。请选择一个目录添加为工作区。", "No workspaces yet. Choose a folder to add one.");
+    } else if (inspection?.kind === "blocked" || inspection?.archived) {
+      handoffMessage = controllerMessage(inspection.reason) || msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.");
+      handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
+    } else if (dispatchState.code === "platform_changed") {
+      handoffMessage = controllerMessage(dispatchState.message);
+    } else if (dispatchState.code === "linked_task_unavailable") {
+      handoffMessage = msg("无法打开已关联的子任务，请在主控对话中核对已有工作。", "The linked child task could not be opened. Check the existing work in the controller chat.");
+    } else if (dispatchState.code === "controller_history_unavailable") {
+      handoffMessage = msg("无法核对完整派工历史，请在主控对话中检查已有工作。", "The full assignment history could not be verified. Check existing work in the controller chat.");
+    } else if (needsRecheck) {
+      handoffMessage = controllerMessage(dispatchState.message);
+      handoffAction = { label: msg("重新核对", "Check again"), run: recheckHandoff };
+    } else if (selectedController || canInitialize) {
+      const state = dispatchState.workspaceId && dispatchState.workspaceId !== workspaceId ? { challenge: dispatchState.challenge, context: dispatchState.context } : dispatchState;
+      const sessionId = state.sessionId || selectedController || state.coordination && inspection.sessionId;
+      const copy = state.coordination ? noticeHandoffCopy(inspection, handoffWorkspace, state.coordination.notice) : {
+        label: selectedController ? msg("确认交给主控", "Confirm handoff") : inspection.kind === "incomplete" ? msg("初始化并交接", "Initialize and hand off") : msg("创建主控并交接", "Create controller and hand off"),
+        message: canInitialize ? msg("DSH 会发送一条初始化消息，再把赛题交给主控。", "DSH will send a setup message before handing the challenge to the controller.") : msg(
+          `工作区「${handoffWorkspace.title || workspaceId}」的主控 ${selectedController} 将协调此题。交接后可在主控对话中查看派发进度。`,
+          `Controller ${selectedController} in workspace “${handoffWorkspace.title || workspaceId}” will coordinate this challenge. Follow its progress in the controller chat.`
+        )
+      };
+      handoffMessage = dispatchState.phase === "error" && state === dispatchState ? controllerMessage(dispatchState.message) : copy.message;
+      handoffAction = { label: copy.label, run: /* @__PURE__ */ __name(() => sendChallenge({ ...state, showDialog: true }, { workspaceId, sessionId }, !selectedController), "run") };
+    } else {
+      handoffMessage = error || msg("正在核对工作区的主控对话…", "Checking the workspace controller chat…");
+      if (error) handoffAction = { label: msg("重新核对", "Check again"), run: /* @__PURE__ */ __name(() => setRetry(retry + 1), "run") };
+    }
+  }
+  const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
+  const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : "";
+  const [handoffTasks, setHandoffTasks] = React11.useState(null);
+  React11.useEffect(() => {
+    setHandoffTasks(null);
+    if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
+    const abort = new AbortController();
+    void controllerTasks({ workspaceId, sessionId: selectedController, includeChallengeId: handoffChallengeId }, abort.signal).then((snapshot2) => {
+      if (abort.signal.aborted || snapshot2?.kind !== "ready") return;
+      const count = snapshot2.rows?.filter(({ challenge }) => challenge?.id === handoffChallengeId && webRootOf(challenge.baseUrl) === handoffBase).length;
+      setHandoffTasks({ workspaceId, sessionId: selectedController, challengeId: handoffChallengeId, base: handoffBase, retry, count });
+    }).catch(() => {
+    });
+    return () => abort.abort();
+  }, [workspaceId, selectedController, handoffChallengeId, handoffBase, retry, controllerTasks]);
+  const handoffTaskCount = handoffTasks?.workspaceId === workspaceId && handoffTasks.sessionId === selectedController && handoffTasks.challengeId === handoffChallengeId && handoffTasks.base === handoffBase && handoffTasks.retry === retry ? handoffTasks.count : void 0;
+  const row = tasks?.rows?.find((item) => item.childId === selectedTask);
+  const challengeGroups = /* @__PURE__ */ new Map();
+  const unassociated = [];
+  const maintenance = [];
+  for (const item of tasks?.rows || []) {
+    if (item.category === "maintenance") {
+      maintenance.push(item);
+      continue;
+    }
+    const challenge = item.challenge;
+    if (!challenge) {
+      unassociated.push(item);
+      continue;
+    }
+    const groupKey = JSON.stringify([challenge.baseUrl, challenge.id]);
+    if (!challengeGroups.has(groupKey)) challengeGroups.set(groupKey, { challenge, rows: [] });
+    challengeGroups.get(groupKey).rows.push(item);
+  }
+  const taskCount = (tasks?.rows?.length ?? 0) - maintenance.length;
+  const taskRows = tasks?.kind === "ready" ? tasks.rows.filter(({ category }) => category !== "maintenance") : void 0;
+  const childAddress = expectedId && (row?.mode === "continuable" || row?.mode === "one-shot") ? { parentSessionId: expectedId, childSessionId: row.childId, mode: row.mode } : null;
+  const evidenceLabels = {
+    host: msg("宿主记录", "Host record"),
+    report: msg("Agent 报告", "Agent report"),
+    none: msg("无运行记录", "No run record")
+  };
+  const evidenceDescriptions = {
+    host: msg("DSH 亲眼看到的运行（最可信）", "Run observed by DSH (highest confidence)"),
+    report: msg("子智能体自己说的结果，还没人核对", "Result reported by the subagent and awaiting verification"),
+    none: msg("既没看到运行也没收到结果", "No run observed and no result received")
+  };
+  const stateBadge = /* @__PURE__ */ __name((item, compact = false) => {
+    const label2 = taskState(item) || msg("状态未知", "Status unknown");
+    const tone = taskTone(item);
+    const showResult = compact && tone === "result" && item.state === "ended" && item.terminalText;
+    return h(
+      "span",
+      { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
+      showResult ? msg("已收到结果", "Result received") : label2
+    );
+  }, "stateBadge");
+  const listRow = /* @__PURE__ */ __name((item) => {
+    const evidence = taskEvidence(item);
+    const time = taskTime(taskRowTime(item, language));
+    const provider = taskProvider(item.provider, language);
+    return h(
+      "button",
+      {
+        type: "button",
+        key: item.childId,
+        className: "pg-controller-row",
+        ref: /* @__PURE__ */ __name((node) => {
+          if (node) pane.rows.set(item.childId, node);
+          else pane.rows.delete(item.childId);
+        }, "ref"),
+        onClick: /* @__PURE__ */ __name(() => {
+          pane.focus = "back";
+          setTaskActionStatus("");
+          setSelectedTask(item.childId);
+        }, "onClick")
+      },
+      h("strong", null, item.label || msg("未命名任务", "Untitled task")),
+      h("span", { className: "pg-controller-row-arrow", "aria-hidden": true }, "›"),
+      h(
+        "span",
+        { className: "pg-controller-row-meta" },
+        stateBadge(item, true),
+        evidenceMark(evidence, evidenceLabels[evidence], evidenceDescriptions[evidence]),
+        provider || time ? h(
+          "span",
+          { className: "pg-controller-row-time" },
+          provider,
+          provider && time ? " · " : null,
+          time
+        ) : null
+      )
+    );
+  }, "listRow");
+  const detailEvidence = row && taskEvidence(row);
+  const detailProvider = row && taskProvider(row.provider, language);
+  const detailTime = row && taskTime(taskRowTime(row, language));
+  const output = row && taskOutput(row);
+  const taskGroup = /* @__PURE__ */ __name((key2, rows, title, subtitle, initiallyOpen = false, className = "pg-controller-challenge") => {
+    const open2 = groupOpen.get(key2) ?? initiallyOpen;
+    return h(
+      "details",
+      {
+        key: key2,
+        className,
+        open: open2,
+        onToggle: /* @__PURE__ */ __name((event) => {
+          const expanded = event.currentTarget.open;
+          if (expanded !== open2) setGroupOpen((groups) => new Map(groups).set(key2, expanded));
+        }, "onToggle")
+      },
+      groupHeading(title, rows, subtitle, initiallyOpen),
+      h("div", { className: "pg-controller-group-rows" }, rows.map(listRow))
+    );
+  }, "taskGroup");
+  return h(
+    "div",
+    { className: "pg-controller" },
+    h("style", null, css + controllerPanelCss + codexCss),
+    view === "controller" ? h(CompetitionNotices, { query: props.query, memory: props.noticeMemory, onCoordinate: coordinate }) : null,
+    h(
+      "header",
+      { className: "pg-controller-bar" },
+      controllerBrand(() => selectTab("home")),
+      h(
+        "div",
+        { className: "pg-controller-workspace" },
+        lineIcon("M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-9.5c-.83 0-1.5-.67-1.5-1.5v-7.75Z"),
+        h(
+          "span",
+          { className: "pg-controller-workspace-text" },
+          h("span", { "aria-hidden": true }, selectedWorkspace ? selectedWorkspace.title || msg("未命名工作区", "Untitled workspace") : msg("选择工作区", "Select workspace")),
+          selectedWorkspace?.path ? h("small", { id: "pg-controller-workspace-path", title: selectedWorkspace.path }, selectedWorkspace.path) : null
+        ),
+        lineIcon("M3 4.5 6 7.5l3-3", 12, "0 0 12 12"),
+        h(
+          "select",
+          {
+            "aria-label": msg("工作区", "Workspace"),
+            "aria-describedby": selectedWorkspace?.path ? "pg-controller-workspace-path" : void 0,
+            ref: workspacePicker,
+            value: workspaceId,
+            disabled: busy || handoffBusy,
+            onChange: /* @__PURE__ */ __name(async (event) => {
+              if (dispatchControls.busy) return;
+              if (event.target.value === "__add_workspace__") {
+                setBusy(true);
+                setError("");
+                try {
+                  await props.addTaskWorkspace();
+                } catch {
+                  setError("无法添加工作区，请重试。");
+                } finally {
+                  setBusy(false);
+                }
+                return;
+              }
+              selectWorkspace(event.target.value);
+            }, "onChange")
+          },
+          h("option", { value: "" }, msg("选择工作区", "Select workspace")),
+          workspaceOptions(workspaces.items),
+          h("option", { value: "__add_workspace__", disabled: busy }, msg("添加工作区…", "Add workspace…"))
+        )
+      ),
+      h(
+        "nav",
+        { className: "pg-controller-tabs", role: "tablist", "aria-label": msg("Playground 导航", "Playground navigation"), onKeyDown: /* @__PURE__ */ __name((event) => {
+          const ids = PRIMARY_TABS;
+          const index = Math.max(0, ids.indexOf(view));
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === "Home" ? 0 : event.key === "End" ? ids.length - 1 : (index + (event.key === "ArrowRight" ? 1 : ids.length - 1)) % ids.length;
+          selectTab(ids[next]);
+          event.currentTarget.querySelectorAll("[role=tab]")[next]?.focus();
+        }, "onKeyDown") },
+        [["home", msg("首页", "Home")], ["controller", msg("主控", "Controller")], ["catalog", msg("赛题", "Challenges")], ["submissions", msg("提交", "Submissions")]].map(([id, title]) => h("button", { key: id, className: "pg-controller-tab", role: "tab", tabIndex: view === id || view === "settings" && id === "controller" ? 0 : -1, "aria-selected": view === id, onClick: /* @__PURE__ */ __name(() => selectTab(id), "onClick") }, title))
+      ),
+      h(
+        "div",
+        { className: "pg-controller-account" },
+        h(ReleaseIndicator, { checks: props.releaseChecks, active: view === "controller", open: showVersion }),
+        h(LanguageMenu),
+        h(
+          "button",
+          { className: "pg-controller-connection", title: msg("连接设置", "Connection settings"), "data-status": authStatus, onClick: /* @__PURE__ */ __name(() => setView("settings"), "onClick") },
+          accountName ? h("span", { className: "pg-controller-account-mark", title: accountName, "aria-hidden": true }, Array.from(accountName).slice(0, 2).join("").toLocaleUpperCase()) : null,
+          h("span", { className: "pg-controller-connection-dot", "aria-hidden": true }),
+          { checking: msg("检查中…", "Checking…"), authenticated: msg("已登录", "Signed in"), unauthenticated: msg("未登录", "Signed out"), unavailable: msg("检测失败", "Check failed") }[authStatus]
+        ),
+        view === "controller" ? h(
+          "button",
+          { className: "pg-controller-icon", ref: /* @__PURE__ */ __name((node) => {
+            pane.toggle = node;
+          }, "ref"), title: showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-label": showTasks ? msg("隐藏任务侧栏", "Hide task sidebar") : msg("显示任务侧栏", "Show task sidebar"), "aria-expanded": showTasks, "aria-controls": "pg-controller-tasks", onClick: toggleTasks },
+          h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 2 }), h("path", { d: "M15 4v16" }))
+        ) : null
+      )
+    ),
+    h(
+      "div",
+      { className: "pg-controller-body", ref: /* @__PURE__ */ __name((node) => {
+        pane.body = node;
+      }, "ref") },
+      view === "home" ? h(HomePanel, {
+        query: props.query,
+        authStatus,
+        account: accountId,
+        workspace: selectedWorkspace,
+        inspection,
+        controllerId: homeController,
+        taskRows,
+        requestTask: props.requestTask,
+        handoff: { state: dispatchState, start: /* @__PURE__ */ __name((challenge) => startHandoff(challenge, void 0, { webBase: configuredBase }), "start") },
+        actions: {
+          browse,
+          controller: showController,
+          submissions: /* @__PURE__ */ __name(() => selectTab("submissions"), "submissions"),
+          settings: /* @__PURE__ */ __name(() => setView("settings"), "settings"),
+          versions: showVersion,
+          recheck: /* @__PURE__ */ __name(() => setRetry(retry + 1), "recheck"),
+          focusWorkspace: /* @__PURE__ */ __name(() => workspacePicker.current?.focus(), "focusWorkspace")
+        }
+      }) : null,
+      h(
+        "main",
+        { className: "pg-controller-chat", style: { display: view === "controller" ? "flex" : "none" } },
+        !expectedId ? controllerHeader() : null,
+        !workspaceId ? h("div", { className: "pg-controller-placeholder", role: workspaces.state === "error" ? "alert" : void 0 }, workspaces.state === "error" ? msg("无法读取工作区，请重启 DSH 后重试。", "Could not load workspaces. Restart DSH and try again.") : workspaces.phase !== "ready" ? msg("正在读取工作区…", "Loading workspaces…") : msg("选择工作区以打开或创建主控对话。", "Choose a workspace to open or create a controller chat."), error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null) : !expectedId && workspaceId && error && !inspection ? h("div", { className: "pg-controller-placeholder", role: "alert" }, error, h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setRetry(retry + 1), "onClick") }, msg("重试", "Retry"))) : !expectedId && workspaceId && !inspection ? h("div", { className: "pg-controller-placeholder", role: "status" }, msg("正在核对主控对话…", "Checking controller chat…")) : !expectedId && workspaceId && inspection ? h(
+          "div",
+          { className: "pg-controller-placeholder" },
+          h("p", null, inspection.kind === "blocked" ? controllerMessage(inspection.reason) : inspection.archived ? msg("主控对话已归档，请先取消归档。", "The controller chat is archived. Unarchive it to continue.") : msg("为此工作区打开或创建主控对话。", "Open or create a controller chat for this workspace.")),
+          inspection.kind !== "blocked" && !inspection.archived ? h("button", { className: "pg-button pg-primary", disabled: busy, onClick: open }, busy ? msg("正在打开…", "Opening…") : inspection.kind === "absent" ? msg("创建主控对话", "Create controller chat") : msg("打开主控对话", "Open controller chat")) : null,
+          h("p", null, msg("空对话会收到一条初始化消息。", "An empty chat will receive a setup message.")),
+          renderSlot("playground.controller.session", { expectedId: "", busy, onPromote: /* @__PURE__ */ __name(async (sessionId) => {
+            setBusy(true);
+            setError("");
+            try {
+              const result = await promoteController({ workspaceId, sessionId });
+              if (result.kind === "opened") {
+                selectController(result.sessionId);
+                await openControllerChat(result.sessionId);
+              } else setError(result.reason);
+            } catch (failure) {
+              setError(failure.message);
+            } finally {
+              setBusy(false);
+            }
+          }, "onPromote") }),
+          error ? h("p", { className: "pg-controller-error", role: "alert" }, error) : null
+        ) : renderSlot("playground.controller.session", { expectedId })
+      ),
+      h(
+        "main",
+        { className: "pg-workbench", style: { display: view === "settings" ? "block" : "none", padding: 24, overflow: "auto" } },
+        h("style", null, css),
+        h("h1", null, msg("连接设置", "Connection settings")),
+        h(AuthStatusPanel, { ...props, onStatusChange: updateAuthStatus }),
+        view === "settings" ? h(CompetitionNoticeSetting, { memory: props.noticeMemory }) : null,
+        visited.has("settings") ? h(ReleaseStatusPanel, {
+          query: props.query,
+          checks: props.releaseChecks,
+          installRelease: props.installRelease,
+          visit: releaseVisit
+        }) : null
+      ),
+      ["catalog", "submissions"].map((section) => visited.has(section) ? h("div", { key: section, style: { display: view === section ? "flex" : "none", flex: 1, minWidth: 0, minHeight: 0 } }, renderSlot("playground.library", { libraryOnly: true, section, active: view === section, ...section === "catalog" ? { handoff, catalogDestination, controllerRows: tasks?.kind === "ready" ? tasks.rows : void 0, account: authStatus === "authenticated" ? accountId : void 0 } : {} })) : null),
+      view === "controller" && showTasks ? h(
+        React11.Fragment,
+        null,
+        h("div", {
+          className: "pg-controller-resize",
+          role: "separator",
+          tabIndex: 0,
+          "aria-label": msg("调整任务侧栏宽度", "Resize task sidebar"),
+          "aria-orientation": "vertical",
+          "aria-valuemin": 300,
+          "aria-valuemax": 520,
+          "aria-valuenow": taskWidth,
+          onKeyDown: /* @__PURE__ */ __name((event) => {
+            const next = { ArrowLeft: taskWidth + 10, ArrowRight: taskWidth - 10, Home: 300, End: 520 }[event.key];
+            if (next !== void 0) {
+              event.preventDefault();
+              resize(next);
+            }
+          }, "onKeyDown"),
+          onPointerDown: /* @__PURE__ */ __name((event) => {
+            pane.drag = { x: event.clientX, width: taskWidth };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }, "onPointerDown"),
+          onPointerMove: /* @__PURE__ */ __name((event) => {
+            if (pane.drag) resize(pane.drag.width + pane.drag.x - event.clientX);
+          }, "onPointerMove"),
+          onPointerUp: /* @__PURE__ */ __name(() => {
+            pane.drag = null;
+          }, "onPointerUp"),
+          onPointerCancel: /* @__PURE__ */ __name(() => {
+            pane.drag = null;
+          }, "onPointerCancel")
+        }),
+        h(
+          "aside",
+          { id: "pg-controller-tasks", className: "pg-controller-tasks", "aria-label": msg("派出的任务", "Dispatched tasks"), style: { width: taskWidth }, onKeyDown: /* @__PURE__ */ __name((event) => {
+            if (event.key === "Escape" && pane.body?.clientWidth <= 720) {
+              toggleTasks();
+              pane.toggle?.focus();
+            }
+          }, "onKeyDown") },
+          h(
+            "header",
+            { className: "pg-controller-task-head" },
+            h("h2", { tabIndex: -1, ref: /* @__PURE__ */ __name((node) => {
+              pane.heading = node;
+            }, "ref") }, msg("派出的任务", "Dispatched tasks")),
+            tasks?.kind === "ready" && taskCount > 0 ? h(
+              "span",
+              { className: "pg-controller-task-count" },
+              msg(`${taskCount} 个 · ${challengeGroups.size} 道赛题`, `${taskCount} tasks · ${challengeGroups.size} challenges`)
+            ) : null,
+            h(
+              "button",
+              {
+                type: "button",
+                className: "pg-button pg-controller-refresh",
+                disabled: !expectedId,
+                "aria-label": msg("刷新任务", "Refresh tasks"),
+                onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick")
+              },
+              lineIcon("M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75", 14)
+            ),
+            h(
+              "details",
+              { className: "pg-controller-evidence-info" },
+              h("summary", null, h("span", { "aria-hidden": true }, "ⓘ"), msg("状态从哪来", "Status sources")),
+              h("ul", null, Object.entries(evidenceLabels).map(([kind, label2]) => h(
+                "li",
+                { key: kind },
+                evidenceMark(kind, label2),
+                h("span", null, evidenceDescriptions[kind])
+              )))
+            )
+          ),
+          h("p", { className: "pg-controller-task-intro" }, msg(
+            "主控把题拆成子任务，交给 Codex 或 DSH 子智能体去做；这里看每个子任务做到哪、结果回来没有。提交评测不在这里。",
+            "The controller assigns subtasks to Codex or DSH subagents. Follow their progress and results here. Evaluation is under Submissions."
+          )),
+          tasks?.kind === "ready" ? h(
+            "div",
+            { className: "pg-controller-task-status" },
+            h("span", null, msg("状态更新于 ", "Updated "), taskTime(calendarTime(taskSnapshot.updatedAt, language))),
+            h("span", { className: "pg-controller-rule", "aria-hidden": true })
+          ) : null,
+          h(
+            "div",
+            { className: "pg-controller-task-content" },
+            !expectedId || tasks?.kind === "ready" && !tasks.rows.length ? h(
+              "div",
+              { className: "pg-controller-task-empty" },
+              h("h3", null, msg("还没有派出的任务", "No dispatched tasks yet")),
+              h(
+                "ol",
+                null,
+                h("li", null, msg("在「赛题」选一道题，点「交给主控」", "Choose a challenge and select “Hand off to controller.”")),
+                h("li", null, msg("在对话里说：「把这道题交给 Codex，先读题列验证计划」", "In the chat, say “Give this challenge to Codex. Read it and draft a validation plan first.”")),
+                h("li", null, msg("主控派出的子任务会按赛题出现在这里", "The assigned subtasks appear here by challenge."))
+              ),
+              h("button", { type: "button", className: "pg-button pg-primary", onClick: /* @__PURE__ */ __name(() => browse(), "onClick") }, msg("去选题", "Choose a challenge"))
+            ) : !tasks ? h("p", { role: "status" }, msg("正在读取任务…", "Loading tasks…")) : tasks.kind !== "ready" ? h("p", { role: "alert" }, msg("无法读取任务。", "Could not load tasks."), h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => setTaskRetry(taskRetry + 1), "onClick") }, msg("重试", "Retry"))) : row ? h(
+              "div",
+              { className: "pg-controller-detail" },
+              h("button", { className: "pg-button pg-controller-back", ref: /* @__PURE__ */ __name((node) => {
+                pane.back = node;
+              }, "ref"), onClick: /* @__PURE__ */ __name(() => {
+                pane.focus = row.childId;
+                setSelectedTask("");
+              }, "onClick") }, msg("返回任务", "Back to tasks")),
+              h(
+                "div",
+                { className: "pg-controller-detail-title" },
+                h("p", { className: "pg-controller-detail-context" }, row.challenge ? [
+                  msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
+                  challengeSubtitle(row.challenge, configuredBase)
+                ].filter(Boolean).join(" · ") : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("没有对上赛题的任务", "Tasks without a challenge link")),
+                h("h3", null, row.label || msg("未命名任务", "Untitled task")),
+                h(
+                  "div",
+                  { className: "pg-controller-detail-meta" },
+                  stateBadge(row),
+                  evidenceMark(detailEvidence, evidenceLabels[detailEvidence], evidenceDescriptions[detailEvidence]),
+                  detailProvider ? h("span", { className: "pg-controller-detail-provider" }, detailProvider) : null,
+                  detailTime
+                )
+              ),
+              childAddress ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+                setTaskActionStatus("");
+                try {
+                  await openTask(childAddress);
+                } catch {
+                  setTaskActionStatus("无法打开子智能体对话，请重试。");
+                }
+              }, "onClick") }, msg("打开子智能体对话", "Open subagent chat")) : null,
+              row.state === "unknown" ? h("p", null, msg("未收到结果通知，也未观察到本次运行记录。可能发生在重启后，这不表示任务失败。", "No result notification or current run record is available. This can happen after a restart even if the task succeeded.")) : null,
+              row.liveEnd ? h("p", null, msg(`${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
+              row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
+              row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
+              output ? h(
+                "section",
+                { className: "pg-controller-result" },
+                h("h4", null, msg("返回结果", "Result")),
+                h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: output, running: false }, { fallback: h("pre", null, output) }) : h("pre", null, output)),
+                h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+                  try {
+                    await navigator.clipboard.writeText(output);
+                    setTaskActionStatus("已复制结果");
+                  } catch {
+                    setTaskActionStatus("无法复制，请选择文本后复制。");
+                  }
+                }, "onClick") }, msg("复制结果", "Copy result"))
+              ) : null,
+              taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
+              row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
+            ) : h(
+              React11.Fragment,
+              null,
+              [...challengeGroups].map(([key2, group]) => taskGroup(
+                key2,
+                group.rows,
+                msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
+                challengeSubtitle(group.challenge, configuredBase),
+                true
+              )),
+              unassociated.length ? taskGroup(
+                "unassociated",
+                unassociated,
+                msg("没有对上赛题的任务", "Tasks without a challenge link"),
+                msg("主控派活时没登记是哪道题", "The controller did not record a challenge for these tasks")
+              ) : null,
+              maintenance.length ? taskGroup("maintenance", maintenance, msg("后台维护", "Background maintenance"), null, false, "pg-controller-maintenance") : null
+            ),
+            expectedId && props.codexChats ? h(ExternalCodexChats, {
+              key: `${workspaceId}:${expectedId}`,
+              workspaceId,
+              sessionId: expectedId,
+              query: props.codexChats,
+              refresh: taskRetry
+            }) : null
+          )
+        )
+      ) : null
+    ),
+    showHandoffDialog ? h(ControllerHandoffDialog, {
+      state: dispatchState,
+      workspaces,
+      workspace: handoffWorkspace,
+      busy: handoffBusy,
+      inspection: handoffWorkspace ? inspection : null,
+      inspectionFailed: Boolean(error),
+      inspectController,
+      query: props.query,
+      checkAttempt: retry,
+      taskCount: handoffTaskCount,
+      selectWorkspace: selectHandoffWorkspace,
+      addTaskWorkspace: props.addTaskWorkspace,
+      message: handoffMessage,
+      action: handoffAction,
+      close: /* @__PURE__ */ __name(() => {
+        if (!dispatchControls.busy) setDispatchState(null);
+      }, "close")
+    }) : null
+  );
+}
+__name(ControllerPanel, "ControllerPanel");
+
+// src/client/workbench.js
+var React16 = __toESM(require("react"), 1);
+
 // src/client/tasks/list.js
-var React14 = __toESM(require("react"), 1);
+var React15 = __toESM(require("react"), 1);
 
 // src/client/tasks/workflow.js
-var React13 = __toESM(require("react"), 1);
+var React14 = __toESM(require("react"), 1);
 
 // src/client/cards/tool.js
-var React12 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // src/client/tasks/start.js
-var React11 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 function StartTaskButton({ id, title, mode = "participate", sessionId, requestTask, disabled = false, primary = false }) {
   return h(
@@ -5377,18 +5871,18 @@ function TaskStartOverlay(props) {
 __name(TaskStartOverlay, "TaskStartOverlay");
 function TaskStartDialog({ request, useWorkspaces, closeTaskStart, addTaskWorkspace, run, openTask, inspectController, openController, openControllerChat }) {
   const workspaces = useWorkspaces((value) => value);
-  const [selectedId, setSelectedId] = React11.useState("");
-  const [busy, setBusy] = React11.useState(false);
-  const [adding, setAdding] = React11.useState(false);
-  const [error, setError] = React11.useState("");
-  const [recovery, setRecovery] = React11.useState(null);
-  const [inspection, setInspection] = React11.useState(null);
+  const [selectedId, setSelectedId] = React12.useState("");
+  const [busy, setBusy] = React12.useState(false);
+  const [adding, setAdding] = React12.useState(false);
+  const [error, setError] = React12.useState("");
+  const [recovery, setRecovery] = React12.useState(null);
+  const [inspection, setInspection] = React12.useState(null);
   const controller = request.kind === "controller";
   const workspace = workspaces.items.find((item) => item.workspaceId === selectedId);
   const inspectId = controller && workspaces.phase === "ready" ? workspace?.workspaceId : void 0;
   const snapshot2 = inspectId && inspection?.workspaceId === inspectId ? inspection.snapshot : null;
   const checking = Boolean(inspectId && !snapshot2);
-  React11.useEffect(() => {
+  React12.useEffect(() => {
     if (!inspectId) return;
     const abort = new AbortController();
     inspectController({ workspaceId: inspectId }, abort.signal).catch((failure) => ({ kind: "blocked", reason: failure.message })).then((value) => {
@@ -5672,7 +6166,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
     ) : null,
     data?.status === "awaiting_confirmation" && openWorkbench ? h("button", { className: "pg-button", onClick: /* @__PURE__ */ __name(() => openWorkbench(sessionId), "onClick") }, msg("打开工作台", "Open workbench")) : null,
     data ? h(
-      React12.Fragment,
+      React13.Fragment,
       null,
       h(
         "div",
@@ -5710,7 +6204,7 @@ function PlaygroundToolCard({ phase, block, toolName, t: hostText, sessionId, re
       )) : h("li", { className: "pg-note" }, t("empty"))) : null,
       data.hasMore ? h("p", { className: "pg-note" }, t("more")) : null,
       data.metrics?.length ? h(
-        React12.Fragment,
+        React13.Fragment,
         null,
         h("p", { className: "pg-note" }, t("metricTitle")),
         h("dl", { className: "pg-metrics" }, data.metrics.map((item) => h(
@@ -5736,11 +6230,11 @@ __name(PlaygroundToolCard, "PlaygroundToolCard");
 
 // src/client/tasks/workflow.js
 function MaterialPermissions({ sessionId, request, materials, resume, disabled }) {
-  const [snapshot2, setSnapshot] = React13.useState(null);
-  const [scope, setScope] = React13.useState("operation");
-  const [recursive, setRecursive] = React13.useState(false);
-  const [error, setError] = React13.useState("");
-  const [busy, setBusy] = React13.useState(false);
+  const [snapshot2, setSnapshot] = React14.useState(null);
+  const [scope, setScope] = React14.useState("operation");
+  const [recursive, setRecursive] = React14.useState(false);
+  const [error, setError] = React14.useState("");
+  const [busy, setBusy] = React14.useState(false);
   const refresh = /* @__PURE__ */ __name(async () => {
     try {
       const value = await materials({ action: "status", sessionId });
@@ -5751,7 +6245,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       setError(failure.message);
     }
   }, "refresh");
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     setScope("operation");
     setRecursive(false);
     refresh();
@@ -5800,7 +6294,7 @@ function MaterialPermissions({ sessionId, request, materials, resume, disabled }
       }, item.operation === "submit" ? msg("允许引用并继续交接", "Allow references and resume handoff") : msg("允许引用并继续记录", "Allow references and resume recording"))
     )),
     snapshot2?.grants?.length ? h(
-      React13.Fragment,
+      React14.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("本次任务已允许的范围", "Access granted for this task")),
       ...snapshot2.grants.map((entry) => h("p", { key: entry.path, className: "pg-note pg-path" }, scopeText(entry))),
@@ -5816,19 +6310,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
   const task = state?.task;
   const receipt = state?.receipt;
   const progress = receiptProgress(receipt, t, { running });
-  const [files, setFiles] = React13.useState(state?.materials || {});
-  const [busy, setBusy] = React13.useState(false);
-  const [error, setError] = React13.useState("");
-  const [request, setRequest] = React13.useState(state?.submission);
-  const [accessRequest, setAccessRequest] = React13.useState(state?.materialAccess);
-  const [showAccess, setShowAccess] = React13.useState(Boolean(state?.materialAccess));
-  React13.useEffect(() => {
+  const [files, setFiles] = React14.useState(state?.materials || {});
+  const [busy, setBusy] = React14.useState(false);
+  const [error, setError] = React14.useState("");
+  const [request, setRequest] = React14.useState(state?.submission);
+  const [accessRequest, setAccessRequest] = React14.useState(state?.materialAccess);
+  const [showAccess, setShowAccess] = React14.useState(Boolean(state?.materialAccess));
+  React14.useEffect(() => {
     setFiles(state?.materials || {});
   }, [state?.materials]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     setRequest(state?.submission);
   }, [state?.submission]);
-  React13.useEffect(() => {
+  React14.useEffect(() => {
     if (state?.materialAccess) {
       setAccessRequest(state.materialAccess);
       setShowAccess(true);
@@ -5874,19 +6368,19 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
     h("h3", { className: "pg-brand" }, task ? `Playground · ${task.title}` : msg("Playground · 开始任务", "Playground · Start task")),
     task ? h("p", { className: "pg-note pg-path" }, msg(`赛题 ${task.challengeId} · ${cwd || task.cwd}`, `Challenge ${task.challengeId} · ${cwd || task.cwd}`)) : null,
     task && materials ? h(
-      React13.Fragment,
+      React14.Fragment,
       null,
       h("button", { className: "pg-button", "aria-expanded": showAccess, onClick: /* @__PURE__ */ __name(() => setShowAccess(!showAccess), "onClick") }, msg("外部材料权限", "External material permissions")),
       showAccess ? h(MaterialPermissions, { sessionId, request: accessRequest, materials, resume: act, disabled }) : null
     ) : null,
     task?.mode === "author" ? h(
-      React13.Fragment,
+      React14.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("出题模式目前只支持本地准备。", "Authoring mode currently supports local preparation only.")),
       h("button", { className: "pg-button", disabled, onClick: /* @__PURE__ */ __name(() => act({ action: "mode", mode: "participate" }), "onClick") }, msg("切回参赛", "Switch to participation"))
     ) : null,
     task && task.mode !== "author" ? h(
-      React13.Fragment,
+      React14.Fragment,
       null,
       h("p", { className: "pg-note" }, msg("提交会交给本任务的 Agent。Agent 按当前题目和官方要求选择 CLI 或 API，取得编号后关联并跟踪结果。", "The task Agent submits through the official CLI or API according to the challenge requirements. It records the submission ID and tracks the result.")),
       h(
@@ -5916,7 +6410,7 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
       submissionCountsLine(request.counts) ? h("p", { className: "pg-note" }, submissionCountsLine(request.counts)) : null,
       request.message ? h("p", { className: "pg-note" }, request.reportedBy === "agent" ? msg(`Agent 报告：${request.message}`, `Agent report: ${request.message}`) : request.message) : null,
       request.status === "awaiting_user" ? h(
-        React13.Fragment,
+        React14.Fragment,
         null,
         h(
           "p",
@@ -5946,8 +6440,8 @@ function TaskWorkflow({ sessionId, state, cwd, running, allowed, run, submission
 __name(TaskWorkflow, "TaskWorkflow");
 function SelectedTask({ session, projection, attempts, useSessionAccess, refreshProjections, ...props }) {
   const allowed = useSessionAccess(session.id, "commands/execute");
-  const [error, setError] = React13.useState("");
-  React13.useEffect(() => {
+  const [error, setError] = React14.useState("");
+  React14.useEffect(() => {
     refreshProjections(session.id).catch((failure) => setError(failure.message));
   }, [session.id, refreshProjections]);
   if (error || projection?.state === "error" || projection?.state === "migration-required") {
@@ -6008,13 +6502,13 @@ function taskAttemptIds(state) {
 }
 __name(taskAttemptIds, "taskAttemptIds");
 function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissingIds = [], closedIds = [], limits, attempts, query, t }) {
-  const [history, setHistory] = React14.useState({ items: [], nextCursor: null, loaded: false });
-  const [overview, setOverview] = React14.useState({ counts: void 0, partial: "" });
-  const [busy, setBusy] = React14.useState(false);
-  const [error, setError] = React14.useState("");
-  const [signedOut, setSignedOut] = React14.useState(false);
-  const [status, setStatus] = React14.useState(null);
-  const [latest] = React14.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
+  const [history, setHistory] = React15.useState({ items: [], nextCursor: null, loaded: false });
+  const [overview, setOverview] = React15.useState({ counts: void 0, partial: "" });
+  const [busy, setBusy] = React15.useState(false);
+  const [error, setError] = React15.useState("");
+  const [signedOut, setSignedOut] = React15.useState(false);
+  const [status, setStatus] = React15.useState(null);
+  const [latest] = React15.useState(() => ({ controller: null, list: null, heading: null, refocus: false }));
   const refocusHeading = /* @__PURE__ */ __name(() => {
     if (latest.refocus) {
       latest.refocus = false;
@@ -6072,7 +6566,7 @@ function AttemptHistory({ baseUrl, challengeId, receipt, attemptIds, bundleMissi
       }
     }
   }, "load");
-  React14.useEffect(() => {
+  React15.useEffect(() => {
     load();
     return () => {
       latest.controller?.abort();
@@ -6274,7 +6768,7 @@ function TaskDetailDrawer({ session, projection, close, query, webBase, archive,
 __name(TaskDetailDrawer, "TaskDetailDrawer");
 
 // src/client/workbench.js
-function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
+function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions, useSessionAccess, refreshProjections, openTask, openChat, run, query, requestTask, handoff, controllerRows, account, catalogDestination, login, previewToken, saveToken, clearToken, useWorkspaces, archiveTask, unarchiveTask, ...props }) {
   usePluginLanguage();
   const catalog = useSessions((state) => state);
   const archivedIds = typeof useWorkspaces === "function" ? useWorkspaces((value) => value?.archivedSessionIds) : void 0;
@@ -6284,22 +6778,22 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
   const allTaskSessions = sessions.filter((session2) => session2.projectionValues?.playgroundTask?.task || session2.displayTitle?.startsWith("Playground · "));
   const taskSessions = allTaskSessions.filter((session2) => !archivedSet.has(session2.id));
   const archivedTasks = allTaskSessions.filter((session2) => archivedSet.has(session2.id));
-  const [selected, setSelected] = React15.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
-  const [showArchived, setShowArchived] = React15.useState(false);
-  const [archiveBusy, setArchiveBusy] = React15.useState("");
-  const [archiveError, setArchiveError] = React15.useState(noArchiveError);
-  const [split, setSplit] = React15.useState(50);
-  const [announcement, setAnnouncement] = React15.useState("");
-  const [drawerOpen, setDrawerOpen] = React15.useState(false);
-  const [nav] = React15.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
+  const [selected, setSelected] = React16.useState(() => taskSessions.find((session2) => (session2.retainedBy?.mainView ?? 0) > 0)?.id || taskSessions[0]?.id || "");
+  const [showArchived, setShowArchived] = React16.useState(false);
+  const [archiveBusy, setArchiveBusy] = React16.useState("");
+  const [archiveError, setArchiveError] = React16.useState(noArchiveError);
+  const [split, setSplit] = React16.useState(50);
+  const [announcement, setAnnouncement] = React16.useState("");
+  const [drawerOpen, setDrawerOpen] = React16.useState(false);
+  const [nav] = React16.useState(() => ({ rows: /* @__PURE__ */ new Map(), archived: /* @__PURE__ */ new Map(), toggle: null, heading: null, restored: null }));
   const refInto = /* @__PURE__ */ __name((map, id) => (node) => {
     if (node) map.set(id, node);
     else map.delete(id);
   }, "refInto");
-  const [webBase, setWebBase] = React15.useState("");
-  const [openError, setOpenError] = React15.useState("");
-  const [, setVersion] = React15.useState(0);
-  const [store] = React15.useState(() => {
+  const [webBase, setWebBase] = React16.useState("");
+  const [openError, setOpenError] = React16.useState("");
+  const [, setVersion] = React16.useState(0);
+  const [store] = React16.useState(() => {
     const holder = {
       attempts: {},
       refreshedAt: void 0,
@@ -6331,14 +6825,14 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     if (receiptPending(withLatestAttempt(state, store.attempts, item.id))) pendingKeys.add(key2);
   }
   const anyPending = pendingKeys.size > 0;
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     store.query = query;
     store.taskKeys = [...receipts.keys()];
     store.pendingKeys = [...pendingKeys];
     store.receipts = receipts;
   });
   const pageVisible = /* @__PURE__ */ __name(() => typeof document === "undefined" || document.visibilityState !== "hidden", "pageVisible");
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     store.disposed = !active;
     if (active && pageVisible() && section !== "catalog") refreshAttempts(store, store.pendingKeys);
     return () => {
@@ -6347,7 +6841,7 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
       store.controller = null;
     };
   }, [active]);
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     if (!active || section === "catalog" || !anyPending) return void 0;
     const tick = /* @__PURE__ */ __name(() => {
       if (pageVisible()) refreshAttempts(store, store.pendingKeys);
@@ -6364,13 +6858,13 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
     };
   }, [active, anyPending]);
   const refreshing = Boolean(store.controller);
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     if (selected && !allTaskSessions.some((session2) => session2.id === selected)) {
       setSelected(taskSessions[0]?.id || "");
       setDrawerOpen(false);
     } else if (!drawerOpen && archivedSet.has(selected)) setSelected(taskSessions[0]?.id || "");
   }, [selected, drawerOpen, allTaskSessions.map((session2) => session2.id).join(","), archivedTasks.map((session2) => session2.id).join(",")]);
-  React15.useEffect(() => {
+  React16.useEffect(() => {
     const pending = nav.restored;
     if (!pending) return;
     if (performance.now() - pending.at > unarchiveFocusMs) {
@@ -6449,7 +6943,19 @@ function PlaygroundWorkbench({ libraryOnly, section, active = true, useSessions,
           "section",
           { className: "pg-workbench-column", "aria-label": msg("Playground 赛题目录", "Playground challenge catalog") },
           section === "catalog" ? null : h("div", { className: "pg-column-heading" }, h("h2", null, msg("赛题目录", "Challenge catalog"))),
-          h(CatalogPanel, { key: handoff?.catalogNotice?.visit, query, handoff, requestTask, controllerRows, account, active, taskSessions, webBase, onWebBase: setWebBase })
+          h(CatalogPanel, {
+            key: handoff?.catalogNotice ? "notice:" + handoff.catalogNotice.visit : "tab:" + (catalogDestination?.visit ?? 0),
+            destination: catalogDestination,
+            query,
+            handoff,
+            requestTask,
+            controllerRows,
+            account,
+            active,
+            taskSessions,
+            webBase,
+            onWebBase: setWebBase
+          })
         ),
         section === "catalog" ? null : h(
           "section",

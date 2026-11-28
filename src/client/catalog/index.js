@@ -110,16 +110,16 @@ const pageFacts = (page) => ({ total: Number.isInteger(page?.total) ? page.total
   pageSignature: page?.pageSignature,
   missing: Number.isSafeInteger(page?.missing) && page.missing > 0 ? page.missing : 0 });
 
-function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, active = true, taskSessions = [], webBase }) {
+function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, account, destination, active = true, taskSessions = [], webBase }) {
   const catalogNotice = handoff?.catalogNotice;
   const target = catalogNotice?.target;
   const noticeTitle = catalogNotice && msg(catalogNotice.titleZh || catalogNotice.title, catalogNotice.title || catalogNotice.titleZh);
   const noticeCompetition = target?.competition ? `competition:${target.competition}` : target?.season ? `season:${target.season}` : '';
   const [gatedIds] = React.useState(() => new Set(target?.gatedChallengeId ? [target.gatedChallengeId] : []));
   const [search, setSearch] = React.useState('');
-  const [season, setSeason] = React.useState(noticeCompetition);
+  const [season, setSeason] = React.useState(noticeCompetition || destination?.value || '');
   // The chosen period of a competition with periods; '' is 全部期 and the value for every other choice.
-  const [period, setPeriod] = React.useState(target?.period ?? '');
+  const [period, setPeriod] = React.useState(target?.period ?? destination?.period ?? '');
   // The chosen official group of that period; '' is 全部 and the value whenever the period has no groups.
   const [group, setGroup] = React.useState(target?.group ?? '');
   const [origin, setOrigin] = React.useState('');
@@ -554,5 +554,5 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
       focusFallback: () => [latest.details.get(String(detail.id)), latest.heading] }) : null);
 }
 
-export { CatalogPanel };
+export { CatalogPanel, competitionName, competitionStatusText, competitionValue, periodName, startingPeriod };
 

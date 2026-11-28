@@ -859,7 +859,7 @@ test('getChallengeFacets reads the discipline counts and rejects a response with
   let body = { attempts: 48415, total: 6985, unclassified: 2354, formalDisciplines: { materials: 1411, ' physics ': 1307, zero: 0, '': 2 }, subDisciplines: {},
     disciplines: { materials: 1411, ' physics ': 1307, '': 5, ['x'.repeat(101)]: 9, zero: 0, half: 1.5, text: '3' } };
   const client = createPlaygroundClient({ baseUrl: 'https://example.test', fetchImpl: async (url) => { requested.push(url); return jsonResponse(body); } });
-  assert.deepEqual(await client.getChallengeFacets(), { total: 6985, unclassified: 2354, disciplines: { materials: 1411, physics: 1307 },
+  assert.deepEqual(await client.getChallengeFacets(), { total: 6985, attempts: 48415, unclassified: 2354, disciplines: { materials: 1411, physics: 1307 },
     formalDisciplines: { materials: 1411, physics: 1307 } });
   assert.equal(requested[0].origin + requested[0].pathname, 'https://example.test/api/challenges/facets');
   assert.equal(requested[0].search, '');
