@@ -316,7 +316,11 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   const historyIds = JSON.stringify([...new Set([...(detail ? [String(detail.id)] : []),
     ...challenges.map((challenge) => String(challenge.id)).filter((id) => tracked.has(id))])]);
   React.useEffect(() => {
-    if (!active || account === undefined || account === null || !webBase || historyIds === '[]') return;
+    if (account == null || account === '') {
+      setHistory(null);
+      return;
+    }
+    if (!active || !webBase || historyIds === '[]') return;
     const abort = new AbortController();
     const read = async () => {
       for (const challengeId of JSON.parse(historyIds)) {
@@ -332,7 +336,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     return () => abort.abort();
   }, [active, account, webBase, query, historyIds, historyRefresh]);
   const accountHistory = history && history.account === account && history.webBase === webBase && history.query === query ? history.byId : undefined;
-  const progressFor = (item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase);
+  const progressFor = (item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase, account);
   const groupFor = (item) => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || (entry.labelZh && tags.includes(entry.labelZh)))

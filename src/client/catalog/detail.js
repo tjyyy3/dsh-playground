@@ -36,16 +36,14 @@ function challengeOverview(detail, progress) {
   const summary = !detail.contentGated && excerpt.length
     ? (excerpt.length > 240 ? `${excerpt.slice(0, 240).join('')}…` : firstParagraph)
     : '';
-  const { controllers, running, unknown, submissions, partial, participation } = progress || {};
+  const { workspace, submissions, partial } = progress || {};
+  const { controllers, running, unknown, participation } = workspace || {};
   const controllerLabel = running ? msg(`主控任务 · ${running} 个运行中`, `Controller tasks · ${running} running`)
     : unknown ? msg('主控任务 · 状态未知', 'Controller tasks · Status unknown') : msg('主控任务', 'Controller tasks');
   const limit = detectStatementLimit(content);
   const scope = limit?.period === 'day' ? msg('每天', ' per day') : limit?.period === 'total' ? msg('每人', ' per participant') : '';
-  const metrics = [
-    [controllers || '—', controllerLabel],
-    [partial && submissions !== undefined ? `≥ ${submissions}` : submissions ?? '—', msg('累计提交', 'Lifetime submissions')],
-    [participation || '—', participation ? msg('参赛任务', 'Participation tasks') : msg('参赛任务尚未创建', 'No participation task')],
-  ];
+  const submissionCount = partial && submissions !== undefined ? `≥ ${submissions}` : submissions ?? '—';
+  const metric = (label, value) => h('div', null, h('dt', null, label), h('dd', null, value));
   return [
     summary ? h('p', { key: 'summary', className: 'pg-detail-summary', 'aria-label': msg('摘要', 'Summary') }, summary) : null,
     h('div', { key: 'scoring' }, overviewSection(msg('评分构成', 'Scoring breakdown'), missingDetail(
@@ -55,8 +53,11 @@ function challengeOverview(detail, progress) {
     h('div', { key: 'quota', 'aria-label': msg('提交次数上限', 'Submission limit') }, missingDetail(limit
       ? msg(`题面写明${scope}最多提交 ${limit.limit} 次。`, `The statement specifies a limit of ${limit.limit} submissions${scope}.`)
       : msg('未查到提交次数上限。题面写明或平台返回上限后，这里会标出来源。', 'No submission limit was found. Its source will be shown once available in the statement or from the platform.'))),
-    h('div', { key: 'progress' }, overviewSection(msg('我的进度 · 当前账号', 'My progress · Current account'),
-      h('dl', { className: 'pg-detail-progress' }, metrics.map(([value, label]) => h('div', { key: label }, h('dt', null, label), h('dd', null, value)))))),
+    h('div', { key: 'progress', className: 'pg-detail-progress-grid' },
+      overviewSection(msg('我的进度 · 当前账号', 'My progress · Current account'),
+        h('dl', { className: 'pg-detail-progress' }, metric(msg('累计提交', 'Lifetime submissions'), submissionCount))),
+      overviewSection(msg('本地任务', 'Local tasks'), h('dl', { className: 'pg-detail-progress' },
+        metric(controllerLabel, controllers || '—'), metric(msg('参赛任务', 'Participation tasks'), participation || '—')))),
   ];
 }
 

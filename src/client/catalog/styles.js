@@ -124,7 +124,8 @@ const challengeDetailCss = `
   .pg-detail-rule::after{content:"";flex:1;border-top:1px solid var(--pg-line)}
   .pg-detail-note{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;padding:10px 12px;border:1px dashed var(--pg-line-strong);border-radius:var(--pg-r8);color:var(--pg-muted);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
   .pg-detail-note>span{color:var(--pg-label)}
-  .pg-detail-progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0}
+  .pg-detail-progress-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px}
+  .pg-detail-progress{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;margin:0}
   .pg-detail-progress>div{display:flex;flex-direction:column;gap:3px;padding:12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8)}
   .pg-detail-progress dt{order:1;color:var(--pg-muted);font-size:12px}
   .pg-detail-progress dd{margin:0;font:20px/1.35 var(--pg-font-mono)}
@@ -140,6 +141,7 @@ const challengeDetailCss = `
   .pg-detail-footer .pg-button:last-child:not(.pg-primary){color:var(--pg-muted)}
   @media(max-width:600px){
     .pg-detail-body,.pg-detail-heading{padding-inline:16px}
+    .pg-detail-progress-grid{grid-template-columns:1fr;gap:0}
     .pg-detail-progress{gap:6px}
     .pg-detail-progress>div{padding:8px}
   }

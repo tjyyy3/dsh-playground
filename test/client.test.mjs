@@ -2705,16 +2705,121 @@ test('catalog progress uses linked controller rows and confirmed current-account
     { projectionValues: { playgroundTask: { task: { challengeId: 'c', baseUrl: base } } } },
     { projectionValues: { playgroundTask: { task: { challengeId: 'c', baseUrl: base, mode: 'author' } } } },
   ];
-  const item = { challengeId: 'c', scoringState: { displayScore: 0, scoreIsFinal: true } };
+  const account = 'account-a';
+  const item = { challengeId: 'c', authorId: account, scoringState: { displayScore: 0, scoreIsFinal: true } };
   const history = { items: [item], nextCursor: '3', submissionCounts: { lifetime: 2 } };
-  const progress = challengeProgress('c', rows, sessions, history, base);
-  assert.deepEqual(progress, { controllers: 2, running: 1, unknown: false, submissions: 2, partial: false, score: 0, participation: 1 });
-  assert.deepEqual(progressSummary(progress, zh), { text: '主控任务 2 个 · 1 个运行中', tone: 'running' });
-  assert.equal(progressSummary(challengeProgress('c', [], [], history, base), zh).text, '已提交 2 次 · 最近 0 分（最终）');
+  const progress = challengeProgress('c', rows, sessions, history, base, account);
+  assert.deepEqual(progress, { workspace: { controllers: 2, running: 1, unknown: false, participation: 1 }, submissions: 2, partial: false, score: 0 });
+  assert.deepEqual(progressSummary(challengeProgress('c', rows, sessions, undefined, base, account), zh),
+    { text: '本地 · 主控任务 2 个 · 1 个运行中', tone: 'running' });
+  assert.equal(progressSummary(progress, zh).text, '已提交 2 次 · 最近 0 分（最终）');
   const partial = { items: [{ ...item, scoringState: { displayScore: 71.5, scoreIsFinal: false } }], partial: { reasons: ['history_incomplete'] } };
-  assert.equal(progressSummary(challengeProgress('c', [], [], partial, base), zh).text, '至少已提交 1 次');
-  assert.equal(progressSummary(challengeProgress('c', [], [], { items: [], nextCursor: null }, base), zh), undefined);
-  assert.equal(challengeProgress('c', rows, sessions, undefined, 'https://other.example.test').participation, 0);
+  assert.equal(progressSummary(challengeProgress('c', [], [], partial, base, account), zh).text, '至少已提交 1 次');
+  assert.equal(progressSummary(challengeProgress('c', [], [], { items: [], nextCursor: null }, base, account), zh), undefined);
+  assert.equal(challengeProgress('c', rows, sessions, undefined, 'https://other.example.test', account).workspace.participation, 0);
+});
+
+test('catalog and drawer isolate account history when switching accounts on the same platform and signing out', async (t) => {
+  const f = await clientFixture(t);
+  globalThis.document = { addEventListener() {}, removeEventListener() {} };
+  t.after(() => { delete globalThis.document; });
+  const baseUrl = 'https://play.bohrium.com';
+  const challengeId = challengeCard.id;
+  const controllerRows = [{ childId: 'a-child', challenge: { id: challengeId, baseUrl }, state: 'running' }];
+  const session = { id: 'a-task', projectionValues: { playgroundTask: {
+    task: { challengeId, baseUrl, mode: 'participate' }, attemptIds: [100],
+  } } };
+  const reads = [];
+  const query = (input, signal) => {
+    if (input.action === 'catalog') return Promise.resolve({ ok: true, webBase: baseUrl, challenges: { items: [challengeCard] } });
+    if (input.action === 'challenge') return Promise.resolve(challengeDetail());
+    if (input.action === 'my_attempts') return new Promise((resolve) => reads.push({ signal, resolve, challengeId: input.challengeId }));
+    assert.fail(input.action);
+  };
+  const workbench = f.registrations.get('playground.library');
+  const props = { ...workbench.definition.inject(), libraryOnly: true, section: 'catalog', query, controllerRows,
+    useSessions: (select) => select({ ids: [session.id], byId: { [session.id]: session } }), handoff: { start: () => {} } };
+  let account = 'account-a';
+  const catalog = () => f.find(f.render(workbench.Component, { ...props, account }), (node) => node.type?.name === 'CatalogPanel');
+  const renderCatalog = () => {
+    const panel = catalog();
+    f.effects.length = 0;
+    return f.render(panel.type, panel.props);
+  };
+  let cleanup;
+  const readHistory = async (expectedAccount) => {
+    cleanup?.();
+    renderCatalog();
+    const effect = f.effects.find((item) => item.deps?.[0] === true && item.deps[1] === expectedAccount);
+    assert.ok(effect);
+    cleanup = effect();
+    await settle();
+  };
+  const answer = async (read, authorId, count, score) => {
+    assert.equal(read.challengeId, challengeId);
+    read.resolve({ ok: true, items: [{ authorId, challengeId, scoringState: { displayScore: score, scoreIsFinal: true } }],
+      submissionCounts: { lifetime: count } });
+    await settle();
+  };
+  const detailNode = () => f.find(renderCatalog(), (node) => node.type?.name === 'ChallengeDetailDrawer');
+  const drawer = () => {
+    const node = detailNode();
+    return f.render(node.type, node.props);
+  };
+  const metrics = (label) => {
+    const section = f.find(drawer(), (node) => node.props?.['aria-label'] === label);
+    return findAll(section, (node) => node.type === 'dd').map(text);
+  };
+
+  await f.mount(catalog());
+  await readHistory(account);
+  await answer(reads[0], account, 2, 71.5);
+  assert.match(text(renderCatalog()), /已提交 2 次 · 最近 71.5 分/);
+  f.find(renderCatalog(), buttonLabelled('查看详情')).props.onClick();
+  await f.mount(detailNode());
+  assert.deepEqual(metrics('我的进度 · 当前账号'), ['2']);
+  assert.deepEqual(metrics('本地任务'), ['1', '1']);
+
+  account = 'account-b';
+  assert.doesNotMatch(text(renderCatalog()), /71.5/);
+  assert.deepEqual(metrics('我的进度 · 当前账号'), ['—']);
+  await readHistory(account);
+  assert.equal(reads[0].signal.aborted, true);
+  await answer(reads[1], account, 3, 92);
+  assert.match(text(renderCatalog()), /已提交 3 次 · 最近 92 分/);
+  assert.deepEqual(metrics('我的进度 · 当前账号'), ['3']);
+  assert.deepEqual(metrics('本地任务'), ['1', '1']);
+
+  await readHistory(account);
+  const pending = reads[2];
+  account = undefined;
+  assert.doesNotMatch(text(renderCatalog()), /已提交.*次/);
+  assert.deepEqual(metrics('我的进度 · 当前账号'), ['—']);
+  assert.deepEqual(metrics('本地任务'), ['1', '1']);
+  await readHistory(account);
+  assert.equal(pending.signal.aborted, true);
+  await answer(pending, 'account-b', 4, 99);
+  assert.doesNotMatch(text(renderCatalog()), /99 分/);
+  assert.deepEqual(metrics('我的进度 · 当前账号'), ['—']);
+  assert.equal(reads.length, 3);
+});
+
+test('catalog progress rejects unverified history returned during an account change', async () => {
+  const { challengeProgress } = await import('../src/client/catalog/progress.js');
+  const item = { challengeId: 'c', authorId: 'account-a', scoringState: { scoreIsFinal: true, displayScore: 71.5 } };
+  const history = { items: [item], submissionCounts: { lifetime: 2 } };
+  const base = 'https://play.example.test';
+  for (const [result, account] of [
+    [history, 'account-b'],
+    [history, undefined],
+    [{ ...history, items: [{ ...item, authorId: undefined }] }, 'account-a'],
+    [{ ...history, items: [{ ...item, challengeId: 'other' }] }, 'account-a'],
+    [{ ...history, items: [] }, 'account-a'],
+  ]) {
+    const progress = challengeProgress('c', [], [], result, base, account);
+    assert.equal(progress.submissions, undefined);
+    assert.equal(progress.score, undefined);
+  }
 });
 
 test('"查看详情" opens a challenge drawer that reads the detail once and shows facts, tags, resources and the web button', async (t) => {

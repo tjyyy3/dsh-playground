@@ -3809,7 +3809,8 @@ var challengeDetailCss = `
   .pg-detail-rule::after{content:"";flex:1;border-top:1px solid var(--pg-line)}
   .pg-detail-note{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;padding:10px 12px;border:1px dashed var(--pg-line-strong);border-radius:var(--pg-r8);color:var(--pg-muted);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
   .pg-detail-note>span{color:var(--pg-label)}
-  .pg-detail-progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0}
+  .pg-detail-progress-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px}
+  .pg-detail-progress{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;margin:0}
   .pg-detail-progress>div{display:flex;flex-direction:column;gap:3px;padding:12px;border:1px solid var(--pg-line);border-radius:var(--pg-r8)}
   .pg-detail-progress dt{order:1;color:var(--pg-muted);font-size:12px}
   .pg-detail-progress dd{margin:0;font:20px/1.35 var(--pg-font-mono)}
@@ -3825,6 +3826,7 @@ var challengeDetailCss = `
   .pg-detail-footer .pg-button:last-child:not(.pg-primary){color:var(--pg-muted)}
   @media(max-width:600px){
     .pg-detail-body,.pg-detail-heading{padding-inline:16px}
+    .pg-detail-progress-grid{grid-template-columns:1fr;gap:0}
     .pg-detail-progress{gap:6px}
     .pg-detail-progress>div{padding:8px}
   }
@@ -3904,15 +3906,13 @@ function challengeOverview(detail, progress) {
   const firstParagraph = content.trim().split(/\r?\n\s*\r?\n/, 1)[0] || "";
   const excerpt = Array.from(firstParagraph);
   const summary = !detail.contentGated && excerpt.length ? excerpt.length > 240 ? `${excerpt.slice(0, 240).join("")}…` : firstParagraph : "";
-  const { controllers, running, unknown, submissions, partial, participation } = progress || {};
+  const { workspace, submissions, partial } = progress || {};
+  const { controllers, running, unknown, participation } = workspace || {};
   const controllerLabel = running ? msg(`主控任务 · ${running} 个运行中`, `Controller tasks · ${running} running`) : unknown ? msg("主控任务 · 状态未知", "Controller tasks · Status unknown") : msg("主控任务", "Controller tasks");
   const limit = detectStatementLimit(content);
   const scope = limit?.period === "day" ? msg("每天", " per day") : limit?.period === "total" ? msg("每人", " per participant") : "";
-  const metrics = [
-    [controllers || "—", controllerLabel],
-    [partial && submissions !== void 0 ? `≥ ${submissions}` : submissions ?? "—", msg("累计提交", "Lifetime submissions")],
-    [participation || "—", participation ? msg("参赛任务", "Participation tasks") : msg("参赛任务尚未创建", "No participation task")]
-  ];
+  const submissionCount = partial && submissions !== void 0 ? `≥ ${submissions}` : submissions ?? "—";
+  const metric = /* @__PURE__ */ __name((label2, value) => h("div", null, h("dt", null, label2), h("dd", null, value)), "metric");
   return [
     summary ? h("p", { key: "summary", className: "pg-detail-summary", "aria-label": msg("摘要", "Summary") }, summary) : null,
     h("div", { key: "scoring" }, overviewSection(msg("评分构成", "Scoring breakdown"), missingDetail(
@@ -3922,10 +3922,20 @@ function challengeOverview(detail, progress) {
       msg("未查到提交物限制。题面写明或平台返回后，这里会标出来源。", "No artifact limits were found. Their source will be shown once available in the statement or from the platform.")
     ))),
     h("div", { key: "quota", "aria-label": msg("提交次数上限", "Submission limit") }, missingDetail(limit ? msg(`题面写明${scope}最多提交 ${limit.limit} 次。`, `The statement specifies a limit of ${limit.limit} submissions${scope}.`) : msg("未查到提交次数上限。题面写明或平台返回上限后，这里会标出来源。", "No submission limit was found. Its source will be shown once available in the statement or from the platform."))),
-    h("div", { key: "progress" }, overviewSection(
-      msg("我的进度 · 当前账号", "My progress · Current account"),
-      h("dl", { className: "pg-detail-progress" }, metrics.map(([value, label2]) => h("div", { key: label2 }, h("dt", null, label2), h("dd", null, value))))
-    ))
+    h(
+      "div",
+      { key: "progress", className: "pg-detail-progress-grid" },
+      overviewSection(
+        msg("我的进度 · 当前账号", "My progress · Current account"),
+        h("dl", { className: "pg-detail-progress" }, metric(msg("累计提交", "Lifetime submissions"), submissionCount))
+      ),
+      overviewSection(msg("本地任务", "Local tasks"), h(
+        "dl",
+        { className: "pg-detail-progress" },
+        metric(controllerLabel, controllers || "—"),
+        metric(msg("参赛任务", "Participation tasks"), participation || "—")
+      ))
+    )
   ];
 }
 __name(challengeOverview, "challengeOverview");
@@ -4148,7 +4158,7 @@ __name(ChallengeDetailDrawer, "ChallengeDetailDrawer");
 
 // src/client/catalog/progress.js
 var samePlatform = /* @__PURE__ */ __name((base, other) => Boolean(base && other && webRootOf(base) === webRootOf(other)), "samePlatform");
-function challengeProgress(challengeId, controllerRows = [], sessions = [], history, webBase) {
+function challengeProgress(challengeId, controllerRows = [], sessions = [], history, webBase, account) {
   const id = String(challengeId);
   const linked = controllerRows.filter((row) => String(row?.challenge?.id) === id && samePlatform(row.challenge.baseUrl, webBase));
   const running = linked.filter((row) => row.state === "running").length;
@@ -4157,28 +4167,32 @@ function challengeProgress(challengeId, controllerRows = [], sessions = [], hist
     const task = session.projectionValues?.playgroundTask?.task;
     return task && String(task.challengeId) === id && (!task.mode || task.mode === "participate") && samePlatform(task.baseUrl, webBase);
   });
-  const items = Array.isArray(history?.items) ? history.items.filter((item) => String(item?.challengeId) === id) : [];
+  const workspace = { controllers: linked.length, running, unknown, participation: participating.length };
+  const accountId = typeof account === "string" || Number.isSafeInteger(account) ? String(account).trim() : "";
+  const items = history?.items;
+  if (!accountId || !Array.isArray(items) || !items.length || items.some((item) => String(item?.challengeId) !== id || String(item?.authorId ?? "") !== accountId)) return { workspace };
   const lifetime = history?.submissionCounts?.lifetime;
-  const submissions = Number.isSafeInteger(lifetime) && lifetime >= items.length ? lifetime : Array.isArray(history?.items) && !history.nextCursor ? items.length : void 0;
+  const submissions = Number.isSafeInteger(lifetime) && lifetime >= items.length ? lifetime : !history.nextCursor ? items.length : void 0;
   const scoring = items[0]?.scoringState;
   const score = scoring?.scoreIsFinal === true && Number.isFinite(scoring.displayScore) ? scoring.displayScore : void 0;
   const partial = Boolean(history?.partial || history?.submissionCounts?.partialReasons?.includes("history_incomplete"));
-  return { controllers: linked.length, running, unknown, submissions, partial, score, participation: participating.length };
+  return { workspace, submissions, partial, score };
 }
 __name(challengeProgress, "challengeProgress");
 function progressSummary(progress, msg2) {
-  const { controllers, running, unknown, submissions, partial, score } = progress;
-  if (controllers && (running || !(submissions > 0))) {
-    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
-    return {
-      text: msg2(`主控任务 ${controllers} 个`, `${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
-      tone: running ? "running" : "neutral"
-    };
-  }
+  const { workspace, submissions, partial, score } = progress;
   if (submissions > 0) {
     const count = partial ? msg2(`至少已提交 ${submissions} 次`, `At least ${submissions} submissions`) : msg2(`已提交 ${submissions} 次`, `${submissions} ${submissions === 1 ? "submission" : "submissions"}`);
     const latest = score === void 0 ? "" : msg2(` · 最近 ${score} 分（最终）`, ` · Latest score ${score} (final)`);
     return { text: count + latest, tone: "result" };
+  }
+  const { controllers, running, unknown } = workspace;
+  if (controllers) {
+    const activity = running ? msg2(` · ${running} 个运行中`, ` · ${running} running`) : unknown ? msg2(" · 状态未知", " · Status unknown") : "";
+    return {
+      text: msg2(`本地 · 主控任务 ${controllers} 个`, `Local · ${controllers} controller ${controllers === 1 ? "task" : "tasks"}`) + activity,
+      tone: running ? "running" : "neutral"
+    };
   }
   return void 0;
 }
@@ -4460,7 +4474,11 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     ...challenges.map((challenge) => String(challenge.id)).filter((id) => tracked.has(id))
   ])]);
   React10.useEffect(() => {
-    if (!active || account === void 0 || account === null || !webBase || historyIds === "[]") return;
+    if (account == null || account === "") {
+      setHistory(null);
+      return;
+    }
+    if (!active || !webBase || historyIds === "[]") return;
     const abort = new AbortController();
     const read = /* @__PURE__ */ __name(async () => {
       for (const challengeId of JSON.parse(historyIds)) {
@@ -4482,7 +4500,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     return () => abort.abort();
   }, [active, account, webBase, query, historyIds, historyRefresh]);
   const accountHistory = history && history.account === account && history.webBase === webBase && history.query === query ? history.byId : void 0;
-  const progressFor = /* @__PURE__ */ __name((item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase), "progressFor");
+  const progressFor = /* @__PURE__ */ __name((item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase, account), "progressFor");
   const groupFor = /* @__PURE__ */ __name((item) => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || entry.labelZh && tags.includes(entry.labelZh)).map(groupLabel).join(" · ");
