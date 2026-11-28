@@ -4306,8 +4306,9 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   const [notice, setNotice] = React10.useState(null);
   const [latest] = React10.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: /* @__PURE__ */ new Map(), refocus: null }));
   const [detail, setDetail] = React10.useState(null);
-  const [history, setHistory] = React10.useState(null);
-  const [historyRefresh, setHistoryRefresh] = React10.useState(0);
+  const [catalogHistory, setCatalogHistory] = React10.useState(null);
+  const [detailHistory, setDetailHistory] = React10.useState(null);
+  const openDetail = /* @__PURE__ */ __name((item) => setDetail({ ...item }), "openDetail");
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
   const filters = { search, season, period, group, origin, sort, discipline };
@@ -4353,7 +4354,6 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     const controller = new AbortController();
     latest.controller = controller;
     latest.metadataOnly = false;
-    if (refresh) setHistoryRefresh((version2) => version2 + 1);
     setBusy("load");
     setFailure(null);
     setNotice(nextNotice);
@@ -4473,38 +4473,47 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     const state = session.projectionValues?.playgroundTask;
     return state?.task && (state.receipt?.attemptId || state.attemptIds?.length) && samePlatform(state.task.baseUrl, webBase) ? [String(state.task.challengeId)] : [];
   }));
-  const historyIds = JSON.stringify([.../* @__PURE__ */ new Set([
-    ...detail ? [String(detail.id)] : [],
-    ...challenges.map((challenge) => String(challenge.id)).filter((id) => tracked.has(id))
-  ])]);
+  const trackedIds = JSON.stringify(loaded.map(({ id }) => String(id)).filter((id) => tracked.has(id)));
+  const signedIn = account != null && account !== "";
   React10.useEffect(() => {
-    if (account == null || account === "") {
-      setHistory(null);
+    if (!signedIn) {
+      setCatalogHistory(null);
       return;
     }
-    if (!active || !webBase || historyIds === "[]") return;
+    if (!active || !webBase || trackedIds === "[]") return;
     const abort = new AbortController();
     const read = /* @__PURE__ */ __name(async () => {
-      for (const challengeId of JSON.parse(historyIds)) {
-        if (abort.signal.aborted) return;
-        const result = await Promise.resolve().then(() => query({ action: "my_attempts", challengeId, limit: 1 }, abort.signal)).catch(() => void 0);
-        if (abort.signal.aborted) return;
-        setHistory((previous) => ({
-          account,
-          webBase,
-          query,
-          byId: {
-            ...previous?.account === account && previous.webBase === webBase && previous.query === query ? previous.byId : {},
-            [challengeId]: result?.ok === true ? result : void 0
-          }
-        }));
-      }
+      const result = await Promise.resolve().then(() => query({ action: "my_attempts_summary" }, abort.signal)).catch(() => void 0);
+      if (!abort.signal.aborted) setCatalogHistory({ account, webBase, query, byId: result?.ok === true ? result.byId : void 0 });
     }, "read");
     void read();
     return () => abort.abort();
-  }, [active, account, webBase, query, historyIds, historyRefresh]);
-  const accountHistory = history && history.account === account && history.webBase === webBase && history.query === query ? history.byId : void 0;
-  const progressFor = /* @__PURE__ */ __name((item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase, account), "progressFor");
+  }, [active, account, webBase, query, shownList, trackedIds]);
+  React10.useEffect(() => {
+    if (!signedIn) {
+      setDetailHistory(null);
+      return;
+    }
+    if (!active || !webBase || !detail) return;
+    const abort = new AbortController();
+    const read = /* @__PURE__ */ __name(async () => {
+      const input = { action: "my_attempts", challengeId: String(detail.id), limit: 1 };
+      const result = await Promise.resolve().then(() => query(input, abort.signal)).catch(() => void 0);
+      if (!abort.signal.aborted) setDetailHistory({
+        account,
+        webBase,
+        query,
+        detail,
+        result: result?.ok === true ? result : void 0
+      });
+    }, "read");
+    void read();
+    return () => abort.abort();
+  }, [active, account, webBase, query, detail]);
+  const matchesAccount = /* @__PURE__ */ __name((snapshot2) => snapshot2 && snapshot2.account === account && snapshot2.webBase === webBase && snapshot2.query === query, "matchesAccount");
+  const historyById = matchesAccount(catalogHistory) ? catalogHistory.byId : void 0;
+  const drawerHistory = matchesAccount(detailHistory) && detailHistory.detail === detail ? detailHistory.result : void 0;
+  const progressFor = /* @__PURE__ */ __name((item, history) => challengeProgress(item.id, controllerRows, taskSessions, history, webBase, account), "progressFor");
   const groupFor = /* @__PURE__ */ __name((item) => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || entry.labelZh && tags.includes(entry.labelZh)).map(groupLabel).join(" · ");
@@ -4825,7 +4834,8 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
       ),
       h("div", { className: "pg-challenge-grid" }, challenges.map((item) => {
         const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
-        const progressLines = progressSummary(progressFor(item), msg);
+        const id = String(item.id);
+        const progressLines = progressSummary(progressFor(item, tracked.has(id) ? historyById?.[id] : void 0), msg);
         const itemGroup = groupFor(item);
         const status2 = item.status && (locales[currentLanguage()].states[item.status] || item.status);
         const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : void 0;
@@ -4836,7 +4846,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
             className: "pg-card pg-challenge",
             key: item.id,
             onClick: /* @__PURE__ */ __name((event) => {
-              if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) setDetail(item);
+              if (!event.target.closest("button, a[href]") && !window.getSelection?.()?.toString()) openDetail(item);
             }, "onClick")
           },
           h(
@@ -4871,7 +4881,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
               className: "pg-button pg-challenge-detail",
               "aria-haspopup": "dialog",
               "aria-label": msg(`查看详情：${title}`, `View details: ${title}`),
-              onClick: /* @__PURE__ */ __name(() => setDetail(item), "onClick"),
+              onClick: /* @__PURE__ */ __name(() => openDetail(item), "onClick"),
               ref: /* @__PURE__ */ __name((node) => {
                 if (node) latest.details.set(String(item.id), node);
                 else latest.details.delete(String(item.id));
@@ -4903,7 +4913,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
       requestTask,
       competition: infoName,
       group: groupFor(detail),
-      progress: progressFor(detail),
+      progress: progressFor(detail, drawerHistory),
       close: /* @__PURE__ */ __name(() => setDetail(null), "close"),
       focusFallback: /* @__PURE__ */ __name(() => [latest.details.get(String(detail.id)), latest.heading], "focusFallback")
     }) : null

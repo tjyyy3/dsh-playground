@@ -148,8 +148,10 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
   const [latest] = React.useState(() => ({ controller: null, metadataOnly: false, facets: null, heading: null, count: null, more: null, details: new Map(), refocus: null }));
   // The catalog card whose detail drawer is open; the drawer reads the full detail itself.
   const [detail, setDetail] = React.useState(null);
-  const [history, setHistory] = React.useState(null);
-  const [historyRefresh, setHistoryRefresh] = React.useState(0);
+  const [catalogHistory, setCatalogHistory] = React.useState(null);
+  const [detailHistory, setDetailHistory] = React.useState(null);
+  // Give each opening its own identity, including consecutive openings of the same card.
+  const openDetail = (item) => setDetail({ ...item });
   // null waits for an applied Other key; '' is a query for all disciplines.
   const discipline = disciplineChoice === OTHER_DISCIPLINE ? appliedOther : disciplineChoice;
   const otherPending = discipline === null;
@@ -195,7 +197,6 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     const controller = new AbortController();
     latest.controller = controller;
     latest.metadataOnly = false;
-    if (refresh) setHistoryRefresh((version) => version + 1);
     setBusy('load'); setFailure(null); setNotice(nextNotice); setStatus(['正在读取比赛和赛题…', 'Loading competitions and challenges…']);
     try {
       const input = catalogInput(next);
@@ -311,32 +312,43 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
     return state?.task && (state.receipt?.attemptId || state.attemptIds?.length)
       && samePlatform(state.task.baseUrl, webBase) ? [String(state.task.challengeId)] : [];
   }));
-  // Read known challenges with local submission records, plus the open drawer. Avoid a history
-  // request for every catalog result. The Host verifies current-account ownership on every read.
-  const historyIds = JSON.stringify([...new Set([...(detail ? [String(detail.id)] : []),
-    ...challenges.map((challenge) => String(challenge.id)).filter((id) => tracked.has(id))])]);
+  // One snapshot per loaded catalog result, shared by its tracked cards.
+  const trackedIds = JSON.stringify(loaded.map(({ id }) => String(id)).filter((id) => tracked.has(id)));
+  const signedIn = account != null && account !== '';
   React.useEffect(() => {
-    if (account == null || account === '') {
-      setHistory(null);
+    if (!signedIn) {
+      setCatalogHistory(null);
       return;
     }
-    if (!active || !webBase || historyIds === '[]') return;
+    if (!active || !webBase || trackedIds === '[]') return;
     const abort = new AbortController();
     const read = async () => {
-      for (const challengeId of JSON.parse(historyIds)) {
-        if (abort.signal.aborted) return;
-        const result = await Promise.resolve().then(() => query({ action: 'my_attempts', challengeId, limit: 1 }, abort.signal)).catch(() => undefined);
-        if (abort.signal.aborted) return;
-        setHistory((previous) => ({ account, webBase, query,
-          byId: { ...(previous?.account === account && previous.webBase === webBase && previous.query === query ? previous.byId : {}),
-            [challengeId]: result?.ok === true ? result : undefined } }));
-      }
+      const result = await Promise.resolve().then(() => query({ action: 'my_attempts_summary' }, abort.signal)).catch(() => undefined);
+      if (!abort.signal.aborted) setCatalogHistory({ account, webBase, query, byId: result?.ok === true ? result.byId : undefined });
     };
     void read();
     return () => abort.abort();
-  }, [active, account, webBase, query, historyIds, historyRefresh]);
-  const accountHistory = history && history.account === account && history.webBase === webBase && history.query === query ? history.byId : undefined;
-  const progressFor = (item) => challengeProgress(item.id, controllerRows, taskSessions, accountHistory?.[String(item.id)], webBase, account);
+  }, [active, account, webBase, query, shownList, trackedIds]);
+  React.useEffect(() => {
+    if (!signedIn) {
+      setDetailHistory(null);
+      return;
+    }
+    if (!active || !webBase || !detail) return;
+    const abort = new AbortController();
+    const read = async () => {
+      const input = { action: 'my_attempts', challengeId: String(detail.id), limit: 1 };
+      const result = await Promise.resolve().then(() => query(input, abort.signal)).catch(() => undefined);
+      if (!abort.signal.aborted) setDetailHistory({ account, webBase, query, detail,
+        result: result?.ok === true ? result : undefined });
+    };
+    void read();
+    return () => abort.abort();
+  }, [active, account, webBase, query, detail]);
+  const matchesAccount = (snapshot) => snapshot && snapshot.account === account && snapshot.webBase === webBase && snapshot.query === query;
+  const historyById = matchesAccount(catalogHistory) ? catalogHistory.byId : undefined;
+  const drawerHistory = matchesAccount(detailHistory) && detailHistory.detail === detail ? detailHistory.result : undefined;
+  const progressFor = (item, history) => challengeProgress(item.id, controllerRows, taskSessions, history, webBase, account);
   const groupFor = (item) => {
     const tags = Array.isArray(item.tags) ? item.tags : [];
     return groups.filter((entry) => entry.key === group || tags.includes(entry.key) || (entry.labelZh && tags.includes(entry.labelZh)))
@@ -507,13 +519,14 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
           busy === 'load' ? msg('正在刷新…', 'Refreshing…') : msg('刷新目录', 'Refresh catalog'))),
       h('div', { className: 'pg-challenge-grid' }, challenges.map((item) => {
         const title = msg(item.titleZh || item.title, item.title || item.titleZh) || item.id;
-        const progressLines = progressSummary(progressFor(item), msg);
+        const id = String(item.id);
+        const progressLines = progressSummary(progressFor(item, tracked.has(id) ? historyById?.[id] : undefined), msg);
         const itemGroup = groupFor(item);
         const status = item.status && (locales[currentLanguage()].states[item.status] || item.status);
         const difficulty = Number.isFinite(item.difficulty) ? item.difficulty : undefined;
         const attempts = Number.isFinite(item.attempts) ? item.attempts : undefined;
         return h('article', { className: 'pg-card pg-challenge', key: item.id,
-          onClick: (event) => { if (!event.target.closest('button, a[href]') && !window.getSelection?.()?.toString()) setDetail(item); } },
+          onClick: (event) => { if (!event.target.closest('button, a[href]') && !window.getSelection?.()?.toString()) openDetail(item); } },
           h('div', { className: 'pg-head' },
             h('span', { className: 'pg-challenge-id' }, openWebButton(item.webUrl, title, { label: String(item.id) }) || item.id),
             status ? h('span', { className: 'pg-badge', 'data-tone': statusTone(item.status) }, status) : null),
@@ -526,7 +539,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
           progressLines.length ? h('div', { className: 'pg-challenge-progress-group' },
             progressLines.map(({ text, tone }) => h('p', { key: tone, className: 'pg-challenge-progress', 'data-tone': tone }, text))) : null,
           h('div', { className: 'pg-actions' },
-            h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': msg(`查看详情：${title}`, `View details: ${title}`), onClick: () => setDetail(item),
+            h('button', { type: 'button', className: 'pg-button pg-challenge-detail', 'aria-haspopup': 'dialog', 'aria-label': msg(`查看详情：${title}`, `View details: ${title}`), onClick: () => openDetail(item),
               ref: (node) => { if (node) latest.details.set(String(item.id), node); else latest.details.delete(String(item.id)); } }, msg('查看详情', 'View details')),
             handoff ? h(DispatchChallengeButton, { challenge: item, handoff: catalogHandoff }) : null));
       })),
@@ -536,7 +549,7 @@ function CatalogPanel({ query, handoff, onWebBase, requestTask, controllerRows, 
         ref: (node) => { latest.more = node; } }, busy === 'more' ? msg('正在加载…', 'Loading…') : msg('加载更多', 'Load more')) : null),
     // Keyed by challenge, so opening another card (or reopening this one) mounts a fresh drawer that reads again.
     detail ? h(ChallengeDetailDrawer, { key: String(detail.id), challenge: detail, query, handoff: catalogHandoff, requestTask, competition: infoName, group: groupFor(detail),
-      progress: progressFor(detail), close: () => setDetail(null),
+      progress: progressFor(detail, drawerHistory), close: () => setDetail(null),
       focusFallback: () => [latest.details.get(String(detail.id)), latest.heading] }) : null);
 }
 

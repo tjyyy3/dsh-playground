@@ -232,6 +232,37 @@ test('the submission-history read accepts only challengeId, limit and cursor and
   }
 });
 
+test('[review-135] one summary query reads platform history once and groups owned attempts by challenge', async () => {
+  let service, contribution;
+  const ctx = {
+    provide: (_, value) => { service = value; },
+    typert: { register: (value) => { contribution = value; } },
+  };
+  const signal = new AbortController().signal;
+  const attempt = (challengeId, attemptId, authorId = 'member') =>
+    ({ challengeId, attemptId, authorId, time: '2026-10-01T00:00:00Z' });
+  const calls = [];
+  const client = {
+    baseUrl: 'https://example.test/api',
+    currentToken: async () => 'fixture-token',
+    getCurrentUser: async () => ({ authenticated: true, user: { id: 'member' } }),
+    async getUserSubmissions(options) {
+      calls.push(options);
+      return [attempt('alpha', 1), attempt('alpha', 2), attempt('alpha', 2),
+        attempt('beta', 3), attempt('beta', 4, 'other-account'), attempt('beta', null),
+        attempt('gamma', 5), attempt('gamma', 6), attempt('gamma', 7), attempt('foreign', 8, 'other-account')];
+    },
+  };
+  registerWorkbenchQueries(ctx, createWorkflow({ ctx, client }));
+  const schema = contribution.invocations.find((item) => item.method === 'query').parameters[0].codec.create();
+  const result = await service.query(schema.parse({ action: 'my_attempts_summary' }), signal);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [{ signal, token: 'fixture-token' }]);
+  assert.deepEqual(Object.entries(result.byId).map(([id, history]) =>
+    [id, history.submissionCounts.lifetime, history.items.map((item) => [item.id, item.authorId]), Boolean(history.partial)]),
+  [['alpha', 2, [[2, 'member']], false], ['beta', 1, [[3, 'member']], true], ['gamma', 3, [[7, 'member']], false]]);
+});
+
 test('session-free login accepts only the account email and never a password', async () => {
   const services = new Map();
   const calls = [];
