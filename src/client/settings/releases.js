@@ -9,19 +9,19 @@ const releaseCss = `
   .pg-guide.pg-release { --inset:clamp(16px,3vw,24px); padding:0; margin-top:12px; border-radius:10px; overflow-wrap:anywhere; container-type:inline-size }
   .pg-release-header,.pg-release-summary,.pg-release-pref { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-inline:var(--inset) }
   .pg-release-header { padding-top:18px }.pg-release-header h2 { margin:0; font-size:20px; font-weight:650; line-height:1.4 }
-  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--dsw-alias-label-secondary); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
+  .pg-release-check,.pg-release-link { display:inline-flex; align-items:center; gap:5px; color:var(--pg-muted); font:inherit; font-size:13px; background:none; border:0; padding:6px 0; text-decoration:none; cursor:pointer }
   .pg-release-check:disabled { opacity:.6; cursor:default }.pg-release-link:hover,.pg-release-check:hover:not(:disabled) { text-decoration:underline }
   .pg-release :is(button,a,summary,input):focus-visible { outline:2px solid var(--pg-accent); outline-offset:3px }
   .pg-release-summary { flex-wrap:wrap; padding-block:18px 20px }.pg-release-versions,.pg-release-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; max-width:100% }
-  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--dsw-alias-label-secondary) }.pg-release-version small { font-size:12px }
-  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--dsw-alias-label-primary) }
-  .pg-release-arrow { color:var(--dsw-alias-label-secondary) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
-  .pg-release-pref { min-height:54px; border-top:1px solid var(--dsw-alias-border-l2); font-weight:600; cursor:pointer }
-  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--dsw-alias-label-secondary); border-radius:12px; background:var(--dsw-alias-bg-base); cursor:pointer }
-  .pg-release-pref input::before { content:""; background:var(--dsw-alias-label-secondary); width:14px; height:14px; margin:2px; border-radius:50% }
+  .pg-release-version { display:grid; min-width:0; gap:3px; color:var(--pg-muted) }.pg-release-version small { font-size:12px }
+  .pg-release-version strong { font-size:22px; line-height:1.35; font-weight:500; font-variant-numeric:tabular-nums }.pg-release-target strong { font-weight:650; color:var(--pg-text) }
+  .pg-release-arrow { color:var(--pg-muted) }.pg-release-actions .pg-primary { font-size:14px; min-height:36px; border-radius:6px }
+  .pg-release-pref { min-height:54px; border-top:1px solid var(--pg-line); font-weight:600; cursor:pointer }
+  .pg-release-pref input { appearance:none; display:grid; align-items:center; flex:none; box-sizing:border-box; width:34px; height:20px; margin:0; border:1px solid var(--pg-muted); border-radius:12px; background:var(--pg-base); cursor:pointer }
+  .pg-release-pref input::before { content:""; background:var(--pg-muted); width:14px; height:14px; margin:2px; border-radius:50% }
   .pg-release-pref input:checked { background:var(--pg-accent-strong); border-color:var(--pg-accent-strong) }.pg-release-pref input:checked::before { justify-self:end; background:white }
   @media(forced-colors:active){.pg-release-pref input{appearance:auto}}
-  .pg-release-details { border-top:1px solid var(--dsw-alias-border-l2); padding:10px var(--inset); color:var(--dsw-alias-label-secondary); font-size:13px }.pg-release-details summary { cursor:pointer }
+  .pg-release-details { border-top:1px solid var(--pg-line); padding:10px var(--inset); color:var(--pg-muted); font-size:13px }.pg-release-details summary { cursor:pointer }
   .pg-release-spec { display:block; margin:8px 0; user-select:all }.pg-release .pg-release-message { margin:0 var(--inset) 14px }.pg-release .pg-error { color:var(--pg-error) }
   @container(max-width:520px){.pg-release-actions { width:100%; justify-content:space-between }.pg-release-version strong { font-size:20px }}
 `;
@@ -40,7 +40,7 @@ function ReleaseIndicator({ checks, active, open }) {
     return () => window.removeEventListener?.('focus', checks.check);
   }, [checks, active]);
   return version ? h('button', { type: 'button', className: 'pg-release-indicator', onClick: open,
-    title: msg(`查看版本 ${version}`, `View version ${version}`) }, icon('M4 10a8 8 0 0 1 13-4l3 3m0-5v5h-5M20 14a8 8 0 0 1-13 4l-3-3m0 5v-5h5'), msg('有新版本', 'Update available')) : null;
+    title: msg(`查看版本 ${version}`, `View version ${version}`) }, icon('M12 20V4m0 0-6 6m6-6 6 6', 14), msg('有新版本', 'Update available')) : null;
 }
 
 function ReleaseStatusPanel({ query, checks, installRelease, visit }) {
