@@ -514,7 +514,7 @@ var instrumentCss = `
     --pg-font-body:"Noto Sans SC",system-ui,sans-serif;
     --pg-font-title:"Space Grotesk",var(--pg-font-body);
     --pg-font-mono:"JetBrains Mono",ui-monospace,monospace;
-    --pg-grid:radial-gradient(rgba(230,234,240,.06) 1px,transparent 1px) 0 0 / 40px 40px;
+    --pg-grid:radial-gradient(rgba(230,234,240,0.05) 1px,transparent 1px) 0 0 / 22px 22px;
     color:var(--pg-text);
     font-family:var(--pg-font-body);
   }
@@ -607,6 +607,23 @@ var taskModalCss = instrumentCss + `
 // src/client/settings/auth.js
 var React2 = __toESM(require("react"), 1);
 
+// src/client/shared/web-address.js
+function webRootOf(apiBase) {
+  let root = String(apiBase || "");
+  try {
+    const parsed = new URL(root);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    root = parsed.href;
+  } catch {
+    root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, "$1");
+  }
+  return root.replace(/\/+$/, "").replace(/\/api$/i, "").replace(/\/+$/, "");
+}
+__name(webRootOf, "webRootOf");
+
 // src/client/shared/display.js
 function statusTone(state) {
   if (["failed", "incomplete", "rejected"].includes(state)) return "error";
@@ -632,21 +649,6 @@ function openableWebUrl(value) {
   return url.protocol === "https:" || url.protocol === "http:" && local ? url.href : void 0;
 }
 __name(openableWebUrl, "openableWebUrl");
-function webRootOf(apiBase) {
-  let root = String(apiBase || "");
-  try {
-    const parsed = new URL(root);
-    parsed.username = "";
-    parsed.password = "";
-    parsed.search = "";
-    parsed.hash = "";
-    root = parsed.href;
-  } catch {
-    root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, "$1");
-  }
-  return root.replace(/\/+$/, "").replace(/\/api$/i, "").replace(/\/+$/, "");
-}
-__name(webRootOf, "webRootOf");
 function taskWebUrl(task, webBase) {
   if (typeof task?.webUrl === "string" && task.webUrl) return task.webUrl;
   const id = task?.challengeId;
@@ -775,7 +777,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
     check();
   }, [query]);
   React2.useEffect(() => {
-    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user);
+    onStatusChange?.(!state || checking ? "checking" : state.authenticated ? "authenticated" : state.error || ["network", "unavailable"].includes(state.reason) ? "unavailable" : "unauthenticated", state?.user, state?.baseUrl);
   }, [state, checking, onStatusChange]);
   const submitLogin = /* @__PURE__ */ __name(async () => {
     if (latest.previewRequest) {
@@ -2327,12 +2329,26 @@ var controllerPanelCss = `
   .pg-controller-row-meta .pg-badge { min-height:0; border:0; padding:0; font-size:inherit; }
   .pg-controller-row-meta .pg-badge::before { width:8px; height:8px; }
   .pg-controller-row-time { font:10.5px/1.4 var(--pg-font-mono); color:var(--pg-label); overflow-wrap:anywhere; }
-  .pg-controller-back { margin:4px 0; }
-  .pg-controller-detail h3 { margin:4px 0; font-size:15px; overflow-wrap:anywhere; }
-  .pg-controller-markdown { min-width:0; overflow-wrap:anywhere; line-height:1.55; }
+  .pg-controller-detail { display:grid; gap:var(--pg-s16); padding:var(--pg-s12) 6px 4px; }
+  .pg-controller-detail > .pg-controller-back,.pg-controller-result > .pg-controller-back { justify-self:start; min-height:34px; }
+  .pg-controller-detail > .pg-controller-back:first-child { min-height:var(--pg-h30); }
+  .pg-controller-detail-title { display:grid; gap:var(--pg-s8); }
+  .pg-controller-detail h3 { margin:0; font-size:17px; font-weight:600; line-height:1.35; overflow-wrap:anywhere; }
+  .pg-controller-detail .pg-controller-detail-context { margin:0; color:var(--pg-label); font-size:11.5px; overflow-wrap:anywhere; }
+  .pg-controller-detail-meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+  .pg-controller-detail-meta > * { box-sizing:border-box; display:inline-flex; align-items:center; gap:6px; min-height:24px; padding:0 8px; border:1px solid var(--pg-control-line); border-radius:var(--pg-r4); font-size:12px; }
+  .pg-controller-detail-meta > :not(.pg-badge) { color:var(--pg-muted); }
+  .pg-controller-detail-meta > time { font-family:var(--pg-font-mono); }
+  .pg-controller-detail > p { margin:0; }
+  .pg-controller-result { display:grid; gap:var(--pg-s8); }
+  .pg-controller-result h4 { display:flex; align-items:center; gap:var(--pg-s8); margin:0; color:var(--pg-label); font:10.5px/1.5 var(--pg-font-mono); letter-spacing:.08em; }
+  .pg-controller-result h4::after { content:""; flex:1; height:1px; background:#1A1F27; }
+  .pg-controller-markdown { min-width:0; color:#D3D9E1; overflow-wrap:anywhere; font-size:13.5px; line-height:1.55; }
   .pg-controller-markdown pre,.pg-controller-markdown table,.pg-controller-raw pre { max-width:100%; overflow:auto; }
-  .pg-controller-raw { margin-top:var(--pg-s16); font-size:12px; }
-  .pg-controller-raw pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.55 var(--pg-font-mono); }
+  .pg-controller-markdown > pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+  .pg-controller-raw { border:1px solid #1A1F27; border-radius:var(--pg-r8); background:var(--pg-ink); color:var(--pg-muted); font-size:12.5px; }
+  .pg-controller-raw summary { padding:9px var(--pg-s12); cursor:pointer; }
+  .pg-controller-raw pre { margin:0; padding:10px var(--pg-s12); border-top:1px solid #161B22; white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.55 var(--pg-font-mono); }
   .pg-controller-error,.pg-controller-tasks .pg-controller-error { color:var(--pg-error); }
   @media (max-width:600px) {
     .pg-controller-bar { gap:4px 8px; padding:4px 8px; }
@@ -2353,6 +2369,50 @@ function taskEvidence({ state, liveEnd, terminalText }) {
   return terminalText ? "report" : "none";
 }
 __name(taskEvidence, "taskEvidence");
+
+// src/client/controller/task-presentation.js
+function taskProvider(provider, language) {
+  if (provider === "codex") return "Codex";
+  if (provider === "dsh") return language === "en" ? "DSH subagent" : "DSH 子智能体";
+  return provider;
+}
+__name(taskProvider, "taskProvider");
+function challengeSubtitle({ id, baseUrl }, configuredBase) {
+  const taskPlatform = webRootOf(baseUrl);
+  const configuredPlatform = webRootOf(configuredBase);
+  return taskPlatform && configuredPlatform && taskPlatform !== configuredPlatform ? `${id} · ${taskPlatform}` : id;
+}
+__name(challengeSubtitle, "challengeSubtitle");
+function asDate(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+__name(asDate, "asDate");
+function calendarTime(value, language, now = Date.now()) {
+  const date = asDate(value);
+  if (!date) return null;
+  const today = new Date(now);
+  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  let label2 = time;
+  if (date.toDateString() !== today.toDateString()) {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const prefix = language === "en" ? "Yesterday" : "昨天";
+    label2 = date.toDateString() === yesterday.toDateString() ? `${prefix} ${time}` : date.toLocaleDateString(language, { year: "numeric", month: "2-digit", day: "2-digit" });
+  }
+  return { dateTime: date.toISOString(), title: date.toLocaleString(language), label: label2 };
+}
+__name(calendarTime, "calendarTime");
+function taskRowTime(row, language, now = Date.now()) {
+  const stamp = calendarTime(row.createdAt, language, now);
+  if (!stamp) return null;
+  if (row.state !== "running") return stamp;
+  const minutes = Math.floor((now - Date.parse(stamp.dateTime)) / 6e4);
+  if (minutes < 0) return null;
+  return { ...stamp, label: language === "en" ? `Running for ${minutes} min` : `已运行 ${minutes} 分钟` };
+}
+__name(taskRowTime, "taskRowTime");
 
 // src/client/controller/index.js
 function lineIcon(path, size = 16, viewBox = "0 0 16 16") {
@@ -2398,15 +2458,8 @@ function groupHeading(title, count, subtitle) {
   );
 }
 __name(groupHeading, "groupHeading");
-function taskTime(value, language) {
-  if (typeof value !== "string" && typeof value !== "number") return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return h(
-    "time",
-    { dateTime: date.toISOString(), title: date.toLocaleString(language) },
-    date.toDateString() === (/* @__PURE__ */ new Date()).toDateString() ? date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : date.toLocaleDateString(language, { month: "2-digit", day: "2-digit" })
-  );
+function taskTime(stamp) {
+  return stamp ? h("time", { dateTime: stamp.dateTime, title: stamp.title }, stamp.label) : null;
 }
 __name(taskTime, "taskTime");
 var stopReasonLabels = /* @__PURE__ */ __name(() => ({
@@ -2538,9 +2591,12 @@ function ControllerPanel(props) {
   const [dispatchControls] = React7.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React7.useState("checking");
   const [accountName, setAccountName] = React7.useState("");
-  const [updateAuthStatus] = React7.useState(() => (status, user) => {
+  const [configuredBase, setConfiguredBase] = React7.useState("");
+  const [updateAuthStatus] = React7.useState(() => (status, user, baseUrl) => {
     setAuthStatus(status);
+    if (status === "checking") return;
     setAccountName(status === "authenticated" ? user?.name || user?.email || "" : "");
+    setConfiguredBase(baseUrl || "");
   });
   const [visited] = React7.useState(() => /* @__PURE__ */ new Set());
   if (view === "catalog" || view === "submissions" || view === "settings") visited.add(view);
@@ -2718,7 +2774,7 @@ function ControllerPanel(props) {
           return;
         }
         setIncludeChallengeId(state.challenge.id);
-        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value, updatedAt: Date.now() });
         setShowTasks(true);
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : "");
         setGroupOpen(/* @__PURE__ */ new Map());
@@ -2881,12 +2937,20 @@ function ControllerPanel(props) {
     report: msg("Agent 报告", "Agent report"),
     none: msg("无运行记录", "No run record")
   };
-  const listRow = /* @__PURE__ */ __name((item) => {
-    const evidence = taskEvidence(item);
-    const created = taskTime(item.createdAt, language);
+  const stateBadge = /* @__PURE__ */ __name((item, compact = false) => {
     const label2 = taskState(item) || msg("状态未知", "Status unknown");
     const tone = taskTone(item);
-    const showResult = tone === "result" && item.state === "ended" && item.terminalText;
+    const showResult = compact && tone === "result" && item.state === "ended" && item.terminalText;
+    return h(
+      "span",
+      { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
+      showResult ? msg("已收到结果", "Result received") : label2
+    );
+  }, "stateBadge");
+  const listRow = /* @__PURE__ */ __name((item) => {
+    const evidence = taskEvidence(item);
+    const time = taskTime(taskRowTime(item, language));
+    const provider = taskProvider(item.provider, language);
     return h(
       "button",
       {
@@ -2907,22 +2971,22 @@ function ControllerPanel(props) {
       h(
         "span",
         { className: "pg-controller-row-meta" },
-        h(
-          "span",
-          { className: "pg-badge", "data-tone": tone, title: showResult ? label2 : void 0 },
-          showResult ? msg("已收到结果", "Result received") : label2
-        ),
+        stateBadge(item, true),
         evidenceMark(evidence, evidenceLabels[evidence]),
-        item.provider || created ? h(
+        provider || time ? h(
           "span",
           { className: "pg-controller-row-time" },
-          item.provider,
-          item.provider && created ? " · " : null,
-          created
+          provider,
+          provider && time ? " · " : null,
+          time
         ) : null
       )
     );
   }, "listRow");
+  const detailEvidence = row && taskEvidence(row);
+  const detailProvider = row && taskProvider(row.provider, language);
+  const detailTime = row && taskTime(taskRowTime(row, language));
+  const output = row && taskOutput(row);
   const taskGroup = /* @__PURE__ */ __name((key2, rows, title, subtitle, initiallyOpen = false, className = "pg-controller-challenge") => {
     const open2 = groupOpen.get(key2) ?? initiallyOpen;
     return h(
@@ -3141,7 +3205,7 @@ function ControllerPanel(props) {
           h(
             "div",
             { className: "pg-controller-task-status" },
-            tasks?.kind === "ready" ? h("span", null, msg("状态更新于 ", "Updated "), taskTime(taskSnapshot.updatedAt, language)) : null,
+            tasks?.kind === "ready" ? h("span", null, msg("状态更新于 ", "Updated "), taskTime(calendarTime(taskSnapshot.updatedAt, language))) : null,
             h("span", { className: "pg-controller-rule", "aria-hidden": true }),
             evidenceMark("report", msg("报告", "Report"), evidenceLabels.report),
             evidenceMark("host", msg("记录", "Record"), evidenceLabels.host),
@@ -3159,9 +3223,23 @@ function ControllerPanel(props) {
                 pane.focus = row.childId;
                 setSelectedTask("");
               }, "onClick") }, msg("返回任务", "Back to tasks")),
-              h("h3", null, row.label || msg("未命名任务", "Untitled task")),
-              h("p", null, [row.provider, taskState(row)].filter(Boolean).join(" · ")),
-              h("p", null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
+              h(
+                "div",
+                { className: "pg-controller-detail-title" },
+                h("p", { className: "pg-controller-detail-context" }, row.challenge ? [
+                  msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
+                  challengeSubtitle(row.challenge, configuredBase)
+                ].filter(Boolean).join(" · ") : row.category === "maintenance" ? msg("后台维护", "Background maintenance") : msg("未关联赛题", "No linked challenge")),
+                h("h3", null, row.label || msg("未命名任务", "Untitled task")),
+                h(
+                  "div",
+                  { className: "pg-controller-detail-meta" },
+                  stateBadge(row),
+                  evidenceMark(detailEvidence, evidenceLabels[detailEvidence]),
+                  detailProvider ? h("span", { className: "pg-controller-detail-provider" }, detailProvider) : null,
+                  detailTime
+                )
+              ),
               childAddress ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
                 setTaskActionStatus("");
                 try {
@@ -3174,15 +3252,20 @@ function ControllerPanel(props) {
               row.liveEnd ? h("p", null, msg(`${row.state === "running" ? "上次" : "本次"}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "未知"}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
               row.state === "settled" && row.terminalText ? h("p", null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === "string" ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === "string" ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ""}`)) : null,
               row.state === "running" && row.terminalText ? h("p", null, msg("正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。", "Running. The available notification belongs to an earlier run.")) : null,
-              taskOutput(row) ? h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: taskOutput(row), running: false }, { fallback: h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row)) }) : h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit" } }, taskOutput(row))) : null,
-              taskOutput(row) ? h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
-                try {
-                  await navigator.clipboard.writeText(taskOutput(row));
-                  setTaskActionStatus("已复制结果");
-                } catch {
-                  setTaskActionStatus("无法复制，请选择文本后复制。");
-                }
-              }, "onClick") }, msg("复制结果", "Copy result")) : null,
+              output ? h(
+                "section",
+                { className: "pg-controller-result" },
+                h("h4", null, msg("返回结果", "Result")),
+                h("div", { className: "pg-controller-markdown" }, typeof renderFactorySlot === "function" ? renderFactorySlot("conversation.chat.reasoning.content", { text: output, running: false }, { fallback: h("pre", null, output) }) : h("pre", null, output)),
+                h("button", { className: "pg-button pg-controller-back", onClick: /* @__PURE__ */ __name(async () => {
+                  try {
+                    await navigator.clipboard.writeText(output);
+                    setTaskActionStatus("已复制结果");
+                  } catch {
+                    setTaskActionStatus("无法复制，请选择文本后复制。");
+                  }
+                }, "onClick") }, msg("复制结果", "Copy result"))
+              ) : null,
               taskActionStatus ? h("p", { role: "status" }, controllerMessage(taskActionStatus)) : null,
               row.terminalText ? h("details", { className: "pg-controller-raw" }, h("summary", null, row.state !== "ended" ? msg("历史原始通知", "Original notification from an earlier run") : msg("原始通知", "Original notification")), h("pre", null, row.terminalText)) : null
             ) : !tasks.rows.length ? h("p", null, msg("还没有派发任务。", "No tasks dispatched yet.")) : h(
@@ -3192,7 +3275,7 @@ function ControllerPanel(props) {
                 key2,
                 group.rows,
                 msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
-                [group.challenge.id, group.challenge.baseUrl].filter(Boolean).join(" · "),
+                challengeSubtitle(group.challenge, configuredBase),
                 true
               )),
               unassociated.length ? taskGroup(

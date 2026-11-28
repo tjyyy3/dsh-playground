@@ -13,7 +13,7 @@ const instrumentCss = `
     --pg-font-body:"Noto Sans SC",system-ui,sans-serif;
     --pg-font-title:"Space Grotesk",var(--pg-font-body);
     --pg-font-mono:"JetBrains Mono",ui-monospace,monospace;
-    --pg-grid:radial-gradient(rgba(230,234,240,.06) 1px,transparent 1px) 0 0 / 40px 40px;
+    --pg-grid:radial-gradient(rgba(230,234,240,0.05) 1px,transparent 1px) 0 0 / 22px 22px;
     color:var(--pg-text);
     font-family:var(--pg-font-body);
   }

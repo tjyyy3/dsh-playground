@@ -6515,6 +6515,28 @@ test('a linked alert opens the controller with its existing child task selected'
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
 });
 
+test('a linked handoff shows its snapshot time before task polling returns', async (t) => {
+  const now = Date.parse('2026-11-28T11:25:00+08:00');
+  t.mock.method(Date, 'now', () => now);
+  const poll = deferred();
+  let exactReads = 0;
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['original'] }),
+    controllerTasks: async ({ includeChallengeId }) => {
+      if (includeChallengeId !== challengeCard.id) return { kind: 'ready', rows: [] };
+      if (exactReads++) return poll.promise;
+      return { kind: 'ready', linkedChildIds: ['original'], rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] };
+    } });
+  await h.refresh();
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  await h.modalButton('确认交给主控').props.onClick();
+  await h.refresh();
+  assert.equal(exactReads, 2);
+  const status = h.f.find(h.view(), (node) => node.props?.className === 'pg-controller-task-status');
+  assert.equal(h.f.find(status, (node) => node.type === 'time')?.props.dateTime, new Date(now).toISOString());
+});
+
 test('an unreadable single alert keeps its original period, and an archived controller cannot receive its selection', async (t) => {
   const reads = [];
   const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: { ...existingController('old'), archived: true } },
@@ -6947,6 +6969,34 @@ test('controller login indicator follows verified auth status and opens connecti
   }
   indicator().props.onClick();
   assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
+});
+
+test('the login indicator retains the account mark until a delayed recheck finishes', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const next = deferred();
+  let checks = 0;
+  const props = { controllerSelection: {}, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null,
+    query: async () => checks++ ? next.promise : { authenticated: true, user: { name: 'Initial Account' } },
+  };
+  const tree = () => f.render(Main, props);
+  const mark = () => f.find(tree(), (node) => node.props?.className === 'pg-controller-account-mark');
+  const auth = f.find(tree(), (node) => node.type?.name === 'AuthStatusPanel');
+  const panel = await f.mount(auth);
+  f.effects.at(-1)();
+  assert.equal(text(mark()), 'IN');
+  const checking = f.find(panel, buttonLabelled('重新检测')).props.onClick();
+  f.render(auth.type, auth.props);
+  f.effects.at(-1)();
+  assert.equal(f.find(tree(), (node) => node.props?.title === '连接设置').props['data-status'], 'checking');
+  assert.equal(text(mark()), 'IN');
+  next.resolve({ authenticated: false, reason: 'rejected' });
+  await checking;
+  f.render(auth.type, auth.props);
+  f.effects.at(-1)();
+  assert.equal(mark(), undefined);
 });
 
 test('the toolbar language menu follows DSH, remembers overrides, and closes after selection', async (t) => {
@@ -7438,6 +7488,39 @@ test('controller task evidence uses host observations before Agent notifications
   assert.equal(taskEvidence({ state: 'unknown', attemptId: 20 }), 'none');
 });
 
+test('Instrument maps the two observed providers and preserves other provider names', async () => {
+  const { taskProvider } = await import('../src/client/controller/task-presentation.js');
+  assert.equal(taskProvider('codex', 'zh-CN'), 'Codex');
+  assert.equal(taskProvider('dsh', 'zh-CN'), 'DSH 子智能体');
+  assert.equal(taskProvider('dsh', 'en'), 'DSH subagent');
+  assert.equal(taskProvider('external-agent', 'zh-CN'), 'external-agent');
+  assert.equal(taskProvider(undefined, 'zh-CN'), undefined);
+});
+
+test('Instrument group subtitles show a platform only when the configured platform differs', async () => {
+  const { challengeSubtitle } = await import('../src/client/controller/task-presentation.js');
+  const challenge = { id: 'reading-01', baseUrl: 'https://one.example.test/api' };
+  assert.equal(challengeSubtitle(challenge, 'https://one.example.test/'), 'reading-01');
+  assert.equal(challengeSubtitle(challenge, 'https://two.example.test/api'), 'reading-01 · https://one.example.test');
+  assert.equal(challengeSubtitle(challenge, undefined), 'reading-01');
+  assert.equal(challengeSubtitle({ id: 'reading-01' }, 'https://one.example.test/api'), 'reading-01');
+});
+
+test('Instrument task times use row timestamps and the local calendar', async () => {
+  const { taskRowTime } = await import('../src/client/controller/task-presentation.js');
+  const now = new Date(2026, 10, 28, 13, 42).getTime();
+  const at = (day, hour, minute) => new Date(2026, 10, day, hour, minute).getTime();
+  const time = (row) => taskRowTime(row, 'zh-CN', now)?.label;
+  assert.equal(time({ state: 'running', createdAt: at(28, 13, 30) }), '已运行 12 分钟');
+  assert.equal(time({ state: 'running', createdAt: at(28, 13, 43) }), undefined);
+  assert.equal(time({ state: 'ended', createdAt: new Date(at(28, 13, 38)).toISOString() }), '13:38');
+  assert.equal(time({ state: 'settled', createdAt: at(27, 21, 14) }), '昨天 21:14');
+  assert.equal(time({ state: 'ended', createdAt: at(26, 18, 0) }), '2026/11/26');
+  assert.equal(time({ state: 'unknown', createdAt: at(27, 18, 0) }), '昨天 18:00');
+  assert.equal(time({ state: 'ended', createdAt: 'invalid' }), undefined);
+  assert.equal(time({ state: 'running', updatedAt: now }), undefined);
+});
+
 test('Instrument sidebar counts task rows and distinct linked challenges', async (t) => {
   const { f, sidebar } = await codexSidebarFixture(t);
   const heading = f.find(sidebar(), (node) => node.type === 'header');
@@ -7477,20 +7560,25 @@ test('controller groups use platform and challenge ids while retaining every chi
   const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
     useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }), useSessions: (select) => select({ ids: [], byId: {} }),
     inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    query: async () => ({ authenticated: true, baseUrl: challenge.baseUrl }),
     controllerTasks: async (input) => { reads.push(input); return { kind: 'ready', rows }; }, renderSlot: () => null,
     openTask: async (address) => opened.push(address), openController: () => assert.fail('created a session'), dispatchChallenge: () => assert.fail('dispatched work'),
     run: () => assert.fail('ran a task command'), submission: () => assert.fail('submitted') };
   const render = () => f.render(Main, props);
   render(); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  const auth = f.find(render(), (node) => node.type?.name === 'AuthStatusPanel');
+  await f.mount(auth);
+  f.effects.at(-1)();
   let tree = render();
   const groups = findAll(tree, (node) => node.props?.className === 'pg-controller-challenge');
   assert.equal(groups.length, 4);
   const children = (group) => findAll(group, (node) => node.props?.className === 'pg-controller-row').map((node) => node.props.key);
   assert.deepEqual(groups.map(children), [['first', 'second'], ['different-id'], ['different-platform'], ['legacy']]);
-  assert.match(text(groups[0]), /Same title.*challenge-a.*https:\/\/one.example.test\/api.*2/);
+  assert.match(text(groups[0]), /Same title.*challenge-a.*2/);
+  assert.doesNotMatch(text(groups[0]), /one.example.test/);
   assert.match(text(groups[1]), /challenge-b/);
-  assert.match(text(groups[2]), /https:\/\/two.example.test\/api/);
+  assert.match(text(groups[2]), /https:\/\/two\.example\.test/);
   assert.match(text(groups[3]), /未关联赛题.*缺少明确的赛题关联/);
   const maintenance = f.find(tree, (node) => node.props?.className === 'pg-controller-maintenance');
   assert.match(text(maintenance), /后台维护.*1.*Maintenance task/);

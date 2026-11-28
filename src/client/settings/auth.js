@@ -135,7 +135,7 @@ function AuthStatusPanel({ query, login, previewToken, saveToken, clearToken, on
   React.useEffect(() => { check(); }, [query]);
   React.useEffect(() => {
     onStatusChange?.(!state || checking ? 'checking' : state.authenticated ? 'authenticated'
-      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated', state?.user);
+      : state.error || ['network', 'unavailable'].includes(state.reason) ? 'unavailable' : 'unauthenticated', state?.user, state?.baseUrl);
   }, [state, checking, onStatusChange]);
   const submitLogin = async () => {
     if (latest.previewRequest) {

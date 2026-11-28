@@ -1,5 +1,6 @@
 import { msg } from './language.js';
 import { h } from './react.js';
+import { webRootOf } from './web-address.js';
 
 function statusTone(state) {
   if (['failed', 'incomplete', 'rejected'].includes(state)) return 'error';
@@ -21,19 +22,6 @@ function openableWebUrl(value) {
   if (url.username || url.password) return undefined;
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   return url.protocol === 'https:' || (url.protocol === 'http:' && local) ? url.href : undefined;
-}
-
-// Mirrors challengeWebBase in lib/links.js: drop userinfo, query, hash and a trailing /api.
-function webRootOf(apiBase) {
-  let root = String(apiBase || '');
-  try {
-    const parsed = new URL(root);
-    parsed.username = ''; parsed.password = ''; parsed.search = ''; parsed.hash = '';
-    root = parsed.href;
-  } catch {
-    root = root.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
-  }
-  return root.replace(/\/+$/, '').replace(/\/api$/i, '').replace(/\/+$/, '');
 }
 
 // Tasks recorded before webUrl existed rebuild it like the Host projection view does: from the API base

@@ -12,6 +12,7 @@ import { ControllerHandoffDialog, noticeHandoffCopy } from './handoff.js';
 import { CompetitionNotices, CompetitionNoticeSetting } from './competition-notices.js';
 import { controllerPanelCss } from './styles.js';
 import { taskEvidence } from './task-evidence.js';
+import { calendarTime, challengeSubtitle, taskProvider, taskRowTime } from './task-presentation.js';
 
 function lineIcon(path, size = 16, viewBox = '0 0 16 16') {
   return h('svg', { width: size, height: size, viewBox, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3,
@@ -36,14 +37,8 @@ function groupHeading(title, count, subtitle) {
     h('span', { className: 'pg-controller-task-count', 'aria-label': msg(`${count} 个任务`, `${count} tasks`) }, count));
 }
 
-function taskTime(value, language) {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return null;
-  return h('time', { dateTime: date.toISOString(), title: date.toLocaleString(language) },
-    date.toDateString() === new Date().toDateString()
-      ? date.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      : date.toLocaleDateString(language, { month: '2-digit', day: '2-digit' }));
+function taskTime(stamp) {
+  return stamp ? h('time', { dateTime: stamp.dateTime, title: stamp.title }, stamp.label) : null;
 }
 
 const stopReasonLabels = () => ({
@@ -155,9 +150,12 @@ function ControllerPanel(props) {
   const [dispatchControls] = React.useState(() => ({ busy: false }));
   const [authStatus, setAuthStatus] = React.useState('checking');
   const [accountName, setAccountName] = React.useState('');
-  const [updateAuthStatus] = React.useState(() => (status, user) => {
+  const [configuredBase, setConfiguredBase] = React.useState('');
+  const [updateAuthStatus] = React.useState(() => (status, user, baseUrl) => {
     setAuthStatus(status);
+    if (status === 'checking') return;
     setAccountName(status === 'authenticated' ? user?.name || user?.email || '' : '');
+    setConfiguredBase(baseUrl || '');
   });
   const [visited] = React.useState(() => new Set());
   if (view === 'catalog' || view === 'submissions' || view === 'settings') visited.add(view);
@@ -280,7 +278,7 @@ function ControllerPanel(props) {
           return;
         }
         setIncludeChallengeId(state.challenge.id);
-        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value });
+        setTaskSnapshot({ workspaceId: state.workspaceId, sessionId: state.sessionId, value, updatedAt: Date.now() });
         setShowTasks(true);
         setSelectedTask(state.childIds.length === 1 ? state.childIds[0] : '');
         setGroupOpen(new Map());
@@ -430,23 +428,31 @@ function ControllerPanel(props) {
     report: msg('Agent 报告', 'Agent report'),
     none: msg('无运行记录', 'No run record'),
   };
-  const listRow = (item) => {
-    const evidence = taskEvidence(item);
-    const created = taskTime(item.createdAt, language);
+  const stateBadge = (item, compact = false) => {
     const label = taskState(item) || msg('状态未知', 'Status unknown');
     const tone = taskTone(item);
-    const showResult = tone === 'result' && item.state === 'ended' && item.terminalText;
+    const showResult = compact && tone === 'result' && item.state === 'ended' && item.terminalText;
+    return h('span', { className: 'pg-badge', 'data-tone': tone, title: showResult ? label : undefined },
+      showResult ? msg('已收到结果', 'Result received') : label);
+  };
+  const listRow = (item) => {
+    const evidence = taskEvidence(item);
+    const time = taskTime(taskRowTime(item, language));
+    const provider = taskProvider(item.provider, language);
     return h('button', { type: 'button', key: item.childId, className: 'pg-controller-row',
       ref: (node) => { if (node) pane.rows.set(item.childId, node); else pane.rows.delete(item.childId); },
       onClick: () => { pane.focus = 'back'; setTaskActionStatus(''); setSelectedTask(item.childId); } },
       h('strong', null, item.label || msg('未命名任务', 'Untitled task')),
       h('span', { className: 'pg-controller-row-meta' },
-        h('span', { className: 'pg-badge', 'data-tone': tone, title: showResult ? label : undefined },
-          showResult ? msg('已收到结果', 'Result received') : label),
+        stateBadge(item, true),
         evidenceMark(evidence, evidenceLabels[evidence]),
-        item.provider || created ? h('span', { className: 'pg-controller-row-time' },
-          item.provider, item.provider && created ? ' · ' : null, created) : null));
+        provider || time ? h('span', { className: 'pg-controller-row-time' },
+          provider, provider && time ? ' · ' : null, time) : null));
   };
+  const detailEvidence = row && taskEvidence(row);
+  const detailProvider = row && taskProvider(row.provider, language);
+  const detailTime = row && taskTime(taskRowTime(row, language));
+  const output = row && taskOutput(row);
   const taskGroup = (key, rows, title, subtitle, initiallyOpen = false, className = 'pg-controller-challenge') => {
     const open = groupOpen.get(key) ?? initiallyOpen;
     return h('details', { key, className, open,
@@ -524,7 +530,7 @@ function ControllerPanel(props) {
               'aria-label': msg('刷新任务', 'Refresh tasks'), onClick: () => setTaskRetry(taskRetry + 1) },
               lineIcon('M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75', 14))),
           h('div', { className: 'pg-controller-task-status' },
-            tasks?.kind === 'ready' ? h('span', null, msg('状态更新于 ', 'Updated '), taskTime(taskSnapshot.updatedAt, language)) : null,
+            tasks?.kind === 'ready' ? h('span', null, msg('状态更新于 ', 'Updated '), taskTime(calendarTime(taskSnapshot.updatedAt, language))) : null,
             h('span', { className: 'pg-controller-rule', 'aria-hidden': true }),
             evidenceMark('report', msg('报告', 'Report'), evidenceLabels.report),
             evidenceMark('host', msg('记录', 'Record'), evidenceLabels.host),
@@ -534,8 +540,16 @@ function ControllerPanel(props) {
               : tasks.kind !== 'ready' ? h('p', { role: 'alert' }, msg('无法读取任务。', 'Could not load tasks.'), h('button', { className: 'pg-button', onClick: () => setTaskRetry(taskRetry + 1) }, msg('重试', 'Retry')))
               : row ? h('div', { className: 'pg-controller-detail' },
                 h('button', { className: 'pg-button pg-controller-back', ref: (node) => { pane.back = node; }, onClick: () => { pane.focus = row.childId; setSelectedTask(''); } }, msg('返回任务', 'Back to tasks')),
-                h('h3', null, row.label || msg('未命名任务', 'Untitled task')), h('p', null, [row.provider, taskState(row)].filter(Boolean).join(' · ')),
-                h('p', null, row.challenge ? `${row.challenge.title || row.challenge.id} · ${row.challenge.id} · ${row.challenge.baseUrl}` : row.category === 'maintenance' ? msg('后台维护', 'Background maintenance') : msg('未关联赛题', 'No linked challenge')),
+                h('div', { className: 'pg-controller-detail-title' },
+                  h('p', { className: 'pg-controller-detail-context' }, row.challenge
+                    ? [msg(row.challenge.titleZh || row.challenge.title, row.challenge.title || row.challenge.titleZh),
+                      challengeSubtitle(row.challenge, configuredBase)].filter(Boolean).join(' · ')
+                    : row.category === 'maintenance' ? msg('后台维护', 'Background maintenance') : msg('未关联赛题', 'No linked challenge')),
+                  h('h3', null, row.label || msg('未命名任务', 'Untitled task')),
+                  h('div', { className: 'pg-controller-detail-meta' }, stateBadge(row),
+                    evidenceMark(detailEvidence, evidenceLabels[detailEvidence]),
+                    detailProvider ? h('span', { className: 'pg-controller-detail-provider' }, detailProvider) : null,
+                    detailTime)),
                 childAddress ? h('button', { className: 'pg-button pg-controller-back', onClick: async () => {
                   setTaskActionStatus('');
                   try { await openTask(childAddress); }
@@ -545,14 +559,21 @@ function ControllerPanel(props) {
                 row.liveEnd ? h('p', null, msg(`${row.state === 'running' ? '上次' : '本次'}运行结束：${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || '未知'}`, `${row.state === "running" ? "Previous" : "Current"} run ended: ${stopReasonLabels()[row.liveEnd.stopReason]?.detail || row.liveEnd.stopReason || "Unknown"}`)) : null,
                 row.state === 'settled' && row.terminalText ? h('p', null, msg(`当前执行状态未知。已收到历史结果通知，不能作为本次运行已结束或比赛测评成功的依据。${typeof row.noticeStopReason === 'string' ? `历史通知的结束原因：${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ''}`, `Current run status is unknown. A previous result notification does not confirm that this run ended or that the challenge evaluation succeeded.${typeof row.noticeStopReason === 'string' ? ` Previous stop reason: ${stopReasonLabels()[row.noticeStopReason]?.detail || row.noticeStopReason}` : ''}`)) : null,
                 row.state === 'running' && row.terminalText ? h('p', null, msg('正在运行。已收到的通知属于历史结果，不能作为本次运行已结束的依据。', 'Running. The available notification belongs to an earlier run.')) : null,
-                taskOutput(row) ? h('div', { className: 'pg-controller-markdown' }, typeof renderFactorySlot === 'function' ? renderFactorySlot('conversation.chat.reasoning.content', { text: taskOutput(row), running: false }, { fallback: h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row)) }) : h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, taskOutput(row))) : null,
-                taskOutput(row) ? h('button', { className: 'pg-button pg-controller-back', onClick: async () => { try { await navigator.clipboard.writeText(taskOutput(row)); setTaskActionStatus('已复制结果'); } catch { setTaskActionStatus('无法复制，请选择文本后复制。'); } } }, msg('复制结果', 'Copy result')) : null,
+                output ? h('section', { className: 'pg-controller-result' },
+                  h('h4', null, msg('返回结果', 'Result')),
+                  h('div', { className: 'pg-controller-markdown' }, typeof renderFactorySlot === 'function'
+                    ? renderFactorySlot('conversation.chat.reasoning.content', { text: output, running: false }, { fallback: h('pre', null, output) })
+                    : h('pre', null, output)),
+                  h('button', { className: 'pg-button pg-controller-back', onClick: async () => {
+                    try { await navigator.clipboard.writeText(output); setTaskActionStatus('已复制结果'); }
+                    catch { setTaskActionStatus('无法复制，请选择文本后复制。'); }
+                  } }, msg('复制结果', 'Copy result'))) : null,
                 taskActionStatus ? h('p', { role: 'status' }, controllerMessage(taskActionStatus)) : null,
                 row.terminalText ? h('details', { className: 'pg-controller-raw' }, h('summary', null, row.state !== 'ended' ? msg('历史原始通知', 'Original notification from an earlier run') : msg('原始通知', 'Original notification')), h('pre', null, row.terminalText)) : null)
               : !tasks.rows.length ? h('p', null, msg('还没有派发任务。', 'No tasks dispatched yet.')) : h(React.Fragment, null,
                 [...challengeGroups].map(([key, group]) => taskGroup(key, group.rows,
                   msg(group.challenge.titleZh || group.challenge.title, group.challenge.title || group.challenge.titleZh) || group.challenge.id,
-                  [group.challenge.id, group.challenge.baseUrl].filter(Boolean).join(' · '), true)),
+                  challengeSubtitle(group.challenge, configuredBase), true)),
                 unassociated.length ? taskGroup('unassociated', unassociated, msg('未关联赛题', 'No linked challenge'),
                   msg('缺少明确的赛题关联', 'No confirmed challenge link')) : null,
                 maintenance.length ? taskGroup('maintenance', maintenance, msg('后台维护', 'Background maintenance'), null, false, 'pg-controller-maintenance') : null),
