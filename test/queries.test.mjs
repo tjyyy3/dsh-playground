@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createPlaygroundClient } from '../lib/api.js';
 import { COMPETITION_IDS } from '../lib/competitions.js';
 import { registerWorkbenchQueries } from '../lib/queries.js';
 import { createWorkflow } from '../lib/workflow.js';
-import { credentialRecords } from './fixtures/account-credentials.mjs';
+import { credentialRecords, mountAccountHost } from './fixtures/account-credentials.mjs';
 
 test('the browser collects each Host account verification once and the Host clears its saved credential before checking it', async (t) => {
   const peer = {}, events = new Map(), saved = new Map(), ambient = new Map(), reads = [], cleanups = [];
@@ -476,6 +477,39 @@ test('controller task reads can include a linked challenge while promotion uses 
   }
 });
 
+test('[home] sends all anonymous public reads to the configured platform', async (t) => {
+  const origin = 'https://configured.example.test';
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, { method, headers, credentials }) => {
+    requests.push({ url, method, authorization: headers?.authorization, credentials });
+    if (url.pathname.endsWith('/api/challenges')) return Response.json({ items: [{ id: 'fixture', title: 'Trace a ray' }] });
+    if (url.pathname === '/preview/contests') {
+      return new Response('<script type="module" src="./entry.js"></script>');
+    }
+    if (url.pathname === '/preview/entry.js') return new Response('export {};');
+    return new Response('', { status: 404 });
+  });
+  const { service, dispose } = mountAccountHost(credentialRecords(), new Set(), {
+    baseUrl: `${origin}/preview/api`, token: 'synthetic-account-token',
+  });
+  t.after(dispose);
+
+  const home = await service.query({ action: 'home' });
+  assert.equal(home.ok, true);
+  assert.deepEqual([...new Set(requests.map(({ url }) => url.origin))], [origin]);
+  assert.deepEqual(requests.map(({ url }) => url.pathname).sort(), [
+    '/preview/api/challenges', '/preview/api/challenges/facets', '/preview/api/contests', '/preview/api/feed',
+    '/preview/api/hackathon/seasons', '/preview/api/stats/participation', '/preview/api/topics',
+    '/preview/contests', '/preview/entry.js',
+  ]);
+  for (const { method, authorization, credentials } of requests) {
+    assert.equal(method, 'GET');
+    assert.equal(authorization, undefined);
+    assert.equal(credentials, 'omit');
+  }
+  assert.deepEqual(home.challenges?.map(({ id }) => id), ['fixture']);
+});
+
 test('[home] queries anonymous public sources independently and projects the fields used by home', async (t) => {
   const requests = [];
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -493,8 +527,10 @@ test('[home] queries anonymous public sources independently and projects the fie
     return Response.json(fixtures[url.pathname]);
   });
   let service, schema;
-  registerWorkbenchQueries({ provide: (_, provided) => { service = provided; },
-    typert: { register: (entry) => { schema = entry.invocations[0].parameters[0].codec.create(); } } }, {});
+  const ctx = { provide: (_, provided) => { service = provided; },
+    typert: { register: (entry) => { schema = entry.invocations[0].parameters[0].codec.create(); } } };
+  const client = createPlaygroundClient({ baseUrl: 'https://example.test/api' });
+  registerWorkbenchQueries(ctx, {}, undefined, undefined, undefined, client);
   const parsed = schema.safeParse({ action: 'home' });
   assert.equal(parsed.success, true);
   const home = await service.query(parsed.data);
