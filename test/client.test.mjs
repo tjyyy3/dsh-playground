@@ -230,6 +230,106 @@ test('competition alert cards show a progress track only for a verified schedule
   assert.equal(f.find(weekly, (node) => node.props?.role === 'progressbar'), undefined);
 });
 
+async function competitionAlerts(t, items, { language = 'en', initialized = false } = {}) {
+  const values = new Map([['dsh-playground.ui-language', language]]);
+  const sources = [...new Set(items.map(({ source }) => source))];
+  if (initialized) values.set('dsh-playground.competition-notices.v1', JSON.stringify({
+    enabled: true, seen: { site: { sources, keys: [] } },
+  }));
+  const f = await clientFixture(t, {}, { localStorage: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value),
+  } });
+  const main = f.registrations.get('main');
+  let reads = 0;
+  const props = { ...main.definition.inject(), useControllerTarget: (select) => select(null),
+    useSessions: (select) => select({ ids: [], byId: {} }), useWorkspaces: (select) => select({ items: [] }),
+    renderSlot: () => null, query: async () => { reads++; return { ok: true, scope: 'site', sources, items }; } };
+  const alerts = f.find(f.render(main.Component, props), (node) => node.type?.name === 'CompetitionNotices');
+  return { f, alerts, mount: () => f.mount(alerts), reads: () => reads };
+}
+
+test('an open competition alert updates progress and activity across schedule boundaries without rereading', async (t) => {
+  const now = Date.parse('2026-11-27T12:00:00Z');
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now });
+  const { f, alerts, mount, reads } = await competitionAlerts(t, [
+    { key: 'live', source: 'seasons', title: 'Live', startAt: '2026-11-27T11:59:43Z', endAt: '2026-11-27T12:00:17Z' },
+    { key: 'upcoming', source: 'seasons', title: 'Upcoming', startAt: '2026-11-27T12:00:09Z', endAt: '2026-11-27T12:03:00Z' },
+  ], { initialized: true });
+  const cards = (tree) => findAll(tree, (node) => node.type === 'article');
+  const progress = (card) => f.find(card, (node) => node.props?.role === 'progressbar').props['aria-valuenow'];
+  const first = await mount();
+  const [live, upcoming] = cards(first);
+  assert.match(text(live), /Ongoing.*Less than 1 hour left/);
+  assert.equal(progress(live), 50);
+  assert.doesNotMatch(text(upcoming), /Ongoing/);
+
+  const cleanups = f.effects.splice(1).map((effect) => effect());
+  assert.equal(typeof cleanups[0], 'function');
+  t.after(() => cleanups.forEach((cleanup) => cleanup?.()));
+  const render = () => cards(f.render(alerts.type, alerts.props));
+  t.mock.timers.tick(9_000);
+  const [startedLive, startedUpcoming] = render();
+  assert.ok(progress(startedLive) > 50);
+  assert.match(text(startedUpcoming), /Ongoing/);
+  t.mock.timers.tick(8_000);
+  const [expired] = render();
+  assert.equal(progress(expired), 100);
+  assert.match(text(expired), /Deadline passed/);
+  assert.doesNotMatch(text(expired), /Ongoing/);
+  assert.equal(reads(), 1);
+  cleanups.splice(0).forEach((cleanup) => cleanup?.());
+  t.mock.timers.tick(3 * 60_000);
+  assert.match(text(render()[1]), /Ongoing/);
+});
+
+test('first-use alerts show merged ongoing status when a duplicate source establishes activity', async (t) => {
+  const alerts = await competitionAlerts(t, [
+    { key: 'round', source: 'seasons', title: 'Representative' },
+    { key: 'round', source: 'periods', title: 'Duplicate', officialStatus: 'active' },
+  ]);
+  const first = await alerts.mount();
+  assert.equal(first.props.title, 'Ongoing competitions');
+  const [card] = findAll(first, (node) => node.type === 'article');
+  assert.match(text(card), /Representative.*Ongoing/);
+  assert.doesNotMatch(text(card), /Duplicate/);
+});
+
+for (const [language, summary, groups] of [
+  ['zh', { summary: 'Challenge groups: Reading · Retrieval' }, ['Reading', 'Retrieval']],
+  ['en', { summaryZh: '本期赛题分组：文献阅读 · 文献检索' }, ['文献阅读', '文献检索']],
+]) {
+  test(`competition groups fall back to the other raw translation in ${language} mode`, async (t) => {
+    const alerts = await competitionAlerts(t, [
+      { key: 'round', source: 'seasons', title: 'Weekly', officialStatus: 'active', ...summary },
+    ], { language });
+    const first = await alerts.mount();
+    assert.deepEqual(findAll(first, (node) => node.type === 'li').map(text), groups);
+    assert.doesNotMatch(text(first), /Challenge groups: Reading|本期赛题分组：文献阅读/);
+  });
+}
+
+test('an unzoned competition start is labelled separately from a verified deadline', async (t) => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-27T12:00:00Z'));
+  const alerts = await competitionAlerts(t, [
+    { key: 'round', source: 'seasons', title: 'Weekly', officialStatus: 'active',
+      startAt: '2026-11-25T12:00:00', endAt: '2026-11-29T12:00:00+08:00' },
+  ]);
+  const first = await alerts.mount();
+  assert.match(text(first), /Starts\s+11\.25 12:00\s+\(Time zone unspecified\)/);
+  assert.match(text(first), /Time zone.*Deadline: Beijing time UTC\+8/);
+  assert.equal(findAll(first, (node) => node.props?.role === 'progressbar').length, 0);
+});
+
+test('competition cards preserve invalid calendar dates instead of shortening them', async (t) => {
+  const alerts = await competitionAlerts(t, [
+    { key: 'round', source: 'seasons', title: 'Weekly', officialStatus: 'active',
+      startAt: '2026-02-30', endAt: '2026-02-31T12:00:00+08:00' },
+  ]);
+  const first = await alerts.mount();
+  assert.match(text(first), /Starts\s+2026-02-30.*Deadline\s+2026-02-31T12:00:00\+08:00/);
+  assert.equal(findAll(first, (node) => node.props?.role === 'progressbar').length, 0);
+});
+
 test('workspace controller status distinguishes setup, unavailable checks and verified task counts', async () => {
   const { workspaceControllerStatus } = await import('../src/client/controller/handoff-status.js');
   const zh = (chinese) => chinese;
@@ -7157,6 +7257,37 @@ test('handoff opens a cancellable native dialog with focus on its title and regi
   h.modalButton('取消').props.onClick();
   assert.equal(h.modal(), undefined);
   assert.deepEqual(h.calls, []);
+});
+
+test('handoff counts old linked tasks without widening the sidebar feed', async (t) => {
+  const recent = Array.from({ length: 100 }, (_, i) => ({ childId: `recent-${i}`, state: 'unknown' }));
+  const challenge = { id: challengeCard.id, baseUrl: noticeScope };
+  const history = [
+    { childId: 'old-one', state: 'unknown', challenge },
+    { childId: 'old-two', state: 'unknown', challenge },
+    { childId: 'other-platform', state: 'unknown', challenge: { ...challenge, baseUrl: 'https://other.example' } },
+    ...recent,
+  ];
+  const reads = [];
+  const controllerTasks = async (input, signal) => {
+    reads.push([input, signal]);
+    return { kind: 'ready', rows: input.includeChallengeId === challengeCard.id ? history : recent };
+  };
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    query: noticeQuery(singleNotice), dispatch: admittedController, controllerTasks });
+  await h.refresh();
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  h.chooseModalWorkspace('one');
+  await h.refresh();
+  assert.match(text(h.modal()), /此题已有 2 个主控任务/);
+  const scoped = reads.filter(([input]) => input.includeChallengeId);
+  assert.deepEqual(scoped.map(([input]) => input), [{ workspaceId: 'one', sessionId: 'main-one', includeChallengeId: challengeCard.id }]);
+  assert.equal(scoped[0][1].aborted, false);
+  const catalogSlot = h.f.find(h.view(), (node) => node.props?.data?.section === 'catalog');
+  assert.deepEqual(catalogSlot.props.data.controllerRows, recent);
+  h.modalButton('取消').props.onClick();
+  await h.refresh();
+  assert.equal(scoped[0][1].aborted, true);
 });
 
 test('handoff can register and select its first workspace without sending a challenge', async (t) => {

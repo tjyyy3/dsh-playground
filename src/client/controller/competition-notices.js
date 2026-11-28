@@ -5,16 +5,16 @@ import { msg } from '../shared/language.js';
 import { openableWebUrl } from '../shared/display.js';
 import { taskModalCss } from '../shared/styles.js';
 import { controllerDialogCss, noticeCss } from './dialog-styles.js';
-import { actOnNotices, createNoticeState, enterNotices, noticeDate, noticeIsActive } from './competition-notice-state.js';
+import { actOnNotices, createNoticeState, enterNotices, noticeIsActive, noticeScheduleDate } from './competition-notice-state.js';
 
 const storageKey = 'dsh-playground.competition-notices.v2';
 const legacyStorageKey = 'dsh-playground.competition-notices.v1';
 
-function timeLabel(value) {
-  const match = typeof value === 'string' && /^\d{4}-(\d\d)-(\d\d)(?:[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(?:Z|[+-]\d\d:?\d\d)?)?$/i.exec(value.trim());
-  if (!match) return value;
-  const [, month, day, time, seconds] = match;
-  return month + '.' + day + (time ? ' ' + time + (seconds && seconds !== '00' ? ':' + seconds : '') : '');
+function timeLabel(value, scheduleDate) {
+  if (!scheduleDate) return value;
+  const { date, time } = scheduleDate;
+  const day = date.slice(5).replace('-', '.');
+  return time ? day + ' ' + time.split('.')[0].replace(/^(\d\d:\d\d):00$/, '$1') : day;
 }
 
 function zoneLabel(zone) {
@@ -36,7 +36,7 @@ function remainingLabel(ms) {
 }
 
 function noticeGroups(item) {
-  for (const summary of [msg(item.summaryZh, item.summary), msg(item.summary, item.summaryZh)]) {
+  for (const summary of msg([item.summaryZh, item.summary], [item.summary, item.summaryZh])) {
     const list = /^(?:本期赛题分组[：:]|Challenge groups:)\s*(.+)$/i.exec(summary ?? '')?.[1];
     if (list) return list.split(' · ').map((label) => label.trim()).filter(Boolean);
   }
@@ -49,18 +49,18 @@ function noticeBadge(item) {
   return ['competition', msg('新比赛', 'New competition')];
 }
 
-function noticeSchedule(item, start, end, now, unknown) {
-  const progress = start && end && start.ms < end.ms
+function noticeSchedule(item, start, end, startZone, now, unknown) {
+  const progress = start?.zone && end?.zone && start.ms < end.ms
     ? Math.min(100, Math.max(0, 100 * (now - start.ms) / (end.ms - start.ms))) : null;
   return h('div', { className: 'pg-notice-schedule' },
     progress === null ? null : h('div', { className: 'pg-notice-track', role: 'progressbar',
       'aria-label': msg('赛程进度', 'Competition progress'), 'aria-valuenow': Math.round(progress) },
       h('span', { style: { width: progress + '%', '--pg-notice-progress': progress + '%' } })),
     h('div', { className: 'pg-notice-times' },
-      h('span', null, msg('开始', 'Starts'), ' ', timeLabel(item.startAt) || unknown,
-        start && (!end || zoneLabel(start.zone) !== zoneLabel(end.zone)) ? ' (' + zoneLabel(start.zone) + ')' : null),
-      end ? h('span', { className: 'pg-notice-remaining' }, remainingLabel(end.ms - now)) : null,
-      h('span', null, msg('截止', 'Deadline'), ' ', timeLabel(item.endAt) || unknown)));
+      h('span', null, msg('开始', 'Starts'), ' ', timeLabel(item.startAt, start) || unknown,
+        startZone ? ' (' + startZone + ')' : null),
+      end?.zone ? h('span', { className: 'pg-notice-remaining' }, remainingLabel(end.ms - now)) : null,
+      h('span', null, msg('截止', 'Deadline'), ' ', timeLabel(item.endAt, end) || unknown)));
 }
 
 function noticeDetail(zh, en, keywords) {
@@ -99,6 +99,7 @@ export function CompetitionNoticeSetting({ memory }) {
 
 export function CompetitionNotices({ memory, query, onCoordinate }) {
   const [view, setView] = React.useState(null);
+  const [now, setNow] = React.useState(Date.now);
   const [readingKey, setReadingKey] = React.useState('');
   const reading = React.useRef(null);
   const hintId = React.useId();
@@ -112,13 +113,29 @@ export function CompetitionNotices({ memory, query, onCoordinate }) {
       if (abort.signal.aborted || !snapshot?.ok) return;
       const state = readState(memory);
       if (!state.enabled) return;
-      const next = enterNotices(state, snapshot, Date.now());
+      const current = Date.now();
+      const next = enterNotices(state, snapshot, current);
       if (next.state !== state) saveState(memory, next.state);
+      setNow(current);
       setView(next);
     }
     void check();
     return () => { abort.abort(); reading.current?.abort(); };
   }, [memory, query]);
+  React.useEffect(() => {
+    if (!view?.items.length) return;
+    const boundaries = [...view.activityByKey.values()].flatMap((schedules) =>
+      schedules.flatMap(({ start, end }) => [start, end]).filter((time) => time !== null));
+    let timer;
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      const next = boundaries.reduce((delay, time) => time > current ? Math.min(delay, time - current) : delay, Infinity);
+      if (Number.isFinite(next)) timer = setTimeout(tick, Math.min(next, 60_000));
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [view]);
   if (!view?.items.length) return null;
   function dismiss(action) {
     reading.current?.abort();
@@ -150,7 +167,6 @@ export function CompetitionNotices({ memory, query, onCoordinate }) {
   const unknown = msg('暂未公布', 'Not announced');
   const title = view.kind === 'overview' ? msg('正在进行的比赛', 'Ongoing competitions')
     : view.kind === 'reminder' ? msg('赛事提醒', 'Competition reminders') : msg('新比赛提醒', 'New competition alerts');
-  const now = Date.now();
   const count = view.items.length;
   return h(Modal, { open: true, headless: true, backdropBlur: true, className: 'pg-task-modal pg-controller-dialog pg-contest-notice', title, onClose: () => dismiss('snooze') },
     h('style', null, taskModalCss + controllerDialogCss + noticeCss),
@@ -166,9 +182,14 @@ export function CompetitionNotices({ memory, query, onCoordinate }) {
         h('svg', { viewBox: '0 0 14 14', 'aria-hidden': true }, h('path', { d: 'm3 3 8 8M11 3l-8 8' })))),
     h('div', { className: 'pg-task-body' }, view.items.map((item) => {
       const link = openableWebUrl(item.webUrl);
-      const start = noticeDate(item.startAt);
-      const end = noticeDate(item.endAt);
-      const active = noticeIsActive(item, now, start?.ms ?? null, end?.ms ?? null);
+      const start = noticeScheduleDate(item.startAt);
+      const end = noticeScheduleDate(item.endAt);
+      const deadlineZone = end?.zone && zoneLabel(end.zone);
+      const startZone = start?.zone ? zoneLabel(start.zone)
+        : start?.time && msg('时区未注明', 'Time zone unspecified');
+      const separateStartZone = Boolean(startZone && startZone !== deadlineZone);
+      const active = (!deadlineZone || now < end.ms) && view.activityByKey.get(item.key).some(({ item, start, end }) =>
+        noticeIsActive(item, now, start, end));
       const [kind, badge] = noticeBadge(item);
       const groups = noticeGroups(item);
       const singleChallenge = item.target?.kind === 'challenge';
@@ -182,10 +203,11 @@ export function CompetitionNotices({ memory, query, onCoordinate }) {
           h('span', { className: 'pg-notice-badge', 'data-kind': kind }, badge),
           h('h3', null, msg(item.titleZh || item.title, item.title || item.titleZh)),
           active ? h('span', { className: 'pg-notice-live' }, msg('进行中', 'Ongoing')) : null),
-        noticeSchedule(item, start, end, now, unknown),
+        noticeSchedule(item, start, end, separateStartZone ? startZone : '', now, unknown),
         h('dl', null,
-          h('div', null, h('dt', null, msg('时区', 'Time zone')), h('dd', { 'data-tone': end ? undefined : 'warning' },
-            end ? zoneLabel(end.zone) : msg('时区未注明 · 剩余时间仅供参考', 'Time zone unspecified · Remaining time is approximate'))),
+          h('div', null, h('dt', null, msg('时区', 'Time zone')), h('dd', { 'data-tone': deadlineZone ? undefined : 'warning' },
+            deadlineZone ? (separateStartZone ? msg('截止：', 'Deadline: ') : '') + deadlineZone
+              : msg('时区未注明 · 剩余时间仅供参考', 'Time zone unspecified · Remaining time is approximate'))),
           h('div', null, h('dt', null, msg('奖励', 'Rewards')), h('dd', { 'data-field': 'reward' }, reward || unknown)),
           h('div', null, h('dt', null, msg('本期赛题', 'Challenges in this period')), h('dd', null, scope)),
           resources ? h('div', null, h('dt', null, msg('参赛资源', 'Resources')), h('dd', null, resources)) : null),

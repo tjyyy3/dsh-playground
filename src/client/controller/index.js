@@ -413,8 +413,24 @@ function ControllerPanel(props) {
     }
   }
   const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
-  const handoffTaskCount = handoffBase && tasks?.kind === 'ready' && tasks.rows?.filter(({ challenge }) =>
-    challenge?.id === dispatchState.challenge.id && webRootOf(challenge.baseUrl) === handoffBase).length;
+  const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : '';
+  const [handoffTasks, setHandoffTasks] = React.useState(null);
+  React.useEffect(() => {
+    setHandoffTasks(null);
+    if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
+    const abort = new AbortController();
+    void controllerTasks({ workspaceId, sessionId: selectedController, includeChallengeId: handoffChallengeId }, abort.signal)
+      .then((snapshot) => {
+        if (abort.signal.aborted || snapshot?.kind !== 'ready') return;
+        const count = snapshot.rows?.filter(({ challenge }) =>
+          challenge?.id === handoffChallengeId && webRootOf(challenge.baseUrl) === handoffBase).length;
+        setHandoffTasks({ workspaceId, sessionId: selectedController, challengeId: handoffChallengeId, base: handoffBase, retry, count });
+      }).catch(() => {});
+    return () => abort.abort();
+  }, [workspaceId, selectedController, handoffChallengeId, handoffBase, retry, controllerTasks]);
+  const handoffTaskCount = handoffTasks?.workspaceId === workspaceId && handoffTasks.sessionId === selectedController &&
+    handoffTasks.challengeId === handoffChallengeId && handoffTasks.base === handoffBase && handoffTasks.retry === retry
+    ? handoffTasks.count : undefined;
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = new Map();
   const unassociated = [];

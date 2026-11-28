@@ -2123,18 +2123,19 @@ var isObject = /* @__PURE__ */ __name((value) => value !== null && typeof value 
 var isStringArray = /* @__PURE__ */ __name((value) => Array.isArray(value) && value.every((entry) => typeof entry === "string"), "isStringArray");
 var unique = /* @__PURE__ */ __name((values) => [...new Set(values)], "unique");
 var emptySite = /* @__PURE__ */ __name(() => ({ initializedSources: [], discovered: [], acknowledged: [], pending: [] }), "emptySite");
-function noticeDate(value) {
+function noticeScheduleDate(value) {
   if (typeof value !== "string") return null;
-  const match = /^(\d{4}-\d\d-\d\d)[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)\s*(Z|[+-]\d\d:?\d\d)$/i.exec(value.trim());
+  const match = /^(\d{4}-\d\d-\d\d)(?:[T ](\d\d:\d\d(?::\d\d(?:\.\d+)?)?)(?:\s*(Z|[+-]\d\d:?\d\d))?)?$/i.exec(value.trim());
   if (!match) return null;
   const [, date, time, zone] = match;
   const calendarDay = /* @__PURE__ */ new Date(date + "T00:00:00Z");
   if (!Number.isFinite(calendarDay.getTime()) || calendarDay.toISOString().slice(0, 10) !== date) return null;
-  const ms = Date.parse(date + "T" + time + zone);
-  return Number.isFinite(ms) ? { date, time, zone, ms } : null;
+  if (!time) return { date, time, zone, ms: null };
+  const ms = Date.parse(date + "T" + time + (zone ?? "Z"));
+  return Number.isFinite(ms) ? { date, time, zone, ms: zone ? ms : null } : null;
 }
-__name(noticeDate, "noticeDate");
-var timestamp = /* @__PURE__ */ __name((value) => noticeDate(value)?.ms ?? null, "timestamp");
+__name(noticeScheduleDate, "noticeScheduleDate");
+var timestamp = /* @__PURE__ */ __name((value) => noticeScheduleDate(value)?.ms ?? null, "timestamp");
 function noticeIsActive(item, now, start, end) {
   const status = String(item.officialStatus ?? item.status ?? "").trim().toLowerCase();
   return !endedStatuses.has(status) && (end === null || now < end) && (activeStatuses.has(status) || start !== null && start <= now && end !== null);
@@ -2177,12 +2178,14 @@ function collectItems(items, sources, now) {
     const ended = endedStatuses.has(status) || end !== null && end <= now;
     const active = noticeIsActive(item, now, start, end);
     const upcoming = start !== null && start > now;
+    const schedule = { item, start, end };
     const prior = byKey.get(item.key);
     if (!prior) {
-      byKey.set(item.key, { item, sources: [item.source], endAt: end, ended, active, upcoming });
+      byKey.set(item.key, { item, sources: [item.source], schedules: [schedule], endAt: end, ended, active, upcoming });
       continue;
     }
     prior.sources.push(item.source);
+    prior.schedules.push(schedule);
     prior.ended ||= ended;
     prior.active ||= active;
     prior.upcoming ||= upcoming;
@@ -2261,6 +2264,7 @@ function enterNotices(state, snapshot2, time) {
     ...view,
     kind: kinds.size > 1 ? "reminder" : [...kinds][0] ?? "new",
     items: visible.map(({ key: key2 }) => current.get(key2).item),
+    activityByKey: new Map(visible.map(({ key: key2 }) => [key2, current.get(key2).schedules])),
     state: {
       ...state,
       nextBatchId,
@@ -2324,11 +2328,11 @@ __name(actOnNotices, "actOnNotices");
 // src/client/controller/competition-notices.js
 var storageKey2 = "dsh-playground.competition-notices.v2";
 var legacyStorageKey = "dsh-playground.competition-notices.v1";
-function timeLabel(value) {
-  const match = typeof value === "string" && /^\d{4}-(\d\d)-(\d\d)(?:[T ](\d\d:\d\d)(?::(\d\d)(?:\.\d+)?)?\s*(?:Z|[+-]\d\d:?\d\d)?)?$/i.exec(value.trim());
-  if (!match) return value;
-  const [, month, day3, time, seconds] = match;
-  return month + "." + day3 + (time ? " " + time + (seconds && seconds !== "00" ? ":" + seconds : "") : "");
+function timeLabel(value, scheduleDate) {
+  if (!scheduleDate) return value;
+  const { date, time } = scheduleDate;
+  const day3 = date.slice(5).replace("-", ".");
+  return time ? day3 + " " + time.split(".")[0].replace(/^(\d\d:\d\d):00$/, "$1") : day3;
 }
 __name(timeLabel, "timeLabel");
 function zoneLabel(zone) {
@@ -2348,7 +2352,7 @@ function remainingLabel(ms) {
 }
 __name(remainingLabel, "remainingLabel");
 function noticeGroups(item) {
-  for (const summary of [msg(item.summaryZh, item.summary), msg(item.summary, item.summaryZh)]) {
+  for (const summary of msg([item.summaryZh, item.summary], [item.summary, item.summaryZh])) {
     const list = /^(?:本期赛题分组[：:]|Challenge groups:)\s*(.+)$/i.exec(summary ?? "")?.[1];
     if (list) return list.split(" · ").map((label2) => label2.trim()).filter(Boolean);
   }
@@ -2361,8 +2365,8 @@ function noticeBadge(item) {
   return ["competition", msg("新比赛", "New competition")];
 }
 __name(noticeBadge, "noticeBadge");
-function noticeSchedule(item, start, end, now, unknown) {
-  const progress = start && end && start.ms < end.ms ? Math.min(100, Math.max(0, 100 * (now - start.ms) / (end.ms - start.ms))) : null;
+function noticeSchedule(item, start, end, startZone, now, unknown) {
+  const progress = start?.zone && end?.zone && start.ms < end.ms ? Math.min(100, Math.max(0, 100 * (now - start.ms) / (end.ms - start.ms))) : null;
   return h(
     "div",
     { className: "pg-notice-schedule" },
@@ -2384,11 +2388,11 @@ function noticeSchedule(item, start, end, now, unknown) {
         null,
         msg("开始", "Starts"),
         " ",
-        timeLabel(item.startAt) || unknown,
-        start && (!end || zoneLabel(start.zone) !== zoneLabel(end.zone)) ? " (" + zoneLabel(start.zone) + ")" : null
+        timeLabel(item.startAt, start) || unknown,
+        startZone ? " (" + startZone + ")" : null
       ),
-      end ? h("span", { className: "pg-notice-remaining" }, remainingLabel(end.ms - now)) : null,
-      h("span", null, msg("截止", "Deadline"), " ", timeLabel(item.endAt) || unknown)
+      end?.zone ? h("span", { className: "pg-notice-remaining" }, remainingLabel(end.ms - now)) : null,
+      h("span", null, msg("截止", "Deadline"), " ", timeLabel(item.endAt, end) || unknown)
     )
   );
 }
@@ -2436,6 +2440,7 @@ function CompetitionNoticeSetting({ memory }) {
 __name(CompetitionNoticeSetting, "CompetitionNoticeSetting");
 function CompetitionNotices({ memory, query, onCoordinate }) {
   const [view, setView] = React6.useState(null);
+  const [now, setNow] = React6.useState(Date.now);
   const [readingKey, setReadingKey] = React6.useState("");
   const reading = React6.useRef(null);
   const hintId = React6.useId();
@@ -2452,8 +2457,10 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       if (abort.signal.aborted || !snapshot2?.ok) return;
       const state = readState(memory);
       if (!state.enabled) return;
-      const next = enterNotices(state, snapshot2, Date.now());
+      const current = Date.now();
+      const next = enterNotices(state, snapshot2, current);
       if (next.state !== state) saveState(memory, next.state);
+      setNow(current);
       setView(next);
     }
     __name(check, "check");
@@ -2463,6 +2470,19 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
       reading.current?.abort();
     };
   }, [memory, query]);
+  React6.useEffect(() => {
+    if (!view?.items.length) return;
+    const boundaries = [...view.activityByKey.values()].flatMap((schedules) => schedules.flatMap(({ start, end }) => [start, end]).filter((time) => time !== null));
+    let timer;
+    const tick = /* @__PURE__ */ __name(() => {
+      const current = Date.now();
+      setNow(current);
+      const next = boundaries.reduce((delay, time) => time > current ? Math.min(delay, time - current) : delay, Infinity);
+      if (Number.isFinite(next)) timer = setTimeout(tick, Math.min(next, 6e4));
+    }, "tick");
+    tick();
+    return () => clearTimeout(timer);
+  }, [view]);
   if (!view?.items.length) return null;
   function dismiss(action) {
     reading.current?.abort();
@@ -2498,7 +2518,6 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
   __name(coordinate, "coordinate");
   const unknown = msg("暂未公布", "Not announced");
   const title = view.kind === "overview" ? msg("正在进行的比赛", "Ongoing competitions") : view.kind === "reminder" ? msg("赛事提醒", "Competition reminders") : msg("新比赛提醒", "New competition alerts");
-  const now = Date.now();
   const count = view.items.length;
   return h(
     import_dsh_client_ui_primitives2.Modal,
@@ -2527,9 +2546,12 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
     ),
     h("div", { className: "pg-task-body" }, view.items.map((item) => {
       const link = openableWebUrl(item.webUrl);
-      const start = noticeDate(item.startAt);
-      const end = noticeDate(item.endAt);
-      const active = noticeIsActive(item, now, start?.ms ?? null, end?.ms ?? null);
+      const start = noticeScheduleDate(item.startAt);
+      const end = noticeScheduleDate(item.endAt);
+      const deadlineZone = end?.zone && zoneLabel(end.zone);
+      const startZone = start?.zone ? zoneLabel(start.zone) : start?.time && msg("时区未注明", "Time zone unspecified");
+      const separateStartZone = Boolean(startZone && startZone !== deadlineZone);
+      const active = (!deadlineZone || now < end.ms) && view.activityByKey.get(item.key).some(({ item: item2, start: start2, end: end2 }) => noticeIsActive(item2, now, start2, end2));
       const [kind, badge] = noticeBadge(item);
       const groups = noticeGroups(item);
       const singleChallenge = item.target?.kind === "challenge";
@@ -2547,14 +2569,14 @@ function CompetitionNotices({ memory, query, onCoordinate }) {
           h("h3", null, msg(item.titleZh || item.title, item.title || item.titleZh)),
           active ? h("span", { className: "pg-notice-live" }, msg("进行中", "Ongoing")) : null
         ),
-        noticeSchedule(item, start, end, now, unknown),
+        noticeSchedule(item, start, end, separateStartZone ? startZone : "", now, unknown),
         h(
           "dl",
           null,
           h("div", null, h("dt", null, msg("时区", "Time zone")), h(
             "dd",
-            { "data-tone": end ? void 0 : "warning" },
-            end ? zoneLabel(end.zone) : msg("时区未注明 · 剩余时间仅供参考", "Time zone unspecified · Remaining time is approximate")
+            { "data-tone": deadlineZone ? void 0 : "warning" },
+            deadlineZone ? (separateStartZone ? msg("截止：", "Deadline: ") : "") + deadlineZone : msg("时区未注明 · 剩余时间仅供参考", "Time zone unspecified · Remaining time is approximate")
           )),
           h("div", null, h("dt", null, msg("奖励", "Rewards")), h("dd", { "data-field": "reward" }, reward || unknown)),
           h("div", null, h("dt", null, msg("本期赛题", "Challenges in this period")), h("dd", null, scope)),
@@ -3279,7 +3301,21 @@ function ControllerPanel(props) {
     }
   }
   const handoffBase = showHandoffDialog && webRootOf(dispatchState.context?.webBase || configuredBase);
-  const handoffTaskCount = handoffBase && tasks?.kind === "ready" && tasks.rows?.filter(({ challenge }) => challenge?.id === dispatchState.challenge.id && webRootOf(challenge.baseUrl) === handoffBase).length;
+  const handoffChallengeId = showHandoffDialog && handoffWorkspace ? dispatchState.challenge.id : "";
+  const [handoffTasks, setHandoffTasks] = React7.useState(null);
+  React7.useEffect(() => {
+    setHandoffTasks(null);
+    if (!handoffChallengeId || !handoffBase || !selectedController || !controllerTasks) return;
+    const abort = new AbortController();
+    void controllerTasks({ workspaceId, sessionId: selectedController, includeChallengeId: handoffChallengeId }, abort.signal).then((snapshot2) => {
+      if (abort.signal.aborted || snapshot2?.kind !== "ready") return;
+      const count = snapshot2.rows?.filter(({ challenge }) => challenge?.id === handoffChallengeId && webRootOf(challenge.baseUrl) === handoffBase).length;
+      setHandoffTasks({ workspaceId, sessionId: selectedController, challengeId: handoffChallengeId, base: handoffBase, retry, count });
+    }).catch(() => {
+    });
+    return () => abort.abort();
+  }, [workspaceId, selectedController, handoffChallengeId, handoffBase, retry, controllerTasks]);
+  const handoffTaskCount = handoffTasks?.workspaceId === workspaceId && handoffTasks.sessionId === selectedController && handoffTasks.challengeId === handoffChallengeId && handoffTasks.base === handoffBase && handoffTasks.retry === retry ? handoffTasks.count : void 0;
   const row = tasks?.rows?.find((item) => item.childId === selectedTask);
   const challengeGroups = /* @__PURE__ */ new Map();
   const unassociated = [];
