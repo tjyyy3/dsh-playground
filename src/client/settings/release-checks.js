@@ -4,6 +4,17 @@ const retryDelay = 3 * 60 * 1000;
 const channels = ['stable', 'beta'];
 const supported = ['registry', 'git_pinned', 'git_unpinned', 'file'];
 
+export function pinnedReleaseSpec(target) {
+  return /^github:tjyyy3\/dsh-playground#[0-9a-f]{40}$/.test(target?.gitSpec) ? target.gitSpec : null;
+}
+
+export function isEligibleReleaseUpgrade(release) {
+  return release.status === 'ready' && release.comparison === 'upgrade' && Boolean(release.target?.version)
+    && !release.incomplete && !release.restartRequired && release.compatible === true
+    && release.registry?.status === 'ready' && supported.includes(release.source)
+    && (release.source === 'registry' || Boolean(pinnedReleaseSpec(release.target)));
+}
+
 export function createReleaseChecks(query, storage, now = Date.now) {
   let saved;
   try { saved = JSON.parse(storage()?.getItem(key)); } catch { /* Private browsing. */ }
@@ -33,9 +44,8 @@ export function createReleaseChecks(query, storage, now = Date.now) {
       && (!result.target || result.comparison === 'current' || result.comparison === 'downgrade'
         || (result.registry?.status === 'ready' && typeof result.compatible === 'boolean'));
     if (authoritative) {
-      const upgrade = supported.includes(result.source) && result.compatible === true && result.comparison === 'upgrade' && !result.restartRequired
-        && (result.source === 'registry' || Boolean(result.target?.gitSpec));
-      records[channel] = { identity: id, checkedAt: time, version: upgrade ? result.target?.version ?? null : null };
+      records[channel] = { identity: id, checkedAt: time,
+        version: isEligibleReleaseUpgrade(result) ? result.target.version : null };
     } else {
       const previous = records[channel];
       const resetAt = result.error === 'rate_limited' ? Date.parse(result.resetAt) : NaN;

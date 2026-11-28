@@ -6,8 +6,10 @@ import { h } from '../shared/react.js';
 import { taskModalCss } from '../shared/styles.js';
 import { workspaceOptions } from '../shared/workspaces.js';
 
-function StartTaskButton({ id, title, mode = 'participate', sessionId, requestTask, disabled = false }) {
-  return h('button', { className: 'pg-button', disabled, onClick: () => requestTask({ id: String(id), title: title || String(id), mode, sessionId }) },
+function StartTaskButton({ id, title, mode = 'participate', sessionId, requestTask, disabled = false, primary = false }) {
+  return h('button', { type: 'button', className: primary ? 'pg-button pg-primary' : 'pg-button pg-list-action', disabled, onClick: () => requestTask({ id: String(id), title: title || String(id), mode, sessionId }) },
+    primary ? h('svg', { width: 10, height: 10, viewBox: '0 0 10 10', 'aria-hidden': true },
+      h('path', { d: 'M2 1v8l6-4z', fill: 'currentColor' })) : null,
     mode === 'author' ? msg(`开始出题任务 · ${title || id}`, `Start authoring task · ${title || id}`) : msg(`开始参赛任务 · ${title || id}`, `Start participation task · ${title || id}`));
 }
 

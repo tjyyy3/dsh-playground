@@ -46,7 +46,7 @@ Choose **Remind me tomorrow** to see the still-valid entries in this batch the n
 
 ## Find Codex chats in your workspace
 
-Open the workspace controller. Its task sidebar lists local Codex chats for the current account and working directory. Select **Summarize recent results** or ask the controller to summarize. Each entry shows the title, chat ID and latest turn's final reply, or indicates when a reply is unavailable. The list includes up to 500 recent chats. A summary covers up to 20 chats and includes up to 4,000 characters from each final reply. Local Codex chats appear separately from tasks that the controller explicitly linked to a challenge.
+Open the workspace controller. When it detects a local Codex executable, **External Codex chats** appears at the bottom of the task sidebar. The section starts collapsed and loads chats for the current account and working directory when you expand it. Select **Summarize recent results** or ask the controller to summarize. Each entry shows the title, chat ID and latest turn's final reply, or indicates when a reply is unavailable. The list includes up to 500 recent chats. A summary covers up to 20 chats and includes up to 4,000 characters from each final reply. Local Codex chats appear separately from tasks that the controller explicitly linked to a challenge.
 
 To send a follow-up, select a chat title and enter your message, or enter the full ID or title under **Target chat**. When titles match several chats, your draft stays in place. Choose a candidate to send it the message. The reply identifies its source chat and turn status. If delivery is uncertain, the connection drops, or approval is needed, check the original Codex chat before trying again.
 
