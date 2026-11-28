@@ -7,10 +7,10 @@ import { openWebButton } from '../shared/display.js';
 
 // Right-side drawer for one catalog challenge. It reads the detail once when it opens, through the
 // session-free query service, so opening it writes nothing into any conversation. Closing aborts the read.
-function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
+function DispatchChallengeButton({ challenge, handoff, beforeDispatch, primary = false }) {
   const busy = ['sending', 'initializing', 'opening'].includes(handoff.state?.phase);
   const gated = handoff.gatedIds?.has(String(challenge.id)) === true;
-  return h('button', { type: 'button', className: 'pg-button pg-primary', disabled: gated, 'aria-disabled': busy || gated || undefined, onClick: (event) => {
+  return h('button', { type: 'button', className: primary ? 'pg-button pg-primary' : 'pg-button pg-list-action', disabled: gated, 'aria-disabled': busy || gated || undefined, onClick: (event) => {
     if (busy || handoff.gatedIds?.has(String(challenge.id))) return;
     event?.currentTarget?.focus();
     beforeDispatch?.();
@@ -18,7 +18,7 @@ function DispatchChallengeButton({ challenge, handoff, beforeDispatch }) {
   } }, gated ? msg('题面需要权限', 'Statement access required') : busy && handoff.state.challenge.id === String(challenge.id) ? msg('正在交接…', 'Handing off…') : msg('交给主控', 'Hand off to controller'));
 }
 
-const challengeDetailCss = '.pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--dsw-alias-label-secondary)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}';
+const challengeDetailCss = '.pg-detail-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:13px}.pg-detail-facts dt{color:var(--pg-muted)}.pg-detail-facts dd{margin:0;overflow-wrap:anywhere}.pg-detail-section{margin-top:16px}.pg-detail-section h3{margin:0 0 6px;font-size:14px}.pg-detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}.pg-detail-resources{margin:0;padding:0;list-style:none;display:grid;gap:8px}.pg-detail-resources li{padding:8px 10px;border:1px solid var(--pg-line);border-radius:8px;font-size:13px;overflow-wrap:anywhere}.pg-statement{box-sizing:border-box;max-height:min(60vh,520px);overflow:auto;margin:8px 0 0;padding:10px 12px;border:1px solid var(--pg-line);border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.7}';
 
 function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback }) {
   const [detail, setDetail] = React.useState(null);
@@ -88,7 +88,7 @@ function ChallengeDetailDrawer({ challenge, query, handoff, close, focusFallback
       facts.length ? h('dl', { className: 'pg-detail-facts' }, facts.flatMap(([label, value]) => [h('dt', { key: `${label}-t` }, label), h('dd', { key: `${label}-d` }, String(value))])) : null,
       tags.length ? h('ul', { className: 'pg-detail-tags', 'aria-label': msg('标签', 'Tags') }, tags.map((tag) => h('li', { key: tag, className: 'pg-badge' }, tag))) : null,
       h('div', { className: 'pg-actions' },
-        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss }) : null,
+        handoff ? h(DispatchChallengeButton, { challenge: { id: challengeId, title }, handoff, beforeDispatch: dismiss, primary: true }) : null,
         openWebButton(detail?.webUrl || challenge.webUrl, title)),
       failed ? h('div', { className: 'pg-detail-section' },
         h('p', { className: 'pg-error', role: 'alert' }, msg('赛题详情读取失败，请稍后重试，或在网页中查看。', 'Could not load challenge details. Try again later or open the challenge on the web.')),

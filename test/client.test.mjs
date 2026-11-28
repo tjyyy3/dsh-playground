@@ -18,6 +18,7 @@ let fixtureId = 0;
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 function text(node) {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (node?.type === 'style') return '';
   return (node?.props?.children || []).flat(Infinity).map(text).join(' ');
 }
 function findAll(node, predicate, found = []) {
@@ -45,7 +46,7 @@ async function clientFixture(t, services = {}, browser = {}) {
       const values = hooks;
       const index = cursor++;
       if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;
-      return [values[index], (value) => { values[index] = value; }];
+      return [values[index], (value) => { values[index] = typeof value === 'function' ? value(values[index]) : value; }];
     },
     // Effects are collected, not run; a test runs them to simulate mounting.
     useEffect: (effect, deps) => { effects.push(Object.assign(() => effect(), { deps })); }, Fragment: Symbol('fragment'),
@@ -150,7 +151,7 @@ test('upgrading enabled competition alerts retains history, batches new entries 
   const checkbox = f.find(setting, (node) => node.type === 'input');
   assert.equal(checkbox.props.checked, false);
   checkbox.props.onChange({ target: { checked: true } });
-  f.find(view(), (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  f.find(view(), (node) => node.props?.role === 'tab' && text(node) === '主控').props.onClick();
   snapshot.items.push(row('during-opt-out'));
   assert.equal(await enter(), null);
   snapshot = { ...snapshot, scope: 'https://other.example.com', items: [row('other')] };
@@ -591,11 +592,18 @@ test('task starts from chat cards request a workspace without creating a session
   const props = { sessionId: 'source', allowed: true, run, requestTask: (value) => requests.push(value), openChat: () => {} };
   const card = render(registrations.get('playground_get_challenge').Component, {
     ...props, phase: 'result', toolName: 'playground_get_challenge',
-    block: { meta: { playground: { ok: true, id: 'challenge', title: 'Challenge' } } }, t: (key) => key,
+    block: { meta: { playground: { ok: true, id: 'challenge', title: 'Challenge', status: 'open' } },
+      content: [{ type: 'text', text: 'Original platform statement' }] }, t: (key) => key,
   });
+  assert.equal(card.props.className, 'pg-card pg-tool-challenge');
+  assert.match(text(card), /CHALLENGE ·\s+challenge/);
+  assert.equal(find(card, (node) => node.props?.['data-tone'] === 'open')?.type, 'span');
+  assert.equal(text(find(card, (node) => node.type === 'pre')), 'Original platform statement');
   const start = find(card, (node) => node.type?.name === 'StartTaskButton');
   assert.ok(start);
-  render(start.type, start.props).props.onClick();
+  const button = render(start.type, start.props);
+  assert.equal(button.props.className, 'pg-button pg-primary');
+  button.props.onClick();
   assert.deepEqual(requests, [{ id: 'challenge', title: 'Challenge', mode: 'participate', sessionId: 'source' }]);
 });
 
@@ -1139,13 +1147,13 @@ test('task rows derive stage, badge and score from the platform state, consisten
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
   const cases = [
     ['final score', { attemptId: 1, ok: true, status: 'scored', score: 87.5, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 87.5 } },
-      view('已出最终分', '评分完成', 'success', '87.5 分', finalLine(87.5))],
+      view('已出最终分', '评分完成', 'scored', '87.5 分', finalLine(87.5))],
     ['final after deadline', { attemptId: 2, ok: true, status: 'late_scored', score: 64, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 64 } },
-      view('已出最终分（赛后）', '评分完成', 'success', '64 分', finalLine(64))],
+      view('已出最终分（赛后）', '评分完成', 'scored', '64 分', finalLine(64))],
     ['late_scored scoring state with another status', { attemptId: 23, ok: true, status: 'scored', score: 64, scoringState: { state: 'late_scored', scoreIsFinal: true, displayScore: 64 } },
-      view('已出最终分（赛后）', '赛后已评分', 'success', '64 分', finalLine(64))],
+      view('已出最终分（赛后）', '赛后已评分', 'scored', '64 分', finalLine(64))],
     ['a final score of zero is still final', { attemptId: 3, ok: true, status: 'scored', score: 0, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 0 } },
-      view('已出最终分', '评分完成', 'success', '0 分', finalLine(0))],
+      view('已出最终分', '评分完成', 'scored', '0 分', finalLine(0))],
     ['scoring failed', { attemptId: 4, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false } },
       view('评测未通过', '失败', 'error', '—', undefined)],
     ['rejected', { attemptId: 5, ok: true, status: 'scored', score: 0, scoringState: { state: 'rejected', scoreIsFinal: false } },
@@ -1153,11 +1161,11 @@ test('task rows derive stage, badge and score from the platform state, consisten
     ['bundle rejected', { attemptId: 6, ok: false, status: 'submitted', bundleStatus: 'failed' },
       view('评测未通过', '失败', 'error', '—', undefined)],
     ['queued with score 0', { attemptId: 7, ok: true, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false, provisionalScore: 0 } },
-      view('评测中', '排队中', 'warning', '—', awaiting)],
+      view('评测中', '排队中', 'evaluating', '—', awaiting)],
     ['evaluating with a provisional score', { attemptId: 8, ok: true, status: 'scoring', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false, provisionalScore: 41 } },
-      view('评测中', '评测中', 'warning', '参考 41', referenceLine(41))],
+      view('评测中', '评测中', 'evaluating', '参考 41', referenceLine(41))],
     ['pending review without a scoring state', { attemptId: 9, ok: true, status: 'pending_review' },
-      view('评测中', '等待审核', 'warning', '—', awaiting)],
+      view('评测中', '等待审核', 'evaluating', '—', awaiting)],
     // Failed and rejected attempts are terminal: a computed or provisional score is not shown as a reference.
     ['rejected with a non-zero score', { attemptId: 10, ok: true, status: 'scored', score: 72, scoringState: { state: 'rejected', scoreIsFinal: false, displayScore: 72 } },
       view('评测未通过', '未通过', 'error', '—', undefined)],
@@ -1166,7 +1174,7 @@ test('task rows derive stage, badge and score from the platform state, consisten
     ['a final flag never overrides a rejection', { attemptId: 12, ok: true, status: 'scored', score: 72, scoringState: { state: 'rejected', scoreIsFinal: true, displayScore: 72 } },
       view('评测未通过', '未通过', 'error', '—', undefined)],
     ['unknown scoring state with pending review', { attemptId: 13, ok: true, status: 'pending_review', score: 0, scoringState: { state: 'unknown', scoreIsFinal: false } },
-      view('评测中', '等待审核', 'warning', '—', awaiting)],
+      view('评测中', '等待审核', 'evaluating', '—', awaiting)],
     // Status-only receipts never claim a final score, and the badge tone follows the stage.
     ['status-only scored', { attemptId: 14, ok: true, status: 'scored', score: 80 },
       view('已提交，等待结果', '已评分', 'neutral', '参考 80', referenceLine(80))],
@@ -1210,8 +1218,8 @@ test('task rows derive stage, badge and score from the platform state, consisten
 test('a running task shows the agent stage with the receipt badge and score, in the row and the drawer', async (t) => {
   const task = { challengeId: 'fixture', title: 'Fixture', mode: 'participate' };
   for (const [receipt, expected] of [
-    [{ attemptId: 1, ok: true, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, view('Agent 执行中', '排队中', 'warning', '—', awaiting)],
-    [{ attemptId: 2, ok: true, status: 'scored', score: 90, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } }, view('Agent 执行中', '评分完成', 'success', '90 分', finalLine(90))],
+    [{ attemptId: 1, ok: true, status: 'queued', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } }, view('Agent 执行中', '排队中', 'evaluating', '—', awaiting)],
+    [{ attemptId: 2, ok: true, status: 'scored', score: 90, scoringState: { state: 'final', scoreIsFinal: true, displayScore: 90 } }, view('Agent 执行中', '评分完成', 'scored', '90 分', finalLine(90))],
   ]) {
     const f = await localizedFixture(t);
     const views = taskViews(f, { task, prepared: null, receipt }, f.zh, { running: true });
@@ -1220,7 +1228,7 @@ test('a running task shows the agent stage with the receipt badge and score, in 
   }
   const f = await localizedFixture(t);
   const idle = taskViews(f, { task, prepared: null, receipt: null }, f.zh, { running: true });
-  assert.deepEqual({ stage: idle.stage, badge: idle.badge, tone: idle.tone }, { stage: 'Agent 执行中', badge: '未提交', tone: 'warning' });
+  assert.deepEqual({ stage: idle.stage, badge: idle.badge, tone: idle.tone }, { stage: 'Agent 执行中', badge: '未提交', tone: 'running' });
 });
 
 test('platform states rejected, late_scored, pending_review and scoring have zh and en names', async (t) => {
@@ -2193,7 +2201,7 @@ test('the task drawer lists every account submission for the challenge and marks
   assert.match(rows[2], /提交 #101 .* · 评测中 · — 排队中/);
   assert.doesNotMatch(rows[2], /分 /);
   const tones = findAll(f.panel, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
-  assert.deepEqual(tones, ['error', 'success', 'warning']);
+  assert.deepEqual(tones, ['error', 'scored', 'evaluating']);
   assert.deepEqual(rows.filter((row) => row.includes('本对话')).map((row) => row.match(/#(\d+)/)[1]), ['102']);
   assert.equal(rows.filter((row) => row.includes('未关联到对话')).length, 2);
   assert.equal(findButton(f.panel, '加载更多'), undefined);
@@ -2219,12 +2227,12 @@ test('history rows show a queued 0 as pending and a late_scored row as a final s
   const rows = historyRows(f.panel);
   const tone = (li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone'];
   assert.match(rows[0], /提交 #203 .* · 已出最终分（赛后） · 64 分 赛后已评分/);
-  assert.equal(tone(items[0]), 'success');
+  assert.equal(tone(items[0]), 'scored');
   assert.match(rows[1], /提交 #202 .* · 评测中 · 参考 7 排队中/);
-  assert.equal(tone(items[1]), 'warning');
+  assert.equal(tone(items[1]), 'evaluating');
   assert.match(rows[2], /提交 #201 .* · 评测中 · — 排队中/);
   assert.doesNotMatch(rows[2], /0 分/);
-  assert.equal(tone(items[2]), 'warning');
+  assert.equal(tone(items[2]), 'evaluating');
 });
 
 test('history rows take a settled result from the workbench refresh, but never a less settled one', async (t) => {
@@ -2257,11 +2265,11 @@ test('history rows take a settled result from the workbench refresh, but never a
   assert.match(rows[0], /提交 #306 .* · 评测未通过 · — 失败/);
   assert.equal(tones[0], 'error');
   assert.match(rows[1], /提交 #305 .* · 评测中 · — 排队中/);
-  assert.equal(tones[1], 'warning');
+  assert.equal(tones[1], 'evaluating');
   assert.match(rows[2], /提交 #304 .* · 评测未通过 · — 失败/);
   assert.equal(tones[2], 'error');
   assert.match(rows[3], /提交 #303 .* · 评测中 · — 排队中/);
-  assert.equal(tones[3], 'warning');
+  assert.equal(tones[3], 'evaluating');
   assert.match(rows[4], /提交 #302 .* · 已出最终分 · 50 分/);
   assert.match(rows[5], /提交 #301 .* · 已出最终分 · 90 分/);
   // Reading the store is not another poll: the re-render's read effect kept its deps and did not run.
@@ -5856,9 +5864,9 @@ test('#58: a submission whose upload failed shows "评测包未上传" in the ta
       view('评测未通过', '失败', 'error', '—', undefined)],
     // An unknown outcome is not evidence that the bundle is missing; the platform's queued state stands.
     ['unknown outcome', { attemptId: 9, ok: false, stage: 'upload', error: { code: 'outcome_unknown', message: 'x' }, status: 'submitted', scoringState: { state: 'queued', scoreIsFinal: false } },
-      view('评测中', '排队中', 'warning', '—', undefined)],
+      view('评测中', '排队中', 'evaluating', '—', undefined)],
     ['a normal queued submission', { attemptId: 10, ok: true, status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false } },
-      view('评测中', '排队中', 'warning', '—', awaiting)],
+      view('评测中', '排队中', 'evaluating', '—', awaiting)],
   ]) {
     const f = await localizedFixture(t);
     const views = taskViews(f, { task, prepared: null, receipt }, f.zh);
@@ -5882,7 +5890,7 @@ test('#58: history rows of submissions without a bundle show "评测包未上传
   assert.match(rows[1], /提交 #63162 .* · 评测中 · — 排队中 未关联到对话/);
   assert.match(rows[2], /提交 #63116 .* · 提交未完成 · — 评测包未上传 本对话/);
   const tones = findAll(f.panel, (node) => node.type === 'li').map((li) => f.find(li, (node) => node.props?.className === 'pg-badge').props['data-tone']);
-  assert.deepEqual(tones, ['error', 'warning', 'error']);
+  assert.deepEqual(tones, ['error', 'evaluating', 'error']);
 });
 
 const SUMMARY_58 = { files: 19, totalBytes: 1003000, nonTextCount: 1, symlinkCount: 0, symlinks: [],
@@ -5946,9 +5954,9 @@ test('#58: a submission the platform closed as "bundle missing" shows "未收到
     ['closed by the platform after the plugin\'s failed upload', uploadFailed(63116, { status: 'pending_review', score: 0, scoringState: { state: 'failed', scoreIsFinal: false }, bundleNotReceived: true }),
       view('提交未完成', '未收到评测包，需重新提交', 'error', '—', undefined)],
     ['the platform evaluates it after a re-upload elsewhere', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'evaluating', scoreIsFinal: false } }),
-      view('评测中', '评测中', 'warning', '—', undefined)],
+      view('评测中', '评测中', 'evaluating', '—', undefined)],
     ['the Worker received it', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'queued', workerReceivedAt: '2026-11-05T06:50:00+00:00' } }),
-      view('评测中', '排队中', 'warning', '—', undefined)],
+      view('评测中', '排队中', 'evaluating', '—', undefined)],
     ['still awaiting receipt', uploadFailed(63167, { status: 'submitted', score: 0, scoringState: { state: 'queued', scoreIsFinal: false }, scoringQueue: { stage: 'awaiting_receipt' } }),
       view('提交未完成', '评测包未上传', 'error', '—', undefined)],
   ]) {
@@ -6196,9 +6204,9 @@ test('controller tabs keep the chat occurrence while routing separate library se
   assert.equal(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'submissions').props.style.display, 'flex');
   f.find(tree, (node) => node.props?.title === '连接设置').props.onClick();
   tree = f.render(Main, props);
-  assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.tabIndex, 0);
+  assert.equal(f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '主控').props.tabIndex, 0);
   assert.equal(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'), undefined);
-  f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '对话').props.onClick();
+  f.find(tree, (node) => node.props?.role === 'tab' && text(node) === '主控').props.onClick();
   tree = f.render(Main, props);
   assert.ok(f.find(tree, (node) => node.props?.['aria-controls'] === 'pg-controller-tasks'));
   assert.ok(f.find(tree, (node) => node.type === 'div' && node.props?.key === 'catalog'));
@@ -6316,7 +6324,7 @@ async function controllerHandoffHarness(t, { workspaceId = '', inspections = {},
     await refresh();
   };
   const notices = async () => {
-    f.find(view(), buttonLabelled('对话')).props.onClick();
+    f.find(view(), buttonLabelled('主控')).props.onClick();
     return f.mount(f.find(view(), (node) => node.type?.name === 'CompetitionNotices'));
   };
   return { f, calls, view, notices, catalog, cardButton, modal, modalWorkspace, modalButton, changeWorkspace, refresh, remount, dispatchCalls };
@@ -6505,6 +6513,28 @@ test('a linked alert opens the controller with its existing child task selected'
   assert.equal(text(h.f.find(pane, (node) => node.type === 'h3')), 'Previous investigation');
   assert.ok(h.f.find(pane, buttonLabelled('返回任务')));
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
+});
+
+test('a linked handoff shows its snapshot time before task polling returns', async (t) => {
+  const now = Date.parse('2026-11-28T11:25:00+08:00');
+  t.mock.method(Date, 'now', () => now);
+  const poll = deferred();
+  let exactReads = 0;
+  const h = await controllerHandoffHarness(t, { workspaceId: 'one', inspections: { one: existingController('main-one') },
+    query: noticeQuery(singleNotice), dispatch: ({ sessionId }) => ({ kind: 'linked', sessionId, childIds: ['original'] }),
+    controllerTasks: async ({ includeChallengeId }) => {
+      if (includeChallengeId !== challengeCard.id) return { kind: 'ready', rows: [] };
+      if (exactReads++) return poll.promise;
+      return { kind: 'ready', linkedChildIds: ['original'], rows: [{ childId: 'original', label: 'Previous investigation', state: 'unknown' }] };
+    } });
+  await h.refresh();
+  await buttonLabeled(h.f, await h.notices(), '协调参赛').props.onClick();
+  h.modalWorkspace().props.onChange({ target: { value: 'one' } });
+  await h.modalButton('确认交给主控').props.onClick();
+  await h.refresh();
+  assert.equal(exactReads, 2);
+  const status = h.f.find(h.view(), (node) => node.props?.className === 'pg-controller-task-status');
+  assert.equal(h.f.find(status, (node) => node.type === 'time')?.props.dateTime, new Date(now).toISOString());
 });
 
 test('an unreadable single alert keeps its original period, and an archived controller cannot receive its selection', async (t) => {
@@ -6737,7 +6767,7 @@ test('an explicit controller result changes the selected workspace in the mounte
   await h.refresh();
   assert.equal(selectedWorkspace(), 'two');
   assert.equal(expectedSession(), 'main-two');
-  assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
+  assert.equal(h.f.find(h.view(), buttonLabelled('主控')).props['aria-selected'], true);
   await h.remount();
   assert.equal(selectedWorkspace(), 'two');
   assert.equal(expectedSession(), 'main-two');
@@ -6767,7 +6797,7 @@ test('catalog hands off directly to the selected workspace controller and shows 
   await settle();
   assert.deepEqual(h.calls.at(-1), ['open', 'main-one']);
   assert.equal(h.modal(), undefined);
-  assert.equal(h.f.find(h.view(), buttonLabelled('对话')).props['aria-selected'], true);
+  assert.equal(h.f.find(h.view(), buttonLabelled('主控')).props['aria-selected'], true);
 });
 
 test('handoff opens a cancellable native dialog with focus on its title and registered workspace options', async (t) => {
@@ -6941,6 +6971,34 @@ test('controller login indicator follows verified auth status and opens connecti
   assert.equal(f.find(f.render(Main, props), (node) => node.type === 'main' && node.props?.className === 'pg-workbench').props.style.display, 'block');
 });
 
+test('the login indicator retains the account mark until a delayed recheck finishes', async (t) => {
+  const f = await clientFixture(t);
+  const Main = f.registrations.get('main').Component;
+  const next = deferred();
+  let checks = 0;
+  const props = { controllerSelection: {}, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null,
+    query: async () => checks++ ? next.promise : { authenticated: true, user: { name: 'Initial Account' } },
+  };
+  const tree = () => f.render(Main, props);
+  const mark = () => f.find(tree(), (node) => node.props?.className === 'pg-controller-account-mark');
+  const auth = f.find(tree(), (node) => node.type?.name === 'AuthStatusPanel');
+  const panel = await f.mount(auth);
+  f.effects.at(-1)();
+  assert.equal(text(mark()), 'IN');
+  const checking = f.find(panel, buttonLabelled('重新检测')).props.onClick();
+  f.render(auth.type, auth.props);
+  f.effects.at(-1)();
+  assert.equal(f.find(tree(), (node) => node.props?.title === '连接设置').props['data-status'], 'checking');
+  assert.equal(text(mark()), 'IN');
+  next.resolve({ authenticated: false, reason: 'rejected' });
+  await checking;
+  f.render(auth.type, auth.props);
+  f.effects.at(-1)();
+  assert.equal(mark(), undefined);
+});
+
 test('the toolbar language menu follows DSH, remembers overrides, and closes after selection', async (t) => {
   const values = new Map();
   const browser = { localStorage: { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) } };
@@ -6971,14 +7029,14 @@ test('the toolbar language menu follows DSH, remembers overrides, and closes aft
   assert.equal(text(first.tabs()[1]), '赛题');
   first.option(2).props.onClick();
   assert.equal(first.trigger().props['aria-expanded'], false);
-  assert.deepEqual(first.tabs().map(text), ['Chat', 'Challenges', 'Submissions']);
+  assert.deepEqual(first.tabs().map(text), ['Controller', 'Challenges', 'Submissions']);
   assert.equal(first.tabs()[1].props['aria-selected'], true);
   const reopened = await panel();
   assert.equal(reopened.option(2).props['aria-checked'], true);
   assert.match(text(reopened.option(0)), /中文/);
   assert.equal(text(reopened.tabs()[1]), 'Challenges');
   reopened.option(0).props.onClick();
-  assert.deepEqual(reopened.tabs().map(text), ['对话', '赛题', '提交']);
+  assert.deepEqual(reopened.tabs().map(text), ['主控', '赛题', '提交']);
   changeHost('en-US');
   assert.equal(text(reopened.tabs()[1]), 'Challenges');
   assert.equal((await panel()).option(0).props['aria-checked'], true);
@@ -7339,7 +7397,7 @@ test('task detail renders recognized result text with a preserved raw notice and
   tree = f.render(Main, props);
   f.find(tree, (node) => node.type === 'button' && text(node).includes('Pending')).props.onClick();
   tree = f.render(Main, props);
-  assert.match(text(tree), /暂无执行回执/);
+  assert.match(text(tree), /状态未知/);
   assert.match(text(tree), /不表示任务失败/);
   f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
   tree = f.render(Main, props);
@@ -7370,8 +7428,8 @@ test('controller stop reasons describe historical notices and never override a n
     [{ childId: 'saved-legacy', state: 'settled' }, '已收到历史结果'],
     [{ childId: 'new-running', state: 'running', noticeStopReason: 'error' }, '运行中'],
     [{ childId: 'new-running-with-end', state: 'running', noticeStopReason: 'error', liveEnd: { stopReason: 'error', lastAssistantMessage: [{ type: 'text', text: 'earlier output' }] } }, '运行中'],
-    [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '本次运行已结束 · 已收到结果'],
-    [{ childId: 'finished-with-notice', state: 'ended', noticeStopReason: 'completed', liveEnd: { stopReason: 'completed' } }, '本次运行已结束 · 已收到结果'],
+    [{ childId: 'new-ended', state: 'ended', noticeStopReason: 'error', liveEnd: { stopReason: 'completed' } }, '已收到结果'],
+    [{ childId: 'finished-with-notice', state: 'ended', noticeStopReason: 'completed', liveEnd: { stopReason: 'completed' } }, '已收到结果'],
     [{ childId: 'finished-without-notice', state: 'ended', terminalText: '', liveEnd: { stopReason: 'completed' } }, '本次运行已结束'],
     [{ childId: 'live-limit', state: 'ended', liveEnd: { stopReason: 'max-tokens' } }, '达到输出上限'],
     [{ childId: 'live-refusal', state: 'ended', liveEnd: { stopReason: 'refusal' } }, '拒绝执行'],
@@ -7410,10 +7468,91 @@ test('controller stop reasons describe historical notices and never override a n
       assert.match(text(tree), /上次运行结束：出错/);
       assert.doesNotMatch(text(tree), /本次运行结束/);
     }
-    if (row.liveEnd?.stopReason === 'completed') assert.match(text(tree), /本次运行结束：完成/);
+    if (row.liveEnd?.stopReason === 'completed') {
+      assert.match(text(tree), /本次运行结束：完成/);
+      if (row.terminalText !== '') assert.match(text(tree), /本次运行已结束 · 已收到结果/);
+    }
     if (row.noticeStopReason === 'provider-specific') assert.match(text(tree), /provider-specific/);
     f.find(tree, (node) => node.type === 'button' && text(node).includes('返回任务')).props.onClick();
   }
+});
+
+test('controller task evidence uses host observations before Agent notifications', async () => {
+  const { taskEvidence } = await import('../src/client/controller/task-evidence.js');
+  assert.equal(taskEvidence({ state: 'running' }), 'host');
+  assert.equal(taskEvidence({ state: 'running', terminalText: 'Old notification' }), 'host');
+  assert.equal(taskEvidence({ liveEnd: { stopReason: 'error' } }), 'host');
+  assert.equal(taskEvidence({ liveEnd: {}, terminalText: 'Notification' }), 'host');
+  assert.equal(taskEvidence({ terminalText: 'Notification' }), 'report');
+  assert.equal(taskEvidence({ state: 'ended', terminalText: '' }), 'none');
+  assert.equal(taskEvidence({ state: 'unknown', attemptId: 20 }), 'none');
+});
+
+test('Instrument maps the two observed providers and preserves other provider names', async () => {
+  const { taskProvider } = await import('../src/client/controller/task-presentation.js');
+  assert.equal(taskProvider('codex', 'zh-CN'), 'Codex');
+  assert.equal(taskProvider('dsh', 'zh-CN'), 'DSH 子智能体');
+  assert.equal(taskProvider('dsh', 'en'), 'DSH subagent');
+  assert.equal(taskProvider('external-agent', 'zh-CN'), 'external-agent');
+  assert.equal(taskProvider(undefined, 'zh-CN'), undefined);
+});
+
+test('Instrument group subtitles show a platform only when the configured platform differs', async () => {
+  const { challengeSubtitle } = await import('../src/client/controller/task-presentation.js');
+  const challenge = { id: 'reading-01', baseUrl: 'https://one.example.test/api' };
+  assert.equal(challengeSubtitle(challenge, 'https://one.example.test/'), 'reading-01');
+  assert.equal(challengeSubtitle(challenge, 'https://two.example.test/api'), 'reading-01 · https://one.example.test');
+  assert.equal(challengeSubtitle(challenge, undefined), 'reading-01');
+  assert.equal(challengeSubtitle({ id: 'reading-01' }, 'https://one.example.test/api'), 'reading-01');
+});
+
+test('Instrument task times use row timestamps and the local calendar', async () => {
+  const { taskRowTime } = await import('../src/client/controller/task-presentation.js');
+  const now = new Date(2026, 10, 28, 13, 42).getTime();
+  const at = (day, hour, minute) => new Date(2026, 10, day, hour, minute).getTime();
+  const time = (row) => taskRowTime(row, 'zh-CN', now)?.label;
+  assert.equal(time({ state: 'running', createdAt: at(28, 13, 30) }), '创建于 13:30');
+  assert.equal(time({ state: 'ended', createdAt: new Date(at(28, 13, 38)).toISOString() }), '创建于 13:38');
+  assert.equal(time({ state: 'settled', createdAt: at(27, 21, 14) }), '创建于 昨天 21:14');
+  assert.equal(time({ state: 'ended', createdAt: at(26, 18, 0) }), '创建于 2026/11/26');
+  assert.equal(time({ state: 'unknown', createdAt: at(27, 18, 0) }), '创建于 昨天 18:00');
+  assert.equal(time({ state: 'ended', createdAt: 'invalid' }), undefined);
+  assert.equal(time({ state: 'running', updatedAt: now }), undefined);
+});
+
+test('[review-134] a rerun with only a creation timestamp shows Created in the task list and detail', async (t) => {
+  const now = new Date(2026, 10, 28, 13, 42).getTime();
+  const createdAt = new Date(2026, 10, 27, 13, 38).toISOString();
+  t.mock.method(Date, 'now', () => now);
+  const { f, sidebar } = await codexSidebarFixture(t, undefined, {
+    browser: { localStorage: { getItem: () => 'en' } },
+    taskRows: [{ childId: 'rerun', label: 'Rerun fixture', state: 'running', createdAt }],
+  });
+  const button = f.find(sidebar(), (node) => node.type === 'button' && text(node).includes('Rerun fixture'));
+  const readTime = (tree) => f.find(tree, (node) => node.type === 'time' && node.props.dateTime === createdAt);
+  assert.equal(text(readTime(button)), 'Created Yesterday 13:38');
+  button.props.onClick();
+  assert.equal(text(readTime(sidebar())), 'Created Yesterday 13:38');
+});
+
+test('Instrument sidebar counts task rows and distinct linked challenges', async (t) => {
+  const { f, sidebar } = await codexSidebarFixture(t);
+  const heading = f.find(sidebar(), (node) => node.type === 'header');
+  assert.match(text(heading), /主控任务.*2 个 · 1 道赛题/);
+  assert.doesNotMatch(text(heading), /3 个/);
+  assert.match(text(sidebar()), /状态更新于/);
+});
+
+test('Instrument navigation exposes only the implemented primary tabs', async (t) => {
+  const { registrations, find, render } = await clientFixture(t);
+  const tree = render(registrations.get('main').Component, {
+    controllerSelection: {}, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null,
+  });
+  const nav = find(tree, (node) => node.props?.role === 'tablist');
+  assert.deepEqual(findAll(nav, (node) => node.props?.role === 'tab').map(text), ['主控', '赛题', '提交']);
+  assert.doesNotMatch(text(nav), /出题|赛事/);
 });
 
 test('controller groups use platform and challenge ids while retaining every child and result', async (t) => {
@@ -7435,23 +7574,32 @@ test('controller groups use platform and challenge ids while retaining every chi
   const props = { controllerSelection: { workspaceId: 'one' }, useControllerTarget: (select) => select(null),
     useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'one', title: 'One' }] }), useSessions: (select) => select({ ids: [], byId: {} }),
     inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }), openControllerChat: async () => {},
+    query: async () => ({ authenticated: true, baseUrl: challenge.baseUrl }),
     controllerTasks: async (input) => { reads.push(input); return { kind: 'ready', rows }; }, renderSlot: () => null,
     openTask: async (address) => opened.push(address), openController: () => assert.fail('created a session'), dispatchChallenge: () => assert.fail('dispatched work'),
     run: () => assert.fail('ran a task command'), submission: () => assert.fail('submitted') };
   const render = () => f.render(Main, props);
   render(); f.effects.splice(0).forEach((effect) => cleanups.push(effect())); await settle();
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
+  const auth = f.find(render(), (node) => node.type?.name === 'AuthStatusPanel');
+  await f.mount(auth);
+  f.effects.at(-1)();
   let tree = render();
   const groups = findAll(tree, (node) => node.props?.className === 'pg-controller-challenge');
   assert.equal(groups.length, 4);
   const children = (group) => findAll(group, (node) => node.props?.className === 'pg-controller-row').map((node) => node.props.key);
   assert.deepEqual(groups.map(children), [['first', 'second'], ['different-id'], ['different-platform'], ['legacy']]);
-  assert.match(text(groups[0]), /Same title（2）.*challenge-a.*https:\/\/one.example.test\/api/);
+  assert.match(text(groups[0]), /Same title.*challenge-a.*2/);
+  assert.doesNotMatch(text(groups[0]), /one.example.test/);
   assert.match(text(groups[1]), /challenge-b/);
-  assert.match(text(groups[2]), /https:\/\/two.example.test\/api/);
+  assert.match(text(groups[2]), /https:\/\/two\.example\.test/);
   assert.match(text(groups[3]), /未关联赛题.*缺少明确的赛题关联/);
   const maintenance = f.find(tree, (node) => node.props?.className === 'pg-controller-maintenance');
-  assert.match(text(maintenance), /后台维护（1）.*Maintenance task/);
+  assert.match(text(maintenance), /后台维护.*1.*Maintenance task/);
+  assert.equal(groups[3].props.open, false);
+  assert.equal(maintenance.props.open, false);
+  const sources = (node) => findAll(node, (child) => child.props?.['data-evidence']).map((child) => child.props['data-evidence']);
+  assert.deepEqual(groups.map(sources), [['host', 'report'], ['none'], ['none'], ['report']]);
   assert.deepEqual(findAll(tree, (node) => node.props?.className === 'pg-controller-row').map((node) => node.props.key).sort(), rows.map((row) => row.childId).sort());
   groups[0].props.onToggle({ currentTarget: { open: false } });
   assert.equal(findAll(render(), (node) => node.props?.className === 'pg-controller-challenge')[0].props.open, false);
@@ -7470,15 +7618,17 @@ test('controller groups use platform and challenge ids while retaining every chi
   assert.match(text(render()), /当前执行状态未知.*历史通知的结束原因：出错/);
   assert.equal(button('打开子智能体对话'), undefined);
   button('返回任务').props.onClick();
+  findAll(render(), (node) => node.props?.className === 'pg-controller-challenge')[3].props.onToggle({ currentTarget: { open: true } });
   task('legacy').props.onClick();
   assert.match(text(render()), /未关联赛题.*Legacy result/);
   button('返回任务').props.onClick();
+  f.find(render(), (node) => node.props?.className === 'pg-controller-maintenance').props.onToggle({ currentTarget: { open: true } });
   task('maintenance').props.onClick();
   assert.match(text(render()), /后台维护.*Maintenance result/);
   button('返回任务').props.onClick();
   const readsBefore = reads.length;
   assert.equal(readsBefore, 1, 'browsing and toggling only use existing task data');
-  button('刷新任务').props.onClick();
+  f.find(render(), (node) => node.type === 'button' && node.props['aria-label'] === '刷新任务').props.onClick();
   f.effects.length = 0;
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect())); await settle();
   assert.equal(reads.length, readsBefore + 1);
@@ -7508,7 +7658,7 @@ test('workspace selection hides old controller tasks immediately and ignores a l
   assert.match(text(render()), /one-task/);
   f.find(render(), (node) => node.props?.className === 'pg-controller-row' && node.props.key === 'one-task').props.onClick();
   assert.match(text(render()), /one-task result/);
-  f.find(render(), (node) => node.type === 'button' && text(node) === '刷新任务').props.onClick();
+  f.find(render(), (node) => node.type === 'button' && node.props['aria-label'] === '刷新任务').props.onClick();
   f.effects.length = 0;
   render(); f.effects.splice(0).filter((effect) => effect.deps?.[2] === props.controllerTasks).forEach((effect) => cleanups.push(effect()));
   assert.equal(typeof finishOldRead, 'function');
@@ -7527,6 +7677,261 @@ test('workspace selection hides old controller tasks immediately and ignores a l
   assert.doesNotMatch(text(render()), /one-task/);
 });
 
+
+async function codexSidebarFixture(t, codexChats, { browser, taskRows } = {}) {
+  const f = await clientFixture(t, {}, browser);
+  const Main = f.registrations.get('main').Component;
+  const rows = taskRows ?? [
+    { childId: 'linked', label: 'Linked task', state: 'settled',
+      challenge: { id: 'challenge', title: 'Linked challenge', baseUrl: 'https://example.test/api' } },
+    { childId: 'legacy', label: 'Legacy task', state: 'settled' },
+    { childId: 'maintenance', label: 'Maintenance task', category: 'maintenance', state: 'settled' },
+  ];
+  const props = { controllerSelection: { workspaceId: 'ws', showTasks: true }, useControllerTarget: (select) => select(null),
+    useWorkspaces: (select) => select({ phase: 'ready', items: [{ workspaceId: 'ws', title: 'Fixture workspace' }] }),
+    useSessions: (select) => select({ ids: [], byId: {} }), renderSlot: () => null, openControllerChat: async () => {},
+    inspectController: async () => ({ kind: 'existing', sessionId: 'controller' }),
+    controllerTasks: async () => ({ kind: 'ready', rows }), codexChats };
+  const cleanups = [];
+  t.after(() => cleanups.reverse().forEach((cleanup) => cleanup?.()));
+  const runEffects = (predicate = () => true) => {
+    for (const effect of f.effects.splice(0).filter(predicate)) cleanups.push(effect());
+  };
+  const render = () => {
+    f.effects.length = 0;
+    return f.render(Main, props);
+  };
+  render(); runEffects(); await settle();
+  render(); runEffects((effect) => effect.deps?.[2] === props.controllerTasks); await settle();
+  const sidebar = () => f.find(render(), (node) => node.type === 'aside' && node.props.id === 'pg-controller-tasks');
+  const external = (tree = sidebar()) => f.find(tree, (node) => node.type?.name === 'ExternalCodexChats');
+  const renderExternal = (element = external()) => {
+    f.effects.length = 0;
+    return f.render(element.type, element.props);
+  };
+  let chatsType;
+  let chatsEffects = [];
+  const renderChats = (details) => {
+    const element = f.find(details, (node) => node.type?.name === 'CodexChats');
+    if (!element) {
+      for (const effect of chatsEffects) effect.cleanup?.();
+      if (chatsType) f.unmount(chatsType);
+      chatsType = undefined;
+      chatsEffects = [];
+      return null;
+    }
+    chatsType = element.type;
+    f.effects.length = 0;
+    const tree = f.render(chatsType, element.props);
+    chatsEffects = f.effects.splice(0).map((effect, index) => {
+      const previous = chatsEffects[index];
+      if (previous?.deps && effect.deps && previous.deps.length === effect.deps.length &&
+        effect.deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return previous;
+      previous?.cleanup?.();
+      return { deps: effect.deps, cleanup: effect() };
+    });
+    return tree;
+  };
+  t.after(() => renderChats(null));
+  const refresh = () => f.find(sidebar(), (node) => node.type === 'button' && node.props['aria-label'] === '刷新任务').props.onClick();
+  return { f, sidebar, external, renderExternal, renderChats, refresh, runEffects };
+}
+
+test('task sidebar hides external chats during detection and when detection is unavailable or fails', async (t) => {
+  const calls = [];
+  const pending = Promise.withResolvers();
+  const { f, sidebar, renderExternal, refresh, runEffects } = await codexSidebarFixture(t, (input) => {
+    calls.push(input);
+    return calls.length === 1 ? pending.promise : Promise.reject(Error('Host unavailable'));
+  });
+  assert.equal(f.find(sidebar(), (node) => node.type?.name === 'CodexChats'), undefined);
+  assert.doesNotMatch(text(sidebar()), /codex/i);
+  assert.equal(renderExternal(), null);
+  runEffects();
+  assert.deepEqual(calls, [{ workspaceId: 'ws', sessionId: 'controller', action: 'detect' }]);
+  assert.equal(renderExternal(), null);
+  pending.resolve({ kind: 'unavailable', code: 'codex_unavailable' });
+  await settle();
+  assert.equal(renderExternal(), null);
+  refresh();
+  assert.equal(renderExternal(), null);
+  runEffects();
+  await settle();
+  assert.equal(renderExternal(), null);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((input) => input.action === 'detect'));
+});
+
+test('[review-134] the English sidebar and expanded region use External Codex chats', async (t) => {
+  const { f, renderExternal, renderChats, runEffects } = await codexSidebarFixture(t, async ({ action }) =>
+    action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] },
+  { browser: { localStorage: { getItem: () => 'en' } } });
+  renderExternal(); runEffects(); await settle();
+  const collapsed = renderExternal();
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')).trim(), 'External Codex chats');
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+  assert.equal(renderChats(renderExternal()).props['aria-label'], 'External Codex chats');
+});
+
+test('external chats follow all task groups and only list when expanded', async (t) => {
+  const calls = [];
+  const { f, sidebar, external, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) => {
+    calls.push(action);
+    return action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows: [] };
+  });
+  const tree = sidebar();
+  const content = f.find(tree, (node) => node.props?.className === 'pg-controller-task-content');
+  const entry = external(tree);
+  assert.ok(entry);
+  assert.equal(content.props.children.at(-1), entry);
+  assert.match(text(content), /Linked challenge.*未关联赛题.*后台维护/);
+  renderExternal(entry); runEffects(); await settle();
+  const collapsed = renderExternal();
+  assert.equal(collapsed.type, 'details');
+  assert.equal(collapsed.props.open, false);
+  assert.equal(text(f.find(collapsed, (node) => node.type === 'summary')).trim(), '外部 Codex 对话');
+  const list = (tree) => f.find(tree, (node) => node.type?.name === 'CodexChats');
+  assert.equal(list(collapsed), undefined);
+  assert.deepEqual(calls, ['detect']);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+
+  const expanded = renderExternal();
+  assert.equal(expanded.props.open, true);
+  renderChats(expanded); await settle();
+  assert.match(text(renderChats(renderExternal())), /本工作区暂无可见的 Codex 对话/);
+  assert.deepEqual(calls, ['detect', 'list']);
+  refresh();
+  const checking = renderExternal(); runEffects();
+  assert.doesNotMatch(text(checking), /codex/i);
+  assert.equal(renderChats(checking), null);
+  assert.deepEqual(calls, ['detect', 'list', 'detect']);
+  await settle();
+  const refreshed = renderExternal();
+  assert.equal(refreshed.props.open, true);
+  renderChats(refreshed);
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list']);
+
+  refreshed.props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  refresh();
+  const checkingWhileClosed = renderExternal(); runEffects(); renderChats(checkingWhileClosed);
+  await settle();
+  const closedAfterRefresh = renderExternal();
+  assert.equal(closedAfterRefresh.props.open, false);
+  renderChats(closedAfterRefresh);
+  assert.deepEqual(calls, ['detect', 'list', 'detect', 'list', 'detect']);
+});
+
+test('external chats retain the target and draft across collapse and refresh', async (t) => {
+  const rows = [{ title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000010' }];
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async ({ action }) =>
+    action === 'detect' ? { kind: 'available' } : { kind: 'ready', rows });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: rows[0].threadId } });
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  const collapsed = renderExternal();
+  assert.equal(collapsed.props.open, false);
+  renderChats(collapsed);
+  collapsed.props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  const checkDraft = () => {
+    const chats = renderChats(renderExternal());
+    assert.equal(f.find(chats, (node) => node.type === 'input')?.props.value, rows[0].threadId);
+    assert.equal(f.find(chats, (node) => node.type === 'textarea')?.props.value, 'Keep this draft');
+  };
+  checkDraft();
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  checkDraft();
+});
+
+test('[review-132] reopening the sidebar keeps a draft bound until another chat is selected', async (t) => {
+  const original = { title: 'Shared title', threadId: '018ee808-f10c-7000-b000-000000000012' };
+  const replacement = { title: original.title, threadId: '018ee808-f10c-7000-b000-000000000013' };
+  let listed = original;
+  const sends = [];
+  const { f, renderExternal, renderChats, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') return { kind: 'ready', rows: [listed] };
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return { kind: 'sent', source: listed, text: 'Reply' };
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: original.title } });
+  tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  listed = replacement;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  tree = renderChats(renderExternal());
+  assert.match(text(tree), new RegExp(replacement.threadId));
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  tree = renderChats(renderExternal());
+  assert.deepEqual(sends, []);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Keep this draft');
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /请重新选择/);
+
+  f.find(tree, (node) => node.type === 'button' && text(node).includes(replacement.threadId)).props.onClick();
+  tree = renderChats(renderExternal());
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.deepEqual(sends, [{ workspaceId: 'ws', sessionId: 'controller', action: 'send',
+    threadId: replacement.threadId, message: 'Keep this draft' }]);
+});
+
+test('external chats retain a pending send and its reply across refresh and collapse', async (t) => {
+  const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000011' };
+  const delivery = Promise.withResolvers();
+  const sends = [];
+  let listed = false;
+  const { f, renderExternal, renderChats, refresh, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') {
+      const rows = listed ? [] : [source];
+      listed = true;
+      return { kind: 'ready', rows };
+    }
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return delivery.promise;
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'One follow-up' } });
+  tree = renderChats(renderExternal());
+  const send = buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].threadId, source.threadId);
+
+  refresh();
+  const checking = renderExternal(); runEffects(); renderChats(checking); await settle();
+  renderChats(renderExternal()); await settle();
+  assert.equal(buttonLabeled(f, renderChats(renderExternal()), '等待原会话回复…')?.props.disabled, true);
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  delivery.resolve({ kind: 'sent', source, turnStatus: 'completed', text: 'Reply to the original send' });
+  await send;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  tree = renderChats(renderExternal());
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /Reply to the original send/);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, '');
+  assert.equal(sends.length, 1);
+});
 
 test('Codex follow-up cards preserve the text until the user picks one exact source', async (t) => {
   const f = await clientFixture(t);
