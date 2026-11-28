@@ -7690,6 +7690,46 @@ test('external chats retain the target and draft across collapse and refresh', a
   checkDraft();
 });
 
+test('[review-132] reopening the sidebar keeps a draft bound until another chat is selected', async (t) => {
+  const original = { title: 'Shared title', threadId: '018ee808-f10c-7000-b000-000000000012' };
+  const replacement = { title: original.title, threadId: '018ee808-f10c-7000-b000-000000000013' };
+  let listed = original;
+  const sends = [];
+  const { f, renderExternal, renderChats, runEffects } = await codexSidebarFixture(t, async (input) => {
+    if (input.action === 'detect') return { kind: 'available' };
+    if (input.action === 'list') return { kind: 'ready', rows: [listed] };
+    assert.equal(input.action, 'send');
+    sends.push(input);
+    return { kind: 'sent', source: listed, text: 'Reply' };
+  });
+  renderExternal(); runEffects(); await settle();
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  let tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'input').props.onChange({ target: { value: original.title } });
+  tree = renderChats(renderExternal());
+  f.find(tree, (node) => node.type === 'textarea').props.onChange({ target: { value: 'Keep this draft' } });
+
+  renderExternal().props.onToggle({ currentTarget: { open: false } });
+  renderChats(renderExternal());
+  listed = replacement;
+  renderExternal().props.onToggle({ currentTarget: { open: true } });
+  renderChats(renderExternal()); await settle();
+  tree = renderChats(renderExternal());
+  assert.match(text(tree), new RegExp(replacement.threadId));
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  tree = renderChats(renderExternal());
+  assert.deepEqual(sends, []);
+  assert.equal(f.find(tree, (node) => node.type === 'textarea').props.value, 'Keep this draft');
+  assert.match(text(f.find(tree, (node) => node.props?.role === 'status')), /请重新选择/);
+
+  f.find(tree, (node) => node.type === 'button' && text(node).includes(replacement.threadId)).props.onClick();
+  tree = renderChats(renderExternal());
+  await buttonLabeled(f, tree, '发送追问').props.onClick();
+  assert.deepEqual(sends, [{ workspaceId: 'ws', sessionId: 'controller', action: 'send',
+    threadId: replacement.threadId, message: 'Keep this draft' }]);
+});
+
 test('external chats retain a pending send and its reply across refresh and collapse', async (t) => {
   const source = { title: 'Fixture', threadId: '018ee808-f10c-7000-b000-000000000011' };
   const delivery = Promise.withResolvers();

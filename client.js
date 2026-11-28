@@ -1343,6 +1343,16 @@ var reasons = /* @__PURE__ */ __name(() => ({
   user_action_required: msg("请从主控工作台发起操作。", "Start this action from the controller workbench."),
   interaction_required: msg("此轮需要在原 Codex 对话中处理交互。", "This turn needs your input in the original Codex chat.")
 }), "reasons");
+function matchingChats(data, target) {
+  const rows = data?.rows || [];
+  return target ? rows.filter((item) => item.threadId === target || item.title === target) : rows;
+}
+__name(matchingChats, "matchingChats");
+function soleChatId(data, target) {
+  const matches = matchingChats(data, target);
+  return matches.length === 1 && (target || !data.partial) ? matches[0].threadId : null;
+}
+__name(soleChatId, "soleChatId");
 var label = /* @__PURE__ */ __name((source) => `${source.title} · ${source.threadId}`, "label");
 var verdict = /* @__PURE__ */ __name((source) => source.text || (source.result === "empty" ? msg("最近一轮暂无最终回复。", "The latest turn has no final reply yet.") : source.result === "unknown" ? msg("最近一轮结果未知。", "The outcome of the latest turn is unknown.") : ""), "verdict");
 function ExternalCodexChats({ workspaceId, sessionId, query, refresh }) {
@@ -1394,6 +1404,7 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
   const [selected, select] = React4.useState(null);
   const [target, setTarget] = React4.useState("");
   const [draft, setDraft] = React4.useState(initial?.message || "");
+  const [draftThreadId, setDraftThreadId] = React4.useState(null);
   const [choices, setChoices] = React4.useState(initial?.kind === "choose" ? initial.rows : null);
   const [response, setResponse] = React4.useState(null);
   const [busy, setBusy] = React4.useState(false);
@@ -1428,16 +1439,20 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
     if (!draft.trim() || control.writing) return;
     const rows2 = data?.rows || [];
     const named = target.trim();
-    let displayed;
-    if (!source) {
-      const matches = named ? rows2.filter((item) => item.threadId === named || item.title === named) : rows2;
-      if (matches.length > 1 || !named && (matches.length !== 1 || data.partial)) {
-        setChoices(matches);
-        setResponse(null);
-        return;
-      }
-      [displayed] = matches;
+    const boundId = source?.threadId ?? draftThreadId;
+    const checkSelection = source && source === selected && !initial && data?.kind === "ready" && !data.partial;
+    if (boundId && (!source || checkSelection) && !rows2.some((item) => item.threadId === boundId)) {
+      setResponse({ kind: "unavailable", code: "target_changed" });
+      return;
     }
+    const matches = matchingChats(data, named);
+    if (!boundId && (matches.length > 1 || !named && (matches.length !== 1 || data?.partial))) {
+      setChoices(matches);
+      setResponse(null);
+      return;
+    }
+    const matchedId = matches[0]?.threadId;
+    const destination = source || !named || boundId && (matches.length !== 1 || matchedId !== boundId) ? { threadId: boundId ?? matchedId } : { target: named, ...matchedId ? { expectedThreadId: matchedId } : {} };
     control.writing = true;
     setBusy(true);
     setResponse(null);
@@ -1448,11 +1463,12 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         sessionId,
         action: "send",
         message: draft,
-        ...source ? { threadId: source.threadId } : named ? { target: named, ...displayed ? { expectedThreadId: displayed.threadId } : {} } : { threadId: displayed.threadId }
+        ...destination
       });
       if (!control.active) return;
       if (result.kind === "choose") {
-        setChoices(result.rows);
+        if (boundId) setResponse({ kind: "unavailable", code: "target_changed" });
+        else setChoices(result.rows);
         return;
       }
       setResponse(result);
@@ -1523,7 +1539,12 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         disabled: busy,
         placeholder: msg("完整编号或标题", "Full ID or title"),
         onChange: /* @__PURE__ */ __name((event) => {
-          setTarget(event.target.value);
+          const value = event.target.value;
+          if (value.trim() !== target.trim()) {
+            setDraftThreadId(soleChatId(data, value.trim()));
+            setResponse(null);
+          }
+          setTarget(value);
           setChoices(null);
         }, "onChange")
       })),
@@ -1531,7 +1552,13 @@ function CodexChats({ workspaceId, sessionId, query, initial, showHeading = true
         value: draft,
         disabled: busy,
         maxLength: 8e3,
-        onChange: /* @__PURE__ */ __name((event) => setDraft(event.target.value), "onChange")
+        onChange: /* @__PURE__ */ __name((event) => {
+          const value = event.target.value;
+          if (!selected && !draftThreadId && !draft.trim() && value.trim()) {
+            setDraftThreadId(soleChatId(data, target.trim()));
+          }
+          setDraft(value);
+        }, "onChange")
       })),
       choices ? h("div", null, h("p", null, msg("选择接收这条追问的原会话。", "Choose the original chat to receive this follow-up.")), choices.map((source) => h("button", {
         key: source.threadId,
